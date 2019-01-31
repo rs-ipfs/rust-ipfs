@@ -5,3 +5,6 @@ authors = ["David Craven <david@craven.ch>"]
 edition = "2018"
 
 [dependencies]
+cid = "*"
+multibase = "*"
+multihash = "*"
