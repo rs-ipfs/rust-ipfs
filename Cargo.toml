@@ -1,10 +1,13 @@
 [package]
-name = "rust-ipfs"
+name = "ipfs"
 version = "0.1.0"
 authors = ["David Craven <david@craven.ch>"]
 edition = "2018"
 
 [dependencies]
 cid = "*"
+futures = "*"
+libp2p = { version = "*", path = "../rust-libp2p" }
 multibase = "*"
 multihash = "*"
+tokio = "*"

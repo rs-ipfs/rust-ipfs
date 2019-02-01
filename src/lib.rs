@@ -5,6 +5,8 @@ use cid::Cid;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub mod p2p;
+
 /// Ipfs struct creates a new IPFS node and is the main entry point
 /// for interacting with IPFS.
 pub struct Ipfs {
