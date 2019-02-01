@@ -1,7 +1,6 @@
 //! P2P handling for IPFS nodes.
 use libp2p::core::Swarm;
 use libp2p::secio::SecioKeyPair;
-use tokio::prelude::*;
 
 mod behaviour;
 mod topology;
@@ -35,39 +34,4 @@ impl Service {
 
         Service { swarm }
     }
-
-    /// Find IPFS peer using bootstrap nodes.
-    pub fn find_peer(&mut self, peer_id: &str) {
-        self.swarm.find_node(peer_id.parse().expect("Failed to parse peer id."))
-    }
 }
-
-/// Run the service.
-pub fn run_service(mut service: Service) {
-    tokio::run(future::poll_fn(move || -> Result<_, ()> {
-        loop {
-            match service.swarm.poll().expect("Error while polling swarm") {
-                Async::Ready(Some(event)) => {
-                    println!("Result: {:#?}", event);
-                    return Ok(Async::Ready(()));
-                },
-                Async::Ready(None) | Async::NotReady => break,
-            }
-        }
-
-        Ok(Async::NotReady)
-    }));
-}
-
-/*#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_find_peer() {
-        let mut service = Service::new();
-        service.find_peer("QmdiXyMWRbsP8681LjnJG2Qz7maMpomTMaKQmqEy7Ato9x");
-        run_service(service);
-    }
-}
-*/
