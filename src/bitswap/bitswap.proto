@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+message Message {
+  message Wantlist {
+    message Entry {
+      // the block cid (cidV0 in bitswap 1.0.0, cidV1 in bitswap 1.1.0)
+			bytes block = 1;
+      // the priority (normalized). default to 1
+			int32 priority = 2;
+      // whether this revokes an entry
+			bool cancel = 3;
+		}
+
+    // a list of wantlist entries
+    repeated Entry entries = 1;
+    // whether this is the full wantlist. default to false
+    bool full = 2;
+  }
+
+  message Block {
+    // CID prefix (cid version, multicodec and multihash prefix (type + length)
+    bytes prefix = 1;
+    bytes data = 2;
+  }
+
+  Wantlist wantlist = 1;
+  repeated bytes blocks = 2;		// used to send Blocks in bitswap 1.0.0
+  repeated Block payload = 3;		// used to send Blocks in bitswap 1.1.0
+}

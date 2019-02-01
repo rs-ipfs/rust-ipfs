@@ -11,4 +11,5 @@ libp2p = { version = "*", path = "../rust-libp2p" }
 multibase = "*"
 multihash = "*"
 parity-multihash = { version = "*", path = "../rust-libp2p/misc/multihash" }
+protobuf = "2.0.2"
 tokio = "*"

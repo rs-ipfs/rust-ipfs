@@ -6,6 +6,8 @@ use parity_multihash::Multihash;
 use std::io::Error;
 use std::sync::{Arc, Mutex};
 
+mod protobuf_structs;
+
 #[derive(Clone)]
 pub struct Bitswap {
     p2p: Arc<Mutex<Service>>,
