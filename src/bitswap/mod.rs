@@ -6,7 +6,9 @@ use parity_multihash::Multihash;
 use std::io::Error;
 use std::sync::{Arc, Mutex};
 
+mod behaviour;
 mod protobuf_structs;
+mod protocol;
 
 #[derive(Clone)]
 pub struct Bitswap {
