@@ -1,12 +1,11 @@
 //! IPFS repo
-use crate::block::Block;
-use cid::Cid;
+use crate::block::{Cid, Block};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
 pub struct Repo {
-    blocks: Arc<Mutex<HashMap<Vec<u8>, Block>>>,
+    blocks: Arc<Mutex<HashMap<Cid, Block>>>,
 }
 
 impl Repo {
@@ -16,20 +15,20 @@ impl Repo {
         }
     }
 
-    pub fn contains(&self, cid: &Arc<Cid>) -> bool {
-        self.blocks.lock().unwrap().contains_key(&cid.hash)
+    pub fn contains(&self, cid: &Cid) -> bool {
+        self.blocks.lock().unwrap().contains_key(cid)
     }
 
-    pub fn get(&self, cid: &Arc<Cid>) -> Option<Block> {
+    pub fn get(&self, cid: &Cid) -> Option<Block> {
         self.blocks.lock().unwrap()
-            .get(&cid.hash)
+            .get(cid)
             .map(|block| (*block).clone())
     }
 
-    pub fn put(&self, block: Block) -> Arc<Cid> {
+    pub fn put(&self, block: Block) -> Cid {
         let cid = block.cid();
         self.blocks.lock().unwrap()
-            .insert(cid.hash.clone(), block);
+            .insert(cid.clone(), block);
         cid
     }
 }

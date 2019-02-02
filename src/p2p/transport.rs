@@ -17,8 +17,8 @@ pub type TTransport = Boxed<(PeerId, StreamMuxerBox), Error>;
 /// Set up an encrypted TCP transport over the Mplex protocol.
 pub fn build_transport(local_private_key: SecioKeyPair) -> TTransport {
     let transport = TcpConfig::new();
-    let mplex_config = MplexConfig::new();
     let secio_config = SecioConfig::new(local_private_key);
+    let mplex_config = MplexConfig::new();
 
     transport
         .with_upgrade(secio_config)

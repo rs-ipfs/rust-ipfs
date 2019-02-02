@@ -1,8 +1,6 @@
 //! IPFS node implementation
 #![deny(missing_docs)]
 #![deny(warnings)]
-use cid::Cid;
-use std::sync::Arc;
 
 mod bitswap;
 pub mod block;
@@ -11,7 +9,7 @@ mod p2p;
 mod repo;
 
 use self::bitswap::Bitswap;
-pub use self::block::Block;
+pub use self::block::{Block, Cid};
 use self::future::BlockFuture;
 use self::repo::Repo;
 
@@ -32,12 +30,12 @@ impl Ipfs {
     }
 
     /// Puts a block into the ipfs repo.
-    pub fn put_block(&mut self, block: Block) -> Arc<Cid> {
+    pub fn put_block(&mut self, block: Block) -> Cid {
         self.repo.put(block)
     }
 
     /// Retrives a block from the ipfs repo.
-    pub fn get_block(&mut self, cid: Arc<Cid>) -> BlockFuture {
+    pub fn get_block(&mut self, cid: Cid) -> BlockFuture {
         if !self.repo.contains(&cid) {
             self.bitswap.get_block(cid.clone());
         }

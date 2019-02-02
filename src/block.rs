@@ -1,20 +1,22 @@
 //! Block
-use cid::Cid;
 use std::sync::Arc;
+
+pub type Data = Arc<Vec<u8>>;
+pub type Cid = Arc<cid::Cid>;
 
 #[derive(Clone, Debug, PartialEq)]
 /// An immutable ipfs block.
 pub struct Block {
-    data: Arc<Vec<u8>>,
-    cid: Arc<Cid>,
+    data: Data,
+    cid: Cid,
 }
 
 impl Block {
     /// Creates a new immutable ipfs block.
-    pub fn new(data: Vec<u8>, cid: Cid) -> Self {
+    pub fn new(data: Data, cid: Cid) -> Self {
         Block {
-            data: Arc::new(data),
-            cid: Arc::new(cid),
+            data,
+            cid,
         }
     }
 
@@ -24,12 +26,12 @@ impl Block {
     }
 
     /// Returns the content id of the block.
-    pub fn cid(&self) -> Arc<Cid> {
+    pub fn cid(&self) -> Cid {
         self.cid.clone()
     }
 
     /// Returns the data of the block.
-    pub fn data(&self) -> Arc<Vec<u8>> {
+    pub fn data(&self) -> Data {
         self.data.clone()
     }
 }
@@ -42,8 +44,8 @@ impl From<&str> for Block {
             mh_type: multihash::Hash::SHA2256,
             mh_len: 32,
         };
-        let data = content.as_bytes().to_vec();
-        let cid = Cid::new_from_prefix(&prefix, &data);
+        let data = Arc::new(content.as_bytes().to_vec());
+        let cid = Arc::new(cid::Cid::new_from_prefix(&prefix, &data));
         Block::new(data, cid)
     }
 }
@@ -62,7 +64,7 @@ mod tests {
             mh_type: multihash::Hash::SHA2256,
             mh_len: 32,
         };
-        let computed_cid = Cid::new_from_prefix(
+        let computed_cid = cid::Cid::new_from_prefix(
             &prefix,
             &content,
         ).to_string();
@@ -79,7 +81,7 @@ mod tests {
             mh_type: multihash::Hash::SHA2256,
             mh_len: 32,
         };
-        let computed_cid = Cid::new_from_prefix(
+        let computed_cid = cid::Cid::new_from_prefix(
             &prefix,
             &content,
         ).to_string();

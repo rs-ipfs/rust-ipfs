@@ -1,20 +1,18 @@
-use cid::Cid;
 use crate::bitswap::Bitswap;
-use crate::block::Block;
+use crate::block::{Block, Cid};
 use crate::repo::Repo;
 use futures::prelude::*;
 use futures::try_ready;
 use std::io::Error;
-use std::sync::Arc;
 
 pub struct BlockFuture {
-    cid: Arc<Cid>,
+    cid: Cid,
     repo: Repo,
     bitswap: Bitswap,
 }
 
 impl BlockFuture {
-    pub fn new(repo: Repo, bitswap: Bitswap, cid: Arc<Cid>) -> Self {
+    pub fn new(repo: Repo, bitswap: Bitswap, cid: Cid) -> Self {
         BlockFuture {
             repo,
             bitswap,

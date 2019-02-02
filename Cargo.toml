@@ -5,7 +5,7 @@ authors = ["David Craven <david@craven.ch>"]
 edition = "2018"
 
 [dependencies]
-cid = "*"
+cid = { version = "*", path = "../rust-cid" }
 futures = "*"
 libp2p = { version = "*", path = "../rust-libp2p" }
 multibase = "*"
