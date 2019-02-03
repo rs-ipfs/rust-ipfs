@@ -15,10 +15,10 @@ pub struct Block {
 
 impl Block {
     /// Creates a new immutable ipfs block.
-    pub fn new(data: Data, cid: Cid) -> Self {
+    pub fn new(data: Vec<u8>, cid: cid::Cid) -> Self {
         Block {
-            data,
-            cid,
+            data: Arc::new(data),
+            cid: Arc::new(cid),
         }
     }
 
@@ -46,8 +46,8 @@ impl From<&str> for Block {
             mh_type: multihash::Hash::SHA2256,
             mh_len: 32,
         };
-        let data = Arc::new(content.as_bytes().to_vec());
-        let cid = Arc::new(cid::Cid::new_from_prefix(&prefix, &data));
+        let data = content.as_bytes().to_vec();
+        let cid = cid::Cid::new_from_prefix(&prefix, &data);
         Block::new(data, cid)
     }
 }

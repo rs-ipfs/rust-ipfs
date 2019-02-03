@@ -1,5 +1,7 @@
 use crate::block::{Block, Cid};
+use crate::bitswap::protobuf_structs::bitswap as proto;
 use libp2p::PeerId;
+use protobuf::{ProtobufError, Message as ProtobufMessage};
 use std::collections::HashMap;
 
 pub type Priority = u8;
@@ -196,7 +198,7 @@ impl PeerLedger {
     /// Parses a message.
     ///
     /// Updates the number of received blocks and the received want list entries.
-    fn receive_message(&mut self, bytes: Vec<u8>) -> Result<Message, std::io::Error> {
+    fn receive_message(&mut self, bytes: Vec<u8>) -> Result<Message, ProtobufError> {
         let message = Message::from_bytes(&bytes)?;
         self.received_blocks += message.blocks.len();
         for cid in message.cancel() {
@@ -285,14 +287,51 @@ impl Message {
 
     /// Turns this `Message` into a message that can be sent to a substream.
     pub fn into_bytes(self) -> Vec<u8> {
-        // TODO
-        Vec::new()
+        let mut proto = proto::Message::new();
+        let mut wantlist = proto::Message_Wantlist::new();
+        for (cid, priority) in self.want {
+            let mut entry = proto::Message_Wantlist_Entry::new();
+            entry.set_block(cid.to_bytes());
+            entry.set_priority(priority as _);
+            wantlist.mut_entries().push(entry);
+        }
+        for cid in self.cancel {
+            let mut entry = proto::Message_Wantlist_Entry::new();
+            entry.set_block(cid.to_bytes());
+            entry.set_cancel(true);
+            wantlist.mut_entries().push(entry);
+        }
+        proto.set_wantlist(wantlist);
+        for block in self.blocks {
+            let mut payload = proto::Message_Block::new();
+            payload.set_prefix(block.cid().prefix().as_bytes());
+            payload.set_data(block.data().to_vec());
+            proto.mut_payload().push(payload);
+        }
+        proto
+            .write_to_bytes()
+            .expect("there is no situation in which the protobuf message can be invalid")
     }
 
     /// Creates a `Message` from bytes that were received from a substream.
-    pub fn from_bytes(_bytes: &Vec<u8>) -> Result<Self, std::io::Error> {
-        // TODO
-        Err(std::io::Error::new(std::io::ErrorKind::Other, "not implemented yet"))
+    pub fn from_bytes(bytes: &Vec<u8>) -> Result<Self, ProtobufError> {
+        let proto: proto::Message = protobuf::parse_from_bytes(bytes)?;
+        let mut message = Message::new();
+        for entry in proto.get_wantlist().get_entries() {
+            let cid = std::sync::Arc::new(cid::Cid::from(entry.get_block()).unwrap());
+            if entry.get_cancel() {
+                message.cancel_block(&cid);
+            } else {
+                message.want_block(&cid, entry.get_priority() as _);
+            }
+        }
+        for payload in proto.get_payload() {
+            let prefix = cid::Prefix::new_from_bytes(payload.get_prefix()).unwrap();
+            let cid = cid::Cid::new_from_prefix(&prefix, payload.get_data());
+            let block = Block::new(payload.get_data().to_vec(), cid);
+            message.add_block(block);
+        }
+        Ok(message)
     }
 }
 
