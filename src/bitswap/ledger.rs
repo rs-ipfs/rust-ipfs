@@ -26,6 +26,12 @@ impl Ledger {
         }
     }
 
+    /// Returns the `PeerLedger` for `PeerId`.
+    #[allow(unused)]
+    pub fn peer_ledger(&self, peer_id: &PeerId) -> &PeerLedger {
+        self.peers.get(peer_id).expect("Peer not in ledger?!")
+    }
+
     /// Creates a new ledger entry for the peer and sends our want list.
     pub fn peer_connected(&mut self, peer_id: PeerId) {
         // TODO: load stats from previous interactions
@@ -103,11 +109,15 @@ impl Ledger {
     }
 
     /// Sends all queued messages.
-    pub fn send_messages(&mut self) {
-        for (_peer_id, ledger) in self.peers.iter_mut() {
-            // TODO
-            let _bytes_to_send = ledger.send_message();
+    pub fn send_messages(&mut self) -> Vec<(PeerId, Vec<u8>)>{
+        let mut messages = Vec::new();
+        for (peer_id, ledger) in self.peers.iter_mut() {
+            let message = ledger.send_message();
+            if message.is_some() {
+                messages.push((peer_id.to_owned(), message.unwrap()));
+            }
         }
+        messages
     }
 }
 
@@ -206,6 +216,18 @@ impl PeerLedger {
             self.received_want_list.insert(cid.to_owned(), *priority);
         }
         Ok(message)
+    }
+
+    /// Gets the number of sent blocks.
+    #[allow(unused)]
+    pub fn sent_blocks(&self) -> usize {
+        self.sent_blocks
+    }
+
+    /// Gets the number of received blocks.
+    #[allow(unused)]
+    pub fn received_blocks(&self) -> usize {
+        self.received_blocks
     }
 }
 
@@ -415,5 +437,29 @@ mod tests {
         let mut want_list = HashMap::new();
         want_list.insert(block_2.cid(), 1);
         assert_eq!(ledger.sent_want_list, want_list);
+    }
+
+    #[test]
+    fn test_peer_ledger_receive() {
+        let block_1 = Block::from("1");
+        let block_2 = Block::from("2");
+        let mut message = Message::new();
+        message.add_block(block_1);
+        message.want_block(&block_2.cid(), 1);
+        let bytes = message.into_bytes();
+
+        let mut ledger = PeerLedger::new();
+        ledger.receive_message(bytes).unwrap();
+
+        assert_eq!(ledger.received_blocks, 1);
+        let mut want_list = HashMap::new();
+        want_list.insert(block_2.cid(), 1);
+        assert_eq!(ledger.received_want_list, want_list);
+
+        let mut message = Message::new();
+        message.cancel_block(&block_2.cid());
+        let bytes = message.into_bytes();
+        ledger.receive_message(bytes).unwrap();
+        assert_eq!(ledger.received_want_list, HashMap::new());
     }
 }
