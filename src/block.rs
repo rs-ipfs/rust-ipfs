@@ -1,7 +1,9 @@
 //! Block
 use std::sync::Arc;
 
+/// Block payload type
 pub type Data = Arc<Vec<u8>>;
+/// Block content identifier
 pub type Cid = Arc<cid::Cid>;
 
 #[derive(Clone, Debug, PartialEq)]

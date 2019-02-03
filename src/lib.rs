@@ -1,6 +1,8 @@
 //! IPFS node implementation
 #![deny(missing_docs)]
 #![deny(warnings)]
+#![feature(drain_filter)]
+use libp2p::secio::SecioKeyPair;
 
 mod bitswap;
 pub mod block;
@@ -8,7 +10,7 @@ mod future;
 mod p2p;
 mod repo;
 
-use self::bitswap::Bitswap;
+use self::bitswap::{Bitswap, strategy::AltruisticStrategy, Strategy};
 pub use self::block::{Block, Cid};
 use self::future::BlockFuture;
 use self::repo::Repo;
@@ -16,30 +18,43 @@ use self::repo::Repo;
 /// Ipfs struct creates a new IPFS node and is the main entry point
 /// for interacting with IPFS.
 pub struct Ipfs {
-    bitswap: Bitswap,
     repo: Repo,
+    bitswap: Bitswap<AltruisticStrategy>,
 }
 
 impl Ipfs {
     /// Creates a new ipfs node.
     pub fn new() -> Self {
+        let repo = Repo::new();
+        let local_key = SecioKeyPair::ed25519_generated().unwrap();
+        let strategy = AltruisticStrategy::new(repo.clone());
+        let bitswap = Bitswap::new(local_key, strategy);
+
         Ipfs {
-            bitswap: Bitswap::new(),
-            repo: Repo::new(),
+            repo,
+            bitswap,
         }
     }
 
     /// Puts a block into the ipfs repo.
     pub fn put_block(&mut self, block: Block) -> Cid {
-        self.repo.put(block)
+        let cid = self.repo.put(block);
+        self.bitswap.provide_block(&cid);
+        cid
     }
 
     /// Retrives a block from the ipfs repo.
     pub fn get_block(&mut self, cid: Cid) -> BlockFuture {
         if !self.repo.contains(&cid) {
-            self.bitswap.get_block(cid.clone());
+            self.bitswap.want_block(cid.clone());
         }
-        BlockFuture::new(self.repo.clone(), self.bitswap.clone(), cid)
+        BlockFuture::new(self.repo.clone(), cid)
+    }
+
+    /// Remove block from the ipfs repo.
+    pub fn remove_block(&mut self, cid: Cid) {
+        self.repo.remove(&cid);
+        self.bitswap.stop_providing_block(&cid);
     }
 }
 

@@ -1,32 +1,23 @@
 //! P2P handling for IPFS nodes.
-use libp2p::core::Swarm;
-use libp2p::secio::SecioKeyPair;
+pub use libp2p::secio::SecioKeyPair;
 
 mod behaviour;
 mod transport;
 
-/// IPFS Service
-pub struct Service {
-    /// The swarm.
-    pub swarm: Swarm<transport::TTransport, behaviour::TBehaviour>
-}
+pub type Swarm = libp2p::core::Swarm<transport::TTransport, behaviour::TBehaviour>;
 
-impl Service {
-    /// Creates a new IPFS Service.
-    pub fn new() -> Self {
-        // Create a random key for ourselves.
-        let local_key = SecioKeyPair::ed25519_generated().unwrap();
-        let local_peer_id = local_key.to_peer_id();
+/// Creates a new IPFS swarm.
+pub fn create_swarm(
+    local_private_key: SecioKeyPair,
+) -> Swarm {
+    let local_peer_id = local_private_key.to_peer_id();
 
-        // Set up an encrypted TCP transport over the Mplex protocol.
-        let transport = transport::build_transport(local_key);
+    // Set up an encrypted TCP transport over the Mplex protocol.
+    let transport = transport::build_transport(local_private_key);
 
-        // Create a Kademlia behaviour
-        let behaviour = behaviour::build_behaviour(local_peer_id.clone());
+    // Create a Kademlia behaviour
+    let behaviour = behaviour::build_behaviour(local_peer_id.clone());
 
-        // Create a Swarm
-        let swarm = Swarm::new(transport, behaviour, local_peer_id);
-
-        Service { swarm }
-    }
+    // Create a Swarm
+    libp2p::core::Swarm::new(transport, behaviour, local_peer_id)
 }

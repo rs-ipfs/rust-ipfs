@@ -31,4 +31,8 @@ impl Repo {
             .insert(cid.clone(), block);
         cid
     }
+
+    pub fn remove(&self, cid: &Cid) {
+        self.blocks.lock().unwrap().remove(cid);
+    }
 }
