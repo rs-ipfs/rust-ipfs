@@ -1,43 +1,66 @@
 //! Bitswap protocol implementation
-use cid::Cid;
-use crate::p2p::Service;
+use crate::block::Cid;
+use crate::p2p::{create_swarm, SecioKeyPair, Swarm};
 use futures::prelude::*;
 use parity_multihash::Multihash;
 use std::io::Error;
-use std::sync::{Arc, Mutex};
 
-mod behaviour;
+//mod behaviour;
+mod ledger;
 mod protobuf_structs;
-mod protocol;
+pub mod strategy;
+//mod protocol;
 
-#[derive(Clone)]
-pub struct Bitswap {
-    p2p: Arc<Mutex<Service>>,
+use self::ledger::Ledger;
+pub use self::strategy::{AltruisticStrategy, Strategy};
+
+pub struct Bitswap<S: Strategy> {
+    swarm: Swarm,
+    ledger: Ledger,
+    _strategy: S,
 }
 
-impl Bitswap {
-    pub fn new() -> Self {
+impl<S: Strategy> Bitswap<S> {
+    pub fn new(local_private_key: SecioKeyPair, strategy: S) -> Self {
         Bitswap {
-            p2p: Arc::new(Mutex::new(Service::new())),
+            swarm: create_swarm(local_private_key),
+            ledger: Ledger::new(),
+            _strategy: strategy,
         }
     }
 
-    pub fn get_block(&mut self, cid: Arc<Cid>) {
-        println!("retriving block");
+    pub fn want_block(&mut self, cid: Cid) {
         let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
-        self.p2p.lock().unwrap().swarm.get_providers(hash);
+        self.swarm.get_providers(hash);
+
+        self.ledger.want_block(cid, 1);
+    }
+
+    pub fn provide_block(&mut self, cid: &Cid) {
+        let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
+        self.swarm.add_providing(hash);
+    }
+
+    pub fn stop_providing_block(&mut self, cid: &Cid) {
+        let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
+        self.swarm.remove_providing(&hash);
     }
 }
 
-impl Stream for Bitswap {
+impl<S: Strategy> Stream for Bitswap<S> {
     type Item = ();
     type Error = Error;
 
+    // TODO: hookup ledger and strategy properly
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         println!("polling bitswap");
+        let peer_id = Swarm::local_peer_id(&self.swarm);
+        self.ledger.peer_connected(peer_id.clone());
+        self.ledger.peer_disconnected(&peer_id);
+        self.ledger.send_messages();
+        self.ledger.receive_message(peer_id, Vec::new());
         loop {
-            match self.p2p.lock().unwrap()
-                .swarm.poll().expect("Error while polling swarm") {
+            match self.swarm.poll().expect("Error while polling swarm") {
                     Async::Ready(Some(event)) => {
                         println!("Result: {:#?}", event);
                         return Ok(Async::Ready(Some(())));
