@@ -5,7 +5,7 @@ use futures::prelude::*;
 use parity_multihash::Multihash;
 use std::io::Error;
 
-//mod behaviour;
+mod behaviour;
 mod ledger;
 mod protobuf_structs;
 pub mod strategy;
@@ -54,11 +54,7 @@ impl<S: Strategy> Stream for Bitswap<S> {
     // TODO: hookup ledger and strategy properly
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         println!("polling bitswap");
-        let peer_id = Swarm::local_peer_id(&self.swarm);
-        self.ledger.peer_connected(peer_id.clone());
-        self.ledger.peer_disconnected(&peer_id);
         self.ledger.send_messages();
-        self.ledger.receive_message(peer_id, Vec::new());
         loop {
             match self.swarm.poll().expect("Error while polling swarm") {
                     Async::Ready(Some(event)) => {
