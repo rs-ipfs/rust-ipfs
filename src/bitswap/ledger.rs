@@ -29,7 +29,10 @@ impl Ledger {
     /// Creates a new ledger entry for the peer and sends our want list.
     pub fn peer_connected(&mut self, peer_id: PeerId) {
         // TODO: load stats from previous interactions
-        let ledger = PeerLedger::from_wanted_blocks(&self.wanted_blocks);
+        let mut ledger = PeerLedger::new();
+        for (cid, priority) in &self.wanted_blocks {
+            ledger.want_block(cid, *priority);
+        }
         self.peers.insert(peer_id, ledger);
     }
 
@@ -135,18 +138,6 @@ impl PeerLedger {
         }
     }
 
-    /// Creates a new `PeerLedger` and queues a message with the wanted blocks.
-    fn from_wanted_blocks(wanted_blocks: &HashMap<Cid, Priority>) -> Self {
-        let message = if wanted_blocks.is_empty() {
-            None
-        } else {
-            Some(Message::from_wanted(wanted_blocks.to_owned()))
-        };
-        let mut ledger = PeerLedger::new();
-        ledger.queued_message = message;
-        ledger
-    }
-
     /// Adds a block to the queued message.
     fn add_block(&mut self, block: Block) {
         if self.queued_message.is_none() {
@@ -173,10 +164,14 @@ impl PeerLedger {
 
     /// Removes the block from the want list.
     fn cancel_block(&mut self, cid: &Cid) {
-        if self.sent_want_list.contains_key(cid) {
-            self.queued_message.as_mut().unwrap().cancel_block(cid);
-        } else {
+        if self.queued_message.is_some() {
             self.queued_message.as_mut().unwrap().soft_cancel_block(cid);
+        }
+        if self.sent_want_list.contains_key(cid) {
+            if self.queued_message.is_none() {
+                self.queued_message = Some(Message::new());
+            }
+            self.queued_message.as_mut().unwrap().cancel_block(cid);
         }
     }
 
@@ -189,6 +184,9 @@ impl PeerLedger {
         }
         let message = self.queued_message.take().unwrap();
         self.sent_blocks += message.blocks.len();
+        for cid in message.cancel() {
+            self.sent_want_list.remove(cid);
+        }
         for (cid, priority) in message.want() {
             self.sent_want_list.insert(cid.to_owned(), *priority);
         }
@@ -212,7 +210,7 @@ impl PeerLedger {
 }
 
 /// A bitswap message.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Message {
     /// List of wanted blocks.
     want: HashMap<Cid, Priority>,
@@ -229,16 +227,6 @@ impl Message {
     pub fn new() -> Self {
         Message {
             want: HashMap::new(),
-            cancel: Vec::new(),
-            full: false,
-            blocks: Vec::new(),
-        }
-    }
-
-    /// Creates a new bitswap message from a want list.
-    pub fn from_wanted(wanted: HashMap<Cid, Priority>) -> Self {
-        Message {
-            want: wanted,
             cancel: Vec::new(),
             full: false,
             blocks: Vec::new(),
@@ -337,9 +325,95 @@ impl Message {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
     #[test]
-    fn test_ledger_send() {
+    fn test_empty_message_to_from_bytes() {
+        let message = Message::new();
+        let bytes = message.clone().into_bytes();
+        let new_message = Message::from_bytes(&bytes).unwrap();
+        assert_eq!(message, new_message);
+    }
 
+    #[test]
+    fn test_want_message_to_from_bytes() {
+        let mut message = Message::new();
+        let block = Block::from("hello world");
+        message.want_block(&block.cid(), 1);
+        let bytes = message.clone().into_bytes();
+        let new_message = Message::from_bytes(&bytes).unwrap();
+        assert_eq!(message, new_message);
+    }
+
+    #[test]
+    fn test_cancel_message_to_from_bytes() {
+        let mut message = Message::new();
+        let block = Block::from("hello world");
+        message.cancel_block(&block.cid());
+        let bytes = message.clone().into_bytes();
+        let new_message = Message::from_bytes(&bytes).unwrap();
+        assert_eq!(message, new_message);
+    }
+
+    #[test]
+    fn test_payload_message_to_from_bytes() {
+        let mut message = Message::new();
+        let block = Block::from("hello world");
+        message.add_block(block);
+        let bytes = message.clone().into_bytes();
+        let new_message = Message::from_bytes(&bytes).unwrap();
+        assert_eq!(message, new_message);
+    }
+
+    #[test]
+    fn test_peer_ledger_send_block() {
+        let block_1 = Block::from("1");
+        let block_2 = Block::from("2");
+        let mut ledger = PeerLedger::new();
+        ledger.add_block(block_1);
+        ledger.add_block(block_2);
+        ledger.send_message().unwrap();
+        assert_eq!(ledger.sent_blocks, 2);
+    }
+
+    #[test]
+    fn test_peer_ledger_remove_block() {
+        let block_1 = Block::from("1");
+        let block_2 = Block::from("2");
+        let mut ledger = PeerLedger::new();
+        ledger.add_block(block_1.clone());
+        ledger.add_block(block_2);
+        ledger.remove_block(&block_1.cid());
+        ledger.send_message().unwrap();
+        assert_eq!(ledger.sent_blocks, 1);
+    }
+
+    #[test]
+    fn test_peer_ledger_send_want() {
+        let block_1 = Block::from("1");
+        let block_2 = Block::from("2");
+        let mut ledger = PeerLedger::new();
+        ledger.want_block(&block_1.cid(), 1);
+        ledger.want_block(&block_2.cid(), 1);
+        ledger.cancel_block(&block_1.cid());
+        ledger.send_message().unwrap();
+        let mut want_list = HashMap::new();
+        want_list.insert(block_2.cid(), 1);
+        assert_eq!(ledger.sent_want_list, want_list);
+    }
+
+    #[test]
+    fn test_peer_ledger_send_cancel() {
+        let block_1 = Block::from("1");
+        let block_2 = Block::from("2");
+        let mut ledger = PeerLedger::new();
+        ledger.want_block(&block_1.cid(), 1);
+        ledger.want_block(&block_2.cid(), 1);
+        ledger.send_message().unwrap();
+        ledger.cancel_block(&block_1.cid());
+        ledger.send_message().unwrap();
+        let mut want_list = HashMap::new();
+        want_list.insert(block_2.cid(), 1);
+        assert_eq!(ledger.sent_want_list, want_list);
     }
 }
