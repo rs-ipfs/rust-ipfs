@@ -9,7 +9,7 @@ use std::io::Error;
 mod ledger;
 mod protobuf_structs;
 pub mod strategy;
-//mod protocol;
+mod protocol;
 
 use self::ledger::Ledger;
 pub use self::strategy::{AltruisticStrategy, Strategy};
