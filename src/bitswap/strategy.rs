@@ -36,7 +36,7 @@ impl Strategy for AltruisticStrategy {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    /*use super::*;
     use crate::block::Block;
 
     #[test]
@@ -54,5 +54,5 @@ mod tests {
         ledger.send_messages();
         let peer_ledger = ledger.peer_ledger(&peer_id);
         assert_eq!(peer_ledger.sent_blocks(), 1);
-    }
+    }*/
 }

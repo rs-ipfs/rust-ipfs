@@ -1,17 +1,13 @@
 use futures::prelude::*;
-use ipfs::{Block, Ipfs};
-use std::str;
+use ipfs::{Block, Ipfs, run_ipfs};
 
 fn main() {
     let mut ipfs = Ipfs::new();
     let cid = Block::from("hello block\n").cid();
-    let future = ipfs.get_block(cid).and_then(move |block| {
-        let data = &block.data()[..];
-        let content = str::from_utf8(data).unwrap();
-        println!("block contains: {}", content);
-        Ok(())
-    }).map_err(|err| {
-        println!("error:; {}", err);
+    println!("Looking for block {}", cid.to_string());
+    let future = ipfs.get_block(cid).map(|block| {
+        println!("Received block with contents: '{:?}'",
+                 String::from_utf8_lossy(&block.data()));
     });
-    tokio::run(future);
+    run_ipfs(ipfs, future);
 }

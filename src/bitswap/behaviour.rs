@@ -63,7 +63,7 @@ impl<TSubstream> Bitswap<TSubstream> {
     /// Queues the wanted block for all peers.
     ///
     /// A user request
-    pub fn want_block(&mut self, cid: Cid, priority: u8) {
+    pub fn want_block(&mut self, cid: Cid, priority: Priority) {
         for (peer_id, ledger) in self.peers.iter_mut() {
             let message = ledger.want_block(&cid, priority);
             self.events.push_back(NetworkBehaviourAction::SendEvent {

@@ -1,7 +1,6 @@
 use crate::block::{Block, Cid};
 use crate::repo::Repo;
 use futures::prelude::*;
-use std::io::Error;
 
 pub struct BlockFuture {
     repo: Repo,
@@ -19,9 +18,9 @@ impl BlockFuture {
 
 impl Future for BlockFuture {
     type Item = Block;
-    type Error = Error;
+    type Error = ();
 
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+    fn poll(&mut self) -> Result<Async<Self::Item>, ()> {
         self.repo.get(&self.cid).map_or_else(|| {
             Ok(Async::NotReady)
         }, |block| {

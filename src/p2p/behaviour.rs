@@ -68,10 +68,13 @@ impl<TSubstream: AsyncRead + AsyncWrite>
 
             }
             KademliaEvent::GetProvidersResult {
+                key,
                 provider_peers,
                 ..
             } => {
+                println!("key: {}", PeerId::from_multihash(key).unwrap().to_base58());
                 for peer in provider_peers {
+                    println!("provided by: {}", peer.to_base58());
                     self.bitswap.connect(peer);
                 }
             }
@@ -101,6 +104,8 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream>
 {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
     pub fn new(local_peer_id: PeerId) -> Self {
+        println!("Local peer id: {}", &local_peer_id.to_base58());
+
         // Note that normally the Kademlia process starts by performing lots of
         // request in order to insert our local node in the DHT. However here we use
         // `without_init` because this example is very ephemeral and we don't want
@@ -135,7 +140,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream>
 
     pub fn provide_block(&mut self, cid: &Cid) {
         let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
-        self.kademlia.add_providing(hash);
+        self.kademlia.add_providing(PeerId::from_multihash(hash).unwrap());
     }
 
     pub fn stop_providing_block(&mut self, cid: &Cid) {
