@@ -7,9 +7,7 @@ mod transport;
 pub type Swarm = libp2p::core::Swarm<transport::TTransport, behaviour::TBehaviour>;
 
 /// Creates a new IPFS swarm.
-pub fn create_swarm(
-    local_private_key: SecioKeyPair,
-) -> Swarm {
+pub fn create_swarm(local_private_key: SecioKeyPair) -> Swarm {
     let local_peer_id = local_private_key.to_peer_id();
 
     // Set up an encrypted TCP transport over the Mplex protocol.

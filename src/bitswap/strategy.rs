@@ -1,11 +1,12 @@
 use crate::block::Cid;
+use crate::bitswap::Priority;
 use crate::repo::Repo;
 use libp2p::PeerId;
-use crate::bitswap::ledger::{Ledger, Priority};
+use crate::p2p::Swarm;
 
 pub trait Strategy {
     fn new(repo: Repo) -> Self;
-    fn receive_want(&mut self, ledger: &mut Ledger, peer_id: &PeerId, cid: Cid, priority: Priority);
+    fn receive_want(&mut self, swarm: &mut Swarm, source: PeerId, cid: Cid, priority: Priority);
 }
 
 pub struct AltruisticStrategy {
@@ -21,14 +22,14 @@ impl Strategy for AltruisticStrategy {
 
     fn receive_want(
         &mut self,
-        ledger: &mut Ledger,
-        peer_id: &PeerId,
+        swarm: &mut Swarm,
+        source: PeerId,
         cid: Cid,
         _priority: Priority,
     ) {
         let block = self.repo.get(&cid);
         if block.is_some() {
-            ledger.send_block(peer_id, block.unwrap());
+            swarm.send_block(source, block.unwrap());
         }
     }
 }
