@@ -93,17 +93,20 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> Behaviour<TSubstre
     }
 
     pub fn want_block(&mut self, cid: Cid) {
+        println!("Want block {}", cid.to_string());
         let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
         self.kademlia.get_providers(hash);
         self.bitswap.want_block(cid, 1);
     }
 
     pub fn provide_block(&mut self, cid: &Cid) {
+        println!("Providing block {}", cid.to_string());
         let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
         self.kademlia.add_providing(PeerId::from_multihash(hash).unwrap());
     }
 
     pub fn stop_providing_block(&mut self, cid: &Cid) {
+        println!("Finished providing block {}", cid.to_string());
         let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
         self.kademlia.remove_providing(&hash);
     }
