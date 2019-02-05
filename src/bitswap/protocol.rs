@@ -14,7 +14,6 @@ pub struct BitswapConfig {}
 
 impl BitswapConfig {
     /// Builds a new `BitswapConfig`.
-    #[allow(unused)]
     pub fn new() -> BitswapConfig {
         BitswapConfig {}
     }

@@ -74,13 +74,11 @@ impl Ledger {
     }
 
     /// Gets the number of sent blocks.
-    #[allow(unused)]
     pub fn sent_blocks(&self) -> usize {
         self.sent_blocks
     }
 
     /// Gets the number of received blocks.
-    #[allow(unused)]
     pub fn received_blocks(&self) -> usize {
         self.received_blocks
     }
@@ -139,7 +137,6 @@ impl<T> Message<T> {
     }
 
     /// Removes the block from the message.
-    #[allow(unused)]
     pub fn remove_block(&mut self, cid: &Cid) {
         self.blocks.drain_filter(|block| &block.cid() == cid);
     }
@@ -155,7 +152,6 @@ impl<T> Message<T> {
     }
 
     /// Removes the block from the want list.
-    #[allow(unused)]
     pub fn remove_want_block(&mut self, cid: &Cid) {
         self.want.remove(cid);
     }
