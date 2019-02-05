@@ -23,9 +23,7 @@ use self::repo::Repo;
 /// for interacting with IPFS.
 pub struct Ipfs {
     repo: Repo,
-    #[allow(unused)]
-    strategy: AltruisticStrategy,
-    swarm: Swarm,
+    swarm: Swarm<AltruisticStrategy>,
 }
 
 impl Ipfs {
@@ -34,11 +32,10 @@ impl Ipfs {
         let config = Configuration::new();
         let repo = Repo::new();
         let strategy = AltruisticStrategy::new(repo.clone());
-        let swarm = create_swarm(NetworkConfig::from(&config));
+        let swarm = create_swarm(NetworkConfig::from_config(&config, strategy));
 
         Ipfs {
             repo,
-            strategy,
             swarm,
         }
     }

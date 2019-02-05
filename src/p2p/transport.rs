@@ -1,3 +1,4 @@
+use crate::bitswap::Strategy;
 use crate::config::NetworkConfig;
 use futures::future::Future;
 use libp2p::{PeerId, Transport};
@@ -16,7 +17,7 @@ pub type TTransport = Boxed<(PeerId, StreamMuxerBox), Error>;
 /// Builds the transport that serves as a common ground for all connections.
 ///
 /// Set up an encrypted TCP transport over the Mplex protocol.
-pub fn build_transport(config: &NetworkConfig) -> TTransport {
+pub fn build_transport<TStrategy: Strategy>(config: &NetworkConfig<TStrategy>) -> TTransport {
     let transport = TcpConfig::new();
     let secio_config = SecioConfig::new(config.key_pair.to_owned());
     let mplex_config = MplexConfig::new();

@@ -7,6 +7,7 @@
 //! will allow providing and reciving IPFS blocks.
 use crate::bitswap::ledger::{BitswapEvent, Ledger, Message, Priority, I, O};
 use crate::bitswap::protocol::BitswapConfig;
+use crate::bitswap::strategy::Strategy;
 use crate::block::{Block, Cid};
 use futures::prelude::*;
 use libp2p::core::swarm::{
@@ -19,7 +20,7 @@ use std::marker::PhantomData;
 use tokio::prelude::*;
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
-pub struct Bitswap<TSubstream> {
+pub struct Bitswap<TSubstream, TStrategy: Strategy> {
     /// Marker to pin the generics.
     marker: PhantomData<TSubstream>,
     /// Queue of events to report to the user.
@@ -27,17 +28,20 @@ pub struct Bitswap<TSubstream> {
     /// Ledger
     peers: HashMap<PeerId, Ledger>,
     /// Wanted blocks
-    wanted_blocks: HashMap<Cid, Priority>
+    wanted_blocks: HashMap<Cid, Priority>,
+    /// Strategy
+    strategy: TStrategy,
 }
 
-impl<TSubstream> Bitswap<TSubstream> {
+impl<TSubstream, TStrategy: Strategy> Bitswap<TSubstream, TStrategy> {
     /// Creates a `Bitswap`.
-    pub fn new() -> Self {
+    pub fn new(strategy: TStrategy) -> Self {
         Bitswap {
             marker: PhantomData,
             events: VecDeque::new(),
             peers: HashMap::new(),
             wanted_blocks: HashMap::new(),
+            strategy,
         }
     }
 
@@ -93,14 +97,7 @@ impl<TSubstream> Bitswap<TSubstream> {
     }
 }
 
-impl<TSubstream> Default for Bitswap<TSubstream> {
-    #[inline]
-    fn default() -> Self {
-        Bitswap::new()
-    }
-}
-
-impl<TSubstream> NetworkBehaviour for Bitswap<TSubstream>
+impl<TSubstream, TStrategy: Strategy> NetworkBehaviour for Bitswap<TSubstream, TStrategy>
 where
     TSubstream: AsyncRead + AsyncWrite,
 {

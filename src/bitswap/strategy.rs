@@ -1,35 +1,46 @@
-use crate::block::Cid;
+use crate::block::{Block, Cid};
 use crate::bitswap::Priority;
 use crate::repo::Repo;
 use libp2p::PeerId;
-use crate::p2p::Swarm;
+use std::collections::VecDeque;
 
 pub trait Strategy {
     fn new(repo: Repo) -> Self;
-    fn receive_want(&mut self, swarm: &mut Swarm, source: PeerId, cid: Cid, priority: Priority);
+    fn process_want(&mut self, source: PeerId, cid: Cid, priority: Priority);
+}
+
+pub enum StrategyEvent {
+    Send {
+        peer_id: PeerId,
+        block: Block,
+    }
 }
 
 pub struct AltruisticStrategy {
     repo: Repo,
+    events: VecDeque<StrategyEvent>,
 }
 
 impl Strategy for AltruisticStrategy {
     fn new(repo: Repo) -> Self {
         AltruisticStrategy {
             repo,
+            events: VecDeque::new(),
         }
     }
 
-    fn receive_want(
+    fn process_want(
         &mut self,
-        swarm: &mut Swarm,
         source: PeerId,
         cid: Cid,
         _priority: Priority,
     ) {
         let block = self.repo.get(&cid);
         if block.is_some() {
-            swarm.send_block(source, block.unwrap());
+            self.events.push_back(StrategyEvent::Send {
+                peer_id: source,
+                block: block.unwrap(),
+            });
         }
     }
 }

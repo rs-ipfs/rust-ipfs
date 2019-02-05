@@ -1,4 +1,4 @@
-use crate::bitswap::{Bitswap, BitswapEvent};
+use crate::bitswap::{Bitswap, BitswapEvent, Strategy};
 use crate::block::{Block, Cid};
 use crate::config::NetworkConfig;
 use libp2p::{NetworkBehaviour, PeerId};
@@ -14,14 +14,14 @@ const GO_IPFS_PEER_ID: &str = "QmdiXyMWRbsP8681LjnJG3Qz7maMpomTMaKQmqEy7Ato9x";
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
-pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite> {
+pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> {
     kademlia: Kademlia<TSubstream>,
-    bitswap: Bitswap<TSubstream>,
+    bitswap: Bitswap<TSubstream, TStrategy>,
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite>
+impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
     NetworkBehaviourEventProcess<KademliaEvent> for
-    Behaviour<TSubstream>
+    Behaviour<TSubstream, TStrategy>
 {
     fn inject_event(&mut self, event: KademliaEvent) {
         match event {
@@ -55,9 +55,9 @@ impl<TSubstream: AsyncRead + AsyncWrite>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite>
+impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
     NetworkBehaviourEventProcess<BitswapEvent> for
-    Behaviour<TSubstream>
+    Behaviour<TSubstream, TStrategy>
 {
     fn inject_event(&mut self, event: BitswapEvent) {
         match event {
@@ -73,10 +73,10 @@ impl<TSubstream: AsyncRead + AsyncWrite>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream>
+impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> Behaviour<TSubstream, TStrategy>
 {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
-    pub fn new(config: &NetworkConfig) -> Self {
+    pub fn new(config: NetworkConfig<TStrategy>) -> Self {
         println!("Local peer id: {}", config.peer_id.to_base58());
 
         let mut kademlia = Kademlia::new(config.peer_id.to_owned());
@@ -85,7 +85,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream>
             kademlia.add_address(peer_id, addr.to_owned());
         }
 
-        let bitswap = Bitswap::new();
+        let bitswap = Bitswap::new(config.strategy);
 
         // TODO: remove
         kademlia.find_node(GO_IPFS_PEER_ID.parse().unwrap());
@@ -118,9 +118,9 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream>
 }
 
 /// Behaviour type.
-pub type TBehaviour = Behaviour<SubstreamRef<Arc<StreamMuxerBox>>>;
+pub type TBehaviour<TStrategy> = Behaviour<SubstreamRef<Arc<StreamMuxerBox>>, TStrategy>;
 
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
-pub fn build_behaviour(config: &NetworkConfig) -> TBehaviour {
+pub fn build_behaviour<TStrategy: Strategy>(config: NetworkConfig<TStrategy>) -> TBehaviour<TStrategy> {
     Behaviour::new(config)
 }

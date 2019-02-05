@@ -1,3 +1,4 @@
+use crate::bitswap::Strategy;
 use libp2p::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
 use libp2p::secio::SecioKeyPair;
@@ -74,14 +75,15 @@ impl Configuration {
     }
 }
 
-pub struct NetworkConfig {
+pub struct NetworkConfig<TStrategy: Strategy> {
     pub key_pair: SecioKeyPair,
     pub peer_id: PeerId,
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
+    pub strategy: TStrategy,
 }
 
-impl From<&Configuration> for NetworkConfig {
-    fn from(config: &Configuration) -> Self {
+impl<TStrategy: Strategy> NetworkConfig<TStrategy> {
+    pub fn from_config(config: &Configuration, strategy: TStrategy) -> Self {
         let key_pair = config.secio_key_pair();
         let peer_id = key_pair.to_peer_id();
         let bootstrap = config.bootstrap();
@@ -89,6 +91,7 @@ impl From<&Configuration> for NetworkConfig {
             key_pair,
             peer_id,
             bootstrap,
+            strategy,
         }
     }
 }
