@@ -1,5 +1,5 @@
 //! P2P handling for IPFS nodes.
-pub use libp2p::secio::SecioKeyPair;
+use crate::config::NetworkConfig;
 
 mod behaviour;
 mod transport;
@@ -7,15 +7,13 @@ mod transport;
 pub type Swarm = libp2p::core::Swarm<transport::TTransport, behaviour::TBehaviour>;
 
 /// Creates a new IPFS swarm.
-pub fn create_swarm(local_private_key: SecioKeyPair) -> Swarm {
-    let local_peer_id = local_private_key.to_peer_id();
-
+pub fn create_swarm(config: NetworkConfig) -> Swarm {
     // Set up an encrypted TCP transport over the Mplex protocol.
-    let transport = transport::build_transport(local_private_key);
+    let transport = transport::build_transport(&config);
 
     // Create a Kademlia behaviour
-    let behaviour = behaviour::build_behaviour(local_peer_id.clone());
+    let behaviour = behaviour::build_behaviour(&config);
 
     // Create a Swarm
-    libp2p::core::Swarm::new(transport, behaviour, local_peer_id)
+    libp2p::core::Swarm::new(transport, behaviour, config.peer_id)
 }

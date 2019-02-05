@@ -4,16 +4,17 @@
 #![feature(drain_filter)]
 use futures::prelude::*;
 use futures::try_ready;
-use libp2p::secio::SecioKeyPair;
 
 mod bitswap;
 pub mod block;
+mod config;
 mod future;
 mod p2p;
 mod repo;
 
 use self::bitswap::{strategy::AltruisticStrategy, Strategy};
 pub use self::block::{Block, Cid};
+use self::config::{Configuration, NetworkConfig};
 use self::future::BlockFuture;
 use self::p2p::{create_swarm, Swarm};
 use self::repo::Repo;
@@ -30,10 +31,10 @@ pub struct Ipfs {
 impl Ipfs {
     /// Creates a new ipfs node.
     pub fn new() -> Self {
+        let config = Configuration::new();
         let repo = Repo::new();
-        let local_key = SecioKeyPair::ed25519_generated().unwrap();
         let strategy = AltruisticStrategy::new(repo.clone());
-        let swarm = create_swarm(local_key);
+        let swarm = create_swarm(NetworkConfig::from(&config));
 
         Ipfs {
             repo,
