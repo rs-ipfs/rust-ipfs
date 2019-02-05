@@ -117,14 +117,16 @@ where
 
     fn inject_connected(&mut self, peer_id: PeerId, _: ConnectedPoint) {
         let ledger = Ledger::new();
-        let mut message = Message::new();
-        for (cid, priority) in &self.wanted_blocks {
-            message.want_block(cid, *priority);
+        if !self.wanted_blocks.is_empty() {
+            let mut message = Message::new();
+            for (cid, priority) in &self.wanted_blocks {
+                message.want_block(cid, *priority);
+            }
+            self.events.push_back(NetworkBehaviourAction::SendEvent {
+                peer_id: peer_id.clone(),
+                event: message,
+            });
         }
-        self.events.push_back(NetworkBehaviourAction::SendEvent {
-            peer_id: peer_id.clone(),
-            event: message,
-        });
         self.peers.insert(peer_id, ledger);
     }
 
@@ -183,6 +185,8 @@ where
                 let ledger = self.peers.get_mut(&peer_id)
                     .expect("Peer not in ledger?!");
                 ledger.update_outgoing_stats(&event);
+                println!("Sending bitswap message to {}", peer_id.to_base58());
+                println!("{:?}", event);
             }
             return Async::Ready(event);
         }

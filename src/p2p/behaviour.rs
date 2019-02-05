@@ -22,21 +22,30 @@ impl<TSubstream: AsyncRead + AsyncWrite>
 {
     fn inject_event(&mut self, event: KademliaEvent) {
         match event {
-            KademliaEvent::Discovered { .. } => {
-
+            KademliaEvent::Discovered { peer_id: _, addresses: _, ty: _ } => {
+                //println!("Discovered peer {} {:?}", peer_id.to_base58(), ty);
             }
-            KademliaEvent::FindNodeResult { .. } => {
-
+            KademliaEvent::FindNodeResult { key, closer_peers } => {
+                if closer_peers.is_empty() {
+                    println!("Could not find closer peer to {}", key.to_base58());
+                }
+                for peer in closer_peers {
+                    println!("Found closer peer {} to {}", peer.to_base58(), key.to_base58());
+                }
             }
             KademliaEvent::GetProvidersResult {
                 key,
                 provider_peers,
                 ..
             } => {
-                println!("key: {}", PeerId::from_multihash(key).unwrap().to_base58());
-                for peer in provider_peers {
-                    println!("provided by: {}", peer.to_base58());
-                    self.bitswap.connect(peer);
+                let cid = PeerId::from_multihash(key).unwrap().to_base58();
+                if provider_peers.is_empty() {
+                    println!("Could not find provider for {}", cid);
+                } else {
+                    for peer in provider_peers {
+                        println!("{} provided by {}", cid, peer.to_base58());
+                        self.bitswap.connect(peer);
+                    }
                 }
             }
         }
@@ -54,8 +63,8 @@ impl<TSubstream: AsyncRead + AsyncWrite>
                          String::from_utf8_lossy(&block.data()));
             }
             BitswapEvent::Want { peer_id, cid, priority } => {
-                println!("Peer {:?} wants block {:?} with priority {}",
-                         peer_id, cid.to_string(), priority);
+                println!("Peer {} wants block {} with priority {}",
+                         peer_id.to_base58(), cid.to_string(), priority);
             }
         }
     }
@@ -86,7 +95,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream>
     }
 
     pub fn want_block(&mut self, cid: Cid) {
-        let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
+        let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
         self.kademlia.get_providers(hash);
         self.bitswap.want_block(cid, 1);
     }

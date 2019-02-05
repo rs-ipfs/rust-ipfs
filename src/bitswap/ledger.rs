@@ -92,7 +92,7 @@ pub struct I;
 pub struct O;
 
 /// A bitswap message.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Message<T> {
     /// Message tag
     _phantom_data: PhantomData<T>,
@@ -212,6 +212,21 @@ impl Message<I> {
             message.add_block(block);
         }
         Ok(message)
+    }
+}
+
+impl<T> std::fmt::Debug for Message<T> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        for (cid, priority) in self.want() {
+            writeln!(fmt, "want: {} {}", cid.to_string(), priority)?;
+        }
+        for cid in self.cancel() {
+            writeln!(fmt, "cancel: {}", cid.to_string())?;
+        }
+        for block in self.blocks() {
+            writeln!(fmt, "block: {:?}", block)?;
+        }
+        Ok(())
     }
 }
 
