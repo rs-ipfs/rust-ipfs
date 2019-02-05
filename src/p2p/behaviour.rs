@@ -9,6 +9,9 @@ use parity_multihash::Multihash;
 use std::sync::Arc;
 use tokio::prelude::*;
 
+// TODO: remove
+const GO_IPFS_PEER_ID: &str = "QmdiXyMWRbsP8681LjnJG3Qz7maMpomTMaKQmqEy7Ato9x";
+
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
 pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite> {
@@ -83,6 +86,9 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream>
         }
 
         let bitswap = Bitswap::new();
+
+        // TODO: remove
+        kademlia.find_node(GO_IPFS_PEER_ID.parse().unwrap());
 
         Behaviour {
             kademlia,
