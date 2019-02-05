@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 pub trait Strategy {
     fn new(repo: Repo) -> Self;
     fn process_want(&mut self, source: PeerId, cid: Cid, priority: Priority);
+    fn process_block(&mut self, source: PeerId, block: Block);
     fn poll(&mut self) -> Option<StrategyEvent>;
 }
 
@@ -45,6 +46,13 @@ impl Strategy for AltruisticStrategy {
                 block: block.unwrap(),
             });
         }
+    }
+
+    fn process_block(&mut self, source: PeerId, block: Block) {
+        println!("Received block {} from peer {}",
+                 block.cid().to_string(),
+                 source.to_base58());
+        self.repo.put(block);
     }
 
     fn poll(&mut self) -> Option<StrategyEvent> {

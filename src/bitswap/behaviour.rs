@@ -5,7 +5,7 @@
 //!
 //! The `Bitswap` struct implements the `NetworkBehaviour` trait. When used, it
 //! will allow providing and reciving IPFS blocks.
-use crate::bitswap::ledger::{BitswapEvent, Ledger, Message, Priority, I, O};
+use crate::bitswap::ledger::{Ledger, Message, Priority, I, O};
 use crate::bitswap::protocol::BitswapConfig;
 use crate::bitswap::strategy::{Strategy, StrategyEvent};
 use crate::block::{Block, Cid};
@@ -24,7 +24,7 @@ pub struct Bitswap<TSubstream, TStrategy: Strategy> {
     /// Marker to pin the generics.
     marker: PhantomData<TSubstream>,
     /// Queue of events to report to the user.
-    events: VecDeque<NetworkBehaviourAction<Message<O>, BitswapEvent>>,
+    events: VecDeque<NetworkBehaviourAction<Message<O>, ()>>,
     /// Ledger
     peers: HashMap<PeerId, Ledger>,
     /// Wanted blocks
@@ -102,7 +102,7 @@ where
     TSubstream: AsyncRead + AsyncWrite,
 {
     type ProtocolsHandler = OneShotHandler<TSubstream, BitswapConfig, Message<O>, InnerMessage>;
-    type OutEvent = BitswapEvent;
+    type OutEvent = ();
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
         Default::default()
@@ -153,11 +153,7 @@ where
         for block in message.blocks() {
             // Cancel the block.
             self.cancel_block(&block.cid());
-            // Add block to received blocks
-            self.events.push_back(NetworkBehaviourAction::GenerateEvent(
-                BitswapEvent::Block {
-                    block: block.to_owned(),
-                }));
+            self.strategy.process_block(source.clone(), block.to_owned());
         }
         for (cid, priority) in message.want() {
             self.strategy.process_want(source.clone(), cid.to_owned(), *priority);

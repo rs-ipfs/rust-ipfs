@@ -6,5 +6,5 @@ pub mod strategy;
 mod protocol;
 
 pub use self::behaviour::Bitswap;
-pub use self::ledger::{BitswapEvent, Priority};
+pub use self::ledger::Priority;
 pub use self::strategy::{AltruisticStrategy, Strategy};

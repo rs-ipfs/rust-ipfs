@@ -1,4 +1,4 @@
-use crate::bitswap::{Bitswap, BitswapEvent, Strategy};
+use crate::bitswap::{Bitswap, Strategy};
 use crate::block::Cid;
 use crate::config::NetworkConfig;
 use libp2p::{NetworkBehaviour, PeerId};
@@ -56,17 +56,10 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
 }
 
 impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
-    NetworkBehaviourEventProcess<BitswapEvent> for
+    NetworkBehaviourEventProcess<()> for
     Behaviour<TSubstream, TStrategy>
 {
-    fn inject_event(&mut self, event: BitswapEvent) {
-        match event {
-            BitswapEvent::Block { block } => {
-                println!("Received block with contents: '{:?}'",
-                         String::from_utf8_lossy(&block.data()));
-            }
-        }
-    }
+    fn inject_event(&mut self, _event: ()) {}
 }
 
 impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> Behaviour<TSubstream, TStrategy>
