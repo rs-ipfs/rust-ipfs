@@ -7,7 +7,7 @@
 //! will allow providing and reciving IPFS blocks.
 use crate::bitswap::ledger::{BitswapEvent, Ledger, Message, Priority, I, O};
 use crate::bitswap::protocol::BitswapConfig;
-use crate::bitswap::strategy::Strategy;
+use crate::bitswap::strategy::{Strategy, StrategyEvent};
 use crate::block::{Block, Cid};
 use futures::prelude::*;
 use libp2p::core::swarm::{
@@ -160,12 +160,7 @@ where
                 }));
         }
         for (cid, priority) in message.want() {
-            self.events.push_back(NetworkBehaviourAction::GenerateEvent(
-                BitswapEvent::Want {
-                    peer_id: source.clone(),
-                    cid: cid.to_owned(),
-                    priority: *priority,
-                }));
+            self.strategy.process_want(source.clone(), cid.to_owned(), *priority);
         }
         // TODO: Remove cancelled `Want` events from the queue.
         // TODO: Remove cancelled blocks from `SendEvent`.
@@ -176,6 +171,13 @@ where
         _: &mut PollParameters,
     ) -> Async<NetworkBehaviourAction<
             <Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
+        match self.strategy.poll() {
+            Some(StrategyEvent::Send { peer_id, block }) => {
+                self.send_block(peer_id, block);
+            }
+            None => {}
+        }
+
         // TODO concat messages to same destination to reduce traffic.
         if let Some(event) = self.events.pop_front() {
             if let NetworkBehaviourAction::SendEvent { peer_id, event } = &event {

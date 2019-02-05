@@ -12,13 +12,6 @@ use crate::bitswap::ledger::{Message, I, O};
 #[derive(Clone, Debug, Default)]
 pub struct BitswapConfig {}
 
-impl BitswapConfig {
-    /// Builds a new `BitswapConfig`.
-    pub fn new() -> BitswapConfig {
-        BitswapConfig {}
-    }
-}
-
 impl UpgradeInfo for BitswapConfig {
     type Info = &'static [u8];
     type InfoIter = iter::Once<Self::Info>;

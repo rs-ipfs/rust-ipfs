@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 pub trait Strategy {
     fn new(repo: Repo) -> Self;
     fn process_want(&mut self, source: PeerId, cid: Cid, priority: Priority);
+    fn poll(&mut self) -> Option<StrategyEvent>;
 }
 
 pub enum StrategyEvent {
@@ -33,8 +34,10 @@ impl Strategy for AltruisticStrategy {
         &mut self,
         source: PeerId,
         cid: Cid,
-        _priority: Priority,
+        priority: Priority,
     ) {
+        println!("Peer {} wants block {} with priority {}",
+                 source.to_base58(), cid.to_string(), priority);
         let block = self.repo.get(&cid);
         if block.is_some() {
             self.events.push_back(StrategyEvent::Send {
@@ -42,6 +45,10 @@ impl Strategy for AltruisticStrategy {
                 block: block.unwrap(),
             });
         }
+    }
+
+    fn poll(&mut self) -> Option<StrategyEvent> {
+        self.events.pop_front()
     }
 }
 

@@ -1,6 +1,5 @@
 use crate::block::{Block, Cid};
 use crate::bitswap::protobuf_structs::bitswap as proto;
-use libp2p::PeerId;
 use protobuf::{ProtobufError, Message as ProtobufMessage};
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -72,16 +71,6 @@ impl Ledger {
             self.received_want_list.insert(cid.to_owned(), *priority);
         }
     }
-
-    /// Gets the number of sent blocks.
-    pub fn sent_blocks(&self) -> usize {
-        self.sent_blocks
-    }
-
-    /// Gets the number of received blocks.
-    pub fn received_blocks(&self) -> usize {
-        self.received_blocks
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -137,6 +126,7 @@ impl<T> Message<T> {
     }
 
     /// Removes the block from the message.
+    #[allow(unused)]
     pub fn remove_block(&mut self, cid: &Cid) {
         self.blocks.drain_filter(|block| &block.cid() == cid);
     }
@@ -152,6 +142,7 @@ impl<T> Message<T> {
     }
 
     /// Removes the block from the want list.
+    #[allow(unused)]
     pub fn remove_want_block(&mut self, cid: &Cid) {
         self.want.remove(cid);
     }
@@ -231,12 +222,6 @@ pub enum BitswapEvent {
     /// A block was received.
     Block {
         block: Block,
-    },
-    /// An action needs to be taken by the bitswap strategy.
-    Want {
-        peer_id: PeerId,
-        cid: Cid,
-        priority: Priority,
     }
 }
 

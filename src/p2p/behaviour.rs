@@ -1,5 +1,5 @@
 use crate::bitswap::{Bitswap, BitswapEvent, Strategy};
-use crate::block::{Block, Cid};
+use crate::block::Cid;
 use crate::config::NetworkConfig;
 use libp2p::{NetworkBehaviour, PeerId};
 use libp2p::core::swarm::NetworkBehaviourEventProcess;
@@ -65,10 +65,6 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
                 println!("Received block with contents: '{:?}'",
                          String::from_utf8_lossy(&block.data()));
             }
-            BitswapEvent::Want { peer_id, cid, priority } => {
-                println!("Peer {} wants block {} with priority {}",
-                         peer_id.to_base58(), cid.to_string(), priority);
-            }
         }
     }
 }
@@ -94,10 +90,6 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> Behaviour<TSubstre
             kademlia,
             bitswap,
         }
-    }
-
-    pub fn send_block(&mut self, peer_id: PeerId, block: Block) {
-        self.bitswap.send_block(peer_id, block);
     }
 
     pub fn want_block(&mut self, cid: Cid) {
