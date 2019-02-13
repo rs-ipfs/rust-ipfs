@@ -1,12 +1,12 @@
 use crate::bitswap::{Bitswap, Strategy};
 use crate::block::Cid;
 use crate::config::NetworkConfig;
-use libp2p::NetworkBehaviour;
+use libp2p::{NetworkBehaviour, PeerId};
 use libp2p::core::swarm::NetworkBehaviourEventProcess;
 use libp2p::core::muxing::{StreamMuxerBox, SubstreamRef};
-//use libp2p::kad::{Kademlia, KademliaOut as KademliaEvent};
+use libp2p::kad::{Kademlia, KademliaOut as KademliaEvent};
 use libp2p::mdns::{Mdns, MdnsEvent};
-//use parity_multihash::Multihash;
+use parity_multihash::Multihash;
 use std::sync::Arc;
 use tokio::prelude::*;
 
@@ -14,7 +14,7 @@ use tokio::prelude::*;
 #[derive(NetworkBehaviour)]
 pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> {
     mdns: Mdns<TSubstream>,
-    //kademlia: Kademlia<TSubstream>,
+    kademlia: Kademlia<TSubstream>,
     bitswap: Bitswap<TSubstream, TStrategy>,
 }
 
@@ -41,21 +41,21 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
     }
 }
 
-/*impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
+impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
     NetworkBehaviourEventProcess<KademliaEvent> for
     Behaviour<TSubstream, TStrategy>
 {
     fn inject_event(&mut self, event: KademliaEvent) {
         match event {
-            KademliaEvent::Discovered { peer_id: _, addresses: _, ty: _ } => {
-                //println!("kad: Discovered peer {} {:?}", peer_id.to_base58(), ty);
+            KademliaEvent::Discovered { peer_id, addresses: _, ty } => {
+                debug!("kad: Discovered peer {} {:?}", peer_id.to_base58(), ty);
             }
             KademliaEvent::FindNodeResult { key, closer_peers } => {
                 if closer_peers.is_empty() {
-                    println!("kad: Could not find closer peer to {}", key.to_base58());
+                    info!("kad: Could not find closer peer to {}", key.to_base58());
                 }
                 for peer in closer_peers {
-                    println!("kad: Found closer peer {} to {}", peer.to_base58(), key.to_base58());
+                    info!("kad: Found closer peer {} to {}", peer.to_base58(), key.to_base58());
                 }
             }
             KademliaEvent::GetProvidersResult {
@@ -65,17 +65,17 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
             } => {
                 let cid = PeerId::from_multihash(key).unwrap().to_base58();
                 if provider_peers.is_empty() {
-                    println!("kad: Could not find provider for {}", cid);
+                    info!("kad: Could not find provider for {}", cid);
                 } else {
                     for peer in provider_peers {
-                        println!("kad: {} provided by {}", cid, peer.to_base58());
+                        info!("kad: {} provided by {}", cid, peer.to_base58());
                         self.bitswap.connect(peer);
                     }
                 }
             }
         }
     }
-}*/
+}
 
 impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
     NetworkBehaviourEventProcess<()> for
@@ -92,37 +92,37 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> Behaviour<TSubstre
 
         let mdns = Mdns::new().expect("Failed to create mDNS service");
 
-        /*let mut kademlia = Kademlia::new(config.peer_id.to_owned());
+        let mut kademlia = Kademlia::new(config.peer_id.to_owned());
         for (addr, peer_id) in &config.bootstrap {
-            kademlia.add_address(peer_id, addr.to_owned());
-        }*/
+            kademlia.add_not_connected_address(peer_id, addr.to_owned());
+        }
 
         let bitswap = Bitswap::new(config.strategy);
 
         Behaviour {
             mdns,
-            //kademlia,
+            kademlia,
             bitswap,
         }
     }
 
     pub fn want_block(&mut self, cid: Cid) {
         info!("Want block {}", cid.to_string());
-        //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
-        //self.kademlia.get_providers(hash);
+        let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
+        self.kademlia.get_providers(hash);
         self.bitswap.want_block(cid, 1);
     }
 
     pub fn provide_block(&mut self, cid: &Cid) {
         info!("Providing block {}", cid.to_string());
-        //let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
-        //self.kademlia.add_providing(PeerId::from_multihash(hash).unwrap());
+        let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
+        self.kademlia.add_providing(PeerId::from_multihash(hash).unwrap());
     }
 
     pub fn stop_providing_block(&mut self, cid: &Cid) {
         info!("Finished providing block {}", cid.to_string());
-        //let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
-        //self.kademlia.remove_providing(&hash);
+        let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
+        self.kademlia.remove_providing(&hash);
     }
 }
 
