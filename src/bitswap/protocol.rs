@@ -31,7 +31,8 @@ where
     type Future = upgrade::ReadOneThen<TSocket, fn(Vec<u8>) -> Result<Self::Output, Self::Error>>;
 
     #[inline]
-    fn upgrade_inbound(self, socket: TSocket, _: Self::Info) -> Self::Future {
+    fn upgrade_inbound(self, socket: TSocket, info: Self::Info) -> Self::Future {
+        println!("upgrade_inbound: {}", std::str::from_utf8(info).unwrap());
         upgrade::read_one_then(socket, 2048, |packet| {
             Ok(Message::from_bytes(&packet)?)
         })
@@ -97,7 +98,8 @@ where
     type Future = upgrade::WriteOne<TSocket>;
 
     #[inline]
-    fn upgrade_outbound(self, socket: TSocket, _: Self::Info) -> Self::Future {
+    fn upgrade_outbound(self, socket: TSocket, info: Self::Info) -> Self::Future {
+        println!("upgrade_outbound: {}", std::str::from_utf8(info).unwrap());
         let bytes = self.into_bytes();
         upgrade::write_one(socket, bytes)
     }

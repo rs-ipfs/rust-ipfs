@@ -211,7 +211,7 @@ impl<T> std::fmt::Debug for Message<T> {
             writeln!(fmt, "cancel: {}", cid.to_string())?;
         }
         for block in self.blocks() {
-            writeln!(fmt, "block: {:?}", block)?;
+            writeln!(fmt, "block: {}", block.cid().to_string())?;
         }
         Ok(())
     }
