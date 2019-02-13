@@ -26,14 +26,14 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
         match event {
             MdnsEvent::Discovered(list) => {
                 for (peer, _) in list {
-                    println!("mdns: Discovered peer {}", peer.to_base58());
+                    debug!("mdns: Discovered peer {}", peer.to_base58());
                     self.bitswap.connect(peer);
                 }
             }
             MdnsEvent::Expired(list) => {
                 for (peer, _) in list {
                     if !self.mdns.has_node(&peer) {
-                        println!("mdns: Expired peer {}", peer.to_base58());
+                        debug!("mdns: Expired peer {}", peer.to_base58());
                     }
                 }
             }
@@ -88,7 +88,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> Behaviour<TSubstre
 {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
     pub fn new(config: NetworkConfig<TStrategy>) -> Self {
-        println!("Local peer id: {}", config.peer_id.to_base58());
+        info!("Local peer id: {}", config.peer_id.to_base58());
 
         let mdns = Mdns::new().expect("Failed to create mDNS service");
 
@@ -107,20 +107,20 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> Behaviour<TSubstre
     }
 
     pub fn want_block(&mut self, cid: Cid) {
-        println!("Want block {}", cid.to_string());
+        info!("Want block {}", cid.to_string());
         //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
         //self.kademlia.get_providers(hash);
         self.bitswap.want_block(cid, 1);
     }
 
     pub fn provide_block(&mut self, cid: &Cid) {
-        println!("Providing block {}", cid.to_string());
+        info!("Providing block {}", cid.to_string());
         //let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
         //self.kademlia.add_providing(PeerId::from_multihash(hash).unwrap());
     }
 
     pub fn stop_providing_block(&mut self, cid: &Cid) {
-        println!("Finished providing block {}", cid.to_string());
+        info!("Finished providing block {}", cid.to_string());
         //let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
         //self.kademlia.remove_providing(&hash);
     }

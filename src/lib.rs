@@ -2,6 +2,7 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 #![feature(drain_filter)]
+#[macro_use] extern crate log;
 use futures::prelude::*;
 use futures::try_ready;
 
@@ -40,7 +41,7 @@ impl Ipfs {
 
         // Listen on all interfaces and whatever port the OS assigns
         let addr = libp2p::Swarm::listen_on(&mut swarm, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
-        println!("Listening on {:?}", addr);
+        info!("Listening on {:?}", addr);
 
         Ipfs {
             repo,

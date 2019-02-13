@@ -9,6 +9,7 @@ cid = { version = "*", path = "../rust-cid" }
 fnv = "*"
 futures = "*"
 libp2p = { version = "*", path = "../rust-libp2p" }
+log = "*"
 multibase = "*"
 multihash = "*"
 parity-multiaddr = { version = "*", path = "../rust-libp2p/misc/multiaddr" }

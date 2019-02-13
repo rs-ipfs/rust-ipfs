@@ -37,8 +37,8 @@ impl Strategy for AltruisticStrategy {
         cid: Cid,
         priority: Priority,
     ) {
-        println!("Peer {} wants block {} with priority {}",
-                 source.to_base58(), cid.to_string(), priority);
+        info!("Peer {} wants block {} with priority {}",
+              source.to_base58(), cid.to_string(), priority);
         let block = self.repo.get(&cid);
         if block.is_some() {
             self.events.push_back(StrategyEvent::Send {
@@ -49,9 +49,9 @@ impl Strategy for AltruisticStrategy {
     }
 
     fn process_block(&mut self, source: PeerId, block: Block) {
-        println!("Received block {} from peer {}",
-                 block.cid().to_string(),
-                 source.to_base58());
+        info!("Received block {} from peer {}",
+              block.cid().to_string(),
+              source.to_base58());
         self.repo.put(block);
     }
 
