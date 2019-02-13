@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 cid = { version = "*", path = "../rust-cid" }
+fnv = "*"
 futures = "*"
 libp2p = { version = "*", path = "../rust-libp2p" }
 multibase = "*"
