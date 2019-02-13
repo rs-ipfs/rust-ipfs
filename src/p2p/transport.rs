@@ -4,10 +4,12 @@ use futures::future::Future;
 use libp2p::{PeerId, Transport};
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::boxed::Boxed;
-use libp2p::core::upgrade::{self, InboundUpgradeExt, OutboundUpgradeExt};
+use libp2p::core::upgrade::{self, InboundUpgradeExt, OutboundUpgradeExt,
+                            SelectUpgrade};
 use libp2p::mplex::MplexConfig;
 use libp2p::secio::SecioConfig;
 use libp2p::tcp::TcpConfig;
+use libp2p::yamux::Config as YamuxConfig;
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
 
@@ -20,6 +22,7 @@ pub type TTransport = Boxed<(PeerId, StreamMuxerBox), Error>;
 pub fn build_transport<TStrategy: Strategy>(config: &NetworkConfig<TStrategy>) -> TTransport {
     let transport = TcpConfig::new();
     let secio_config = SecioConfig::new(config.key_pair.to_owned());
+    let yamux_config = YamuxConfig::default();
     let mplex_config = MplexConfig::new();
 
     transport
@@ -27,7 +30,7 @@ pub fn build_transport<TStrategy: Strategy>(config: &NetworkConfig<TStrategy>) -
         .and_then(move |out, endpoint| {
             let peer_id = out.remote_key.into_peer_id();
             let peer_id2 = peer_id.clone();
-            let upgrade = mplex_config
+            let upgrade = SelectUpgrade::new(yamux_config, mplex_config)
                 .map_inbound(move |muxer| (peer_id, muxer))
                 .map_outbound(move |muxer| (peer_id2, muxer));
 
