@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use crate::bitswap::Strategy;
 use libp2p::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;

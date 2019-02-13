@@ -7,7 +7,7 @@ use futures::try_ready;
 
 mod bitswap;
 pub mod block;
-mod config;
+pub mod config;
 mod future;
 mod p2p;
 mod repo;
@@ -29,10 +29,18 @@ pub struct Ipfs {
 impl Ipfs {
     /// Creates a new ipfs node.
     pub fn new() -> Self {
-        let config = Configuration::new();
+        Ipfs::from_config(Configuration::new())
+    }
+
+    /// Creates a new ipfs node from a configuration.
+    pub fn from_config(config: Configuration) -> Self {
         let repo = Repo::new();
         let strategy = AltruisticStrategy::new(repo.clone());
-        let swarm = create_swarm(NetworkConfig::from_config(&config, strategy));
+        let mut swarm = create_swarm(NetworkConfig::from_config(&config, strategy));
+
+        // Listen on all interfaces and whatever port the OS assigns
+        let addr = libp2p::Swarm::listen_on(&mut swarm, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
+        println!("Listening on {:?}", addr);
 
         Ipfs {
             repo,
