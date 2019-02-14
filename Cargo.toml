@@ -5,16 +5,16 @@ authors = ["David Craven <david@craven.ch>"]
 edition = "2018"
 
 [dependencies]
-cid = { version = "*", path = "../rust-cid" }
+cid = { version = "*", git = "https://github.com/dvc94ch/rust-cid", branch = "implement-hash" }
 env_logger = "*"
 fnv = "*"
 futures = "*"
-libp2p = { version = "*", path = "../rust-libp2p" }
+libp2p = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "e9535c5" }
 log = "*"
 multibase = "*"
 multihash = "*"
-parity-multiaddr = { version = "*", path = "../rust-libp2p/misc/multiaddr" }
-parity-multihash = { version = "*", path = "../rust-libp2p/misc/multihash" }
+parity-multiaddr = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "e9535c5" }
+parity-multihash = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "e9535c5" }
 protobuf = "2.0.2"
 rand = "0.6"
 serde = "1.0"
