@@ -57,7 +57,7 @@ impl<TSubstream, TStrategy: Strategy> Bitswap<TSubstream, TStrategy> {
         debug!("bitswap: connect");
         if self.wanted_blocks.len() > 0 {
             if self.target_peers.insert(peer_id.clone()) {
-                debug!("  queuing dial_peer to {}", peer_id.to_base58());
+                info!("  queuing dial_peer to {}", peer_id.to_base58());
                 self.events.push_back(NetworkBehaviourAction::DialPeer { peer_id });
             }
         }
