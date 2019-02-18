@@ -109,7 +109,7 @@ impl BlockStore for MemBlockStore {
     fn get(&self, cid: &Cid) -> Option<Block> {
         self.blocks.lock().unwrap()
             .get(cid)
-            .map(|block| (*block).clone())
+            .map(|block| block.to_owned())
     }
 
     fn put(&self, block: Block) -> Cid {

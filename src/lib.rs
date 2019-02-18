@@ -1,5 +1,5 @@
 //! IPFS node implementation
-#![deny(missing_docs)]
+//#![deny(missing_docs)]
 #![deny(warnings)]
 #![feature(associated_type_defaults)]
 #![feature(drain_filter)]
@@ -8,23 +8,31 @@ use futures::prelude::*;
 use futures::try_ready;
 use std::path::PathBuf;
 
-mod bitswap;
+pub mod bitswap;
 pub mod block;
 mod config;
 mod future;
-mod p2p;
-mod repo;
+pub mod p2p;
+pub mod repo;
 
 pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
 use self::future::BlockFuture;
-use self::p2p::{create_swarm, SwarmOptions, SwarmTypes, TSwarm};
-use self::repo::{create_repo, RepoOptions, RepoTypes, BlockStore, Repo};
+pub use self::p2p::SwarmTypes;
+use self::p2p::{create_swarm, SwarmOptions, TSwarm};
+pub use self::repo::RepoTypes;
+use self::repo::{create_repo, RepoOptions, BlockStore, Repo};
 
 const IPFS_LOG: &str = "info";
 const IPFS_PATH: &str = "~/.rust-ipfs";
 const XDG_APP_NAME: &str = "rust-ipfs";
 const CONFIG_FILE: &str = "config.json";
+
+/// Default IPFS types.
+pub struct Types;
+impl RepoTypes for Types {}
+impl SwarmTypes for Types {}
+impl IpfsTypes for Types {}
 
 /// All types can be changed at compile time by implementing
 /// `IpfsTypes`. `IpfsOptions` implements the trait for default
@@ -41,15 +49,6 @@ pub struct IpfsOptions {
     /// The ipfs config.
     pub config: ConfigFile,
 }
-
-/// Implement RepoTypes with defaults.
-impl RepoTypes for IpfsOptions {}
-
-/// Implement SwarmTypes with defaults.
-impl SwarmTypes for IpfsOptions {}
-
-/// Implement IpfsTypes with defaults.
-impl IpfsTypes for IpfsOptions {}
 
 impl IpfsOptions {
     /// Create `IpfsOptions` from environment.
@@ -88,12 +87,12 @@ pub struct Ipfs<Types: IpfsTypes> {
     swarm: TSwarm<Types>,
 }
 
-impl Ipfs<IpfsOptions> {
+impl<Types: IpfsTypes> Ipfs<Types> {
     /// Creates a new ipfs node.
     pub fn new(options: IpfsOptions) -> Self {
-        let repo_options = RepoOptions::<IpfsOptions>::from(&options.config);
+        let repo_options = RepoOptions::<Types>::from(&options.config);
         let repo = create_repo(repo_options);
-        let swarm_options = SwarmOptions::<IpfsOptions>::from(&options.config);
+        let swarm_options = SwarmOptions::<Types>::from(&options.config);
         let swarm = create_swarm(swarm_options, repo.clone());
 
         Ipfs {
@@ -102,9 +101,6 @@ impl Ipfs<IpfsOptions> {
         }
     }
 
-}
-
-impl<Types: IpfsTypes> Ipfs<Types> {
     /// Puts a block into the ipfs repo.
     pub fn put_block(&mut self, block: Block) -> Cid {
         let cid = self.repo.blocks().put(block);

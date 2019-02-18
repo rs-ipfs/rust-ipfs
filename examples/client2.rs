@@ -1,10 +1,10 @@
 use futures::prelude::*;
-use ipfs::{Block, Ipfs, IpfsOptions};
+use ipfs::{Block, Ipfs, IpfsOptions, Types};
 
 fn main() {
     let options = IpfsOptions::test();
     env_logger::Builder::new().parse(&options.ipfs_log).init();
-    let mut ipfs = Ipfs::new(options);
+    let mut ipfs = Ipfs::<Types>::new(options);
     let block = Block::from("hello block\n");
     ipfs.put_block(block);
     let cid = Block::from("hello block2\n").cid();
