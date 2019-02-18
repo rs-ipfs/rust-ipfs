@@ -1,6 +1,6 @@
 use crate::bitswap::{Bitswap, Strategy};
 use crate::block::Cid;
-use crate::config::NetworkConfig;
+use crate::p2p::{SwarmOptions, SwarmTypes};
 use libp2p::{NetworkBehaviour, PeerId};
 use libp2p::core::swarm::NetworkBehaviourEventProcess;
 use libp2p::core::muxing::{StreamMuxerBox, SubstreamRef};
@@ -12,15 +12,15 @@ use tokio::prelude::*;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
-pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> {
+pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> {
     mdns: Mdns<TSubstream>,
     kademlia: Kademlia<TSubstream>,
-    bitswap: Bitswap<TSubstream, TStrategy>,
+    bitswap: Bitswap<TSubstream, TSwarmTypes>,
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
+impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<MdnsEvent> for
-    Behaviour<TSubstream, TStrategy>
+    Behaviour<TSubstream, TSwarmTypes>
 {
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
@@ -41,9 +41,9 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
+impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<KademliaEvent> for
-    Behaviour<TSubstream, TStrategy>
+    Behaviour<TSubstream, TSwarmTypes>
 {
     fn inject_event(&mut self, event: KademliaEvent) {
         match event {
@@ -77,27 +77,28 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy>
+impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<()> for
-    Behaviour<TSubstream, TStrategy>
+    Behaviour<TSubstream, TSwarmTypes>
 {
     fn inject_event(&mut self, _event: ()) {}
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> Behaviour<TSubstream, TStrategy>
+impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
 {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
-    pub fn new(config: NetworkConfig<TStrategy>) -> Self {
-        info!("Local peer id: {}", config.peer_id.to_base58());
+    pub fn new(options: SwarmOptions<TSwarmTypes>, repo: TSwarmTypes::TRepo) -> Self {
+        info!("Local peer id: {}", options.peer_id.to_base58());
 
         let mdns = Mdns::new().expect("Failed to create mDNS service");
 
-        let mut kademlia = Kademlia::new(config.peer_id.to_owned());
-        for (addr, peer_id) in &config.bootstrap {
+        let mut kademlia = Kademlia::new(options.peer_id.to_owned());
+        for (addr, peer_id) in &options.bootstrap {
             kademlia.add_not_connected_address(peer_id, addr.to_owned());
         }
 
-        let bitswap = Bitswap::new(config.strategy);
+        let strategy = TSwarmTypes::TStrategy::new(repo);
+        let bitswap = Bitswap::new(strategy);
 
         Behaviour {
             mdns,
@@ -127,9 +128,9 @@ impl<TSubstream: AsyncRead + AsyncWrite, TStrategy: Strategy> Behaviour<TSubstre
 }
 
 /// Behaviour type.
-pub type TBehaviour<TStrategy> = Behaviour<SubstreamRef<Arc<StreamMuxerBox>>, TStrategy>;
+pub(crate) type TBehaviour<TSwarmTypes> = Behaviour<SubstreamRef<Arc<StreamMuxerBox>>, TSwarmTypes>;
 
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
-pub fn build_behaviour<TStrategy: Strategy>(config: NetworkConfig<TStrategy>) -> TBehaviour<TStrategy> {
-    Behaviour::new(config)
+pub fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: TSwarmTypes::TRepo) -> TBehaviour<TSwarmTypes> {
+    Behaviour::new(options, repo)
 }

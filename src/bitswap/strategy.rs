@@ -1,11 +1,11 @@
 use crate::block::{Block, Cid};
 use crate::bitswap::Priority;
-use crate::repo::Repo;
+use crate::repo::{BlockStore, Repo, RepoTypes};
 use libp2p::PeerId;
 use std::collections::VecDeque;
 
-pub trait Strategy {
-    fn new(repo: Repo) -> Self;
+pub trait Strategy<TRepoTypes: RepoTypes>: Send {
+    fn new(repo: TRepoTypes::TRepo) -> Self;
     fn process_want(&mut self, source: PeerId, cid: Cid, priority: Priority);
     fn process_block(&mut self, source: PeerId, block: Block);
     fn poll(&mut self) -> Option<StrategyEvent>;
@@ -18,13 +18,13 @@ pub enum StrategyEvent {
     }
 }
 
-pub struct AltruisticStrategy {
-    repo: Repo,
+pub struct AltruisticStrategy<TRepoTypes: RepoTypes> {
+    repo: TRepoTypes::TRepo,
     events: VecDeque<StrategyEvent>,
 }
 
-impl Strategy for AltruisticStrategy {
-    fn new(repo: Repo) -> Self {
+impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTypes> {
+    fn new(repo: TRepoTypes::TRepo) -> Self {
         AltruisticStrategy {
             repo,
             events: VecDeque::new(),
@@ -39,7 +39,7 @@ impl Strategy for AltruisticStrategy {
     ) {
         info!("Peer {} wants block {} with priority {}",
               source.to_base58(), cid.to_string(), priority);
-        let block = self.repo.get(&cid);
+        let block = self.repo.blocks().get(&cid);
         if block.is_some() {
             self.events.push_back(StrategyEvent::Send {
                 peer_id: source,
@@ -52,7 +52,7 @@ impl Strategy for AltruisticStrategy {
         info!("Received block {} from peer {}",
               block.cid().to_string(),
               source.to_base58());
-        self.repo.put(block);
+        self.repo.blocks().put(block);
     }
 
     fn poll(&mut self) -> Option<StrategyEvent> {

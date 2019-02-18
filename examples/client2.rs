@@ -1,11 +1,10 @@
 use futures::prelude::*;
-use ipfs::{Block, Ipfs, config::Configuration};
+use ipfs::{Block, Ipfs, IpfsOptions};
 
 fn main() {
-    env_logger::Builder::new()
-        .parse(&std::env::var("IPFS_LOG").unwrap_or_default())
-        .init();
-    let mut ipfs = Ipfs::from_config(Configuration::generate());
+    let options = IpfsOptions::test();
+    env_logger::Builder::new().parse(&options.ipfs_log).init();
+    let mut ipfs = Ipfs::new(options);
     let block = Block::from("hello block\n");
     ipfs.put_block(block);
     let cid = Block::from("hello block2\n").cid();

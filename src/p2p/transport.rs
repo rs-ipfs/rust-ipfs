@@ -1,5 +1,4 @@
-use crate::bitswap::Strategy;
-use crate::config::NetworkConfig;
+use crate::p2p::{SwarmOptions, SwarmTypes};
 use futures::future::Future;
 use libp2p::{PeerId, Transport};
 use libp2p::core::muxing::StreamMuxerBox;
@@ -14,14 +13,14 @@ use std::io::{Error, ErrorKind};
 use std::time::Duration;
 
 /// Transport type.
-pub type TTransport = Boxed<(PeerId, StreamMuxerBox), Error>;
+pub(crate) type TTransport = Boxed<(PeerId, StreamMuxerBox), Error>;
 
 /// Builds the transport that serves as a common ground for all connections.
 ///
 /// Set up an encrypted TCP transport over the Mplex protocol.
-pub fn build_transport<TStrategy: Strategy>(config: &NetworkConfig<TStrategy>) -> TTransport {
+pub fn build_transport<TSwarmTypes: SwarmTypes>(options: &SwarmOptions<TSwarmTypes>) -> TTransport {
     let transport = TcpConfig::new();
-    let secio_config = SecioConfig::new(config.key_pair.to_owned());
+    let secio_config = SecioConfig::new(options.key_pair.to_owned());
     let yamux_config = YamuxConfig::default();
     let mplex_config = MplexConfig::new();
 

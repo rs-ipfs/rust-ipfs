@@ -1,5 +1,3 @@
-#![allow(missing_docs)]
-use crate::bitswap::Strategy;
 use libp2p::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
 use libp2p::secio::SecioKeyPair;
@@ -7,9 +5,6 @@ use rand::{Rng, rngs::EntropyRng};
 use serde_derive::{Serialize, Deserialize};
 use std::fs;
 use std::path::Path;
-
-const APP_NAME: &'static str = "rust-ipfs";
-const CONFIG_FILE: &'static str = "config.json";
 
 const BOOTSTRAP_NODES: &[&'static str] = &[
     "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
@@ -23,17 +18,22 @@ const BOOTSTRAP_NODES: &[&'static str] = &[
     "/ip6/2a03:b0c0:0:1010::23:1001/tcp/4001/p2p/QmSoLer265NRgSp2LA3dPaeykiS1J6DifTC88f5uVQKNAd",
 ];
 
-#[derive(Serialize, Deserialize)]
-pub struct Configuration {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfigFile {
     raw_key: [u8; 32],
     bootstrap: Vec<Multiaddr>,
 }
 
-impl Configuration {
-    pub fn new() -> Self {
-        let xdg_dirs = xdg::BaseDirectories::with_prefix(APP_NAME).unwrap();
-        let path = xdg_dirs.place_config_file(CONFIG_FILE).unwrap();
-        Configuration::from_file(path)
+impl ConfigFile {
+    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+        fs::read_to_string(&path).map(|content| {
+            serde_json::from_str(&content).unwrap()
+        }).unwrap_or_else(|_| {
+            let config = ConfigFile::default();
+            let string = serde_json::to_string_pretty(&config).unwrap();
+            fs::write(path, string).unwrap();
+            config
+        })
     }
 
     pub fn secio_key_pair(&self) -> SecioKeyPair {
@@ -52,47 +52,17 @@ impl Configuration {
         }
         bootstrap
     }
+}
 
-    pub fn generate() -> Self {
+impl Default for ConfigFile {
+    fn default() -> Self {
 	      let raw_key: [u8; 32] = EntropyRng::new().gen();
         let bootstrap = BOOTSTRAP_NODES.iter().map(|node| {
             node.parse().unwrap()
         }).collect();
-        Configuration {
+        ConfigFile {
             raw_key,
             bootstrap,
-        }
-    }
-
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        fs::read_to_string(&path).map(|content| {
-            serde_json::from_str(&content).unwrap()
-        }).unwrap_or_else(|_| {
-            let config = Configuration::generate();
-            let string = serde_json::to_string(&config).unwrap();
-            fs::write(path, string).unwrap();
-            config
-        })
-    }
-}
-
-pub struct NetworkConfig<TStrategy: Strategy> {
-    pub key_pair: SecioKeyPair,
-    pub peer_id: PeerId,
-    pub bootstrap: Vec<(Multiaddr, PeerId)>,
-    pub strategy: TStrategy,
-}
-
-impl<TStrategy: Strategy> NetworkConfig<TStrategy> {
-    pub fn from_config(config: &Configuration, strategy: TStrategy) -> Self {
-        let key_pair = config.secio_key_pair();
-        let peer_id = key_pair.to_peer_id();
-        let bootstrap = config.bootstrap();
-        NetworkConfig {
-            key_pair,
-            peer_id,
-            bootstrap,
-            strategy,
         }
     }
 }

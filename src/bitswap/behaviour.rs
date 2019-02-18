@@ -9,6 +9,7 @@ use crate::bitswap::ledger::{Ledger, Message, Priority, I, O};
 use crate::bitswap::protocol::BitswapConfig;
 use crate::bitswap::strategy::{Strategy, StrategyEvent};
 use crate::block::{Block, Cid};
+use crate::p2p::SwarmTypes;
 use fnv::FnvHashSet;
 use futures::prelude::*;
 use libp2p::core::swarm::{
@@ -21,7 +22,7 @@ use std::marker::PhantomData;
 use tokio::prelude::*;
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
-pub struct Bitswap<TSubstream, TStrategy: Strategy> {
+pub struct Bitswap<TSubstream, TSwarmTypes: SwarmTypes> {
     /// Marker to pin the generics.
     marker: PhantomData<TSubstream>,
     /// Queue of events to report to the user.
@@ -33,12 +34,12 @@ pub struct Bitswap<TSubstream, TStrategy: Strategy> {
     /// Wanted blocks
     wanted_blocks: HashMap<Cid, Priority>,
     /// Strategy
-    strategy: TStrategy,
+    strategy: TSwarmTypes::TStrategy,
 }
 
-impl<TSubstream, TStrategy: Strategy> Bitswap<TSubstream, TStrategy> {
+impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
     /// Creates a `Bitswap`.
-    pub fn new(strategy: TStrategy) -> Self {
+    pub fn new(strategy: TSwarmTypes::TStrategy) -> Self {
         debug!("bitswap: new");
         Bitswap {
             marker: PhantomData,
@@ -118,7 +119,7 @@ impl<TSubstream, TStrategy: Strategy> Bitswap<TSubstream, TStrategy> {
     }
 }
 
-impl<TSubstream, TStrategy: Strategy> NetworkBehaviour for Bitswap<TSubstream, TStrategy>
+impl<TSubstream, TSwarmTypes: SwarmTypes> NetworkBehaviour for Bitswap<TSubstream, TSwarmTypes>
 where
     TSubstream: AsyncRead + AsyncWrite,
 {
