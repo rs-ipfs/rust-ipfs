@@ -30,8 +30,14 @@ const CONFIG_FILE: &str = "config.json";
 
 /// Default IPFS types.
 pub struct Types;
-impl RepoTypes for Types {}
-impl SwarmTypes for Types {}
+impl RepoTypes for Types {
+    type TBlockStore = repo::mem::MemBlockStore;
+    type TDataStore = repo::mem::MemDataStore;
+    type TRepo = repo::IpfsRepo<Self::TBlockStore, Self::TDataStore>;
+}
+impl SwarmTypes for Types {
+    type TStrategy = bitswap::strategy::AltruisticStrategy<Self>;
+}
 impl IpfsTypes for Types {}
 
 /// All types can be changed at compile time by implementing

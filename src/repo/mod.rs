@@ -1,14 +1,15 @@
 //! IPFS repo
 use crate::block::{Cid, Block};
 use crate::config::ConfigFile;
-use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
+
+pub mod mem;
+pub mod fs;
 
 pub trait RepoTypes {
-    type TBlockStore: BlockStore = MemBlockStore;
-    type TDataStore: DataStore = MemDataStore;
-    type TRepo: Repo<Self::TBlockStore, Self::TDataStore> = IpfsRepo<Self::TBlockStore, Self::TDataStore>;
+    type TBlockStore: BlockStore;
+    type TDataStore: DataStore;
+    type TRepo: Repo<Self::TBlockStore, Self::TDataStore>;
 }
 
 #[derive(Clone, Debug, Default)]
@@ -87,50 +88,5 @@ impl<BS: BlockStore, DS: DataStore> Repo<BS, DS> for IpfsRepo<BS, DS> {
 
     fn data(&self) -> &DS {
         &self.data_store
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct MemBlockStore {
-    blocks: Arc<Mutex<HashMap<Cid, Block>>>,
-}
-
-impl BlockStore for MemBlockStore {
-    fn new() -> Self {
-        MemBlockStore {
-            blocks: Arc::new(Mutex::new(HashMap::new()))
-        }
-    }
-
-    fn contains(&self, cid: &Cid) -> bool {
-        self.blocks.lock().unwrap().contains_key(cid)
-    }
-
-    fn get(&self, cid: &Cid) -> Option<Block> {
-        self.blocks.lock().unwrap()
-            .get(cid)
-            .map(|block| block.to_owned())
-    }
-
-    fn put(&self, block: Block) -> Cid {
-        let cid = block.cid();
-        self.blocks.lock().unwrap()
-            .insert(cid.clone(), block);
-        cid
-    }
-
-    fn remove(&self, cid: &Cid) {
-        self.blocks.lock().unwrap().remove(cid);
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct MemDataStore {
-
-}
-
-impl DataStore for MemDataStore {
-    fn new() -> Self {
-        MemDataStore {}
     }
 }

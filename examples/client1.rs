@@ -1,18 +1,16 @@
 use futures::prelude::*;
 use ipfs::{Block, Ipfs, IpfsOptions, RepoTypes, SwarmTypes, IpfsTypes};
-use ipfs::repo::{IpfsRepo, MemBlockStore, MemDataStore};
-use ipfs::bitswap::strategy::AltruisticStrategy;
 
 struct Types;
 
 impl RepoTypes for Types {
-    type TBlockStore = MemBlockStore;
-    type TDataStore = MemDataStore;
-    type TRepo = IpfsRepo<Self::TBlockStore, Self::TDataStore>;
+    type TBlockStore = ipfs::repo::mem::MemBlockStore;
+    type TDataStore = ipfs::repo::mem::MemDataStore;
+    type TRepo = ipfs::repo::IpfsRepo<Self::TBlockStore, Self::TDataStore>;
 }
 
 impl SwarmTypes for Types {
-    type TStrategy = AltruisticStrategy<Self>;
+    type TStrategy = ipfs::bitswap::strategy::AltruisticStrategy<Self>;
 }
 
 impl IpfsTypes for Types {}

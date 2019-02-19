@@ -1,5 +1,5 @@
 //! P2P handling for IPFS nodes.
-use crate::bitswap::{strategy::AltruisticStrategy, Strategy};
+use crate::bitswap::Strategy;
 use crate::config::ConfigFile;
 use crate::repo::RepoTypes;
 use libp2p::{Multiaddr, PeerId};
@@ -13,7 +13,7 @@ mod transport;
 pub type TSwarm<SwarmTypes> = Swarm<transport::TTransport, behaviour::TBehaviour<SwarmTypes>>;
 
 pub trait SwarmTypes: RepoTypes + Sized {
-    type TStrategy: Strategy<Self> = AltruisticStrategy<Self>;
+    type TStrategy: Strategy<Self>;
 }
 
 pub struct SwarmOptions<TSwarmTypes: SwarmTypes> {
