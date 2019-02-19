@@ -1,6 +1,6 @@
 //! P2P handling for IPFS nodes.
 use crate::bitswap::Strategy;
-use crate::config::ConfigFile;
+use crate::IpfsOptions;
 use crate::repo::RepoTypes;
 use libp2p::{Multiaddr, PeerId};
 use libp2p::core::Swarm;
@@ -23,11 +23,11 @@ pub struct SwarmOptions<TSwarmTypes: SwarmTypes> {
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
 }
 
-impl<TSwarmTypes: SwarmTypes> From<&ConfigFile> for SwarmOptions<TSwarmTypes> {
-    fn from(config: &ConfigFile) -> Self {
-        let key_pair = config.secio_key_pair();
+impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions> for SwarmOptions<TSwarmTypes> {
+    fn from(options: &IpfsOptions) -> Self {
+        let key_pair = options.config.secio_key_pair();
         let peer_id = key_pair.to_peer_id();
-        let bootstrap = config.bootstrap();
+        let bootstrap = options.config.bootstrap();
         SwarmOptions {
             _marker: PhantomData,
             key_pair,

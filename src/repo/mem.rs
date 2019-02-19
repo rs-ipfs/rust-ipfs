@@ -2,6 +2,7 @@
 use crate::block::{Cid, Block};
 use crate::repo::{BlockStore, DataStore};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
@@ -10,7 +11,7 @@ pub struct MemBlockStore {
 }
 
 impl BlockStore for MemBlockStore {
-    fn new() -> Self {
+    fn new(_path: PathBuf) -> Self {
         MemBlockStore {
             blocks: Arc::new(Mutex::new(HashMap::new()))
         }
@@ -44,7 +45,7 @@ pub struct MemDataStore {
 }
 
 impl DataStore for MemDataStore {
-    fn new() -> Self {
+    fn new(_path: PathBuf) -> Self {
         MemDataStore {}
     }
 }

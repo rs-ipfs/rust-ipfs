@@ -96,9 +96,9 @@ pub struct Ipfs<Types: IpfsTypes> {
 impl<Types: IpfsTypes> Ipfs<Types> {
     /// Creates a new ipfs node.
     pub fn new(options: IpfsOptions) -> Self {
-        let repo_options = RepoOptions::<Types>::from(&options.config);
+        let repo_options = RepoOptions::<Types>::from(&options);
         let repo = create_repo(repo_options);
-        let swarm_options = SwarmOptions::<Types>::from(&options.config);
+        let swarm_options = SwarmOptions::<Types>::from(&options);
         let swarm = create_swarm(swarm_options, repo.clone());
 
         Ipfs {

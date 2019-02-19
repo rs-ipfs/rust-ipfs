@@ -1,7 +1,8 @@
 //! IPFS repo
 use crate::block::{Cid, Block};
-use crate::config::ConfigFile;
+use crate::IpfsOptions;
 use std::marker::PhantomData;
+use std::path::PathBuf;
 
 pub mod mem;
 pub mod fs;
@@ -12,26 +13,31 @@ pub trait RepoTypes {
     type TRepo: Repo<Self::TBlockStore, Self::TDataStore>;
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct RepoOptions<TRepoTypes: RepoTypes> {
     _marker: PhantomData<TRepoTypes>,
+    path: PathBuf,
 }
 
-impl<TRepoTypes: RepoTypes> From<&ConfigFile> for RepoOptions<TRepoTypes> {
-    fn from(_config: &ConfigFile) -> Self {
+impl<TRepoTypes: RepoTypes> From<&IpfsOptions> for RepoOptions<TRepoTypes> {
+    fn from(options: &IpfsOptions) -> Self {
         RepoOptions {
             _marker: PhantomData,
+            path: options.ipfs_path.clone(),
         }
     }
 }
 
-pub fn create_repo<TRepoTypes: RepoTypes>(_options: RepoOptions<TRepoTypes>) -> TRepoTypes::TRepo {
-    TRepoTypes::TRepo::new(TRepoTypes::TBlockStore::new(), TRepoTypes::TDataStore::new())
+pub fn create_repo<TRepoTypes: RepoTypes>(options: RepoOptions<TRepoTypes>) -> TRepoTypes::TRepo {
+    TRepoTypes::TRepo::new(
+        TRepoTypes::TBlockStore::new(options.path.clone()),
+        TRepoTypes::TDataStore::new(options.path),
+    )
 }
 
 
 pub trait BlockStore: Clone + Send {
-    fn new() -> Self;
+    fn new(path: PathBuf) -> Self;
     fn contains(&self, cid: &Cid) -> bool;
     fn get(&self, cid: &Cid) -> Option<Block>;
     fn put(&self, block: Block) -> Cid;
@@ -39,7 +45,7 @@ pub trait BlockStore: Clone + Send {
 }
 
 pub trait DataStore: Clone + Send {
-    fn new() -> Self;
+    fn new(path: PathBuf) -> Self;
 }
 
 pub trait Repo<BS: BlockStore, DS: DataStore>: Clone + Send {
