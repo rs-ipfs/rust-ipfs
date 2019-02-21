@@ -1,6 +1,7 @@
 use crate::bitswap::{Bitswap, Strategy};
 use crate::block::Cid;
 use crate::p2p::{SwarmOptions, SwarmTypes};
+use crate::repo::Repo;
 use libp2p::{NetworkBehaviour, PeerId};
 use libp2p::core::swarm::NetworkBehaviourEventProcess;
 use libp2p::core::muxing::{StreamMuxerBox, SubstreamRef};
@@ -87,7 +88,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
 impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
 {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
-    pub fn new(options: SwarmOptions<TSwarmTypes>, repo: TSwarmTypes::TRepo) -> Self {
+    pub fn new(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Self {
         info!("Local peer id: {}", options.peer_id.to_base58());
 
         let mdns = Mdns::new().expect("Failed to create mDNS service");
@@ -114,7 +115,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
         self.bitswap.want_block(cid, 1);
     }
 
-    pub fn provide_block(&mut self, cid: &Cid) {
+    pub fn provide_block(&mut self, cid: Cid) {
         info!("Providing block {}", cid.to_string());
         let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
         self.kademlia.add_providing(PeerId::from_multihash(hash).unwrap());
@@ -131,6 +132,6 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
 pub(crate) type TBehaviour<TSwarmTypes> = Behaviour<SubstreamRef<Arc<StreamMuxerBox>>, TSwarmTypes>;
 
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
-pub fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: TSwarmTypes::TRepo) -> TBehaviour<TSwarmTypes> {
+pub fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TBehaviour<TSwarmTypes> {
     Behaviour::new(options, repo)
 }

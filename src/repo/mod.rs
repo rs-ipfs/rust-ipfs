@@ -1,16 +1,17 @@
 //! IPFS repo
 use crate::block::{Cid, Block};
 use crate::IpfsOptions;
+use futures::future::FutureObj;
+use futures::join;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
 pub mod mem;
 pub mod fs;
 
-pub trait RepoTypes {
+pub trait RepoTypes: Clone + Send + 'static {
     type TBlockStore: BlockStore;
     type TDataStore: DataStore;
-    type TRepo: Repo<Self::TBlockStore, Self::TDataStore>;
 }
 
 #[derive(Clone, Debug)]
@@ -28,71 +29,52 @@ impl<TRepoTypes: RepoTypes> From<&IpfsOptions> for RepoOptions<TRepoTypes> {
     }
 }
 
-pub fn create_repo<TRepoTypes: RepoTypes>(options: RepoOptions<TRepoTypes>) -> TRepoTypes::TRepo {
-    TRepoTypes::TRepo::new(
+pub fn create_repo<TRepoTypes: RepoTypes>(options: RepoOptions<TRepoTypes>) -> Repo<TRepoTypes> {
+    Repo::new(
         TRepoTypes::TBlockStore::new(options.path.clone()),
         TRepoTypes::TDataStore::new(options.path),
     )
 }
 
-
-pub trait BlockStore: Clone + Send {
+pub trait BlockStore: Clone + Send + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
-    fn contains(&self, cid: &Cid) -> bool;
-    fn get(&self, cid: &Cid) -> Option<Block>;
-    fn put(&self, block: Block) -> Cid;
-    fn remove(&self, cid: &Cid);
+    fn init(&self) -> FutureObj<'static, ()> {
+        FutureObj::new(Box::new(futures::future::ready(())))
+    }
+    fn contains(&self, cid: Cid) -> FutureObj<'static, bool>;
+    fn get(&self, cid: Cid) -> FutureObj<'static, Option<Block>>;
+    fn put(&self, block: Block) -> FutureObj<'static, Cid>;
+    fn remove(&self, cid: Cid) -> FutureObj<'static, ()>;
 }
 
-pub trait DataStore: Clone + Send {
+pub trait DataStore: Clone + Send + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
-}
-
-pub trait Repo<BS: BlockStore, DS: DataStore>: Clone + Send {
-    fn new(block_store: BS, data_store: DS) -> Self;
-    fn init(&mut self);
-    fn open(&mut self);
-    fn close(&mut self);
-    fn exists(&self) -> bool;
-    fn blocks(&self) -> &BS;
-    fn data(&self) -> &DS;
+    fn init(&self) -> FutureObj<'static, ()> {
+        FutureObj::new(Box::new(futures::future::ready(())))
+    }
 }
 
 #[derive(Clone, Debug)]
-pub struct IpfsRepo<BS: BlockStore, DS: DataStore> {
-    block_store: BS,
-    data_store: DS,
+pub struct Repo<TRepoTypes: RepoTypes> {
+    pub block_store: TRepoTypes::TBlockStore,
+    pub data_store: TRepoTypes::TDataStore,
 }
 
-impl<BS: BlockStore, DS: DataStore> Repo<BS, DS> for IpfsRepo<BS, DS> {
-    fn new(block_store: BS, data_store: DS) -> Self {
-        IpfsRepo {
+impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
+    pub fn new(block_store: TRepoTypes::TBlockStore, data_store: TRepoTypes::TDataStore) -> Self {
+        Repo {
             block_store,
             data_store,
         }
     }
 
-    fn init(&mut self) {
-
-    }
-
-    fn open(&mut self) {
-
-    }
-
-    fn close(&mut self) {
-
-    }
-
-    fn exists(&self) -> bool {
-        false
-    }
-
-    fn blocks(&self) -> &BS {
-        &self.block_store
-    }
-
-    fn data(&self) -> &DS {
-        &self.data_store
+    pub fn init(&self) -> FutureObj<'static, ()> {
+        let block_store = self.block_store.clone();
+        let data_store = self.data_store.clone();
+        FutureObj::new(Box::new(async move {
+            let f1 = block_store.init();
+            let f2 = data_store.init();
+            join!(f1, f2);
+        }))
     }
 }

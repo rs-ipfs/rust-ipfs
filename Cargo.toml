@@ -8,7 +8,7 @@ edition = "2018"
 cid = { version = "*", git = "https://github.com/dvc94ch/rust-cid", branch = "implement-hash" }
 env_logger = "*"
 fnv = "*"
-futures = "*"
+futures-preview = { version = "0.3.0-alpha.13", features = ["compat"] }
 libp2p = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "e9535c5" }
 log = "*"
 multibase = "*"

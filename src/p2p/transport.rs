@@ -1,5 +1,4 @@
 use crate::p2p::{SwarmOptions, SwarmTypes};
-use futures::future::Future;
 use libp2p::{PeerId, Transport};
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::boxed::Boxed;
@@ -11,6 +10,7 @@ use libp2p::tcp::TcpConfig;
 use libp2p::yamux::Config as YamuxConfig;
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
+use tokio::prelude::*;
 
 /// Transport type.
 pub(crate) type TTransport = Boxed<(PeerId, StreamMuxerBox), Error>;

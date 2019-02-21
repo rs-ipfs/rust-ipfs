@@ -11,7 +11,6 @@ use crate::bitswap::strategy::{Strategy, StrategyEvent};
 use crate::block::{Block, Cid};
 use crate::p2p::SwarmTypes;
 use fnv::FnvHashSet;
-use futures::prelude::*;
 use libp2p::core::swarm::{
     ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };

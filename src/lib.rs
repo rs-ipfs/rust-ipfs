@@ -2,11 +2,18 @@
 //#![deny(missing_docs)]
 #![deny(warnings)]
 #![feature(associated_type_defaults)]
+#![feature(async_await, await_macro, futures_api)]
 #![feature(drain_filter)]
+
 #[macro_use] extern crate log;
+use futures::future::FutureObj;
 use futures::prelude::*;
-use futures::try_ready;
+use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Poll, Waker};
+use tokio::prelude::{Async, Stream as StreamOld};
 
 pub mod bitswap;
 pub mod block;
@@ -21,7 +28,7 @@ use self::future::BlockFuture;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::repo::RepoTypes;
-use self::repo::{create_repo, RepoOptions, BlockStore, Repo};
+use self::repo::{create_repo, RepoOptions, Repo, BlockStore};
 
 const IPFS_LOG: &str = "info";
 const IPFS_PATH: &str = "~/.rust-ipfs";
@@ -29,11 +36,11 @@ const XDG_APP_NAME: &str = "rust-ipfs";
 const CONFIG_FILE: &str = "config.json";
 
 /// Default IPFS types.
+#[derive(Clone)]
 pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::mem::MemBlockStore;
     type TDataStore = repo::mem::MemDataStore;
-    type TRepo = repo::IpfsRepo<Self::TBlockStore, Self::TDataStore>;
 }
 impl SwarmTypes for Types {
     type TStrategy = bitswap::strategy::AltruisticStrategy<Self>;
@@ -89,8 +96,15 @@ impl IpfsOptions {
 /// Ipfs struct creates a new IPFS node and is the main entry point
 /// for interacting with IPFS.
 pub struct Ipfs<Types: IpfsTypes> {
-    repo: Types::TRepo,
-    swarm: TSwarm<Types>,
+    repo: Repo<Types>,
+    swarm: Option<TSwarm<Types>>,
+    events: Arc<Mutex<VecDeque<IpfsEvent>>>,
+}
+
+enum IpfsEvent {
+    WantBlock(Cid),
+    ProvideBlock(Cid),
+    UnprovideBlock(Cid),
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
@@ -103,67 +117,97 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
         Ipfs {
             repo,
-            swarm,
+            swarm: Some(swarm),
+            events: Arc::new(Mutex::new(VecDeque::new())),
         }
+    }
+
+    /// Initialize the ipfs repo.
+    pub fn init_repo(&mut self) -> FutureObj<'static, ()> {
+        self.repo.init()
     }
 
     /// Puts a block into the ipfs repo.
-    pub fn put_block(&mut self, block: Block) -> Cid {
-        let cid = self.repo.blocks().put(block);
-        self.swarm.provide_block(&cid);
-        cid
+    pub fn put_block(&mut self, block: Block) -> FutureObj<'static, Cid> {
+        let events = self.events.clone();
+        let block_store = self.repo.block_store.clone();
+        FutureObj::new(Box::new(async move {
+            let cid = await!(block_store.put(block));
+            events.lock().unwrap().push_back(IpfsEvent::ProvideBlock(cid.clone()));
+            cid
+        }))
     }
 
     /// Retrives a block from the ipfs repo.
-    pub fn get_block(&mut self, cid: Cid) -> BlockFuture<Types::TBlockStore> {
-        if !self.repo.blocks().contains(&cid) {
-            self.swarm.want_block(cid.clone());
-        }
-        BlockFuture::new(self.repo.blocks().to_owned(), cid)
+    pub fn get_block(&mut self, cid: Cid) -> FutureObj<'static, Block> {
+        let events = self.events.clone();
+        let block_store = self.repo.block_store.clone();
+        FutureObj::new(Box::new(async move {
+            if !await!(block_store.contains(cid.clone())) {
+                events.lock().unwrap().push_back(IpfsEvent::WantBlock(cid.clone()));
+            }
+            await!(BlockFuture::new(block_store, cid))
+        }))
     }
 
     /// Remove block from the ipfs repo.
-    pub fn remove_block(&mut self, cid: Cid) {
-        self.repo.blocks().remove(&cid);
-        self.swarm.stop_providing_block(&cid);
+    pub fn remove_block(&mut self, cid: Cid) -> FutureObj<'static, ()> {
+        self.events.lock().unwrap().push_back(IpfsEvent::UnprovideBlock(cid.clone()));
+        self.repo.block_store.remove(cid)
+    }
+
+    /// Start daemon.
+    pub fn start_daemon(&mut self) -> IpfsFuture<Types> {
+        let events = self.events.clone();
+        let swarm = self.swarm.take().unwrap();
+        IpfsFuture {
+            events,
+            swarm: Box::new(swarm),
+        }
     }
 }
 
-impl<Types: IpfsTypes> Future for Ipfs<Types> {
-    type Item = ();
-    type Error = ();
+pub struct IpfsFuture<Types: SwarmTypes> {
+    swarm: Box<TSwarm<Types>>,
+    events: Arc<Mutex<VecDeque<IpfsEvent>>>,
+}
 
-    fn poll(&mut self) -> Result<Async<()>, ()> {
+impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
+    type Output = Result<(), ()>;
+
+    fn poll(self: Pin<&mut Self>, _waker: &Waker) -> Poll<Self::Output> {
+        let _self = self.get_mut();
         loop {
-            match self.swarm.poll().expect("Error while polling swarm") {
-                Async::Ready(Some(_)) => {}
-                Async::Ready(None) | Async::NotReady => break
+            for event in _self.events.lock().unwrap().drain(..) {
+                match event {
+                    IpfsEvent::WantBlock(cid) => {
+                        _self.swarm.want_block(cid);
+                    }
+                    IpfsEvent::ProvideBlock(cid) => {
+                        _self.swarm.provide_block(cid);
+                    }
+                    IpfsEvent::UnprovideBlock(cid) => {
+                        _self.swarm.stop_providing_block(&cid);
+                    }
+                }
+            }
+            let poll = _self.swarm.poll().expect("Error while polling swarm");
+            match poll {
+                Async::Ready(Some(_)) => {},
+                Async::Ready(None) => {
+                    return Poll::Ready(Ok(()));
+                },
+                Async::NotReady => {
+                    return Poll::Pending;
+                }
             }
         }
-
-        Ok(Async::NotReady)
     }
-}
-
-/// Run IPFS until the future completes.
-pub fn run_ipfs<F: Future<Item=(), Error=()> + Send + 'static, Types: IpfsTypes + 'static>(
-    mut ipfs: Ipfs<Types>,
-    mut future: F,
-) {
-    tokio::run(futures::future::poll_fn(move || {
-        match future.poll() {
-            Ok(Async::NotReady) => {
-                try_ready!(ipfs.poll());
-                Ok(Async::NotReady)
-            },
-            Ok(Async::Ready(value)) => Ok(Async::Ready(value)),
-            Err(err) => Err(err),
-        }
-    }));
 }
 
 #[cfg(test)]
 mod tests {
+    /*
     use super::*;
 
     #[test]
@@ -176,5 +220,5 @@ mod tests {
             assert_eq!(block, new_block);
         });
         run_ipfs(ipfs, future);
-    }
+    }*/
 }

@@ -1,11 +1,14 @@
 use crate::block::{Block, Cid};
 use crate::bitswap::Priority;
 use crate::repo::{BlockStore, Repo, RepoTypes};
+use futures::future::FutureObj;
+use futures::prelude::*;
 use libp2p::PeerId;
 use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 
-pub trait Strategy<TRepoTypes: RepoTypes>: Send {
-    fn new(repo: TRepoTypes::TRepo) -> Self;
+pub trait Strategy<TRepoTypes: RepoTypes>: Send + Unpin {
+    fn new(repo: Repo<TRepoTypes>) -> Self;
     fn process_want(&mut self, source: PeerId, cid: Cid, priority: Priority);
     fn process_block(&mut self, source: PeerId, block: Block);
     fn poll(&mut self) -> Option<StrategyEvent>;
@@ -19,15 +22,15 @@ pub enum StrategyEvent {
 }
 
 pub struct AltruisticStrategy<TRepoTypes: RepoTypes> {
-    repo: TRepoTypes::TRepo,
-    events: VecDeque<StrategyEvent>,
+    repo: Repo<TRepoTypes>,
+    events: Arc<Mutex<VecDeque<StrategyEvent>>>,
 }
 
 impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTypes> {
-    fn new(repo: TRepoTypes::TRepo) -> Self {
+    fn new(repo: Repo<TRepoTypes>) -> Self {
         AltruisticStrategy {
             repo,
-            events: VecDeque::new(),
+            events: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -39,24 +42,32 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
     ) {
         info!("Peer {} wants block {} with priority {}",
               source.to_base58(), cid.to_string(), priority);
-        let block = self.repo.blocks().get(&cid);
-        if block.is_some() {
-            self.events.push_back(StrategyEvent::Send {
-                peer_id: source,
-                block: block.unwrap(),
-            });
-        }
+        let events = self.events.clone();
+        let block_store = self.repo.block_store.clone();
+        tokio::spawn(FutureObj::new(Box::new(async move {
+            if let Some(block) = await!(block_store.get(cid)) {
+                events.lock().unwrap().push_back(StrategyEvent::Send {
+                    peer_id: source,
+                    block: block,
+                });
+            }
+            Ok(())
+        })).compat());
     }
 
     fn process_block(&mut self, source: PeerId, block: Block) {
         info!("Received block {} from peer {}",
               block.cid().to_string(),
               source.to_base58());
-        self.repo.blocks().put(block);
+        let future = self.repo.block_store.put(block);
+        tokio::spawn(FutureObj::new(Box::new(async move {
+            await!(future);
+            Ok(())
+        })).compat());
     }
 
     fn poll(&mut self) -> Option<StrategyEvent> {
-        self.events.pop_front()
+        self.events.lock().unwrap().pop_front()
     }
 }
 
