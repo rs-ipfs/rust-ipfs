@@ -30,28 +30,22 @@ impl<TRepoTypes: RepoTypes> From<&IpfsOptions> for RepoOptions<TRepoTypes> {
 }
 
 pub fn create_repo<TRepoTypes: RepoTypes>(options: RepoOptions<TRepoTypes>) -> Repo<TRepoTypes> {
-    Repo::new(
-        TRepoTypes::TBlockStore::new(options.path.clone()),
-        TRepoTypes::TDataStore::new(options.path),
-    )
+    Repo::new(options)
 }
 
 pub trait BlockStore: Clone + Send + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
-    fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
-        FutureObj::new(Box::new(futures::future::ok(())))
-    }
-    fn contains(&self, cid: Cid) -> FutureObj<'static, bool>;
-    fn get(&self, cid: Cid) -> FutureObj<'static, Option<Block>>;
+    fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>>;
+    fn open(&self) -> FutureObj<'static, Result<(), std::io::Error>>;
+    fn contains(&self, cid: Cid) -> FutureObj<'static, Result<bool, std::io::Error>>;
+    fn get(&self, cid: Cid) -> FutureObj<'static, Result<Option<Block>, std::io::Error>>;
     fn put(&self, block: Block) -> FutureObj<'static, Result<Cid, std::io::Error>>;
-    fn remove(&self, cid: Cid) -> FutureObj<'static, ()>;
+    fn remove(&self, cid: Cid) -> FutureObj<'static, Result<(), std::io::Error>>;
 }
 
 pub trait DataStore: Clone + Send + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
-    fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
-        FutureObj::new(Box::new(futures::future::ok(())))
-    }
+    fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>>;
 }
 
 #[derive(Clone, Debug)]
@@ -61,7 +55,13 @@ pub struct Repo<TRepoTypes: RepoTypes> {
 }
 
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
-    pub fn new(block_store: TRepoTypes::TBlockStore, data_store: TRepoTypes::TDataStore) -> Self {
+    pub fn new(options: RepoOptions<TRepoTypes>) -> Self {
+        let mut blockstore_path = options.path.clone();
+        let mut datastore_path = options.path;
+        blockstore_path.push("blockstore");
+        datastore_path.push("datastore");
+        let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
+        let data_store = TRepoTypes::TDataStore::new(datastore_path);
         Repo {
             block_store,
             data_store,
@@ -81,5 +81,39 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 r2
             }
         }))
+    }
+
+    pub fn open(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
+        self.block_store.open()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::prelude::*;
+    use std::env::temp_dir;
+
+    #[derive(Clone)]
+    struct Types;
+
+    impl RepoTypes for Types {
+        type TBlockStore = mem::MemBlockStore;
+        type TDataStore = mem::MemDataStore;
+    }
+
+    #[test]
+    fn test_repo() {
+        let mut tmp = temp_dir();
+        tmp.push("rust-ipfs-repo");
+        let options: RepoOptions<Types> = RepoOptions {
+            _marker: PhantomData,
+            path: tmp,
+        };
+        let repo = Repo::new(options);
+        tokio::run(FutureObj::new(Box::new(async move {
+            await!(repo.init()).unwrap();
+            Ok(())
+        })).compat());
     }
 }

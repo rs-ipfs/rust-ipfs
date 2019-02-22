@@ -9,7 +9,7 @@ use std::task::{Poll, Waker};
 pub struct BlockFuture<TBlockStore: BlockStore> {
     block_store: TBlockStore,
     cid: Cid,
-    future: FutureObj<'static, Option<Block>>,
+    future: FutureObj<'static, Result<Option<Block>, std::io::Error>>,
 }
 
 impl<TBlockStore: BlockStore> BlockFuture<TBlockStore> {
@@ -24,16 +24,19 @@ impl<TBlockStore: BlockStore> BlockFuture<TBlockStore> {
 }
 
 impl<TBlockStore: BlockStore> Future for BlockFuture<TBlockStore> {
-    type Output = Block;
+    type Output = Result<Block, std::io::Error>;
 
     fn poll(mut self: Pin<&mut Self>, waker: &Waker) -> Poll<Self::Output> {
         return match self.future.poll_unpin(waker) {
-            Poll::Ready(Some(block)) => Poll::Ready(block),
-            Poll::Ready(None) => {
+            Poll::Ready(Ok(Some(block))) => Poll::Ready(Ok(block)),
+            Poll::Ready(Ok(None)) => {
                 let future = self.block_store.get(self.cid.clone());
                 self.get_mut().future = future;
                 waker.wake();
                 Poll::Pending
+            },
+            Poll::Ready(Err(err)) => {
+                Poll::Ready(Err(err))
             },
             Poll::Pending => Poll::Pending,
         }

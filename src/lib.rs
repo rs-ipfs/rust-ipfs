@@ -132,6 +132,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         self.repo.init()
     }
 
+    /// Open the ipfs repo.
+    pub fn open_repo(&mut self) -> FutureObj<'static, Result<(), std::io::Error>> {
+        self.repo.open()
+    }
+
     /// Puts a block into the ipfs repo.
     pub fn put_block(&mut self, block: Block) -> FutureObj<'static, Result<Cid, std::io::Error>> {
         let events = self.events.clone();
@@ -144,11 +149,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Retrives a block from the ipfs repo.
-    pub fn get_block(&mut self, cid: Cid) -> FutureObj<'static, Block> {
+    pub fn get_block(&mut self, cid: Cid) -> FutureObj<'static, Result<Block, std::io::Error>> {
         let events = self.events.clone();
         let block_store = self.repo.block_store.clone();
         FutureObj::new(Box::new(async move {
-            if !await!(block_store.contains(cid.clone())) {
+            if !await!(block_store.contains(cid.clone()))? {
                 events.lock().unwrap().push_back(IpfsEvent::WantBlock(cid.clone()));
             }
             await!(BlockFuture::new(block_store, cid))
@@ -156,7 +161,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Remove block from the ipfs repo.
-    pub fn remove_block(&mut self, cid: Cid) -> FutureObj<'static, ()> {
+    pub fn remove_block(&mut self, cid: Cid) -> FutureObj<'static, Result<(), std::io::Error>> {
         self.events.lock().unwrap().push_back(IpfsEvent::UnprovideBlock(cid.clone()));
         self.repo.block_store.remove(cid)
     }

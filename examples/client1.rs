@@ -26,12 +26,14 @@ fn main() {
 
     tokio::run(FutureObj::new(Box::new(async move {
         tokio::spawn(ipfs.start_daemon().compat());
-
         await!(ipfs.init_repo()).unwrap();
+        await!(ipfs.open_repo()).unwrap();
+
         await!(ipfs.put_block(block)).unwrap();
-        let block = await!(ipfs.get_block(cid));
+        let block = await!(ipfs.get_block(cid.clone())).unwrap();
         println!("Received block with contents: {:?}",
                  String::from_utf8_lossy(&block.data()));
+
         Ok(())
     })).compat());
 }

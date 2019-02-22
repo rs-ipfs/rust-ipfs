@@ -14,7 +14,7 @@ fn main() {
         tokio::spawn(ipfs.start_daemon().compat());
 
         await!(ipfs.put_block(block)).unwrap();
-        let block = await!(ipfs.get_block(cid));
+        let block = await!(ipfs.get_block(cid)).unwrap();
         println!("Received block with contents: {:?}",
                  String::from_utf8_lossy(&block.data()));
         Ok(())

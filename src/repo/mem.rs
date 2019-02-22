@@ -18,16 +18,24 @@ impl BlockStore for MemBlockStore {
         }
     }
 
-    fn contains(&self, cid: Cid) -> FutureObj<'static, bool> {
-        let contains = self.blocks.lock().unwrap().contains_key(&cid);
-        FutureObj::new(Box::new(futures::future::ready(contains)))
+    fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
+        FutureObj::new(Box::new(futures::future::ok(())))
     }
 
-    fn get(&self, cid: Cid) -> FutureObj<'static, Option<Block>> {
+    fn open(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
+        FutureObj::new(Box::new(futures::future::ok(())))
+    }
+
+    fn contains(&self, cid: Cid) -> FutureObj<'static, Result<bool, std::io::Error>> {
+        let contains = self.blocks.lock().unwrap().contains_key(&cid);
+        FutureObj::new(Box::new(futures::future::ok(contains)))
+    }
+
+    fn get(&self, cid: Cid) -> FutureObj<'static, Result<Option<Block>, std::io::Error>> {
         let block = self.blocks.lock().unwrap()
             .get(&cid)
             .map(|block| block.to_owned());
-        FutureObj::new(Box::new(futures::future::ready(block)))
+        FutureObj::new(Box::new(futures::future::ok(block)))
     }
 
     fn put(&self, block: Block) -> FutureObj<'static, Result<Cid, std::io::Error>> {
@@ -37,9 +45,9 @@ impl BlockStore for MemBlockStore {
         FutureObj::new(Box::new(futures::future::ok(cid)))
     }
 
-    fn remove(&self, cid: Cid) -> FutureObj<'static, ()> {
+    fn remove(&self, cid: Cid) -> FutureObj<'static, Result<(), std::io::Error>> {
         self.blocks.lock().unwrap().remove(&cid);
-        FutureObj::new(Box::new(futures::future::ready(())))
+        FutureObj::new(Box::new(futures::future::ok(())))
     }
 }
 
@@ -51,5 +59,39 @@ pub struct MemDataStore {
 impl DataStore for MemDataStore {
     fn new(_path: PathBuf) -> Self {
         MemDataStore {}
+    }
+
+    fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
+        FutureObj::new(Box::new(futures::future::ok(())))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::prelude::*;
+    use std::env::temp_dir;
+
+    #[test]
+    fn test_mem_blockstore() {
+        let block = Block::from("1");
+        let tmp = temp_dir();
+        let block_store = MemBlockStore::new(tmp);
+        tokio::run(FutureObj::new(Box::new(async move {
+            await!(block_store.init()).unwrap();
+            await!(block_store.open()).unwrap();
+
+            assert!(!await!(block_store.contains(block.cid())).unwrap());
+            assert_eq!(await!(block_store.get(block.cid())).unwrap(), None);
+
+            await!(block_store.put(block.clone())).unwrap();
+            assert!(await!(block_store.contains(block.cid())).unwrap());
+            assert_eq!(await!(block_store.get(block.cid())).unwrap().unwrap(), block);
+
+            await!(block_store.remove(block.cid())).unwrap();
+            assert!(!await!(block_store.contains(block.cid())).unwrap());
+            assert_eq!(await!(block_store.get(block.cid())).unwrap(), None);
+            Ok(())
+        })).compat());
     }
 }

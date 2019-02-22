@@ -45,7 +45,7 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
         let events = self.events.clone();
         let block_store = self.repo.block_store.clone();
         tokio::spawn(FutureObj::new(Box::new(async move {
-            if let Some(block) = await!(block_store.get(cid)) {
+            if let Some(block) = await!(block_store.get(cid)).unwrap() {
                 events.lock().unwrap().push_back(StrategyEvent::Send {
                     peer_id: source,
                     block: block,
