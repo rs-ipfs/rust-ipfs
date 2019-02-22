@@ -31,7 +31,7 @@ pub use self::repo::RepoTypes;
 use self::repo::{create_repo, RepoOptions, Repo, BlockStore};
 
 const IPFS_LOG: &str = "info";
-const IPFS_PATH: &str = "~/.rust-ipfs";
+const IPFS_PATH: &str = ".rust-ipfs";
 const XDG_APP_NAME: &str = "rust-ipfs";
 const CONFIG_FILE: &str = "config.json";
 
@@ -67,7 +67,12 @@ impl IpfsOptions {
     /// Create `IpfsOptions` from environment.
     pub fn new() -> Self {
         let ipfs_log = std::env::var("IPFS_LOG").unwrap_or(IPFS_LOG.into());
-        let ipfs_path = std::env::var("IPFS_PATH").unwrap_or(IPFS_PATH.into()).into();
+        let ipfs_path = std::env::var("IPFS_PATH").unwrap_or_else(|_| {
+            let mut ipfs_path = std::env::var("HOME").unwrap_or("".into());
+            ipfs_path.push_str("/");
+            ipfs_path.push_str(IPFS_PATH);
+            ipfs_path
+        }).into();
         let xdg_dirs = xdg::BaseDirectories::with_prefix(XDG_APP_NAME).unwrap();
         let path = xdg_dirs.place_config_file(CONFIG_FILE).unwrap();
         let config = ConfigFile::new(path);
