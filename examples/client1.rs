@@ -7,7 +7,7 @@ use ipfs::{Block, Ipfs, IpfsOptions, RepoTypes, SwarmTypes, IpfsTypes};
 struct Types;
 
 impl RepoTypes for Types {
-    type TBlockStore = ipfs::repo::mem::MemBlockStore;
+    type TBlockStore = ipfs::repo::fs::FsBlockStore;
     type TDataStore = ipfs::repo::mem::MemDataStore;
 }
 
@@ -27,7 +27,8 @@ fn main() {
     tokio::run(FutureObj::new(Box::new(async move {
         tokio::spawn(ipfs.start_daemon().compat());
 
-        await!(ipfs.put_block(block));
+        await!(ipfs.init_repo()).unwrap();
+        await!(ipfs.put_block(block)).unwrap();
         let block = await!(ipfs.get_block(cid));
         println!("Received block with contents: {:?}",
                  String::from_utf8_lossy(&block.data()));

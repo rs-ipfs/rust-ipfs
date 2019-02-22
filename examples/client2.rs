@@ -13,7 +13,7 @@ fn main() {
     tokio::run(FutureObj::new(Box::new(async move {
         tokio::spawn(ipfs.start_daemon().compat());
 
-        await!(ipfs.put_block(block));
+        await!(ipfs.put_block(block)).unwrap();
         let block = await!(ipfs.get_block(cid));
         println!("Received block with contents: {:?}",
                  String::from_utf8_lossy(&block.data()));

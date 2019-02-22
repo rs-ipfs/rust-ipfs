@@ -30,11 +30,11 @@ impl BlockStore for MemBlockStore {
         FutureObj::new(Box::new(futures::future::ready(block)))
     }
 
-    fn put(&self, block: Block) -> FutureObj<'static, Cid> {
+    fn put(&self, block: Block) -> FutureObj<'static, Result<Cid, std::io::Error>> {
         let cid = block.cid();
         self.blocks.lock().unwrap()
             .insert(cid.clone(), block);
-        FutureObj::new(Box::new(futures::future::ready(cid)))
+        FutureObj::new(Box::new(futures::future::ok(cid)))
     }
 
     fn remove(&self, cid: Cid) -> FutureObj<'static, ()> {

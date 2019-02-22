@@ -38,19 +38,19 @@ pub fn create_repo<TRepoTypes: RepoTypes>(options: RepoOptions<TRepoTypes>) -> R
 
 pub trait BlockStore: Clone + Send + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
-    fn init(&self) -> FutureObj<'static, ()> {
-        FutureObj::new(Box::new(futures::future::ready(())))
+    fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
+        FutureObj::new(Box::new(futures::future::ok(())))
     }
     fn contains(&self, cid: Cid) -> FutureObj<'static, bool>;
     fn get(&self, cid: Cid) -> FutureObj<'static, Option<Block>>;
-    fn put(&self, block: Block) -> FutureObj<'static, Cid>;
+    fn put(&self, block: Block) -> FutureObj<'static, Result<Cid, std::io::Error>>;
     fn remove(&self, cid: Cid) -> FutureObj<'static, ()>;
 }
 
 pub trait DataStore: Clone + Send + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
-    fn init(&self) -> FutureObj<'static, ()> {
-        FutureObj::new(Box::new(futures::future::ready(())))
+    fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
+        FutureObj::new(Box::new(futures::future::ok(())))
     }
 }
 
@@ -68,13 +68,18 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         }
     }
 
-    pub fn init(&self) -> FutureObj<'static, ()> {
+    pub fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
         let block_store = self.block_store.clone();
         let data_store = self.data_store.clone();
         FutureObj::new(Box::new(async move {
             let f1 = block_store.init();
             let f2 = data_store.init();
-            join!(f1, f2);
+            let (r1, r2) = join!(f1, f2);
+            if r1.is_err() {
+                r1
+            } else {
+                r2
+            }
         }))
     }
 }

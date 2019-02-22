@@ -3,9 +3,10 @@ use crate::block::{Cid, Block};
 use crate::repo::{BlockStore, DataStore};
 use std::collections::HashSet;
 use futures::future::FutureObj;
+use futures::compat::*;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-//use tokio::fs;
+use tokio::fs;
 
 #[derive(Clone, Debug)]
 pub struct FsBlockStore {
@@ -22,9 +23,8 @@ impl BlockStore for FsBlockStore {
         }
     }
 
-    fn init(&self) -> FutureObj<'static, ()> {
-        //FutureObj::new(Box::new(fs::create_dir_all(self.path.clone())))
-        FutureObj::new(Box::new(futures::future::ready(()))
+    fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
+        FutureObj::new(Box::new(fs::create_dir_all(self.path.clone()).compat()))
     }
 
     // TODO open
@@ -39,18 +39,16 @@ impl BlockStore for FsBlockStore {
         FutureObj::new(Box::new(futures::future::ready(None)))
     }
 
-    fn put(&self, block: Block) -> FutureObj<'static, Cid> {
-        let _path = block_path(self.path.clone(), &block);
-        FutureObj::new(Box::new(futures::future::ready(block.cid())))
-                 /*
-            fs::File::open(path)
-                .and_then(|file| {
-                    tokio::io::write_all(file, *block.data())
-                }).map(|_| {
-                    self.cids.lock().unwrap().insert(block.cid());
-                    block.cid()
-                })
-        )*/
+    fn put(&self, block: Block) -> FutureObj<'static, Result<Cid, std::io::Error>> {
+        let path = block_path(self.path.clone(), &block);
+        let cids = self.cids.clone();
+        FutureObj::new(Box::new(async move {
+            let file = await!(fs::File::create(path).compat())?;
+            let data = block.data();
+            await!(tokio::io::write_all(file, &*data).compat())?;
+            cids.lock().unwrap().insert(block.cid());
+            Ok(block.cid())
+        }))
     }
 
     fn remove(&self, _cid: Cid) -> FutureObj<'static, ()> {

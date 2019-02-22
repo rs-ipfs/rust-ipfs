@@ -128,18 +128,18 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Initialize the ipfs repo.
-    pub fn init_repo(&mut self) -> FutureObj<'static, ()> {
+    pub fn init_repo(&mut self) -> FutureObj<'static, Result<(), std::io::Error>> {
         self.repo.init()
     }
 
     /// Puts a block into the ipfs repo.
-    pub fn put_block(&mut self, block: Block) -> FutureObj<'static, Cid> {
+    pub fn put_block(&mut self, block: Block) -> FutureObj<'static, Result<Cid, std::io::Error>> {
         let events = self.events.clone();
         let block_store = self.repo.block_store.clone();
         FutureObj::new(Box::new(async move {
-            let cid = await!(block_store.put(block));
+            let cid = await!(block_store.put(block))?;
             events.lock().unwrap().push_back(IpfsEvent::ProvideBlock(cid.clone()));
-            cid
+            Ok(cid)
         }))
     }
 

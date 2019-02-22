@@ -61,7 +61,7 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
               source.to_base58());
         let future = self.repo.block_store.put(block);
         tokio::spawn(FutureObj::new(Box::new(async move {
-            await!(future);
+            await!(future).unwrap();
             Ok(())
         })).compat());
     }
