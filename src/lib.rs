@@ -39,7 +39,7 @@ const CONFIG_FILE: &str = "config.json";
 #[derive(Clone)]
 pub struct Types;
 impl RepoTypes for Types {
-    type TBlockStore = repo::mem::MemBlockStore;
+    type TBlockStore = repo::fs::FsBlockStore;
     type TDataStore = repo::mem::MemDataStore;
 }
 impl SwarmTypes for Types {

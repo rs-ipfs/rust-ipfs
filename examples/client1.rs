@@ -1,21 +1,7 @@
 #![feature(async_await, await_macro, futures_api)]
 use futures::future::FutureObj;
 use futures::prelude::*;
-use ipfs::{Block, Ipfs, IpfsOptions, RepoTypes, SwarmTypes, IpfsTypes};
-
-#[derive(Clone)]
-struct Types;
-
-impl RepoTypes for Types {
-    type TBlockStore = ipfs::repo::fs::FsBlockStore;
-    type TDataStore = ipfs::repo::mem::MemDataStore;
-}
-
-impl SwarmTypes for Types {
-    type TStrategy = ipfs::bitswap::strategy::AltruisticStrategy<Self>;
-}
-
-impl IpfsTypes for Types {}
+use ipfs::{Block, Ipfs, IpfsOptions, Types};
 
 fn main() {
     let options = IpfsOptions::new();
