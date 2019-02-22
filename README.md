@@ -1,27 +1,32 @@
 # Rust IPFS implementation
 Currently implements an altruistic bitswap strategy over mdns.
 
-## Known issues
-* The mdns implementation of `go-ipfs` and `js-ipfs` aren't compatible with `rust-libp2p`.
-* Locating providers via kademlia dht doesn't work.
-
 ## Getting started
 ```rust
+#![feature(async_await, await_macro, futures_api)]
+use futures::future::FutureObj;
 use futures::prelude::*;
-use ipfs::{Block, Ipfs, IpfsOptions};
+use ipfs::{Block, Ipfs, IpfsOptions, Types};
 
 fn main() {
     let options = IpfsOptions::new();
     env_logger::Builder::new().parse(&options.ipfs_log).init();
-    let mut ipfs = Ipfs::new(options);
+    let mut ipfs = Ipfs::<Types>::new(options);
     let block = Block::from("hello block2\n");
-    ipfs.put_block(block);
     let cid = Block::from("hello block\n").cid();
-    let future = ipfs.get_block(cid).map(|block| {
-        println!("Received block with contents: '{}'",
+
+    tokio::run(FutureObj::new(Box::new(async move {
+        tokio::spawn(ipfs.start_daemon().compat());
+        await!(ipfs.init_repo()).unwrap();
+        await!(ipfs.open_repo()).unwrap();
+
+        await!(ipfs.put_block(block)).unwrap();
+        let block = await!(ipfs.get_block(cid.clone())).unwrap();
+        println!("Received block with contents: {:?}",
                  String::from_utf8_lossy(&block.data()));
-    });
-    tokio::run(ipfs.join(future).map(|_| ()));
+
+        Ok(())
+    })).compat());
 }
 ```
 
