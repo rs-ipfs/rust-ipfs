@@ -16,7 +16,23 @@ impl IpldPath {
         }
     }
 
-    pub fn from(string: &str) -> Result<Self, IpldError> {
+    pub fn from(cid: Cid, string: &str) -> Result<Self, IpldError> {
+        let mut path = IpldPath::new(cid);
+        for sub_path in string.split("/") {
+            if sub_path == "" {
+                return Err(IpldError::InvalidPath(string.to_owned()));
+            }
+            let index = sub_path.parse::<usize>();
+            if index.is_ok() {
+                path.push(index.unwrap());
+            } else {
+                path.push(sub_path);
+            }
+        }
+        Ok(path)
+    }
+
+    pub fn from_str(string: &str) -> Result<Self, IpldError> {
         let mut subpath = string.split("/");
         if subpath.next() != Some("") {
             return Err(IpldError::InvalidPath(string.to_owned()));
@@ -26,16 +42,7 @@ impl IpldPath {
             return Err(IpldError::InvalidPath(string.to_owned()));
         }
         let cid = Arc::new(cid::Cid::from(cid_string.unwrap())?);
-        let mut path = IpldPath::new(cid);
-        for sub_path in subpath {
-            let index = sub_path.parse::<usize>();
-            if index.is_ok() {
-                path.push(index.unwrap());
-            } else {
-                path.push(sub_path);
-            }
-        }
-        Ok(path)
+        IpldPath::from(cid, &subpath.collect::<Vec<&str>>().join("/"))
     }
 
     pub fn root(&self) -> Cid {
@@ -129,9 +136,9 @@ mod tests {
     use crate::block::Block;
 
     #[test]
-    fn test_from_string() {
-        let string = "/QmRN6wdp1S2A5EtjW9A3M1vKSBuQQGcgvuhoMUoEz4iiT5/key/3";
-        let res = IpldPath::from(string).unwrap();
+    fn test_from() {
+        let cid = Block::from("hello").cid();
+        let res = IpldPath::from(cid, "key/3").unwrap();
 
         let cid = Block::from("hello").cid();
         let mut path = IpldPath::new(cid);
@@ -142,10 +149,33 @@ mod tests {
     }
 
     #[test]
-    fn test_from_string_errors() {
-        assert!(IpldPath::from("").is_err());
-        assert!(IpldPath::from("/").is_err());
-        assert!(IpldPath::from("/QmRN").is_err());
+    fn test_from_errors() {
+        let cid = Block::from("hello").cid();
+        assert!(IpldPath::from(cid.clone(), "").is_err());
+        assert!(IpldPath::from(cid.clone(), "/").is_err());
+        assert!(IpldPath::from(cid.clone(), "/abc").is_err());
+        assert!(IpldPath::from(cid.clone(), "abc/").is_err());
+        assert!(IpldPath::from(cid, "abc//de").is_err());
+    }
+
+    #[test]
+    fn test_from_str() {
+        let string = "/QmRN6wdp1S2A5EtjW9A3M1vKSBuQQGcgvuhoMUoEz4iiT5/key/3";
+        let res = IpldPath::from_str(string).unwrap();
+
+        let cid = Block::from("hello").cid();
+        let mut path = IpldPath::new(cid);
+        path.push("key");
+        path.push(3);
+
+        assert_eq!(path, res);
+    }
+
+    #[test]
+    fn test_from_str_errors() {
+        assert!(IpldPath::from_str("").is_err());
+        assert!(IpldPath::from_str("/").is_err());
+        assert!(IpldPath::from_str("/QmRN").is_err());
     }
 
     #[test]
