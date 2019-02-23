@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn test_resolve_array_elem() {
         let mut dag = IpldDag::new();
-        let data = Ipld::Array(vec![Ipld::U64(1), Ipld::U64(2), Ipld::U64(3)]);
+        let data = vec![1, 2, 3].into();
         let cid = dag.put(&data).unwrap();
 
         let mut path = IpldPath::new(cid);
@@ -109,10 +109,9 @@ mod tests {
     #[test]
     fn test_resolve_object_elem() {
         let mut dag = IpldDag::new();
-        let mut map = HashMap::new();
-        map.insert("key".to_string(), Ipld::Bool(false));
-        let data = Ipld::Object(map);
-        let cid = dag.put(&data).unwrap();
+        let mut data = HashMap::new();
+        data.insert("key", false);
+        let cid = dag.put(&data.into()).unwrap();
 
         let mut path = IpldPath::new(cid);
         path.push("key");
@@ -124,9 +123,9 @@ mod tests {
     #[test]
     fn test_resolve_cid_elem() {
         let mut dag = IpldDag::new();
-        let data1 = Ipld::Array(vec![Ipld::U64(1)]);
+        let data1 = vec![1].into();
         let cid1 = dag.put(&data1).unwrap();
-        let data2 = Ipld::Array(vec![Ipld::Cid(cid1)]);
+        let data2 = vec![cid1].into();
         let cid2 = dag.put(&data2).unwrap();
 
         let mut path = IpldPath::new(cid2);

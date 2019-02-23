@@ -106,3 +106,75 @@ impl Encodable for Ipld {
         }
     }
 }
+
+impl From<u32> for Ipld {
+    fn from(u: u32) -> Self {
+        Ipld::U64(u as u64)
+    }
+}
+
+impl From<u64> for Ipld {
+    fn from(u: u64) -> Self {
+        Ipld::U64(u)
+    }
+}
+
+impl From<i32> for Ipld {
+    fn from(i: i32) -> Self {
+        Ipld::I64(i as i64)
+    }
+}
+
+impl From<i64> for Ipld {
+    fn from(i: i64) -> Self {
+        Ipld::I64(i)
+    }
+}
+
+impl From<Vec<u8>> for Ipld {
+    fn from(bytes: Vec<u8>) -> Self {
+        Ipld::Bytes(bytes)
+    }
+}
+
+impl From<String> for Ipld {
+    fn from(string: String) -> Self {
+        Ipld::String(string)
+    }
+}
+
+impl<T: Into<Ipld>> From<Vec<T>> for Ipld {
+    fn from(vec: Vec<T>) -> Self {
+        Ipld::Array(vec.into_iter().map(|ipld| ipld.into()).collect())
+    }
+}
+
+impl<T: Into<Ipld>> From<HashMap<String, T>> for Ipld {
+    fn from(map: HashMap<String, T>) -> Self {
+        Ipld::Object(map.into_iter().map(|(k, v)| (k, v.into())).collect())
+    }
+}
+
+impl<T: Into<Ipld>> From<HashMap<&str, T>> for Ipld {
+    fn from(map: HashMap<&str, T>) -> Self {
+        Ipld::Object(map.into_iter().map(|(k, v)| (k.to_string(), v.into())).collect())
+    }
+}
+
+impl From<f64> for Ipld {
+    fn from(f: f64) -> Self {
+        Ipld::F64(f)
+    }
+}
+
+impl From<bool> for Ipld {
+    fn from(b: bool) -> Self {
+        Ipld::Bool(b)
+    }
+}
+
+impl From<Cid> for Ipld {
+    fn from(cid: Cid) -> Self {
+        Ipld::Cid(cid)
+    }
+}
