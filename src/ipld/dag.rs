@@ -85,9 +85,7 @@ mod tests {
         let data = vec![1, 2, 3].into();
         let cid = dag.put(&data).unwrap();
 
-        let mut path = IpldPath::new(cid);
-        path.push(1);
-
+        let path = IpldPath::from(cid, "1").unwrap();
         let res = dag.get(&path).unwrap();
         assert_eq!(res, Some(Ipld::U64(2)));
     }
@@ -98,10 +96,7 @@ mod tests {
         let data = Ipld::Array(vec![Ipld::U64(1), Ipld::Array(vec![Ipld::U64(2)]), Ipld::U64(3)]);
         let cid = dag.put(&data).unwrap();
 
-        let mut path = IpldPath::new(cid);
-        path.push(1);
-        path.push(0);
-
+        let path = IpldPath::from(cid, "1/0").unwrap();
         let res = dag.get(&path).unwrap();
         assert_eq!(res, Some(Ipld::U64(2)));
     }
@@ -113,9 +108,7 @@ mod tests {
         data.insert("key", false);
         let cid = dag.put(&data.into()).unwrap();
 
-        let mut path = IpldPath::new(cid);
-        path.push("key");
-
+        let path = IpldPath::from(cid, "key").unwrap();
         let res = dag.get(&path).unwrap();
         assert_eq!(res, Some(Ipld::Bool(false)));
     }
@@ -128,10 +121,7 @@ mod tests {
         let data2 = vec![cid1].into();
         let cid2 = dag.put(&data2).unwrap();
 
-        let mut path = IpldPath::new(cid2);
-        path.push(0);
-        path.push(0);
-
+        let path = IpldPath::from(cid2, "0/0").unwrap();
         let res = dag.get(&path).unwrap();
         assert_eq!(res, Some(Ipld::U64(1)));
     }
