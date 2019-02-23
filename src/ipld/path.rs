@@ -1,5 +1,8 @@
 use crate::block::Cid;
+use crate::ipld::IpldError;
+use std::sync::Arc;
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct IpldPath {
     root: Cid,
     path: Vec<SubPath>,
@@ -11,6 +14,28 @@ impl IpldPath {
             root: cid,
             path: Vec::new(),
         }
+    }
+
+    pub fn from(string: &str) -> Result<Self, IpldError> {
+        let mut subpath = string.split("/");
+        if subpath.next() != Some("") {
+            return Err(IpldError::InvalidPath(string.to_owned()));
+        }
+        let cid_string = subpath.next();
+        if cid_string.is_none() {
+            return Err(IpldError::InvalidPath(string.to_owned()));
+        }
+        let cid = Arc::new(cid::Cid::from(cid_string.unwrap())?);
+        let mut path = IpldPath::new(cid);
+        for sub_path in subpath {
+            let index = sub_path.parse::<usize>();
+            if index.is_ok() {
+                path.push(index.unwrap());
+            } else {
+                path.push(sub_path);
+            }
+        }
+        Ok(path)
     }
 
     pub fn root(&self) -> Cid {
@@ -37,6 +62,7 @@ impl IpldPath {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum SubPath {
     Key(String),
     Index(usize),
@@ -101,6 +127,26 @@ impl SubPath {
 mod tests {
     use super::*;
     use crate::block::Block;
+
+    #[test]
+    fn test_from_string() {
+        let string = "/QmRN6wdp1S2A5EtjW9A3M1vKSBuQQGcgvuhoMUoEz4iiT5/key/3";
+        let res = IpldPath::from(string).unwrap();
+
+        let cid = Block::from("hello").cid();
+        let mut path = IpldPath::new(cid);
+        path.push("key");
+        path.push(3);
+
+        assert_eq!(path, res);
+    }
+
+    #[test]
+    fn test_from_string_errors() {
+        assert!(IpldPath::from("").is_err());
+        assert!(IpldPath::from("/").is_err());
+        assert!(IpldPath::from("/QmRN").is_err());
+    }
 
     #[test]
     fn test_to_string() {

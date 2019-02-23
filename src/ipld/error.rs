@@ -7,6 +7,7 @@ use std::fmt::{self, Debug, Display};
 pub enum IpldError {
     UnsupportedCodec(Codec),
     CodecError(Box<dyn CodecError>),
+    InvalidPath(String),
 }
 
 pub trait CodecError: Display + Debug + Error {}
@@ -16,6 +17,7 @@ impl Error for IpldError {
         match *self {
             IpldError::UnsupportedCodec(_) => "unsupported codec",
             IpldError::CodecError(_) => "codec error",
+            IpldError::InvalidPath(_) => "invalid path",
         }
     }
 }
@@ -28,6 +30,9 @@ impl Display for IpldError {
             }
             IpldError::CodecError(ref err) => {
                 write!(f, "{}", err)
+            }
+            IpldError::InvalidPath(ref path) => {
+                write!(f, "Invalid path {:?}", path)
             }
         }
     }
