@@ -1,7 +1,6 @@
 //! IPFS node implementation
 //#![deny(missing_docs)]
 #![deny(warnings)]
-#![feature(associated_type_defaults)]
 #![feature(async_await, await_macro, futures_api)]
 #![feature(drain_filter)]
 
@@ -19,6 +18,7 @@ pub mod bitswap;
 pub mod block;
 mod config;
 mod future;
+pub mod ipld;
 pub mod p2p;
 pub mod repo;
 
