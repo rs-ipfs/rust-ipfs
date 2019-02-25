@@ -9,7 +9,7 @@ use std::path::PathBuf;
 pub mod mem;
 pub mod fs;
 
-pub trait RepoTypes: Clone + Send + 'static {
+pub trait RepoTypes: Clone + Send + Sync + 'static {
     type TBlockStore: BlockStore;
     type TDataStore: DataStore;
 }
@@ -33,7 +33,7 @@ pub fn create_repo<TRepoTypes: RepoTypes>(options: RepoOptions<TRepoTypes>) -> R
     Repo::new(options)
 }
 
-pub trait BlockStore: Clone + Send + Unpin + 'static {
+pub trait BlockStore: Clone + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>>;
     fn open(&self) -> FutureObj<'static, Result<(), std::io::Error>>;
@@ -43,7 +43,7 @@ pub trait BlockStore: Clone + Send + Unpin + 'static {
     fn remove(&self, cid: Cid) -> FutureObj<'static, Result<(), std::io::Error>>;
 }
 
-pub trait DataStore: Clone + Send + Unpin + 'static {
+pub trait DataStore: Clone + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>>;
 }
@@ -89,17 +89,27 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use futures::prelude::*;
     use std::env::temp_dir;
 
     #[derive(Clone)]
-    struct Types;
+    pub struct Types;
 
     impl RepoTypes for Types {
         type TBlockStore = mem::MemBlockStore;
         type TDataStore = mem::MemDataStore;
+    }
+
+    pub fn create_mock_repo() -> Repo<Types> {
+        let mut tmp = temp_dir();
+        tmp.push("rust-ipfs-repo");
+        let options: RepoOptions<Types> = RepoOptions {
+            _marker: PhantomData,
+            path: tmp,
+        };
+        Repo::new(options)
     }
 
     #[test]

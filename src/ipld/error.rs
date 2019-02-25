@@ -8,6 +8,7 @@ pub enum IpldError {
     UnsupportedCodec(Codec),
     CodecError(Box<dyn CodecError>),
     InvalidPath(String),
+    IoError(std::io::Error),
 }
 
 pub trait CodecError: Display + Debug + Error {}
@@ -18,6 +19,7 @@ impl Error for IpldError {
             IpldError::UnsupportedCodec(_) => "unsupported codec",
             IpldError::CodecError(_) => "codec error",
             IpldError::InvalidPath(_) => "invalid path",
+            IpldError::IoError(_) => "io error",
         }
     }
 }
@@ -34,6 +36,9 @@ impl Display for IpldError {
             IpldError::InvalidPath(ref path) => {
                 write!(f, "Invalid path {:?}", path)
             }
+            IpldError::IoError(ref err) => {
+                write!(f, "{}", err)
+            }
         }
     }
 }
@@ -46,3 +51,9 @@ impl<T: CodecError + 'static> From<T> for IpldError {
 
 impl CodecError for CidError {}
 impl CodecError for CborError {}
+
+impl From<std::io::Error> for IpldError {
+    fn from(error: std::io::Error) -> Self {
+        IpldError::IoError(error)
+    }
+}

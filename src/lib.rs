@@ -25,15 +25,17 @@ pub mod repo;
 pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
 use self::future::BlockFuture;
+use self::ipld::IpldDag;
+pub use self::ipld::{Ipld, IpldError, IpldPath};
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, RepoOptions, Repo, BlockStore};
 
-const IPFS_LOG: &str = "info";
-const IPFS_PATH: &str = ".rust-ipfs";
-const XDG_APP_NAME: &str = "rust-ipfs";
-const CONFIG_FILE: &str = "config.json";
+static IPFS_LOG: &str = "info";
+static IPFS_PATH: &str = ".rust-ipfs";
+static XDG_APP_NAME: &str = "rust-ipfs";
+static CONFIG_FILE: &str = "config.json";
 
 /// Default IPFS types.
 #[derive(Clone)]
@@ -102,6 +104,7 @@ impl IpfsOptions {
 /// for interacting with IPFS.
 pub struct Ipfs<Types: IpfsTypes> {
     repo: Repo<Types>,
+    dag: IpldDag<Types>,
     swarm: Option<TSwarm<Types>>,
     events: Arc<Mutex<VecDeque<IpfsEvent>>>,
 }
@@ -119,9 +122,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         let repo = create_repo(repo_options);
         let swarm_options = SwarmOptions::<Types>::from(&options);
         let swarm = create_swarm(swarm_options, repo.clone());
+        let dag = IpldDag::new(repo.clone());
 
         Ipfs {
             repo,
+            dag,
             swarm: Some(swarm),
             events: Arc::new(Mutex::new(VecDeque::new())),
         }
@@ -164,6 +169,16 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     pub fn remove_block(&mut self, cid: Cid) -> FutureObj<'static, Result<(), std::io::Error>> {
         self.events.lock().unwrap().push_back(IpfsEvent::UnprovideBlock(cid.clone()));
         self.repo.block_store.remove(cid)
+    }
+
+    /// Puts an ipld dag node into the ipfs repo.
+    pub fn put_dag(&self, ipld: Ipld) -> FutureObj<'static, Result<Cid, IpldError>> {
+        self.dag.put(ipld)
+    }
+
+    /// Gets an ipld dag node from the ipfs repo.
+    pub fn get_dag(&self, path: IpldPath) -> FutureObj<'static, Result<Option<Ipld>, IpldError>> {
+        self.dag.get(path)
     }
 
     /// Start daemon.
