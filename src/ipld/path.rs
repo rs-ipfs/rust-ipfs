@@ -69,6 +69,12 @@ impl IpldPath {
     }
 }
 
+impl From<Cid> for IpldPath {
+    fn from(cid: Cid) -> Self {
+        IpldPath::new(cid)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum SubPath {
     Key(String),

@@ -113,6 +113,7 @@ enum IpfsEvent {
     WantBlock(Cid),
     ProvideBlock(Cid),
     UnprovideBlock(Cid),
+    Exit,
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
@@ -190,6 +191,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             swarm: Box::new(swarm),
         }
     }
+
+    /// Exit daemon.
+    pub fn exit_daemon(&mut self) {
+        self.events.lock().unwrap().push_back(IpfsEvent::Exit)
+    }
 }
 
 pub struct IpfsFuture<Types: SwarmTypes> {
@@ -198,7 +204,7 @@ pub struct IpfsFuture<Types: SwarmTypes> {
 }
 
 impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
-    type Output = Result<(), ()>;
+    type Output = ();
 
     fn poll(self: Pin<&mut Self>, _waker: &Waker) -> Poll<Self::Output> {
         let _self = self.get_mut();
@@ -214,13 +220,16 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     IpfsEvent::UnprovideBlock(cid) => {
                         _self.swarm.stop_providing_block(&cid);
                     }
+                    IpfsEvent::Exit => {
+                        return Poll::Ready(());
+                    }
                 }
             }
             let poll = _self.swarm.poll().expect("Error while polling swarm");
             match poll {
                 Async::Ready(Some(_)) => {},
                 Async::Ready(None) => {
-                    return Poll::Ready(Ok(()));
+                    return Poll::Ready(());
                 },
                 Async::NotReady => {
                     return Poll::Pending;
@@ -232,18 +241,53 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 
 #[cfg(test)]
 mod tests {
-    /*
     use super::*;
+
+    #[derive(Clone)]
+    struct Types;
+
+    impl RepoTypes for Types {
+        type TBlockStore = crate::repo::mem::MemBlockStore;
+        type TDataStore = crate::repo::mem::MemDataStore;
+    }
+
+    impl SwarmTypes for Types {
+        type TStrategy = crate::bitswap::strategy::AltruisticStrategy<Self>;
+    }
+
+    impl IpfsTypes for Types {}
 
     #[test]
     fn test_put_and_get_block() {
         let options = IpfsOptions::test();
-        let mut ipfs = Ipfs::new(options);
+        let mut ipfs = Ipfs::<Types>::new(options);
         let block = Block::from("hello block\n");
-        let cid = ipfs.put_block(block.clone());
-        let future = ipfs.get_block(cid).map(move |new_block| {
+
+        tokio::run_async(async move {
+            tokio::spawn_async(ipfs.start_daemon());
+
+            let cid = await!(ipfs.put_block(block.clone())).unwrap();
+            let new_block = await!(ipfs.get_block(cid)).unwrap();
             assert_eq!(block, new_block);
+
+            ipfs.exit_daemon();
         });
-        run_ipfs(ipfs, future);
-    }*/
+    }
+
+    #[test]
+    fn test_put_and_get_dag() {
+        let options = IpfsOptions::test();
+        let mut ipfs = Ipfs::<Types>::new(options);
+
+        tokio::run_async(async move {
+            tokio::spawn_async(ipfs.start_daemon());
+
+            let data: Ipld = vec![-1, -2, -3].into();
+            let cid = await!(ipfs.put_dag(data.clone())).unwrap();
+            let new_data = await!(ipfs.get_dag(cid.into())).unwrap();
+            assert_eq!(Some(data), new_data);
+
+            ipfs.exit_daemon();
+        });
+    }
 }

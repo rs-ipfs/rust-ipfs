@@ -1,6 +1,4 @@
 #![feature(async_await, await_macro, futures_api)]
-use futures::future::FutureObj;
-use futures::prelude::*;
 use ipfs::{Block, Ipfs, IpfsOptions, Types};
 
 fn main() {
@@ -10,8 +8,8 @@ fn main() {
     let block = Block::from("hello block2\n");
     let cid = Block::from("hello block\n").cid();
 
-    tokio::run(FutureObj::new(Box::new(async move {
-        tokio::spawn(ipfs.start_daemon().compat());
+    tokio::run_async(async move {
+        tokio::spawn_async(ipfs.start_daemon());
         await!(ipfs.init_repo()).unwrap();
         await!(ipfs.open_repo()).unwrap();
 
@@ -19,7 +17,5 @@ fn main() {
         let block = await!(ipfs.get_block(cid.clone())).unwrap();
         println!("Received block with contents: {:?}",
                  String::from_utf8_lossy(&block.data()));
-
-        Ok(())
-    })).compat());
+    });
 }
