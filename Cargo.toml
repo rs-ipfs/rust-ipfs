@@ -10,12 +10,12 @@ cid = { version = "*", git = "https://github.com/dvc94ch/rust-cid", branch = "im
 env_logger = "*"
 fnv = "*"
 futures-preview = { version = "0.3.0-alpha.13", features = ["compat"] }
-libp2p = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "e9535c5" }
+libp2p = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }
 log = "*"
 multibase = "*"
 multihash = "*"
-parity-multiaddr = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "e9535c5" }
-parity-multihash = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "e9535c5" }
+parity-multiaddr = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }
+parity-multihash = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }
 protobuf = "2.0.2"
 rand = "0.6"
 rustc-serialize = "0.3"
