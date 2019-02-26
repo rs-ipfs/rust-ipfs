@@ -32,7 +32,8 @@ impl<TBlockStore: BlockStore> Future for BlockFuture<TBlockStore> {
             Poll::Ready(Ok(None)) => {
                 let future = self.block_store.get(self.cid.clone());
                 self.get_mut().future = future;
-                waker.wake();
+                tokio::prelude::task::current().notify();
+                //waker.wake();
                 Poll::Pending
             },
             Poll::Ready(Err(err)) => {
