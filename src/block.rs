@@ -10,7 +10,7 @@ pub struct Block {
 
 impl Block {
     /// Creates a new immutable ipfs block.
-    pub fn new(data: Vec<u8>, cid: cid::Cid) -> Self {
+    pub fn new(data: Vec<u8>, cid: Cid) -> Self {
         Block {
             data,
             cid,
@@ -44,6 +44,12 @@ impl From<&str> for Block {
         let data = content.as_bytes().to_vec();
         let cid = cid::Cid::new_from_prefix(&prefix, &data);
         Block::new(data, cid)
+    }
+}
+
+impl Into<String> for Block {
+    fn into(self) -> String {
+        String::from_utf8_lossy(self.data()).to_string()
     }
 }
 
