@@ -5,8 +5,10 @@ use crate::repo::Repo;
 use libp2p::{NetworkBehaviour, PeerId};
 use libp2p::core::swarm::NetworkBehaviourEventProcess;
 use libp2p::core::muxing::{StreamMuxerBox, SubstreamRef};
+use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::kad::{Kademlia, KademliaOut as KademliaEvent};
 use libp2p::mdns::{Mdns, MdnsEvent};
+use libp2p::ping::{Ping, PingEvent};
 use parity_multihash::Multihash;
 use std::sync::Arc;
 use tokio::prelude::*;
@@ -17,6 +19,8 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes
     mdns: Mdns<TSubstream>,
     kademlia: Kademlia<TSubstream>,
     bitswap: Bitswap<TSubstream, TSwarmTypes>,
+    ping: Ping<TSubstream>,
+    identify: Identify<TSubstream>,
 }
 
 impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
@@ -85,6 +89,28 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     fn inject_event(&mut self, _event: ()) {}
 }
 
+impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+    NetworkBehaviourEventProcess<PingEvent> for
+    Behaviour<TSubstream, TSwarmTypes>
+{
+    fn inject_event(&mut self, event: PingEvent) {
+        match event {
+            PingEvent::PingSuccess { peer, time } => {
+                debug!("ping: rtt to {} is {} ms", peer.to_base58(), time.as_millis());
+            }
+        }
+    }
+}
+
+impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+    NetworkBehaviourEventProcess<IdentifyEvent> for
+    Behaviour<TSubstream, TSwarmTypes>
+{
+    fn inject_event(&mut self, event: IdentifyEvent) {
+        debug!("identify: {:?}", event);
+    }
+}
+
 impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
 {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
@@ -100,11 +126,19 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
 
         let strategy = TSwarmTypes::TStrategy::new(repo);
         let bitswap = Bitswap::new(strategy);
+        let ping = Ping::new();
+        let identify = Identify::new(
+            "/ipfs/0.1.0".into(),
+            "rust-ipfs".into(),
+            options.key_pair.to_public_key(),
+        );
 
         Behaviour {
             mdns,
             kademlia,
             bitswap,
+            ping,
+            identify,
         }
     }
 
