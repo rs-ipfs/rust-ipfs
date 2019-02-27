@@ -55,11 +55,11 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
     /// Called from Kademlia behaviour.
     pub fn connect(&mut self, peer_id: PeerId) {
         debug!("bitswap: connect");
-        if self.wanted_blocks.len() > 0 {
-            if self.target_peers.insert(peer_id.clone()) {
-                info!("  queuing dial_peer to {}", peer_id.to_base58());
-                self.events.push_back(NetworkBehaviourAction::DialPeer { peer_id });
-            }
+        if self.target_peers.insert(peer_id.clone()) {
+            debug!("  queuing dial_peer to {}", peer_id.to_base58());
+            self.events.push_back(NetworkBehaviourAction::DialPeer {
+                peer_id: peer_id.clone(),
+            });
         }
         debug!("");
     }
@@ -78,6 +78,22 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
             event: message,
         });
         debug!("");
+    }
+
+    /// Sends the wantlist to the peer.
+    fn send_want_list(&mut self, peer_id: PeerId) {
+        debug!("bitswap: send_want_list");
+        if !self.wanted_blocks.is_empty() {
+            let mut message = Message::new();
+            for (cid, priority) in &self.wanted_blocks {
+                message.want_block(cid, *priority);
+            }
+            debug!("  queuing wanted blocks");
+            self.events.push_back(NetworkBehaviourAction::SendEvent {
+                peer_id: peer_id.clone(),
+                event: message,
+            });
+        }
     }
 
     /// Queues the wanted block for all peers.
@@ -140,18 +156,8 @@ where
         debug!("  peer_id: {}", peer_id.to_base58());
         debug!("  connected_point: {:?}", cp);
         let ledger = Ledger::new();
-        if !self.wanted_blocks.is_empty() {
-            let mut message = Message::new();
-            for (cid, priority) in &self.wanted_blocks {
-                message.want_block(cid, *priority);
-            }
-            debug!("  queuing wanted blocks");
-            self.events.push_back(NetworkBehaviourAction::SendEvent {
-                peer_id: peer_id.clone(),
-                event: message,
-            });
-        }
-        self.connected_peers.insert(peer_id, ledger);
+        self.connected_peers.insert(peer_id.clone(), ledger);
+        self.send_want_list(peer_id);
         debug!("");
     }
 
@@ -204,18 +210,29 @@ where
         _: &mut PollParameters,
     ) -> Async<NetworkBehaviourAction<
             <Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
-        debug!("bitswap: poll");
         // TODO concat messages to same destination to reduce traffic.
         if let Some(event) = self.events.pop_front() {
-            if let NetworkBehaviourAction::SendEvent { peer_id, event } = &event {
-                let ledger = self.connected_peers.get_mut(&peer_id)
-                    .expect("Peer not in ledger?!");
-                ledger.update_outgoing_stats(&event);
-                debug!("  send_message to {}", peer_id.to_base58());
+            if let NetworkBehaviourAction::SendEvent { peer_id, event } = event {
+                let ledger = self.connected_peers.get_mut(&peer_id);
+                if ledger.is_none() {
+                    debug!("  requeueing send event to {}", peer_id.to_base58());
+                    self.events.push_back(NetworkBehaviourAction::SendEvent {
+                        peer_id,
+                        event,
+                    });
+                } else {
+                    ledger.unwrap().update_outgoing_stats(&event);
+                    debug!("  send_message to {}", peer_id.to_base58());
+                    return Async::Ready(NetworkBehaviourAction::SendEvent {
+                        peer_id,
+                        event,
+                    });
+                }
+            } else {
+                debug!("{:?}", event);
+                debug!("");
+                return Async::Ready(event);
             }
-            debug!("{:?}", event);
-            debug!("");
-            return Async::Ready(event);
         }
 
         match self.strategy.poll() {
