@@ -37,10 +37,10 @@ pub trait BlockStore: Clone + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>>;
     fn open(&self) -> FutureObj<'static, Result<(), std::io::Error>>;
-    fn contains(&self, cid: Cid) -> FutureObj<'static, Result<bool, std::io::Error>>;
-    fn get(&self, cid: Cid) -> FutureObj<'static, Result<Option<Block>, std::io::Error>>;
+    fn contains(&self, cid: &Cid) -> FutureObj<'static, Result<bool, std::io::Error>>;
+    fn get(&self, cid: &Cid) -> FutureObj<'static, Result<Option<Block>, std::io::Error>>;
     fn put(&self, block: Block) -> FutureObj<'static, Result<Cid, std::io::Error>>;
-    fn remove(&self, cid: Cid) -> FutureObj<'static, Result<(), std::io::Error>>;
+    fn remove(&self, cid: &Cid) -> FutureObj<'static, Result<(), std::io::Error>>;
 }
 
 pub trait DataStore: Clone + Send + Sync + Unpin + 'static {

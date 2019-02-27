@@ -155,11 +155,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Retrives a block from the ipfs repo.
-    pub fn get_block(&mut self, cid: Cid) -> FutureObj<'static, Result<Block, std::io::Error>> {
+    pub fn get_block(&mut self, cid: &Cid) -> FutureObj<'static, Result<Block, std::io::Error>> {
+        let cid = cid.to_owned();
         let events = self.events.clone();
         let block_store = self.repo.block_store.clone();
         FutureObj::new(Box::new(async move {
-            if !await!(block_store.contains(cid.clone()))? {
+            if !await!(block_store.contains(&cid))? {
                 events.lock().unwrap().push_back(IpfsEvent::WantBlock(cid.clone()));
             }
             await!(BlockFuture::new(block_store, cid))
@@ -167,8 +168,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Remove block from the ipfs repo.
-    pub fn remove_block(&mut self, cid: Cid) -> FutureObj<'static, Result<(), std::io::Error>> {
-        self.events.lock().unwrap().push_back(IpfsEvent::UnprovideBlock(cid.clone()));
+    pub fn remove_block(&mut self, cid: &Cid) -> FutureObj<'static, Result<(), std::io::Error>> {
+        self.events.lock().unwrap().push_back(IpfsEvent::UnprovideBlock(cid.to_owned()));
         self.repo.block_store.remove(cid)
     }
 
@@ -267,7 +268,7 @@ mod tests {
             tokio::spawn_async(ipfs.start_daemon());
 
             let cid = await!(ipfs.put_block(block.clone())).unwrap();
-            let new_block = await!(ipfs.get_block(cid)).unwrap();
+            let new_block = await!(ipfs.get_block(&cid)).unwrap();
             assert_eq!(block, new_block);
 
             ipfs.exit_daemon();

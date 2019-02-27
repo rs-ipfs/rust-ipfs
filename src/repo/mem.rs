@@ -26,27 +26,27 @@ impl BlockStore for MemBlockStore {
         FutureObj::new(Box::new(futures::future::ok(())))
     }
 
-    fn contains(&self, cid: Cid) -> FutureObj<'static, Result<bool, std::io::Error>> {
-        let contains = self.blocks.lock().unwrap().contains_key(&cid);
+    fn contains(&self, cid: &Cid) -> FutureObj<'static, Result<bool, std::io::Error>> {
+        let contains = self.blocks.lock().unwrap().contains_key(cid);
         FutureObj::new(Box::new(futures::future::ok(contains)))
     }
 
-    fn get(&self, cid: Cid) -> FutureObj<'static, Result<Option<Block>, std::io::Error>> {
+    fn get(&self, cid: &Cid) -> FutureObj<'static, Result<Option<Block>, std::io::Error>> {
         let block = self.blocks.lock().unwrap()
-            .get(&cid)
+            .get(cid)
             .map(|block| block.to_owned());
         FutureObj::new(Box::new(futures::future::ok(block)))
     }
 
     fn put(&self, block: Block) -> FutureObj<'static, Result<Cid, std::io::Error>> {
-        let cid = block.cid();
+        let cid = block.cid().to_owned();
         self.blocks.lock().unwrap()
             .insert(cid.clone(), block);
         FutureObj::new(Box::new(futures::future::ok(cid)))
     }
 
-    fn remove(&self, cid: Cid) -> FutureObj<'static, Result<(), std::io::Error>> {
-        self.blocks.lock().unwrap().remove(&cid);
+    fn remove(&self, cid: &Cid) -> FutureObj<'static, Result<(), std::io::Error>> {
+        self.blocks.lock().unwrap().remove(cid);
         FutureObj::new(Box::new(futures::future::ok(())))
     }
 }
@@ -69,7 +69,6 @@ impl DataStore for MemDataStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::prelude::*;
     use std::env::temp_dir;
 
     #[test]
@@ -77,7 +76,7 @@ mod tests {
         let block = Block::from("1");
         let tmp = temp_dir();
         let block_store = MemBlockStore::new(tmp);
-        tokio::run(FutureObj::new(Box::new(async move {
+        tokio::run_async(async move {
             await!(block_store.init()).unwrap();
             await!(block_store.open()).unwrap();
 
@@ -91,7 +90,6 @@ mod tests {
             await!(block_store.remove(block.cid())).unwrap();
             assert!(!await!(block_store.contains(block.cid())).unwrap());
             assert_eq!(await!(block_store.get(block.cid())).unwrap(), None);
-            Ok(())
-        })).compat());
+        });
     }
 }

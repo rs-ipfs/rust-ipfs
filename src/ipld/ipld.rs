@@ -56,11 +56,9 @@ impl Ipld {
     }
 
     pub fn from(block: &Block) -> Result<Self, IpldError> {
-        let codec = block.cid().prefix().codec;
-        let bytes = (*block.data()).clone();
-        let data = match codec {
+        let data = match block.cid().prefix().codec {
             Codec::DagCBOR => {
-                cbor::decode(bytes)?
+                cbor::decode(block.data().to_owned())?
             }
             codec => return Err(IpldError::UnsupportedCodec(codec)),
         };

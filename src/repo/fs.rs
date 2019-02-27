@@ -36,7 +36,7 @@ impl BlockStore for FsBlockStore {
                 let path = dir.path();
                 if path.extension() == Some(OsStr::new("data")) {
                     let cid_str = path.file_stem().unwrap();
-                    let cid = Arc::new(cid::Cid::from(cid_str.to_str().unwrap()).unwrap());
+                    let cid = Cid::from(cid_str.to_str().unwrap()).unwrap();
                     cids.lock().unwrap().insert(cid);
                 }
                 Ok(())
@@ -45,15 +45,16 @@ impl BlockStore for FsBlockStore {
         }))
     }
 
-    fn contains(&self, cid: Cid) -> FutureObj<'static, Result<bool, std::io::Error>> {
-        let contains = self.cids.lock().unwrap().contains(&cid);
+    fn contains(&self, cid: &Cid) -> FutureObj<'static, Result<bool, std::io::Error>> {
+        let contains = self.cids.lock().unwrap().contains(cid);
         FutureObj::new(Box::new(async move {
             Ok(contains)
         })
     }
 
-    fn get(&self, cid: Cid) -> FutureObj<'static, Result<Option<Block>, std::io::Error>> {
-        let path = block_path(self.path.clone(), &cid);
+    fn get(&self, cid: &Cid) -> FutureObj<'static, Result<Option<Block>, std::io::Error>> {
+        let path = block_path(self.path.clone(), cid);
+        let cid = cid.to_owned();
         FutureObj::new(Box::new(async move {
             let file = match await!(fs::File::open(path).compat()) {
                 Ok(file) => file,
@@ -66,7 +67,7 @@ impl BlockStore for FsBlockStore {
                 }
             };
             let (_, data) = await!(tokio::io::read_to_end(file, Vec::new()).compat())?;
-            let block = Block::new(data, (&*cid).to_owned());
+            let block = Block::new(data, cid);
             Ok(Some(block))
         }))
     }
@@ -78,13 +79,14 @@ impl BlockStore for FsBlockStore {
             let file = await!(fs::File::create(path).compat())?;
             let data = block.data();
             await!(tokio::io::write_all(file, &*data).compat())?;
-            cids.lock().unwrap().insert(block.cid());
-            Ok(block.cid())
+            cids.lock().unwrap().insert(block.cid().to_owned());
+            Ok(block.cid().to_owned())
         }))
     }
 
-    fn remove(&self, cid: Cid) -> FutureObj<'static, Result<(), std::io::Error>> {
-        let path = block_path(self.path.clone(), &cid);
+    fn remove(&self, cid: &Cid) -> FutureObj<'static, Result<(), std::io::Error>> {
+        let path = block_path(self.path.clone(), cid);
+        let cid = cid.to_owned();
         let cids = self.cids.clone();
         FutureObj::new(Box::new(async move {
             await!(fs::remove_file(path).compat())?;
@@ -121,7 +123,6 @@ fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::prelude::*;
     use std::env::temp_dir;
 
     #[test]
@@ -132,7 +133,7 @@ mod tests {
         std::fs::remove_dir_all(tmp.clone()).ok();
 
         let blockstore_path = tmp.clone();
-        tokio::run(FutureObj::new(Box::new(async move {
+        tokio::run_async(async move {
             let block_store = FsBlockStore::new(blockstore_path);
             await!(block_store.init()).unwrap();
             await!(block_store.open()).unwrap();
@@ -147,8 +148,7 @@ mod tests {
             await!(block_store.remove(block.cid())).unwrap();
             assert!(!await!(block_store.contains(block.cid())).unwrap());
             assert_eq!(await!(block_store.get(block.cid())).unwrap(), None);
-            Ok(())
-        })).compat());
+        });
 
         std::fs::remove_dir_all(tmp).ok();
     }
@@ -161,7 +161,7 @@ mod tests {
         std::fs::remove_dir_all(tmp.clone()).ok();
 
         let blockstore_path = tmp.clone();
-        tokio::run(FutureObj::new(Box::new(async move {
+        tokio::run_async(async move {
             let block_store = FsBlockStore::new(blockstore_path.clone());
             await!(block_store.init()).unwrap();
             await!(block_store.open()).unwrap();
@@ -173,8 +173,7 @@ mod tests {
             await!(block_store.open()).unwrap();
             assert!(await!(block_store.contains(block.cid())).unwrap());
             assert_eq!(await!(block_store.get(block.cid())).unwrap().unwrap(), block);
-            Ok(())
-        })).compat());
+        });
 
         std::fs::remove_dir_all(tmp).ok();
     }

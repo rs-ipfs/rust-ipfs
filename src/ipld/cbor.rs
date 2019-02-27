@@ -1,8 +1,8 @@
 use cbor::{Cbor, Decoder, Encoder};
 pub use cbor::{CborBytes, CborTagEncode, CborError, ReadError};
+use crate::block::Cid;
 use crate::ipld::{Ipld, IpldError};
 use rustc_serialize::{Encodable};
-use std::sync::Arc;
 
 pub(crate) fn decode(bytes: Vec<u8>) -> Result<Ipld, IpldError> {
     let mut d = Decoder::from_bytes(bytes);
@@ -47,8 +47,7 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, IpldError> {
         Cbor::Tag(tag) => {
             if tag.tag == 42 {
                 if let Cbor::Bytes(bytes) = *tag.data {
-                    let cid = Arc::new(cid::Cid::from(bytes.0)?);
-                    Ipld::Cid(cid)
+                    Ipld::Cid(Cid::from(bytes.0)?)
                 } else {
                     println!("{:?}", *tag.data);
                     let err = ReadError::Other("Invalid CID.".into());
@@ -78,7 +77,7 @@ mod tests {
 
     #[test]
     fn test_cid_encode_decode() {
-        let cid = Block::from("hello").cid();
+        let cid = Block::from("hello").cid().to_owned();
         let data = Ipld::Cid(cid);
         let bytes = encode(&data).unwrap();
         let data2 = decode(bytes).unwrap();

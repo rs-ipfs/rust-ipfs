@@ -1,6 +1,5 @@
 use crate::block::Cid;
 use crate::ipld::IpldError;
-use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IpldPath {
@@ -41,12 +40,12 @@ impl IpldPath {
         if cid_string.is_none() {
             return Err(IpldError::InvalidPath(string.to_owned()));
         }
-        let cid = Arc::new(cid::Cid::from(cid_string.unwrap())?);
+        let cid = Cid::from(cid_string.unwrap())?;
         IpldPath::from(cid, &subpath.collect::<Vec<&str>>().join("/"))
     }
 
-    pub fn root(&self) -> Cid {
-        self.root.to_owned()
+    pub fn root(&self) -> &Cid {
+        &self.root
     }
 
     pub fn push<T: Into<SubPath>>(&mut self, sub_path: T) {
@@ -143,10 +142,10 @@ mod tests {
 
     #[test]
     fn test_from() {
-        let cid = Block::from("hello").cid();
+        let cid = Block::from("hello").cid().to_owned();
         let res = IpldPath::from(cid, "key/3").unwrap();
 
-        let cid = Block::from("hello").cid();
+        let cid = Block::from("hello").cid().to_owned();
         let mut path = IpldPath::new(cid);
         path.push("key");
         path.push(3);
@@ -156,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_from_errors() {
-        let cid = Block::from("hello").cid();
+        let cid = Block::from("hello").cid().to_owned();
         assert!(IpldPath::from(cid.clone(), "").is_err());
         assert!(IpldPath::from(cid.clone(), "/").is_err());
         assert!(IpldPath::from(cid.clone(), "/abc").is_err());
@@ -169,7 +168,7 @@ mod tests {
         let string = "/QmRN6wdp1S2A5EtjW9A3M1vKSBuQQGcgvuhoMUoEz4iiT5/key/3";
         let res = IpldPath::from_str(string).unwrap();
 
-        let cid = Block::from("hello").cid();
+        let cid = Block::from("hello").cid().to_owned();
         let mut path = IpldPath::new(cid);
         path.push("key");
         path.push(3);
@@ -186,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_to_string() {
-        let cid = Block::from("hello").cid();
+        let cid = Block::from("hello").cid().to_owned();
         let mut path = IpldPath::new(cid);
         path.push("key");
         path.push(3);

@@ -14,7 +14,7 @@ pub struct BlockFuture<TBlockStore: BlockStore> {
 
 impl<TBlockStore: BlockStore> BlockFuture<TBlockStore> {
     pub fn new(block_store: TBlockStore, cid: Cid) -> Self {
-        let future = block_store.get(cid.clone());
+        let future = block_store.get(&cid);
         BlockFuture {
             block_store,
             cid,
@@ -30,7 +30,7 @@ impl<TBlockStore: BlockStore> Future for BlockFuture<TBlockStore> {
         return match self.future.poll_unpin(waker) {
             Poll::Ready(Ok(Some(block))) => Poll::Ready(Ok(block)),
             Poll::Ready(Ok(None)) => {
-                let future = self.block_store.get(self.cid.clone());
+                let future = self.block_store.get(&self.cid);
                 self.get_mut().future = future;
                 tokio::prelude::task::current().notify();
                 //waker.wake();

@@ -1,15 +1,10 @@
 //! Block
-use std::sync::Arc;
-
-/// Block payload type
-pub type Data = Arc<Vec<u8>>;
-/// Block content identifier
-pub type Cid = Arc<cid::Cid>;
+pub use cid::Cid;
 
 #[derive(Clone, Debug, PartialEq)]
 /// An immutable ipfs block.
 pub struct Block {
-    data: Data,
+    data: Vec<u8>,
     cid: Cid,
 }
 
@@ -17,8 +12,8 @@ impl Block {
     /// Creates a new immutable ipfs block.
     pub fn new(data: Vec<u8>, cid: cid::Cid) -> Self {
         Block {
-            data: Arc::new(data),
-            cid: Arc::new(cid),
+            data,
+            cid,
         }
     }
 
@@ -28,13 +23,13 @@ impl Block {
     }
 
     /// Returns the content id of the block.
-    pub fn cid(&self) -> Cid {
-        self.cid.clone()
+    pub fn cid(&self) -> &Cid {
+        &self.cid
     }
 
     /// Returns the data of the block.
-    pub fn data(&self) -> Data {
-        self.data.clone()
+    pub fn data(&self) -> &Vec<u8> {
+        &self.data
     }
 }
 

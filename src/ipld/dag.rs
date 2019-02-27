@@ -57,7 +57,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
                 };
                 ipld = match new_ipld {
                     Some(Ipld::Cid(cid)) => {
-                        match await!(block_store.get(cid))? {
+                        match await!(block_store.get(&cid))? {
                             Some(block) => Some(Ipld::from(&block)?),
                             None => None,
                         }
