@@ -16,7 +16,7 @@ pub enum IpldError {
     IoError(std::io::Error),
 }
 
-pub trait CodecError: Display + Debug + Error {}
+pub trait CodecError: Display + Debug + Error + Send {}
 
 impl Error for IpldError {
     fn description(&self) -> &str {

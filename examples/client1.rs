@@ -1,21 +1,24 @@
 #![feature(async_await, await_macro, futures_api)]
-use ipfs::{Block, Ipfs, IpfsOptions, Types};
+use ipfs::{Ipfs, IpfsOptions, Ipld, Types};
+use futures::join;
 
 fn main() {
     let options = IpfsOptions::new();
     env_logger::Builder::new().parse(&options.ipfs_log).init();
     let mut ipfs = Ipfs::<Types>::new(options);
-    let block = Block::from("hello block2\n");
-    let cid = Block::from("hello block\n").cid().to_owned();
 
     tokio::run_async(async move {
         tokio::spawn_async(ipfs.start_daemon());
         await!(ipfs.init_repo()).unwrap();
         await!(ipfs.open_repo()).unwrap();
 
-        await!(ipfs.put_block(block)).unwrap();
-        let block = await!(ipfs.get_block(&cid)).unwrap();
-        println!("Received block with contents: {:?}",
-                 String::from_utf8_lossy(&block.data()));
+        let block1: Ipld = "block1".to_string().into();
+        let block2: Ipld = "block2".to_string().into();
+        let f1 = ipfs.put_dag(block1);
+        let f2 = ipfs.put_dag(block2);
+        let (res1, res2) = join!(f1, f2);
+
+        let root: Ipld = vec![res1.unwrap(), res2.unwrap()].into();
+        await!(ipfs.put_dag(root)).unwrap();
     });
 }

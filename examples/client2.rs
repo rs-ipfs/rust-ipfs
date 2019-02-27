@@ -1,5 +1,6 @@
 #![feature(async_await, await_macro, futures_api)]
-use ipfs::{Block, Ipfs, IpfsOptions, RepoTypes, SwarmTypes, IpfsTypes};
+use ipfs::{Cid, IpldPath, Ipfs, IpfsOptions, RepoTypes, SwarmTypes, IpfsTypes};
+use futures::join;
 
 #[derive(Clone)]
 struct Types;
@@ -19,15 +20,19 @@ fn main() {
     let options = IpfsOptions::test();
     env_logger::Builder::new().parse(&options.ipfs_log).init();
     let mut ipfs = Ipfs::<Types>::new(options);
-    let block = Block::from("hello block\n");
-    let cid = Block::from("hello block2\n").cid().to_owned();
+    let cid = Cid::from("zdpuB1caPcm4QNXeegatVfLQ839Lmprd5zosXGwRUBJHwj66X").unwrap();
+    let path1 = IpldPath::from(cid.clone(), "0").unwrap();
+    let path2 = IpldPath::from(cid, "1").unwrap();
 
     tokio::run_async(async move {
         tokio::spawn_async(ipfs.start_daemon());
 
-        await!(ipfs.put_block(block)).unwrap();
-        let block = await!(ipfs.get_block(&cid)).unwrap();
-        println!("Received block with contents: {:?}",
-                 String::from_utf8_lossy(&block.data()));
+        let f1 = ipfs.get_dag(path1);
+        let f2 = ipfs.get_dag(path2);
+        let (res1, res2) = join!(f1, f2);
+        println!("Received block with contents: {:?}", res1.unwrap());
+        println!("Received block with contents: {:?}", res2.unwrap());
+
+        ipfs.exit_daemon();
     });
 }

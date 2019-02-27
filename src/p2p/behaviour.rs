@@ -9,7 +9,7 @@ use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::kad::{Kademlia, KademliaOut as KademliaEvent};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
-use parity_multihash::Multihash;
+//use parity_multihash::Multihash;
 use std::sync::Arc;
 use tokio::prelude::*;
 
@@ -144,21 +144,21 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
 
     pub fn want_block(&mut self, cid: Cid) {
         info!("Want block {}", cid.to_string());
-        let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
-        self.kademlia.get_providers(hash);
+        //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
+        //self.kademlia.get_providers(hash);
         self.bitswap.want_block(cid, 1);
     }
 
     pub fn provide_block(&mut self, cid: Cid) {
         info!("Providing block {}", cid.to_string());
-        let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
-        self.kademlia.add_providing(PeerId::from_multihash(hash).unwrap());
+        //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
+        //self.kademlia.add_providing(PeerId::from_multihash(hash).unwrap());
     }
 
     pub fn stop_providing_block(&mut self, cid: &Cid) {
         info!("Finished providing block {}", cid.to_string());
-        let hash = Multihash::from_bytes(cid.hash.clone()).unwrap();
-        self.kademlia.remove_providing(&hash);
+        //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
+        //self.kademlia.remove_providing(&hash);
     }
 }
 
