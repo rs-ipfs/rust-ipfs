@@ -1,4 +1,5 @@
 use crate::ipld::cbor::CborError;
+use crate::ipld::{Ipld, SubPath};
 use cid::{Codec, Error as CidError};
 use std::error::Error;
 use std::fmt::{self, Debug, Display};
@@ -8,6 +9,10 @@ pub enum IpldError {
     UnsupportedCodec(Codec),
     CodecError(Box<dyn CodecError>),
     InvalidPath(String),
+    ResolveError {
+        ipld: Ipld,
+        path: SubPath,
+    },
     IoError(std::io::Error),
 }
 
@@ -19,6 +24,7 @@ impl Error for IpldError {
             IpldError::UnsupportedCodec(_) => "unsupported codec",
             IpldError::CodecError(_) => "codec error",
             IpldError::InvalidPath(_) => "invalid path",
+            IpldError::ResolveError { .. } => "error resolving path",
             IpldError::IoError(_) => "io error",
         }
     }
@@ -35,6 +41,9 @@ impl Display for IpldError {
             }
             IpldError::InvalidPath(ref path) => {
                 write!(f, "Invalid path {:?}", path)
+            }
+            IpldError::ResolveError { ref path, .. } => {
+                write!(f, "Can't resolve {}", path.to_string())
             }
             IpldError::IoError(ref err) => {
                 write!(f, "{}", err)

@@ -1,6 +1,6 @@
 use crate::block::{Block, Cid};
 use crate::bitswap::Priority;
-use crate::repo::{BlockStore, Repo, RepoTypes};
+use crate::repo::{Repo, RepoTypes};
 use libp2p::PeerId;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -41,15 +41,13 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
         info!("Peer {} wants block {} with priority {}",
               source.to_base58(), cid.to_string(), priority);
         let events = self.events.clone();
-        let block_store = self.repo.block_store.clone();
-        let future = block_store.get(&cid);
+        let future = self.repo.get_block(&cid);
         tokio::spawn_async(async move {
-            if let Some(block) = await!(future).unwrap() {
-                events.lock().unwrap().push_back(StrategyEvent::Send {
-                    peer_id: source,
-                    block: block,
-                });
-            }
+            let block = await!(future).unwrap();
+            events.lock().unwrap().push_back(StrategyEvent::Send {
+                peer_id: source,
+                block: block,
+            });
         });
     }
 
@@ -57,7 +55,7 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
         info!("Received block {} from peer {}",
               block.cid().to_string(),
               source.to_base58());
-        let future = self.repo.block_store.put(block);
+        let future = self.repo.put_block(block);
         tokio::spawn_async(async move {
             await!(future).unwrap();
         });

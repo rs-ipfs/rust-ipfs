@@ -1,10 +1,14 @@
 //! IPFS repo
 use crate::block::{Cid, Block};
+use crate::future::BlockFuture;
 use crate::IpfsOptions;
+use core::future::Future;
 use futures::future::FutureObj;
 use futures::join;
 use std::marker::PhantomData;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::collections::VecDeque;
 
 pub mod mem;
 pub mod fs;
@@ -50,8 +54,16 @@ pub trait DataStore: Clone + Send + Sync + Unpin + 'static {
 
 #[derive(Clone, Debug)]
 pub struct Repo<TRepoTypes: RepoTypes> {
-    pub block_store: TRepoTypes::TBlockStore,
-    pub data_store: TRepoTypes::TDataStore,
+    block_store: TRepoTypes::TBlockStore,
+    data_store: TRepoTypes::TDataStore,
+    pub events: Arc<Mutex<VecDeque<RepoEvent>>>,
+}
+
+#[derive(Clone, Debug)]
+pub enum RepoEvent {
+    WantBlock(Cid),
+    ProvideBlock(Cid),
+    UnprovideBlock(Cid),
 }
 
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
@@ -65,13 +77,14 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         Repo {
             block_store,
             data_store,
+            events: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
-    pub fn init(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
+    pub fn init(&self) -> impl Future<Output=Result<(), std::io::Error>> {
         let block_store = self.block_store.clone();
         let data_store = self.data_store.clone();
-        FutureObj::new(Box::new(async move {
+        async move {
             let f1 = block_store.init();
             let f2 = data_store.init();
             let (r1, r2) = join!(f1, f2);
@@ -80,18 +93,47 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             } else {
                 r2
             }
-        }))
+        }
     }
 
-    pub fn open(&self) -> FutureObj<'static, Result<(), std::io::Error>> {
+    pub fn open(&self) -> impl Future<Output=Result<(), std::io::Error>> {
         self.block_store.open()
+    }
+
+    /// Puts a block into the block store.
+    pub fn put_block(&self, block: Block) -> impl Future<Output=Result<Cid, std::io::Error>> {
+        let events = self.events.clone();
+        let block_store = self.block_store.clone();
+        async move {
+            let cid = await!(block_store.put(block))?;
+            events.lock().unwrap().push_back(RepoEvent::ProvideBlock(cid.clone()));
+            Ok(cid)
+        }
+    }
+
+    /// Retrives a block from the block store.
+    pub fn get_block(&self, cid: &Cid) -> impl Future<Output=Result<Block, std::io::Error>> {
+        let cid = cid.to_owned();
+        let events = self.events.clone();
+        let block_store = self.block_store.clone();
+        async move {
+            if !await!(block_store.contains(&cid))? {
+                events.lock().unwrap().push_back(RepoEvent::WantBlock(cid.clone()));
+            }
+            await!(BlockFuture::new(block_store, cid))
+        }
+    }
+
+    /// Remove block from the block store.
+    pub fn remove_block(&self, cid: &Cid) -> impl Future<Output=Result<(), std::io::Error>> {
+        self.events.lock().unwrap().push_back(RepoEvent::UnprovideBlock(cid.to_owned()));
+        self.block_store.remove(cid)
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use futures::prelude::*;
     use std::env::temp_dir;
 
     #[derive(Clone)]
@@ -121,9 +163,8 @@ pub(crate) mod tests {
             path: tmp,
         };
         let repo = Repo::new(options);
-        tokio::run(FutureObj::new(Box::new(async move {
+        tokio::run_async(async move {
             await!(repo.init()).unwrap();
-            Ok(())
-        })).compat());
+        });
     }
 }

@@ -1,6 +1,6 @@
 use crate::block::Cid;
 use crate::ipld::{Ipld, IpldError, IpldPath, SubPath};
-use crate::repo::{Repo, RepoTypes, BlockStore};
+use crate::repo::{Repo, RepoTypes};
 use core::future::Future;
 
 pub struct IpldDag<Types: RepoTypes> {
@@ -15,59 +15,70 @@ impl<Types: RepoTypes> IpldDag<Types> {
     }
 
     pub fn put(&self, data: Ipld) -> impl Future<Output=Result<Cid, IpldError>> {
-        let block_store = self.repo.block_store.clone();
+        let repo = self.repo.clone();
         async move {
             let block = data.to_dag_cbor()?;
-            let cid = await!(block_store.put(block))?;
+            let cid = await!(repo.put_block(block))?;
             Ok(cid)
         }
     }
 
-    pub fn get(&self, path: IpldPath) -> impl Future<Output=Result<Option<Ipld>, IpldError>> {
-        let block_store = self.repo.block_store.clone();
+    pub fn get(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, IpldError>> {
+        let repo = self.repo.clone();
         async move {
-            let mut ipld = match await!(block_store.get(path.root()))? {
-                Some(block) => Some(Ipld::from(&block)?),
-                None => None,
-            };
+            let mut ipld = Ipld::from(&await!(repo.get_block(path.root()))?)?;
             for sub_path in path.iter() {
-                if ipld.is_none() {
-                    return Ok(None);
+                if !can_resolve(&ipld, sub_path) {
+                    let path = sub_path.to_owned();
+                    return Err(IpldError::ResolveError { ipld, path });
                 }
-                let ipld_owned = ipld.take().unwrap();
-                let new_ipld = match sub_path {
-                    SubPath::Key(ref key) => {
-                        if let Ipld::Object(mut map) = ipld_owned {
-                            map.remove(key)
-                        } else {
-                            None
-                        }
+                ipld = resolve(ipld, sub_path);
+                ipld = match ipld {
+                    Ipld::Cid(cid) => {
+                        Ipld::from(&await!(repo.get_block(&cid))?)?
                     }
-                    SubPath::Index(index) => {
-                        if let Ipld::Array(mut vec) = ipld_owned {
-                            if *index < vec.len() {
-                                Some(vec.swap_remove(*index))
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    }
-                };
-                ipld = match new_ipld {
-                    Some(Ipld::Cid(cid)) => {
-                        match await!(block_store.get(&cid))? {
-                            Some(block) => Some(Ipld::from(&block)?),
-                            None => None,
-                        }
-                    }
-                    _ => new_ipld,
+                    ipld => ipld,
                 };
             }
             Ok(ipld)
         }
     }
+}
+
+fn can_resolve(ipld: &Ipld, sub_path: &SubPath) -> bool {
+    match sub_path {
+        SubPath::Key(key) => {
+            if let Ipld::Object(ref map) = ipld {
+                if map.contains_key(key) {
+                    return true;
+                }
+            }
+        }
+        SubPath::Index(index) => {
+            if let Ipld::Array(ref vec) = ipld {
+                if *index < vec.len() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn resolve(ipld: Ipld, sub_path: &SubPath) -> Ipld {
+    match sub_path {
+        SubPath::Key(key) => {
+            if let Ipld::Object(mut map) = ipld {
+                return map.remove(key).unwrap()
+            }
+        }
+        SubPath::Index(index) => {
+            if let Ipld::Array(mut vec) = ipld {
+                return vec.swap_remove(*index)
+            }
+        }
+    }
+    panic!();
 }
 
 #[cfg(test)]
@@ -86,7 +97,7 @@ mod tests {
 
             let path = IpldPath::new(cid);
             let res = await!(dag.get(path)).unwrap();
-            assert_eq!(res, Some(data));
+            assert_eq!(res, data);
 
         });
     }
@@ -101,7 +112,7 @@ mod tests {
 
             let path = IpldPath::from(cid, "1").unwrap();
             let res = await!(dag.get(path)).unwrap();
-            assert_eq!(res, Some(Ipld::U64(2)));
+            assert_eq!(res, Ipld::U64(2));
         });
     }
 
@@ -115,7 +126,7 @@ mod tests {
 
             let path = IpldPath::from(cid, "1/0").unwrap();
             let res = await!(dag.get(path)).unwrap();
-            assert_eq!(res, Some(Ipld::U64(2)));
+            assert_eq!(res, Ipld::U64(2));
         });
     }
 
@@ -130,7 +141,7 @@ mod tests {
 
             let path = IpldPath::from(cid, "key").unwrap();
             let res = await!(dag.get(path)).unwrap();
-            assert_eq!(res, Some(Ipld::Bool(false)));
+            assert_eq!(res, Ipld::Bool(false));
         });
     }
 
@@ -146,7 +157,7 @@ mod tests {
 
             let path = IpldPath::from(cid2, "0/0").unwrap();
             let res = await!(dag.get(path)).unwrap();
-            assert_eq!(res, Some(Ipld::U64(1)));
+            assert_eq!(res, Ipld::U64(1));
         });
     }
 }

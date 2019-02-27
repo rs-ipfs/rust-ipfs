@@ -23,13 +23,12 @@ pub mod repo;
 
 pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
-use self::future::BlockFuture;
 use self::ipld::IpldDag;
 pub use self::ipld::{Ipld, IpldError, IpldPath};
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::repo::RepoTypes;
-use self::repo::{create_repo, RepoOptions, Repo, BlockStore};
+use self::repo::{create_repo, RepoOptions, Repo, RepoEvent};
 
 static IPFS_LOG: &str = "info";
 static IPFS_PATH: &str = ".rust-ipfs";
@@ -109,9 +108,6 @@ pub struct Ipfs<Types: IpfsTypes> {
 }
 
 enum IpfsEvent {
-    WantBlock(Cid),
-    ProvideBlock(Cid),
-    UnprovideBlock(Cid),
     Exit,
 }
 
@@ -133,43 +129,28 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Initialize the ipfs repo.
-    pub fn init_repo(&mut self) -> impl Future<Output=Result<(), std::io::Error>> {
+    pub fn init_repo(&self) -> impl Future<Output=Result<(), std::io::Error>> {
         self.repo.init()
     }
 
     /// Open the ipfs repo.
-    pub fn open_repo(&mut self) -> impl Future<Output=Result<(), std::io::Error>> {
+    pub fn open_repo(&self) -> impl Future<Output=Result<(), std::io::Error>> {
         self.repo.open()
     }
 
     /// Puts a block into the ipfs repo.
-    pub fn put_block(&mut self, block: Block) -> impl Future<Output=Result<Cid, std::io::Error>> {
-        let events = self.events.clone();
-        let block_store = self.repo.block_store.clone();
-        async move {
-            let cid = await!(block_store.put(block))?;
-            events.lock().unwrap().push_back(IpfsEvent::ProvideBlock(cid.clone()));
-            Ok(cid)
-        }
+    pub fn put_block(&self, block: Block) -> impl Future<Output=Result<Cid, std::io::Error>> {
+        self.repo.put_block(block)
     }
 
     /// Retrives a block from the ipfs repo.
-    pub fn get_block(&mut self, cid: &Cid) -> impl Future<Output=Result<Block, std::io::Error>> {
-        let cid = cid.to_owned();
-        let events = self.events.clone();
-        let block_store = self.repo.block_store.clone();
-        async move {
-            if !await!(block_store.contains(&cid))? {
-                events.lock().unwrap().push_back(IpfsEvent::WantBlock(cid.clone()));
-            }
-            await!(BlockFuture::new(block_store, cid))
-        }
+    pub fn get_block(&self, cid: &Cid) -> impl Future<Output=Result<Block, std::io::Error>> {
+        self.repo.get_block(cid)
     }
 
     /// Remove block from the ipfs repo.
-    pub fn remove_block(&mut self, cid: &Cid) -> impl Future<Output=Result<(), std::io::Error>> {
-        self.events.lock().unwrap().push_back(IpfsEvent::UnprovideBlock(cid.to_owned()));
-        self.repo.block_store.remove(cid)
+    pub fn remove_block(&self, cid: &Cid) -> impl Future<Output=Result<(), std::io::Error>> {
+        self.repo.remove_block(cid)
     }
 
     /// Puts an ipld dag node into the ipfs repo.
@@ -178,28 +159,28 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Gets an ipld dag node from the ipfs repo.
-    pub fn get_dag(&self, path: IpldPath) -> impl Future<Output=Result<Option<Ipld>, IpldError>> {
+    pub fn get_dag(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, IpldError>> {
         self.dag.get(path)
     }
 
     /// Start daemon.
     pub fn start_daemon(&mut self) -> IpfsFuture<Types> {
-        let events = self.events.clone();
-        let swarm = self.swarm.take().unwrap();
         IpfsFuture {
-            events,
-            swarm: Box::new(swarm),
+            events: self.events.clone(),
+            repo: self.repo.clone(),
+            swarm: Box::new(self.swarm.take().unwrap()),
         }
     }
 
     /// Exit daemon.
-    pub fn exit_daemon(&mut self) {
+    pub fn exit_daemon(&self) {
         self.events.lock().unwrap().push_back(IpfsEvent::Exit)
     }
 }
 
 pub struct IpfsFuture<Types: SwarmTypes> {
     swarm: Box<TSwarm<Types>>,
+    repo: Repo<Types>,
     events: Arc<Mutex<VecDeque<IpfsEvent>>>,
 }
 
@@ -211,17 +192,21 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
         loop {
             for event in _self.events.lock().unwrap().drain(..) {
                 match event {
-                    IpfsEvent::WantBlock(cid) => {
-                        _self.swarm.want_block(cid);
-                    }
-                    IpfsEvent::ProvideBlock(cid) => {
-                        _self.swarm.provide_block(cid);
-                    }
-                    IpfsEvent::UnprovideBlock(cid) => {
-                        _self.swarm.stop_providing_block(&cid);
-                    }
                     IpfsEvent::Exit => {
                         return Poll::Ready(());
+                    }
+                }
+            }
+            for event in _self.repo.events.lock().unwrap().drain(..) {
+                match event {
+                    RepoEvent::WantBlock(cid) => {
+                        _self.swarm.want_block(cid);
+                    }
+                    RepoEvent::ProvideBlock(cid) => {
+                        _self.swarm.provide_block(cid);
+                    }
+                    RepoEvent::UnprovideBlock(cid) => {
+                        _self.swarm.stop_providing_block(&cid);
                     }
                 }
             }
@@ -285,7 +270,7 @@ mod tests {
             let data: Ipld = vec![-1, -2, -3].into();
             let cid = await!(ipfs.put_dag(data.clone())).unwrap();
             let new_data = await!(ipfs.get_dag(cid.into())).unwrap();
-            assert_eq!(Some(data), new_data);
+            assert_eq!(data, new_data);
 
             ipfs.exit_daemon();
         });
