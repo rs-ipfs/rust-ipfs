@@ -5,7 +5,6 @@
 #![feature(drain_filter)]
 
 #[macro_use] extern crate log;
-use futures::future::FutureObj;
 use futures::prelude::*;
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -134,52 +133,52 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Initialize the ipfs repo.
-    pub fn init_repo(&mut self) -> FutureObj<'static, Result<(), std::io::Error>> {
+    pub fn init_repo(&mut self) -> impl Future<Output=Result<(), std::io::Error>> {
         self.repo.init()
     }
 
     /// Open the ipfs repo.
-    pub fn open_repo(&mut self) -> FutureObj<'static, Result<(), std::io::Error>> {
+    pub fn open_repo(&mut self) -> impl Future<Output=Result<(), std::io::Error>> {
         self.repo.open()
     }
 
     /// Puts a block into the ipfs repo.
-    pub fn put_block(&mut self, block: Block) -> FutureObj<'static, Result<Cid, std::io::Error>> {
+    pub fn put_block(&mut self, block: Block) -> impl Future<Output=Result<Cid, std::io::Error>> {
         let events = self.events.clone();
         let block_store = self.repo.block_store.clone();
-        FutureObj::new(Box::new(async move {
+        async move {
             let cid = await!(block_store.put(block))?;
             events.lock().unwrap().push_back(IpfsEvent::ProvideBlock(cid.clone()));
             Ok(cid)
-        }))
+        }
     }
 
     /// Retrives a block from the ipfs repo.
-    pub fn get_block(&mut self, cid: &Cid) -> FutureObj<'static, Result<Block, std::io::Error>> {
+    pub fn get_block(&mut self, cid: &Cid) -> impl Future<Output=Result<Block, std::io::Error>> {
         let cid = cid.to_owned();
         let events = self.events.clone();
         let block_store = self.repo.block_store.clone();
-        FutureObj::new(Box::new(async move {
+        async move {
             if !await!(block_store.contains(&cid))? {
                 events.lock().unwrap().push_back(IpfsEvent::WantBlock(cid.clone()));
             }
             await!(BlockFuture::new(block_store, cid))
-        }))
+        }
     }
 
     /// Remove block from the ipfs repo.
-    pub fn remove_block(&mut self, cid: &Cid) -> FutureObj<'static, Result<(), std::io::Error>> {
+    pub fn remove_block(&mut self, cid: &Cid) -> impl Future<Output=Result<(), std::io::Error>> {
         self.events.lock().unwrap().push_back(IpfsEvent::UnprovideBlock(cid.to_owned()));
         self.repo.block_store.remove(cid)
     }
 
     /// Puts an ipld dag node into the ipfs repo.
-    pub fn put_dag(&self, ipld: Ipld) -> FutureObj<'static, Result<Cid, IpldError>> {
+    pub fn put_dag(&self, ipld: Ipld) -> impl Future<Output=Result<Cid, IpldError>> {
         self.dag.put(ipld)
     }
 
     /// Gets an ipld dag node from the ipfs repo.
-    pub fn get_dag(&self, path: IpldPath) -> FutureObj<'static, Result<Option<Ipld>, IpldError>> {
+    pub fn get_dag(&self, path: IpldPath) -> impl Future<Output=Result<Option<Ipld>, IpldError>> {
         self.dag.get(path)
     }
 

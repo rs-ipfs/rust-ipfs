@@ -1,7 +1,7 @@
 use crate::block::Cid;
 use crate::ipld::{Ipld, IpldError, IpldPath, SubPath};
 use crate::repo::{Repo, RepoTypes, BlockStore};
-use futures::future::FutureObj;
+use core::future::Future;
 
 pub struct IpldDag<Types: RepoTypes> {
     repo: Repo<Types>,
@@ -14,18 +14,18 @@ impl<Types: RepoTypes> IpldDag<Types> {
         }
     }
 
-    pub fn put(&self, data: Ipld) -> FutureObj<'static, Result<Cid, IpldError>> {
+    pub fn put(&self, data: Ipld) -> impl Future<Output=Result<Cid, IpldError>> {
         let block_store = self.repo.block_store.clone();
-        FutureObj::new(Box::new(async move {
+        async move {
             let block = data.to_dag_cbor()?;
             let cid = await!(block_store.put(block))?;
             Ok(cid)
-        }))
+        }
     }
 
-    pub fn get(&self, path: IpldPath) -> FutureObj<'static, Result<Option<Ipld>, IpldError>> {
+    pub fn get(&self, path: IpldPath) -> impl Future<Output=Result<Option<Ipld>, IpldError>> {
         let block_store = self.repo.block_store.clone();
-        FutureObj::new(Box::new(async move {
+        async move {
             let mut ipld = match await!(block_store.get(path.root()))? {
                 Some(block) => Some(Ipld::from(&block)?),
                 None => None,
@@ -66,7 +66,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
                 };
             }
             Ok(ipld)
-        }))
+        }
     }
 }
 
