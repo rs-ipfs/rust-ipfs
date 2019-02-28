@@ -7,11 +7,10 @@
 
 #[macro_use] extern crate log;
 use futures::prelude::*;
-use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{channel, Sender, Receiver};
 use std::task::{Poll, Waker};
 use tokio::prelude::{Async, Stream as StreamOld};
 
@@ -120,9 +119,10 @@ impl Default for IpfsOptions<TestTypes> {
 /// for interacting with IPFS.
 pub struct Ipfs<Types: IpfsTypes> {
     repo: Repo<Types>,
+    repo_events: Option<Receiver<RepoEvent>>,
     dag: IpldDag<Types>,
     swarm: Option<TSwarm<Types>>,
-    events: Arc<Mutex<VecDeque<IpfsEvent>>>,
+    exit_events: Vec<Sender<IpfsEvent>>,
 }
 
 enum IpfsEvent {
@@ -133,7 +133,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Creates a new ipfs node.
     pub fn new(options: IpfsOptions<Types>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
-        let repo = create_repo(repo_options);
+        let (repo, repo_events) = create_repo(repo_options);
         let swarm_options = SwarmOptions::<Types>::from(&options);
         let swarm = create_swarm(swarm_options, repo.clone());
         let dag = IpldDag::new(repo.clone());
@@ -141,8 +141,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ipfs {
             repo,
             dag,
+            repo_events: Some(repo_events),
             swarm: Some(swarm),
-            events: Arc::new(Mutex::new(VecDeque::new())),
+            exit_events: Vec::default(),
         }
     }
 
@@ -197,24 +198,31 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Start daemon.
-    pub fn start_daemon(&mut self) -> IpfsFuture<Types> {
-        IpfsFuture {
-            events: self.events.clone(),
-            repo: self.repo.clone(),
-            swarm: Box::new(self.swarm.take().unwrap()),
-        }
+    pub fn start_daemon(&mut self) -> Option<IpfsFuture<Types>> {
+        self.repo_events.take().map(|repo_events|{
+            let (sender, receiver) = channel::<IpfsEvent>();
+            self.exit_events.push(sender);
+
+            IpfsFuture {
+                repo_events,
+                exit_events: receiver,
+                swarm: Box::new(self.swarm.take().unwrap()),
+            }
+        })
     }
 
     /// Exit daemon.
-    pub fn exit_daemon(&self) {
-        self.events.lock().unwrap().push_back(IpfsEvent::Exit)
+    pub fn exit_daemon(&mut self) {
+        for s in self.exit_events.drain(..) {
+            let _ = s.send(IpfsEvent::Exit);
+        }
     }
 }
 
 pub struct IpfsFuture<Types: SwarmTypes> {
     swarm: Box<TSwarm<Types>>,
-    repo: Repo<Types>,
-    events: Arc<Mutex<VecDeque<IpfsEvent>>>,
+    repo_events: Receiver<RepoEvent>,
+    exit_events: Receiver<IpfsEvent>,
 }
 
 impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
@@ -223,26 +231,28 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
     fn poll(self: Pin<&mut Self>, _waker: &Waker) -> Poll<Self::Output> {
         let _self = self.get_mut();
         loop {
-            for event in _self.events.lock().unwrap().drain(..) {
-                match event {
-                    IpfsEvent::Exit => {
-                        return Poll::Ready(());
+            if let Ok(IpfsEvent::Exit) = _self.exit_events.try_recv() {
+                return Poll::Ready(());
+            }
+
+            loop {
+                if let Ok(event) = _self.repo_events.try_recv() {
+                    match event {
+                        RepoEvent::WantBlock(cid) => {
+                            _self.swarm.want_block(cid);
+                        }
+                        RepoEvent::ProvideBlock(cid) => {
+                            _self.swarm.provide_block(cid);
+                        }
+                        RepoEvent::UnprovideBlock(cid) => {
+                            _self.swarm.stop_providing_block(&cid);
+                        }
                     }
+                } else {
+                    break
                 }
             }
-            for event in _self.repo.events.lock().unwrap().drain(..) {
-                match event {
-                    RepoEvent::WantBlock(cid) => {
-                        _self.swarm.want_block(cid);
-                    }
-                    RepoEvent::ProvideBlock(cid) => {
-                        _self.swarm.provide_block(cid);
-                    }
-                    RepoEvent::UnprovideBlock(cid) => {
-                        _self.swarm.stop_providing_block(&cid);
-                    }
-                }
-            }
+
             let poll = _self.swarm.poll().expect("Error while polling swarm");
             match poll {
                 Async::Ready(Some(_)) => {},
@@ -268,7 +278,8 @@ mod tests {
         let block = Block::from("hello block\n");
 
         tokio::run_async(async move {
-            tokio::spawn_async(ipfs.start_daemon());
+            let fut = ipfs.start_daemon().unwrap();
+            tokio::spawn_async(fut);
 
             let cid = await!(ipfs.put_block(block.clone())).unwrap();
             let new_block = await!(ipfs.get_block(&cid)).unwrap();
@@ -284,7 +295,8 @@ mod tests {
         let mut ipfs = Ipfs::new(options);
 
         tokio::run_async(async move {
-            tokio::spawn_async(ipfs.start_daemon());
+            let fut = ipfs.start_daemon().unwrap();
+            tokio::spawn_async(fut);
 
             let data: Ipld = vec![-1, -2, -3].into();
             let cid = await!(ipfs.put_dag(data.clone())).unwrap();

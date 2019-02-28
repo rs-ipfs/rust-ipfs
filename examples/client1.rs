@@ -8,7 +8,8 @@ fn main() {
     let mut ipfs = Ipfs::new(options);
 
     tokio::run_async(async move {
-        tokio::spawn_async(ipfs.start_daemon());
+        let fut = ipfs.start_daemon().unwrap();
+        tokio::spawn_async(fut);
         await!(ipfs.init_repo()).unwrap();
         await!(ipfs.open_repo()).unwrap();
 

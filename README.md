@@ -16,7 +16,8 @@ fn main() {
 
     tokio::run_async(async move {
         // Start daemon and initialize repo
-        tokio::spawn_async(ipfs.start_daemon());
+        let fut = ipfs.start_daemon().unwrap();
+        tokio::spawn_async(fut);
         await!(ipfs.init_repo()).unwrap();
         await!(ipfs.open_repo()).unwrap();
 
