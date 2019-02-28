@@ -243,7 +243,6 @@ where
             None => {}
         }
 
-        debug!("");
         Async::NotReady
     }
 }
