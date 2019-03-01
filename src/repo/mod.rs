@@ -135,6 +135,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 pub(crate) mod tests {
     use super::*;
     use std::env::temp_dir;
+    use crate::tokio_run;
 
     #[derive(Clone)]
     pub struct Types;
@@ -163,7 +164,7 @@ pub(crate) mod tests {
             path: tmp,
         };
         let repo = Repo::new(options);
-        tokio::run_async(async move {
+        tokio_run(async move {
             await!(repo.init()).unwrap();
         });
     }

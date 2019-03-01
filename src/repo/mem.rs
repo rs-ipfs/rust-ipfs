@@ -70,13 +70,14 @@ impl DataStore for MemDataStore {
 mod tests {
     use super::*;
     use std::env::temp_dir;
+    use crate::tokio_run;
 
     #[test]
     fn test_mem_blockstore() {
         let block = Block::from("1");
         let tmp = temp_dir();
         let block_store = MemBlockStore::new(tmp);
-        tokio::run_async(async move {
+        tokio_run(async move {
             await!(block_store.init()).unwrap();
             await!(block_store.open()).unwrap();
 

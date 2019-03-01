@@ -124,6 +124,7 @@ fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
 mod tests {
     use super::*;
     use std::env::temp_dir;
+    use crate::tokio_run;
 
     #[test]
     fn test_fs_blockstore() {
@@ -133,7 +134,7 @@ mod tests {
         std::fs::remove_dir_all(tmp.clone()).ok();
 
         let blockstore_path = tmp.clone();
-        tokio::run_async(async move {
+        tokio_run(async move {
             let block_store = FsBlockStore::new(blockstore_path);
             await!(block_store.init()).unwrap();
             await!(block_store.open()).unwrap();
@@ -161,7 +162,7 @@ mod tests {
         std::fs::remove_dir_all(tmp.clone()).ok();
 
         let blockstore_path = tmp.clone();
-        tokio::run_async(async move {
+        tokio_run(async move {
             let block_store = FsBlockStore::new(blockstore_path.clone());
             await!(block_store.init()).unwrap();
             await!(block_store.open()).unwrap();

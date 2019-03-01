@@ -16,7 +16,7 @@ use tokio::prelude::{Async, Stream as StreamOld};
 pub mod bitswap;
 pub mod block;
 mod config;
-pub mod future;
+mod future;
 pub mod ipld;
 pub mod p2p;
 pub mod repo;
@@ -24,6 +24,7 @@ pub mod repo;
 #[cfg(feature="server")]
 pub mod server;
 
+pub use crate::future::{tokio_run, tokio_spawn};
 pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
 use self::ipld::IpldDag;
@@ -254,8 +255,8 @@ mod tests {
         let mut ipfs = Ipfs::<Types>::new(options);
         let block = Block::from("hello block\n");
 
-        tokio::run_async(async move {
-            tokio::spawn_async(ipfs.start_daemon());
+        tokio_run(async move {
+            tokio_spawn(ipfs.start_daemon());
 
             let cid = await!(ipfs.put_block(block.clone())).unwrap();
             let new_block = await!(ipfs.get_block(&cid)).unwrap();
@@ -270,8 +271,8 @@ mod tests {
         let options = IpfsOptions::test();
         let mut ipfs = Ipfs::<Types>::new(options);
 
-        tokio::run_async(async move {
-            tokio::spawn_async(ipfs.start_daemon());
+        tokio_run(async move {
+            tokio_spawn(ipfs.start_daemon());
 
             let data: Ipld = vec![-1, -2, -3].into();
             let cid = await!(ipfs.put_dag(data.clone())).unwrap();

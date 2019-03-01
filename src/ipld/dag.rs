@@ -85,11 +85,12 @@ fn resolve(ipld: Ipld, sub_path: &SubPath) -> Ipld {
 mod tests {
     use super::*;
     use crate::repo::tests::create_mock_repo;
+    use crate::future::tokio_run;
     use std::collections::HashMap;
 
     #[test]
     fn test_resolve_root_cid() {
-        tokio::run_async(async {
+        tokio_run(async {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data = Ipld::Array(vec![Ipld::U64(1), Ipld::U64(2), Ipld::U64(3)]);
@@ -104,7 +105,7 @@ mod tests {
 
     #[test]
     fn test_resolve_array_elem() {
-        tokio::run_async(async {
+        tokio_run(async {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data: Ipld = vec![1, 2, 3].into();
@@ -118,7 +119,7 @@ mod tests {
 
     #[test]
     fn test_resolve_nested_array_elem() {
-        tokio::run_async(async {
+        tokio_run(async {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data = Ipld::Array(vec![Ipld::U64(1), Ipld::Array(vec![Ipld::U64(2)]), Ipld::U64(3)]);
@@ -132,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_resolve_object_elem() {
-        tokio::run_async(async {
+        tokio_run(async {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let mut data = HashMap::new();
@@ -147,7 +148,7 @@ mod tests {
 
     #[test]
     fn test_resolve_cid_elem() {
-        tokio::run_async(async {
+        tokio_run(async {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data1 = vec![1].into();

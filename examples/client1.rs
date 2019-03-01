@@ -1,5 +1,6 @@
 #![feature(async_await, await_macro, futures_api)]
 use ipfs::{Ipfs, IpfsOptions, Ipld, Types};
+use ipfs::{tokio_run, tokio_spawn};
 use futures::join;
 
 fn main() {
@@ -7,8 +8,8 @@ fn main() {
     env_logger::Builder::new().parse(&options.ipfs_log).init();
     let mut ipfs = Ipfs::<Types>::new(options);
 
-    tokio::run_async(async move {
-        tokio::spawn_async(ipfs.start_daemon());
+    tokio_run(async move {
+        tokio_spawn(ipfs.start_daemon());
         await!(ipfs.init_repo()).unwrap();
         await!(ipfs.open_repo()).unwrap();
 

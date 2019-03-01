@@ -1,7 +1,7 @@
 #![feature(async_await, await_macro, futures_api)]
 use ipfs::{Ipfs, IpfsOptions, RepoTypes, SwarmTypes, IpfsTypes};
 use ipfs::server::{gen_routes, IpfsService};
-use ipfs::future::{tokio_run, tokio_spawn};
+use ipfs::{tokio_run, tokio_spawn};
 use futures::compat::Compat01As03;
 use std::sync::{Arc, Mutex};
 use warp;

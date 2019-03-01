@@ -1,5 +1,6 @@
 #![feature(async_await, await_macro, futures_api)]
 use ipfs::{Cid, IpldPath, Ipfs, IpfsOptions, RepoTypes, SwarmTypes, IpfsTypes};
+use ipfs::{tokio_run, tokio_spawn};
 use futures::join;
 
 #[derive(Clone)]
@@ -24,8 +25,8 @@ fn main() {
     let path1 = IpldPath::from(cid.clone(), "0").unwrap();
     let path2 = IpldPath::from(cid, "1").unwrap();
 
-    tokio::run_async(async move {
-        tokio::spawn_async(ipfs.start_daemon());
+    tokio_run(async move {
+        tokio_spawn(ipfs.start_daemon());
 
         let f1 = ipfs.get_dag(path1);
         let f2 = ipfs.get_dag(path2);
