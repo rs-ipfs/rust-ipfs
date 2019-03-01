@@ -1,10 +1,23 @@
 use crate::block::{Block, Cid};
 use crate::repo::BlockStore;
+use futures::FutureExt;
+use futures::compat::Compat;
 use futures::future::FutureObj;
-use futures::prelude::*;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Poll, Waker};
+
+pub fn tokio_run<F: Future<Output=()> + Send + 'static>(future: F) {
+    tokio::run(Compat::new(Box::pin(
+        future.map(|()| -> Result<(), ()> { Ok(()) })
+    )));
+}
+
+pub fn tokio_spawn<F: Future<Output=()> + Send + 'static>(future: F) {
+    tokio::spawn(Compat::new(Box::pin(
+        future.map(|()| -> Result<(), ()> { Ok(()) })
+    )));
+}
 
 pub struct BlockFuture<TBlockStore: BlockStore> {
     block_store: TBlockStore,

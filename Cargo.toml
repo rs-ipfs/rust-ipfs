@@ -4,12 +4,19 @@ version = "0.1.0"
 authors = ["David Craven <david@craven.ch>"]
 edition = "2018"
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "ipfs"
+path = "src/main.rs"
+
 [dependencies]
 cbor = { version = "*", git = "https://github.com/dvc94ch/rust-cbor", branch = "read-data-item" }
-cid = { version = "*", git = "https://github.com/dvc94ch/rust-cid", branch = "implement-hash" }
+cid = { version = "*", git = "https://github.com/gnunicorn/rust-cid", branch = "implement-from-str" }
 env_logger = "*"
 fnv = "*"
-futures-preview = { version = "0.3.0-alpha.13", features = ["compat"] }
+futures-preview = { version = "0.3.0-alpha.13", features = ["io-compat"] }
 libp2p = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }
 log = "*"
 multibase = "*"
@@ -22,5 +29,10 @@ rustc-serialize = "0.3"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-tokio = { version = "*", features = ["async-await-preview"] }
+tokio = { version = "*" }
 xdg = "*"
+warp = { version = "0.1.13", optional = true}
+
+[features]
+default = []
+server = ["warp"]

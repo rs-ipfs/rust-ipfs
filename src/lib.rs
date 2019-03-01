@@ -16,10 +16,13 @@ use tokio::prelude::{Async, Stream as StreamOld};
 pub mod bitswap;
 pub mod block;
 mod config;
-mod future;
+pub mod future;
 pub mod ipld;
 pub mod p2p;
 pub mod repo;
+
+#[cfg(feature="server")]
+pub mod server;
 
 pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
@@ -100,12 +103,15 @@ impl IpfsOptions {
 
 /// Ipfs struct creates a new IPFS node and is the main entry point
 /// for interacting with IPFS.
-pub struct Ipfs<Types: IpfsTypes> {
+pub struct Ipfs<Types: IpfsTypes + Send + Sync> {
     repo: Repo<Types>,
     dag: IpldDag<Types>,
     swarm: Option<TSwarm<Types>>,
     events: Arc<Mutex<VecDeque<IpfsEvent>>>,
 }
+
+unsafe impl<Types: IpfsTypes + Send> Send for Ipfs<Types> {}
+unsafe impl<Types: IpfsTypes + Sync> Sync for Ipfs<Types> {}
 
 enum IpfsEvent {
     Exit,
