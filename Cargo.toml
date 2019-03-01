@@ -5,8 +5,8 @@ authors = ["David Craven <david@craven.ch>"]
 edition = "2018"
 
 [dependencies]
-cbor = { version = "*", git = "https://github.com/dvc94ch/rust-cbor", branch = "read-data-item" }
-cid = { version = "*", git = "https://github.com/dvc94ch/rust-cid", branch = "implement-hash" }
+cbor = "*"
+cid = "*"
 env_logger = "*"
 fnv = "*"
 futures-preview = { version = "0.3.0-alpha.13", features = ["compat"] }
@@ -22,5 +22,12 @@ rustc-serialize = "0.3"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-tokio = { version = "*", features = ["async-await-preview"] }
+tokio = { version = "0.1", features = ["async-await-preview"] }
 xdg = "*"
+
+[patch.crates-io]
+cbor = { git = "https://github.com/dvc94ch/rust-cbor", branch = "read-data-item" }
+cid = { git = "https://github.com/dvc94ch/rust-cid", branch = "implement-hash" }
+tokio = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
+tokio-executor = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
+tokio-io = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
