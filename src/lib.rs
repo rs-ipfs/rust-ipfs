@@ -16,6 +16,7 @@ use tokio::prelude::{Async, Stream as StreamOld};
 pub mod bitswap;
 pub mod block;
 mod config;
+pub mod error;
 mod future;
 pub mod ipld;
 pub mod p2p;
@@ -23,8 +24,9 @@ pub mod repo;
 
 pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
+pub use self::error::Error;
 use self::ipld::IpldDag;
-pub use self::ipld::{Ipld, IpldError, IpldPath};
+pub use self::ipld::{Ipld, IpldPath};
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::repo::RepoTypes;
@@ -129,37 +131,37 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Initialize the ipfs repo.
-    pub fn init_repo(&self) -> impl Future<Output=Result<(), std::io::Error>> {
+    pub fn init_repo(&self) -> impl Future<Output=Result<(), Error>> {
         self.repo.init()
     }
 
     /// Open the ipfs repo.
-    pub fn open_repo(&self) -> impl Future<Output=Result<(), std::io::Error>> {
+    pub fn open_repo(&self) -> impl Future<Output=Result<(), Error>> {
         self.repo.open()
     }
 
     /// Puts a block into the ipfs repo.
-    pub fn put_block(&self, block: Block) -> impl Future<Output=Result<Cid, std::io::Error>> {
+    pub fn put_block(&self, block: Block) -> impl Future<Output=Result<Cid, Error>> {
         self.repo.put_block(block)
     }
 
     /// Retrives a block from the ipfs repo.
-    pub fn get_block(&self, cid: &Cid) -> impl Future<Output=Result<Block, std::io::Error>> {
+    pub fn get_block(&self, cid: &Cid) -> impl Future<Output=Result<Block, Error>> {
         self.repo.get_block(cid)
     }
 
     /// Remove block from the ipfs repo.
-    pub fn remove_block(&self, cid: &Cid) -> impl Future<Output=Result<(), std::io::Error>> {
+    pub fn remove_block(&self, cid: &Cid) -> impl Future<Output=Result<(), Error>> {
         self.repo.remove_block(cid)
     }
 
     /// Puts an ipld dag node into the ipfs repo.
-    pub fn put_dag(&self, ipld: Ipld) -> impl Future<Output=Result<Cid, IpldError>> {
+    pub fn put_dag(&self, ipld: Ipld) -> impl Future<Output=Result<Cid, Error>> {
         self.dag.put(ipld)
     }
 
     /// Gets an ipld dag node from the ipfs repo.
-    pub fn get_dag(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, IpldError>> {
+    pub fn get_dag(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, Error>> {
         self.dag.get(path)
     }
 

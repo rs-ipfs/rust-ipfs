@@ -1,5 +1,6 @@
 use crate::block::{Block, Cid};
-use crate::ipld::{IpldError, cbor};
+use crate::error::Error;
+use crate::ipld::{cbor, IpldError};
 use cid::{Codec, Prefix};
 use rustc_serialize::{Encodable, Encoder as RustcEncoder};
 use std::collections::HashMap;
@@ -30,18 +31,18 @@ pub enum Ipld {
 }
 
 impl Ipld {
-    pub fn to_block_with_prefix(&self, prefix: &Prefix) -> Result<Block, IpldError> {
+    pub fn to_block_with_prefix(&self, prefix: &Prefix) -> Result<Block, Error> {
         let bytes = match prefix.codec {
             Codec::DagCBOR => {
                 cbor::encode(&self)?
             }
-            codec => return Err(IpldError::UnsupportedCodec(codec)),
+            codec => return Err(IpldError::UnsupportedCodec(codec).into()),
         };
         let cid = cid::Cid::new_from_prefix(prefix, &bytes);
         Ok(Block::new(bytes, cid))
     }
 
-    pub fn to_block(&self, codec: Codec) -> Result<Block, IpldError> {
+    pub fn to_block(&self, codec: Codec) -> Result<Block, Error> {
         let prefix = Prefix {
             version: cid::Version::V1,
             codec: codec,
@@ -51,16 +52,16 @@ impl Ipld {
         self.to_block_with_prefix(&prefix)
     }
 
-    pub fn to_dag_cbor(&self) -> Result<Block, IpldError> {
+    pub fn to_dag_cbor(&self) -> Result<Block, Error> {
         self.to_block(Codec::DagCBOR)
     }
 
-    pub fn from(block: &Block) -> Result<Self, IpldError> {
+    pub fn from(block: &Block) -> Result<Self, Error> {
         let data = match block.cid().prefix().codec {
             Codec::DagCBOR => {
                 cbor::decode(block.data().to_owned())?
             }
-            codec => return Err(IpldError::UnsupportedCodec(codec)),
+            codec => return Err(IpldError::UnsupportedCodec(codec).into()),
         };
         Ok(data)
     }

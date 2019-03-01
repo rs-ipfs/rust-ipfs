@@ -1,4 +1,5 @@
 use crate::block::Cid;
+use crate::error::Error;
 use crate::ipld::{Ipld, IpldError, IpldPath, SubPath};
 use crate::repo::{Repo, RepoTypes};
 use core::future::Future;
@@ -14,7 +15,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
         }
     }
 
-    pub fn put(&self, data: Ipld) -> impl Future<Output=Result<Cid, IpldError>> {
+    pub fn put(&self, data: Ipld) -> impl Future<Output=Result<Cid, Error>> {
         let repo = self.repo.clone();
         async move {
             let block = data.to_dag_cbor()?;
@@ -23,14 +24,14 @@ impl<Types: RepoTypes> IpldDag<Types> {
         }
     }
 
-    pub fn get(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, IpldError>> {
+    pub fn get(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, Error>> {
         let repo = self.repo.clone();
         async move {
             let mut ipld = Ipld::from(&await!(repo.get_block(path.root()))?)?;
             for sub_path in path.iter() {
                 if !can_resolve(&ipld, sub_path) {
                     let path = sub_path.to_owned();
-                    return Err(IpldError::ResolveError { ipld, path });
+                    return Err(IpldError::ResolveError { ipld, path }.into());
                 }
                 ipld = resolve(ipld, sub_path);
                 ipld = match ipld {

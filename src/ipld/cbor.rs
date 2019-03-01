@@ -1,22 +1,23 @@
 use cbor::{Cbor, Decoder, Encoder};
 pub use cbor::{CborBytes, CborTagEncode, CborError, ReadError};
 use crate::block::Cid;
-use crate::ipld::{Ipld, IpldError};
+use crate::error::Error;
+use crate::ipld::Ipld;
 use rustc_serialize::{Encodable};
 
-pub(crate) fn decode(bytes: Vec<u8>) -> Result<Ipld, IpldError> {
+pub(crate) fn decode(bytes: Vec<u8>) -> Result<Ipld, Error> {
     let mut d = Decoder::from_bytes(bytes);
     let cbor: Cbor = d.read_data_item(None)?;
     cbor_to_ipld(cbor)
 }
 
-pub(crate) fn encode(data: &Ipld) -> Result<Vec<u8>, IpldError> {
+pub(crate) fn encode(data: &Ipld) -> Result<Vec<u8>, Error> {
     let mut e = Encoder::from_memory();
     data.encode(&mut e)?;
     Ok(e.as_bytes().to_owned())
 }
 
-fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, IpldError> {
+fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, Error> {
     let ipld = match cbor {
         Cbor::Break => {
             let err = ReadError::Other("Break.".into());
@@ -41,7 +42,7 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, IpldError> {
                 .map(|(k, v)| {
                     Ok((k, cbor_to_ipld(v)?))
                 })
-                .collect::<Result<_, IpldError>>()?;
+                .collect::<Result<_, Error>>()?;
             Ipld::Object(ipld_map)
         }
         Cbor::Tag(tag) => {

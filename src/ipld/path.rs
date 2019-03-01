@@ -1,4 +1,5 @@
 use crate::block::Cid;
+use crate::error::Error;
 use crate::ipld::IpldError;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -15,11 +16,11 @@ impl IpldPath {
         }
     }
 
-    pub fn from(cid: Cid, string: &str) -> Result<Self, IpldError> {
+    pub fn from(cid: Cid, string: &str) -> Result<Self, Error> {
         let mut path = IpldPath::new(cid);
         for sub_path in string.split("/") {
             if sub_path == "" {
-                return Err(IpldError::InvalidPath(string.to_owned()));
+                return Err(IpldError::InvalidPath(string.to_owned()).into());
             }
             let index = sub_path.parse::<usize>();
             if index.is_ok() {
@@ -31,14 +32,14 @@ impl IpldPath {
         Ok(path)
     }
 
-    pub fn from_str(string: &str) -> Result<Self, IpldError> {
+    pub fn from_str(string: &str) -> Result<Self, Error> {
         let mut subpath = string.split("/");
         if subpath.next() != Some("") {
-            return Err(IpldError::InvalidPath(string.to_owned()));
+            return Err(IpldError::InvalidPath(string.to_owned()).into());
         }
         let cid_string = subpath.next();
         if cid_string.is_none() {
-            return Err(IpldError::InvalidPath(string.to_owned()));
+            return Err(IpldError::InvalidPath(string.to_owned()).into());
         }
         let cid = Cid::from(cid_string.unwrap())?;
         IpldPath::from(cid, &subpath.collect::<Vec<&str>>().join("/"))
