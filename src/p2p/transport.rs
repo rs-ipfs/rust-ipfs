@@ -29,7 +29,7 @@ pub fn build_transport<TSwarmTypes: SwarmTypes>(options: &SwarmOptions<TSwarmTyp
         .and_then(move |out, endpoint| {
             let peer_id = out.remote_key.into_peer_id();
             let peer_id2 = peer_id.clone();
-            let upgrade = SelectUpgrade::new(mplex_config, yamux_config)
+            let upgrade = SelectUpgrade::new(yamux_config, mplex_config)
                 .map_inbound(move |muxer| (peer_id, muxer))
                 .map_outbound(move |muxer| (peer_id2, muxer));
 
