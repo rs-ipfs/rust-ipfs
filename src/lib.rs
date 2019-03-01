@@ -42,7 +42,7 @@ static CONFIG_FILE: &str = "config.json";
 pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
-    type TDataStore = repo::mem::MemDataStore;
+    type TDataStore = repo::fs::RocksDataStore;
 }
 impl SwarmTypes for Types {
     type TStrategy = bitswap::strategy::AltruisticStrategy<Self>;
