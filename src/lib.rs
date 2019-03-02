@@ -23,6 +23,7 @@ mod future;
 pub mod ipld;
 pub mod p2p;
 pub mod repo;
+pub mod unixfs;
 
 pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
