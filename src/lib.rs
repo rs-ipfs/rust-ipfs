@@ -3,6 +3,8 @@
 #![deny(warnings)]
 #![feature(async_await, await_macro, futures_api)]
 #![feature(drain_filter)]
+#![feature(try_from)]
+#![feature(try_trait)]
 
 #[macro_use] extern crate log;
 use futures::prelude::*;

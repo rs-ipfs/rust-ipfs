@@ -4,6 +4,7 @@ use crate::ipld::{formats, IpldError};
 use cid::{Codec, Prefix};
 use rustc_serialize::{Encodable, Encoder as RustcEncoder};
 use std::collections::HashMap;
+use std::convert::TryInto;
 
 /// An enum over all possible IPLD types.
 #[derive(Clone, Debug, PartialEq)]
@@ -36,6 +37,9 @@ impl Ipld {
             Codec::DagCBOR => {
                 formats::cbor::encode(&self)?
             }
+            Codec::DagProtobuf => {
+                formats::pb::encode(self.to_owned())?
+            }
             codec => return Err(IpldError::UnsupportedCodec(codec).into()),
         };
         let cid = cid::Cid::new_from_prefix(prefix, &bytes);
@@ -56,10 +60,17 @@ impl Ipld {
         self.to_block(Codec::DagCBOR)
     }
 
+    pub fn to_dag_pb(&self) -> Result<Block, Error> {
+        self.to_block(Codec::DagProtobuf)
+    }
+
     pub fn from(block: &Block) -> Result<Self, Error> {
         let data = match block.cid().prefix().codec {
             Codec::DagCBOR => {
                 formats::cbor::decode(block.data().to_owned())?
+            }
+            Codec::DagProtobuf => {
+                formats::pb::decode(block.data())?
             }
             codec => return Err(IpldError::UnsupportedCodec(codec).into()),
         };
@@ -175,5 +186,104 @@ impl From<bool> for Ipld {
 impl From<Cid> for Ipld {
     fn from(cid: Cid) -> Self {
         Ipld::Cid(cid)
+    }
+}
+
+impl TryInto<u64> for Ipld {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<u64, Self::Error> {
+        match self {
+            Ipld::U64(u) => Ok(u),
+            _ => Err(None?)
+        }
+    }
+}
+
+impl TryInto<i64> for Ipld {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<i64, Self::Error> {
+        match self {
+            Ipld::I64(i) => Ok(i),
+            _ => Err(None?)
+        }
+    }
+}
+
+impl TryInto<Vec<u8>> for Ipld {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
+        match self {
+            Ipld::Bytes(bytes) => Ok(bytes),
+            _ => Err(None?)
+        }
+    }
+}
+
+impl TryInto<String> for Ipld {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<String, Self::Error> {
+        match self {
+            Ipld::String(string) => Ok(string),
+            _ => Err(None?)
+        }
+    }
+}
+
+impl TryInto<Vec<Ipld>> for Ipld {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<Vec<Ipld>, Self::Error> {
+        match self {
+            Ipld::Array(vec) => Ok(vec),
+            _ => Err(None?)
+        }
+    }
+}
+
+impl TryInto<HashMap<String, Ipld>> for Ipld {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<HashMap<String, Ipld>, Self::Error> {
+        match self {
+            Ipld::Object(map) => Ok(map),
+            _ => Err(None?)
+        }
+    }
+}
+
+impl TryInto<f64> for Ipld {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<f64, Self::Error> {
+        match self {
+            Ipld::F64(f) => Ok(f),
+            _ => Err(None?)
+        }
+    }
+}
+
+impl TryInto<bool> for Ipld {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<bool, Self::Error> {
+        match self {
+            Ipld::Bool(b) => Ok(b),
+            _ => Err(None?)
+        }
+    }
+}
+
+impl TryInto<Cid> for Ipld {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<Cid, Self::Error> {
+        match self {
+            Ipld::Cid(cid) => Ok(cid),
+            _ => Err(None?)
+        }
     }
 }

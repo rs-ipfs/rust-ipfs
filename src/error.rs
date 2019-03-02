@@ -15,6 +15,28 @@ impl std::fmt::Display for Error {
     }
 }
 
+#[derive(Debug)]
+pub struct NoneError(std::option::NoneError);
+
+impl std::error::Error for NoneError {
+    fn description(&self) -> &str {
+        "none error"
+    }
+}
+
+impl std::fmt::Display for NoneError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "None error")
+    }
+}
+
+impl From<std::option::NoneError> for Error {
+    fn from(err: std::option::NoneError) -> Self {
+        NoneError(err).into()
+    }
+}
+
+impl IpfsError for NoneError {}
 impl IpfsError for crate::bitswap::BitswapError {}
 impl IpfsError for crate::ipld::IpldError {}
 impl IpfsError for cbor::CborError {}
