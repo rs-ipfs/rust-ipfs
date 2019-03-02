@@ -1,6 +1,6 @@
 use crate::block::{Block, Cid};
 use crate::error::Error;
-use crate::ipld::{cbor, IpldError};
+use crate::ipld::{formats, IpldError};
 use cid::{Codec, Prefix};
 use rustc_serialize::{Encodable, Encoder as RustcEncoder};
 use std::collections::HashMap;
@@ -34,7 +34,7 @@ impl Ipld {
     pub fn to_block_with_prefix(&self, prefix: &Prefix) -> Result<Block, Error> {
         let bytes = match prefix.codec {
             Codec::DagCBOR => {
-                cbor::encode(&self)?
+                formats::cbor::encode(&self)?
             }
             codec => return Err(IpldError::UnsupportedCodec(codec).into()),
         };
@@ -59,7 +59,7 @@ impl Ipld {
     pub fn from(block: &Block) -> Result<Self, Error> {
         let data = match block.cid().prefix().codec {
             Codec::DagCBOR => {
-                cbor::decode(block.data().to_owned())?
+                formats::cbor::decode(block.data().to_owned())?
             }
             codec => return Err(IpldError::UnsupportedCodec(codec).into()),
         };

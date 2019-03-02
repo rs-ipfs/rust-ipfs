@@ -15,11 +15,14 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl IpfsError for std::io::Error {}
+impl IpfsError for crate::bitswap::BitswapError {}
 impl IpfsError for crate::ipld::IpldError {}
 impl IpfsError for cbor::CborError {}
 impl IpfsError for cid::Error {}
+impl IpfsError for libp2p::core::upgrade::ReadOneError {}
+impl IpfsError for protobuf::ProtobufError {}
 impl IpfsError for rocksdb::Error {}
+impl IpfsError for std::io::Error {}
 
 impl<T: IpfsError + 'static> From<T> for Error {
     fn from(err: T) -> Self {
