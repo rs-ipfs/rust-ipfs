@@ -1,11 +1,19 @@
 use crate::block::Cid;
 use crate::error::Error;
 use crate::ipld::Ipld;
+use cid::Prefix;
 use protobuf::Message;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 
 mod dag_pb;
+
+pub(crate) const PREFIX: Prefix = Prefix {
+    version: cid::Version::V0,
+    codec: cid::Codec::DagProtobuf,
+    mh_type: multihash::Hash::SHA2256,
+    mh_len: 32,
+};
 
 pub(crate) fn decode(bytes: &Vec<u8>) -> Result<Ipld, Error> {
     Ok(PbNode::from_bytes(bytes)?.into())

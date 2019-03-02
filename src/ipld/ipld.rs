@@ -1,8 +1,7 @@
 use crate::block::{Block, Cid};
 use crate::error::Error;
 use crate::ipld::{formats, IpldError};
-use cid::{Codec, Prefix};
-use rustc_serialize::{Encodable, Encoder as RustcEncoder};
+use cid::Codec;
 use std::collections::HashMap;
 use std::convert::TryInto;
 
@@ -32,28 +31,24 @@ pub enum Ipld {
 }
 
 impl Ipld {
-    pub fn to_block_with_prefix(&self, prefix: &Prefix) -> Result<Block, Error> {
-        let bytes = match prefix.codec {
+    pub fn to_block(&self, codec: Codec) -> Result<Block, Error> {
+        let (prefix, bytes) = match codec {
             Codec::DagCBOR => {
-                formats::cbor::encode(&self)?
+                (
+                    formats::cbor::PREFIX,
+                    formats::cbor::encode(&self)?,
+                )
             }
             Codec::DagProtobuf => {
-                formats::pb::encode(self.to_owned())?
+                (
+                    formats::pb::PREFIX,
+                    formats::pb::encode(self.to_owned())?,
+                )
             }
             codec => return Err(IpldError::UnsupportedCodec(codec).into()),
         };
-        let cid = cid::Cid::new_from_prefix(prefix, &bytes);
+        let cid = cid::Cid::new_from_prefix(&prefix, &bytes);
         Ok(Block::new(bytes, cid))
-    }
-
-    pub fn to_block(&self, codec: Codec) -> Result<Block, Error> {
-        let prefix = Prefix {
-            version: cid::Version::V1,
-            codec: codec,
-            mh_type: multihash::Hash::SHA2256,
-            mh_len: 32,
-        };
-        self.to_block_with_prefix(&prefix)
     }
 
     pub fn to_dag_cbor(&self) -> Result<Block, Error> {
@@ -75,45 +70,6 @@ impl Ipld {
             codec => return Err(IpldError::UnsupportedCodec(codec).into()),
         };
         Ok(data)
-    }
-}
-
-impl Encodable for Ipld {
-    fn encode<E: RustcEncoder>(&self, e: &mut E) -> Result<(), E::Error> {
-        match *self {
-            Ipld::U64(ref u) => {
-                u.encode(e)
-            }
-            Ipld::I64(ref i) => {
-                i.encode(e)
-            }
-            Ipld::Bytes(ref bytes) => {
-                cbor::CborBytes(bytes.to_owned()).encode(e)
-            }
-            Ipld::String(ref string) => {
-                string.encode(e)
-            }
-            Ipld::Array(ref vec) => {
-                vec.encode(e)
-            }
-            Ipld::Object(ref map) => {
-                map.encode(e)
-            }
-            Ipld::F64(f) => {
-                f.encode(e)
-            },
-            Ipld::Bool(b) => {
-                b.encode(e)
-            },
-            Ipld::Null => {
-                e.emit_nil()
-            },
-            Ipld::Cid(ref cid) => {
-                // TODO generalize
-                let bytes = cbor::CborBytes(cid.to_bytes());
-                cbor::CborTagEncode::new(42, &bytes).encode(e)
-            }
-        }
     }
 }
 

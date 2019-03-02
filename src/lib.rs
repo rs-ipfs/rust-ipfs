@@ -159,7 +159,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Puts an ipld dag node into the ipfs repo.
     pub fn put_dag(&self, ipld: Ipld) -> impl Future<Output=Result<Cid, Error>> {
-        self.dag.put(ipld)
+        self.dag.put(ipld, cid::Codec::DagCBOR)
     }
 
     /// Gets an ipld dag node from the ipfs repo.
