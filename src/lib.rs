@@ -3,12 +3,12 @@
 #![deny(warnings)]
 #![feature(async_await, await_macro, futures_api)]
 #![feature(drain_filter)]
-#![feature(try_from)]
 #![feature(try_trait)]
 
 #[macro_use] extern crate log;
 use futures::prelude::*;
 use std::collections::VecDeque;
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -40,6 +40,14 @@ static IPFS_PATH: &str = ".rust-ipfs";
 static XDG_APP_NAME: &str = "rust-ipfs";
 static CONFIG_FILE: &str = "config.json";
 
+/// All types can be changed at compile time by implementing
+/// `IpfsTypes`.
+pub trait IpfsTypes: SwarmTypes + RepoTypes {}
+impl<T: RepoTypes> SwarmTypes for T {
+    type TStrategy = bitswap::strategy::AltruisticStrategy<Self>;
+}
+impl<T: SwarmTypes + RepoTypes> IpfsTypes for T {}
+
 /// Default IPFS types.
 #[derive(Clone)]
 pub struct Types;
@@ -47,19 +55,19 @@ impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
     type TDataStore = repo::fs::RocksDataStore;
 }
-impl SwarmTypes for Types {
-    type TStrategy = bitswap::strategy::AltruisticStrategy<Self>;
-}
-impl IpfsTypes for Types {}
 
-/// All types can be changed at compile time by implementing
-/// `IpfsTypes`. `IpfsOptions` implements the trait for default
-/// implementations.
-pub trait IpfsTypes: SwarmTypes + RepoTypes {}
+/// Testing IPFS types
+#[derive(Clone)]
+pub struct TestTypes;
+impl RepoTypes for TestTypes {
+    type TBlockStore = repo::mem::MemBlockStore;
+    type TDataStore = repo::mem::MemDataStore;
+}
 
 /// Ipfs options
 #[derive(Clone, Debug)]
-pub struct IpfsOptions {
+pub struct IpfsOptions<Types: IpfsTypes> {
+    _marker: PhantomData<Types>,
     /// The ipfs log level that should be passed to env_logger.
     pub ipfs_log: String,
     /// The path of the ipfs repo.
@@ -68,9 +76,9 @@ pub struct IpfsOptions {
     pub config: ConfigFile,
 }
 
-impl IpfsOptions {
+impl Default for IpfsOptions<Types> {
     /// Create `IpfsOptions` from environment.
-    pub fn new() -> Self {
+    fn default() -> Self {
         let ipfs_log = std::env::var("IPFS_LOG").unwrap_or(IPFS_LOG.into());
         let ipfs_path = std::env::var("IPFS_PATH").unwrap_or_else(|_| {
             let mut ipfs_path = std::env::var("HOME").unwrap_or("".into());
@@ -83,19 +91,23 @@ impl IpfsOptions {
         let config = ConfigFile::new(path);
 
         IpfsOptions {
+            _marker: PhantomData,
             ipfs_log,
             ipfs_path,
             config
         }
     }
+}
 
+impl Default for IpfsOptions<TestTypes> {
     /// Creates `IpfsOptions` for testing without reading or writing to the
     /// file system.
-    pub fn test() -> Self {
+    fn default() -> Self {
         let ipfs_log = std::env::var("IPFS_LOG").unwrap_or(IPFS_LOG.into());
         let ipfs_path = std::env::var("IPFS_PATH").unwrap_or(IPFS_PATH.into()).into();
         let config = ConfigFile::default();
         IpfsOptions {
+            _marker: PhantomData,
             ipfs_log,
             ipfs_path,
             config,
@@ -118,7 +130,7 @@ enum IpfsEvent {
 
 impl<Types: IpfsTypes> Ipfs<Types> {
     /// Creates a new ipfs node.
-    pub fn new(options: IpfsOptions) -> Self {
+    pub fn new(options: IpfsOptions<Types>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
         let repo = create_repo(repo_options);
         let swarm_options = SwarmOptions::<Types>::from(&options);
@@ -233,24 +245,10 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 mod tests {
     use super::*;
 
-    #[derive(Clone)]
-    struct Types;
-
-    impl RepoTypes for Types {
-        type TBlockStore = crate::repo::mem::MemBlockStore;
-        type TDataStore = crate::repo::mem::MemDataStore;
-    }
-
-    impl SwarmTypes for Types {
-        type TStrategy = crate::bitswap::strategy::AltruisticStrategy<Self>;
-    }
-
-    impl IpfsTypes for Types {}
-
     #[test]
     fn test_put_and_get_block() {
-        let options = IpfsOptions::test();
-        let mut ipfs = Ipfs::<Types>::new(options);
+        let options = IpfsOptions::<TestTypes>::default();
+        let mut ipfs = Ipfs::new(options);
         let block = Block::from("hello block\n");
 
         tokio::run_async(async move {
@@ -266,8 +264,8 @@ mod tests {
 
     #[test]
     fn test_put_and_get_dag() {
-        let options = IpfsOptions::test();
-        let mut ipfs = Ipfs::<Types>::new(options);
+        let options = IpfsOptions::<TestTypes>::default();
+        let mut ipfs = Ipfs::new(options);
 
         tokio::run_async(async move {
             tokio::spawn_async(ipfs.start_daemon());

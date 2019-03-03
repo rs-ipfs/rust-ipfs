@@ -3,9 +3,9 @@ use ipfs::{Ipfs, IpfsOptions, Ipld, IpldPath, Types};
 use futures::join;
 
 fn main() {
-    let options = IpfsOptions::new();
+    let options = IpfsOptions::<Types>::default();
     env_logger::Builder::new().parse(&options.ipfs_log).init();
-    let mut ipfs = Ipfs::<Types>::new(options);
+    let mut ipfs = Ipfs::new(options);
 
     tokio::run_async(async move {
         // Start daemon and initialize repo

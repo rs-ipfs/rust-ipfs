@@ -1,24 +1,10 @@
 #![feature(async_await, await_macro, futures_api)]
-use ipfs::{Block, Ipfs, IpfsOptions, RepoTypes, SwarmTypes, IpfsTypes};
-
-#[derive(Clone)]
-struct Types;
-
-impl RepoTypes for Types {
-    type TBlockStore = ipfs::repo::mem::MemBlockStore;
-    type TDataStore = ipfs::repo::mem::MemDataStore;
-}
-
-impl SwarmTypes for Types {
-    type TStrategy = ipfs::bitswap::strategy::AltruisticStrategy<Self>;
-}
-
-impl IpfsTypes for Types {}
+use ipfs::{Block, Ipfs, IpfsOptions, TestTypes};
 
 fn main() {
-    let options = IpfsOptions::new();
+    let options = IpfsOptions::<TestTypes>::default();
     env_logger::Builder::new().parse(&options.ipfs_log).init();
-    let mut ipfs = Ipfs::<Types>::new(options);
+    let mut ipfs = Ipfs::new(options);
 
     tokio::run_async(async move {
         // Start daemon and initialize repo

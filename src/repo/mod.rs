@@ -26,8 +26,8 @@ pub struct RepoOptions<TRepoTypes: RepoTypes> {
     path: PathBuf,
 }
 
-impl<TRepoTypes: RepoTypes> From<&IpfsOptions> for RepoOptions<TRepoTypes> {
-    fn from(options: &IpfsOptions) -> Self {
+impl<TRepoTypes: RepoTypes> From<&IpfsOptions<TRepoTypes>> for RepoOptions<TRepoTypes> {
+    fn from(options: &IpfsOptions<TRepoTypes>) -> Self {
         RepoOptions {
             _marker: PhantomData,
             path: options.ipfs_path.clone(),
