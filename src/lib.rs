@@ -34,6 +34,7 @@ pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, RepoOptions, Repo, RepoEvent};
+use self::unixfs::File;
 
 static IPFS_LOG: &str = "info";
 static IPFS_PATH: &str = ".rust-ipfs";
@@ -178,6 +179,21 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Gets an ipld dag node from the ipfs repo.
     pub fn get_dag(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, Error>> {
         self.dag.get(path)
+    }
+
+    /// Adds a file into the ipfs repo.
+    pub fn add(&self, path: PathBuf) -> impl Future<Output=Result<Cid, Error>> {
+        let dag = self.dag.clone();
+        async move {
+            let file = await!(File::new(path))?;
+            let cid = await!(file.put_unixfs_v1(&dag))?;
+            Ok(cid)
+        }
+    }
+
+    /// Gets a file from the ipfs repo.
+    pub fn get(&self, path: IpldPath) -> impl Future<Output=Result<File, Error>> {
+        File::get_unixfs_v1(&self.dag, path)
     }
 
     /// Start daemon.

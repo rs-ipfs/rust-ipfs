@@ -24,13 +24,13 @@ pub(crate) fn encode(data: Ipld) -> Result<Vec<u8>, Error> {
     Ok(pb_node.into_bytes())
 }
 
-struct PbLink {
+pub(crate) struct PbLink {
     pub cid: Cid,
     pub name: String,
     pub size: u64,
 }
 
-struct PbNode {
+pub(crate) struct PbNode {
     pub links: Vec<PbLink>,
     pub data: Vec<u8>,
 }

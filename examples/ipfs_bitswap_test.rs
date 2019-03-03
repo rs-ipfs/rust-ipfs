@@ -1,5 +1,6 @@
 #![feature(async_await, await_macro, futures_api)]
 use ipfs::{Block, Ipfs, IpfsOptions, TestTypes};
+use std::convert::TryInto;
 
 fn main() {
     let options = IpfsOptions::<TestTypes>::default();
@@ -17,7 +18,16 @@ fn main() {
 
         // Retrive a Block
         let block = await!(ipfs.get_block(Block::from("block-want\n").cid())).unwrap();
-        let string: String = block.into();
-        println!("block: {:?}", string);
+        let contents: String = block.into();
+        println!("block contents: {:?}", contents);
+
+        // Add a file
+        await!(ipfs.add("./examples/block.data".into())).unwrap();
+
+        // Get a file
+        let path = "/QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW".try_into().unwrap();
+        let file = await!(ipfs.get(path)).unwrap();
+        let contents: String = file.into();
+        println!("file contents: {:?}", contents);
     });
 }

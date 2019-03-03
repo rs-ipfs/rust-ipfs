@@ -5,6 +5,7 @@ use crate::repo::{Repo, RepoTypes};
 use cid::Codec;
 use core::future::Future;
 
+#[derive(Clone)]
 pub struct IpldDag<Types: RepoTypes> {
     repo: Repo<Types>,
 }

@@ -1,6 +1,7 @@
 use crate::block::Cid;
 use crate::error::Error;
 use crate::ipld::IpldError;
+use std::convert::TryFrom;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IpldPath {
@@ -18,6 +19,9 @@ impl IpldPath {
 
     pub fn from(cid: Cid, string: &str) -> Result<Self, Error> {
         let mut path = IpldPath::new(cid);
+        if string.is_empty() {
+            return Ok(path);
+        }
         for sub_path in string.split("/") {
             if sub_path == "" {
                 return Err(IpldError::InvalidPath(string.to_owned()).into());
@@ -66,6 +70,14 @@ impl IpldPath {
             path.push_str(&sub_path.to_string());
         }
         path
+    }
+}
+
+impl TryFrom<&str> for IpldPath {
+    type Error = Error;
+
+    fn try_from(string: &str) -> Result<Self, Self::Error> {
+        IpldPath::from_str(string)
     }
 }
 
@@ -157,7 +169,7 @@ mod tests {
     #[test]
     fn test_from_errors() {
         let cid = Block::from("hello").cid().to_owned();
-        assert!(IpldPath::from(cid.clone(), "").is_err());
+        assert!(IpldPath::from(cid.clone(), "").is_ok());
         assert!(IpldPath::from(cid.clone(), "/").is_err());
         assert!(IpldPath::from(cid.clone(), "/abc").is_err());
         assert!(IpldPath::from(cid.clone(), "abc/").is_err());
