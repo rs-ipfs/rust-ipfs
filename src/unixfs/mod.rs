@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::path::PathBuf;
 
+pub mod unixfs;
+
 pub struct File {
     data: Vec<u8>,
 }
