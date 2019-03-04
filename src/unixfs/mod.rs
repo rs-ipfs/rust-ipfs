@@ -73,7 +73,8 @@ impl Into<String> for File {
 mod tests {
     use super::*;
     use crate::repo::tests::create_mock_repo;
-
+    use crate::future::tokio_run;
+    
     #[test]
     fn test_file_cid() {
         let repo = create_mock_repo();
@@ -81,7 +82,7 @@ mod tests {
         let file = File::from("\u{8}\u{2}\u{12}\u{12}Here is some data\n\u{18}\u{12}");
         let cid = Cid::from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
 
-        tokio::run_async(async move {
+        tokio_run(async move {
             let cid2 = await!(file.put_unixfs_v1(&dag)).unwrap();
             assert_eq!(cid.to_string(), cid2.to_string());
         });

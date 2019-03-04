@@ -300,7 +300,7 @@ mod tests {
         std::fs::remove_dir_all(tmp.clone()).ok();
         let store = RocksDataStore::new(tmp.clone());
 
-        tokio::run_async(async move {
+        tokio_run(async move {
             let col = Column::Ipns;
             let key = [1, 2, 3, 4];
             let value = [5, 6, 7, 8];

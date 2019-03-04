@@ -157,7 +157,7 @@ mod tests {
     fn test_mem_datastore() {
         let tmp = temp_dir();
         let store = MemDataStore::new(tmp);
-        tokio::run_async(async move {
+        tokio_run(async move {
             let col = Column::Ipns;
             let key = [1, 2, 3, 4];
             let value = [5, 6, 7, 8];
