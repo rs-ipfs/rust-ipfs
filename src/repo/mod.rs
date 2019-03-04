@@ -143,7 +143,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let block_store = self.block_store.clone();
         async move {
             let cid = await!(block_store.put(block))?;
-            events.send(RepoEvent::ProvideBlock(cid.clone())).expect("sending doesn't fail");
+            // sending only fails if no one is listening anymore
+            // and that is okay with us.
+            let _ = events.send(RepoEvent::ProvideBlock(cid.clone()));
             Ok(cid)
         }
     }
@@ -157,7 +159,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let block_store = self.block_store.clone();
         async move {
             if !await!(block_store.contains(&cid))? {
-                events.send(RepoEvent::WantBlock(cid.clone())).expect("sending doesn't fail");
+                // sending only fails if no one is listening anymore
+                // and that is okay with us.
+                let _ = events.send(RepoEvent::WantBlock(cid.clone()));
             }
             await!(BlockFuture::new(block_store, cid))
         }
@@ -167,7 +171,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub fn remove_block(&self, cid: &Cid)
         -> impl Future<Output=Result<(), Error>>
     {
-        self.events.send(RepoEvent::UnprovideBlock(cid.to_owned())).expect("sending doesn't fail");
+        // sending only fails if no one is listening anymore
+        // and that is okay with us.
+        let _ = self.events.send(RepoEvent::UnprovideBlock(cid.to_owned()));
         self.block_store.remove(cid)
     }
 
