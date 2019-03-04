@@ -1,8 +1,8 @@
 //! IPFS repo
 use crate::block::{Cid, Block};
 use crate::error::Error;
-use crate::ipld::IpldPath;
 use crate::future::BlockFuture;
+use crate::path::IpfsPath;
 use crate::IpfsOptions;
 use core::future::Future;
 use futures::future::FutureObj;
@@ -179,7 +179,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Get an ipld path from the datastore.
     pub fn get_ipns(&self, ipns: &Cid) ->
-    impl Future<Output=Result<Option<IpldPath>, Error>>
+    impl Future<Output=Result<Option<IpfsPath>, Error>>
     {
         let data_store = self.data_store.clone();
         let key = ipns.to_bytes();
@@ -188,7 +188,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             match bytes {
                 Some(ref bytes) => {
                     let string = String::from_utf8_lossy(bytes);
-                    let path = IpldPath::from_str(&string)?;
+                    let path = IpfsPath::from_str(&string)?;
                     Ok(Some(path))
                 }
                 None => Ok(None)
@@ -197,7 +197,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     /// Put an ipld path into the datastore.
-    pub fn put_ipns(&self, ipns: &Cid, path: &IpldPath) ->
+    pub fn put_ipns(&self, ipns: &Cid, path: &IpfsPath) ->
     impl Future<Output=Result<(), Error>>
     {
         let string = path.to_string();

@@ -1,6 +1,6 @@
-use crate::block::Cid;
 use crate::error::Error;
-use crate::ipld::{Ipld, IpldDag, IpldPath, formats::pb::PbNode};
+use crate::ipld::{Ipld, IpldDag, formats::pb::PbNode};
+use crate::path::IpfsPath;
 use crate::repo::RepoTypes;
 use core::future::Future;
 use futures::compat::*;
@@ -23,7 +23,7 @@ impl File {
         }
     }
 
-    pub fn get_unixfs_v1<T: RepoTypes>(dag: &IpldDag<T>, path: IpldPath) ->
+    pub fn get_unixfs_v1<T: RepoTypes>(dag: &IpldDag<T>, path: IpfsPath) ->
     impl Future<Output=Result<Self, Error>> {
         let future = dag.get(path);
         async move {
@@ -36,7 +36,7 @@ impl File {
     }
 
     pub fn put_unixfs_v1<T: RepoTypes>(&self, dag: &IpldDag<T>) ->
-    impl Future<Output=Result<Cid, Error>>
+    impl Future<Output=Result<IpfsPath, Error>>
     {
         let links: Vec<Ipld> = vec![];
         let mut pb_node = HashMap::<&str, Ipld>::new();
@@ -72,6 +72,7 @@ impl Into<String> for File {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block::Cid;
     use crate::repo::tests::create_mock_repo;
 
     #[test]
@@ -82,8 +83,8 @@ mod tests {
         let cid = Cid::from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
 
         tokio::run_async(async move {
-            let cid2 = await!(file.put_unixfs_v1(&dag)).unwrap();
-            assert_eq!(cid.to_string(), cid2.to_string());
+            let path = await!(file.put_unixfs_v1(&dag)).unwrap();
+            assert_eq!(cid.to_string(), path.cid().to_string());
         });
     }
 }

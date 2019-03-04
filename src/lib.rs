@@ -21,6 +21,7 @@ pub mod error;
 mod future;
 pub mod ipld;
 pub mod p2p;
+pub mod path;
 pub mod repo;
 pub mod unixfs;
 
@@ -28,9 +29,10 @@ pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
 pub use self::error::Error;
 use self::ipld::IpldDag;
-pub use self::ipld::{Ipld, IpldPath};
+pub use self::ipld::Ipld;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
+pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, RepoOptions, Repo, RepoEvent};
 use self::unixfs::File;
@@ -173,17 +175,17 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Puts an ipld dag node into the ipfs repo.
-    pub fn put_dag(&self, ipld: Ipld) -> impl Future<Output=Result<Cid, Error>> {
+    pub fn put_dag(&self, ipld: Ipld) -> impl Future<Output=Result<IpfsPath, Error>> {
         self.dag.put(ipld, cid::Codec::DagCBOR)
     }
 
     /// Gets an ipld dag node from the ipfs repo.
-    pub fn get_dag(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, Error>> {
+    pub fn get_dag(&self, path: IpfsPath) -> impl Future<Output=Result<Ipld, Error>> {
         self.dag.get(path)
     }
 
     /// Adds a file into the ipfs repo.
-    pub fn add(&self, path: PathBuf) -> impl Future<Output=Result<Cid, Error>> {
+    pub fn add(&self, path: PathBuf) -> impl Future<Output=Result<IpfsPath, Error>> {
         let dag = self.dag.clone();
         async move {
             let file = await!(File::new(path))?;
@@ -193,7 +195,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Gets a file from the ipfs repo.
-    pub fn get(&self, path: IpldPath) -> impl Future<Output=Result<File, Error>> {
+    pub fn get(&self, path: IpfsPath) -> impl Future<Output=Result<File, Error>> {
         File::get_unixfs_v1(&self.dag, path)
     }
 

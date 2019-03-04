@@ -1,6 +1,6 @@
-use crate::block::Cid;
 use crate::error::Error;
-use crate::ipld::{Ipld, IpldError, IpldPath, SubPath};
+use crate::ipld::Ipld;
+use crate::path::{IpfsPath, IpfsPathError, PathRoot, SubPath};
 use crate::repo::{Repo, RepoTypes};
 use cid::Codec;
 use core::future::Future;
@@ -18,24 +18,24 @@ impl<Types: RepoTypes> IpldDag<Types> {
     }
 
     pub fn put(&self, data: Ipld, codec: Codec) ->
-    impl Future<Output=Result<Cid, Error>>
+    impl Future<Output=Result<IpfsPath, Error>>
     {
         let repo = self.repo.clone();
         async move {
             let block = data.to_block(codec)?;
             let cid = await!(repo.put_block(block))?;
-            Ok(cid)
+            Ok(IpfsPath::new(PathRoot::Ipld(cid)))
         }
     }
 
-    pub fn get(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, Error>> {
+    pub fn get(&self, path: IpfsPath) -> impl Future<Output=Result<Ipld, Error>> {
         let repo = self.repo.clone();
         async move {
-            let mut ipld = Ipld::from(&await!(repo.get_block(path.root()))?)?;
+            let mut ipld = Ipld::from(&await!(repo.get_block(path.ipld_root()?))?)?;
             for sub_path in path.iter() {
                 if !can_resolve(&ipld, sub_path) {
                     let path = sub_path.to_owned();
-                    return Err(IpldError::ResolveError { ipld, path }.into());
+                    return Err(IpfsPathError::ResolveError { ipld, path }.into());
                 }
                 ipld = resolve(ipld, sub_path);
                 ipld = match ipld {
@@ -98,9 +98,8 @@ mod tests {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data = Ipld::Array(vec![Ipld::U64(1), Ipld::U64(2), Ipld::U64(3)]);
-            let cid = await!(dag.put(data.clone(), Codec::DagCBOR)).unwrap();
+            let path = await!(dag.put(data.clone(), Codec::DagCBOR)).unwrap();
 
-            let path = IpldPath::new(cid);
             let res = await!(dag.get(path)).unwrap();
             assert_eq!(res, data);
 
@@ -113,10 +112,8 @@ mod tests {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data: Ipld = vec![1, 2, 3].into();
-            let cid = await!(dag.put(data.clone(), Codec::DagCBOR)).unwrap();
-
-            let path = IpldPath::from(cid, "1").unwrap();
-            let res = await!(dag.get(path)).unwrap();
+            let path = await!(dag.put(data.clone(), Codec::DagCBOR)).unwrap();
+            let res = await!(dag.get(path.sub_path("1").unwrap())).unwrap();
             assert_eq!(res, Ipld::U64(2));
         });
     }
@@ -127,10 +124,8 @@ mod tests {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data = Ipld::Array(vec![Ipld::U64(1), Ipld::Array(vec![Ipld::U64(2)]), Ipld::U64(3)]);
-            let cid = await!(dag.put(data.clone(), Codec::DagCBOR)).unwrap();
-
-            let path = IpldPath::from(cid, "1/0").unwrap();
-            let res = await!(dag.get(path)).unwrap();
+            let path = await!(dag.put(data.clone(), Codec::DagCBOR)).unwrap();
+            let res = await!(dag.get(path.sub_path("1/0").unwrap())).unwrap();
             assert_eq!(res, Ipld::U64(2));
         });
     }
@@ -142,10 +137,8 @@ mod tests {
             let dag = IpldDag::new(repo);
             let mut data = HashMap::new();
             data.insert("key", false);
-            let cid = await!(dag.put(data.into(), Codec::DagCBOR)).unwrap();
-
-            let path = IpldPath::from(cid, "key").unwrap();
-            let res = await!(dag.get(path)).unwrap();
+            let path = await!(dag.put(data.into(), Codec::DagCBOR)).unwrap();
+            let res = await!(dag.get(path.sub_path("key").unwrap())).unwrap();
             assert_eq!(res, Ipld::Bool(false));
         });
     }
@@ -156,12 +149,10 @@ mod tests {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data1 = vec![1].into();
-            let cid1 = await!(dag.put(data1, Codec::DagCBOR)).unwrap();
-            let data2 = vec![cid1].into();
-            let cid2 = await!(dag.put(data2, Codec::DagCBOR)).unwrap();
-
-            let path = IpldPath::from(cid2, "0/0").unwrap();
-            let res = await!(dag.get(path)).unwrap();
+            let path1 = await!(dag.put(data1, Codec::DagCBOR)).unwrap();
+            let data2 = vec![path1.cid()].into();
+            let path = await!(dag.put(data2, Codec::DagCBOR)).unwrap();
+            let res = await!(dag.get(path.sub_path("0/0").unwrap())).unwrap();
             assert_eq!(res, Ipld::U64(1));
         });
     }

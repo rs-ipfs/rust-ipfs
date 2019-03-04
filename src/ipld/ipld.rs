@@ -1,6 +1,7 @@
 use crate::block::{Block, Cid};
 use crate::error::Error;
 use crate::ipld::{formats, IpldError};
+use crate::path::IpfsPath;
 use cid::Codec;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -142,6 +143,12 @@ impl From<bool> for Ipld {
 impl From<Cid> for Ipld {
     fn from(cid: Cid) -> Self {
         Ipld::Cid(cid)
+    }
+}
+
+impl From<IpfsPath> for Ipld {
+    fn from(path: IpfsPath) -> Self {
+        Ipld::Cid(path.cid())
     }
 }
 

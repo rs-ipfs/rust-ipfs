@@ -39,6 +39,7 @@ impl From<std::option::NoneError> for Error {
 impl IpfsError for NoneError {}
 impl IpfsError for crate::bitswap::BitswapError {}
 impl IpfsError for crate::ipld::IpldError {}
+impl IpfsError for crate::path::IpfsPathError {}
 impl IpfsError for cbor::CborError {}
 impl IpfsError for cid::Error {}
 impl IpfsError for libp2p::core::upgrade::ReadOneError {}
