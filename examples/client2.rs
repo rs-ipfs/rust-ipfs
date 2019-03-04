@@ -11,7 +11,8 @@ fn main() {
     let path2 = IpldPath::from(cid, "1").unwrap();
 
     tokio::run_async(async move {
-        tokio::spawn_async(ipfs.start_daemon());
+        let fut = ipfs.start_daemon().unwrap();
+        tokio::spawn_async(fut);
 
         let f1 = ipfs.get_dag(path1);
         let f2 = ipfs.get_dag(path2);

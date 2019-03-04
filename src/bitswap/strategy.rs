@@ -2,8 +2,7 @@ use crate::block::{Block, Cid};
 use crate::bitswap::Priority;
 use crate::repo::{Repo, RepoTypes};
 use libp2p::PeerId;
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{channel, Sender, Receiver};
 
 pub trait Strategy<TRepoTypes: RepoTypes>: Send + Unpin {
     fn new(repo: Repo<TRepoTypes>) -> Self;
@@ -21,14 +20,14 @@ pub enum StrategyEvent {
 
 pub struct AltruisticStrategy<TRepoTypes: RepoTypes> {
     repo: Repo<TRepoTypes>,
-    events: Arc<Mutex<VecDeque<StrategyEvent>>>,
+    events: (Sender<StrategyEvent>, Receiver<StrategyEvent>),
 }
 
 impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTypes> {
     fn new(repo: Repo<TRepoTypes>) -> Self {
         AltruisticStrategy {
             repo,
-            events: Arc::new(Mutex::new(VecDeque::new())),
+            events: channel::<StrategyEvent>(),
         }
     }
 
@@ -40,14 +39,14 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
     ) {
         info!("Peer {} wants block {} with priority {}",
               source.to_base58(), cid.to_string(), priority);
-        let events = self.events.clone();
+        let events = self.events.0.clone();
         let future = self.repo.get_block(&cid);
         tokio::spawn_async(async move {
             let block = await!(future).unwrap();
-            events.lock().unwrap().push_back(StrategyEvent::Send {
+            events.send(StrategyEvent::Send {
                 peer_id: source,
                 block: block,
-            });
+            }).unwrap();
         });
     }
 
@@ -62,7 +61,7 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
     }
 
     fn poll(&mut self) -> Option<StrategyEvent> {
-        self.events.lock().unwrap().pop_front()
+        self.events.1.try_recv().ok()
     }
 }
 

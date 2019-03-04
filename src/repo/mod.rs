@@ -9,8 +9,7 @@ use futures::future::FutureObj;
 use futures::join;
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::collections::VecDeque;
+use std::sync::mpsc::{channel, Sender, Receiver};
 
 pub mod mem;
 pub mod fs;
@@ -35,7 +34,7 @@ impl<TRepoTypes: RepoTypes> From<&IpfsOptions<TRepoTypes>> for RepoOptions<TRepo
     }
 }
 
-pub fn create_repo<TRepoTypes: RepoTypes>(options: RepoOptions<TRepoTypes>) -> Repo<TRepoTypes> {
+pub fn create_repo<TRepoTypes: RepoTypes>(options: RepoOptions<TRepoTypes>) -> (Repo<TRepoTypes>, Receiver<RepoEvent>) {
     Repo::new(options)
 }
 
@@ -80,7 +79,7 @@ pub enum Column {
 pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
-    pub events: Arc<Mutex<VecDeque<RepoEvent>>>,
+    events: Sender<RepoEvent>,
 }
 
 #[derive(Clone, Debug)]
@@ -91,18 +90,19 @@ pub enum RepoEvent {
 }
 
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
-    pub fn new(options: RepoOptions<TRepoTypes>) -> Self {
+    pub fn new(options: RepoOptions<TRepoTypes>) -> (Self, Receiver<RepoEvent>) {
         let mut blockstore_path = options.path.clone();
         let mut datastore_path = options.path;
         blockstore_path.push("blockstore");
         datastore_path.push("datastore");
         let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
         let data_store = TRepoTypes::TDataStore::new(datastore_path);
-        Repo {
+        let (sender, receiver) = channel::<RepoEvent>();
+        (Repo {
             block_store,
             data_store,
-            events: Arc::new(Mutex::new(VecDeque::new())),
-        }
+            events: sender,
+        }, receiver)
     }
 
     pub fn init(&self) -> impl Future<Output=Result<(), Error>> {
@@ -143,7 +143,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let block_store = self.block_store.clone();
         async move {
             let cid = await!(block_store.put(block))?;
-            events.lock().unwrap().push_back(RepoEvent::ProvideBlock(cid.clone()));
+            // sending only fails if no one is listening anymore
+            // and that is okay with us.
+            let _ = events.send(RepoEvent::ProvideBlock(cid.clone()));
             Ok(cid)
         }
     }
@@ -157,18 +159,21 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let block_store = self.block_store.clone();
         async move {
             if !await!(block_store.contains(&cid))? {
-                events.lock().unwrap().push_back(RepoEvent::WantBlock(cid.clone()));
+                // sending only fails if no one is listening anymore
+                // and that is okay with us.
+                let _ = events.send(RepoEvent::WantBlock(cid.clone()));
             }
             await!(BlockFuture::new(block_store, cid))
         }
     }
 
     /// Remove block from the block store.
-    pub fn remove_block(&self, cid: &Cid) ->
-    impl Future<Output=Result<(), Error>>
+    pub fn remove_block(&self, cid: &Cid)
+        -> impl Future<Output=Result<(), Error>>
     {
-        self.events.lock().unwrap()
-            .push_back(RepoEvent::UnprovideBlock(cid.to_owned()));
+        // sending only fails if no one is listening anymore
+        // and that is okay with us.
+        let _ = self.events.send(RepoEvent::UnprovideBlock(cid.to_owned()));
         self.block_store.remove(cid)
     }
 
@@ -221,7 +226,8 @@ pub(crate) mod tests {
             _marker: PhantomData,
             path: tmp,
         };
-        Repo::new(options)
+        let (r, _) = Repo::new(options);
+        r
     }
 
     #[test]
@@ -232,7 +238,7 @@ pub(crate) mod tests {
             _marker: PhantomData,
             path: tmp,
         };
-        let repo = Repo::new(options);
+        let (repo, _) = Repo::new(options);
         tokio::run_async(async move {
             await!(repo.init()).unwrap();
         });
