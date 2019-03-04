@@ -23,8 +23,8 @@ pub struct SwarmOptions<TSwarmTypes: SwarmTypes> {
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
 }
 
-impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions> for SwarmOptions<TSwarmTypes> {
-    fn from(options: &IpfsOptions) -> Self {
+impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<TSwarmTypes> {
+    fn from(options: &IpfsOptions<TSwarmTypes>) -> Self {
         let key_pair = options.config.secio_key_pair();
         let peer_id = key_pair.to_peer_id();
         let bootstrap = options.config.bootstrap();

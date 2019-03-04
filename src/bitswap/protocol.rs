@@ -3,11 +3,13 @@
 /// The protocol works the following way:
 ///
 /// - TODO
+
+use crate::bitswap::ledger::{Message, I, O};
+use crate::error::Error;
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo, upgrade};
 use protobuf::ProtobufError;
 use std::{io, iter};
 use tokio::prelude::*;
-use crate::bitswap::ledger::{Message, I, O};
 
 #[derive(Clone, Debug, Default)]
 pub struct BitswapConfig {}
@@ -27,7 +29,7 @@ where
     TSocket: AsyncRead + AsyncWrite,
 {
     type Output = Message<I>;
-    type Error = BitswapError;
+    type Error = Error;
     type Future = upgrade::ReadOneThen<TSocket, (), fn(Vec<u8>, ()) -> Result<Self::Output, Self::Error>>;
 
     #[inline]

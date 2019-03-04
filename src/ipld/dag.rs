@@ -1,8 +1,11 @@
 use crate::block::Cid;
+use crate::error::Error;
 use crate::ipld::{Ipld, IpldError, IpldPath, SubPath};
 use crate::repo::{Repo, RepoTypes};
+use cid::Codec;
 use core::future::Future;
 
+#[derive(Clone)]
 pub struct IpldDag<Types: RepoTypes> {
     repo: Repo<Types>,
 }
@@ -14,23 +17,25 @@ impl<Types: RepoTypes> IpldDag<Types> {
         }
     }
 
-    pub fn put(&self, data: Ipld) -> impl Future<Output=Result<Cid, IpldError>> {
+    pub fn put(&self, data: Ipld, codec: Codec) ->
+    impl Future<Output=Result<Cid, Error>>
+    {
         let repo = self.repo.clone();
         async move {
-            let block = data.to_dag_cbor()?;
+            let block = data.to_block(codec)?;
             let cid = await!(repo.put_block(block))?;
             Ok(cid)
         }
     }
 
-    pub fn get(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, IpldError>> {
+    pub fn get(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, Error>> {
         let repo = self.repo.clone();
         async move {
             let mut ipld = Ipld::from(&await!(repo.get_block(path.root()))?)?;
             for sub_path in path.iter() {
                 if !can_resolve(&ipld, sub_path) {
                     let path = sub_path.to_owned();
-                    return Err(IpldError::ResolveError { ipld, path });
+                    return Err(IpldError::ResolveError { ipld, path }.into());
                 }
                 ipld = resolve(ipld, sub_path);
                 ipld = match ipld {
@@ -94,7 +99,7 @@ mod tests {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data = Ipld::Array(vec![Ipld::U64(1), Ipld::U64(2), Ipld::U64(3)]);
-            let cid = await!(dag.put(data.clone())).unwrap();
+            let cid = await!(dag.put(data.clone(), Codec::DagCBOR)).unwrap();
 
             let path = IpldPath::new(cid);
             let res = await!(dag.get(path)).unwrap();
@@ -109,7 +114,7 @@ mod tests {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data: Ipld = vec![1, 2, 3].into();
-            let cid = await!(dag.put(data.clone())).unwrap();
+            let cid = await!(dag.put(data.clone(), Codec::DagCBOR)).unwrap();
 
             let path = IpldPath::from(cid, "1").unwrap();
             let res = await!(dag.get(path)).unwrap();
@@ -123,7 +128,7 @@ mod tests {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data = Ipld::Array(vec![Ipld::U64(1), Ipld::Array(vec![Ipld::U64(2)]), Ipld::U64(3)]);
-            let cid = await!(dag.put(data.clone())).unwrap();
+            let cid = await!(dag.put(data.clone(), Codec::DagCBOR)).unwrap();
 
             let path = IpldPath::from(cid, "1/0").unwrap();
             let res = await!(dag.get(path)).unwrap();
@@ -138,7 +143,7 @@ mod tests {
             let dag = IpldDag::new(repo);
             let mut data = HashMap::new();
             data.insert("key", false);
-            let cid = await!(dag.put(data.into())).unwrap();
+            let cid = await!(dag.put(data.into(), Codec::DagCBOR)).unwrap();
 
             let path = IpldPath::from(cid, "key").unwrap();
             let res = await!(dag.get(path)).unwrap();
@@ -152,9 +157,9 @@ mod tests {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data1 = vec![1].into();
-            let cid1 = await!(dag.put(data1)).unwrap();
+            let cid1 = await!(dag.put(data1, Codec::DagCBOR)).unwrap();
             let data2 = vec![cid1].into();
-            let cid2 = await!(dag.put(data2)).unwrap();
+            let cid2 = await!(dag.put(data2, Codec::DagCBOR)).unwrap();
 
             let path = IpldPath::from(cid2, "0/0").unwrap();
             let res = await!(dag.get(path)).unwrap();

@@ -1,4 +1,6 @@
 # Rust IPFS implementation
+[![Build Status](https://travis-ci.org/dvc94ch/rust-ipfs.svg?branch=master)](https://travis-ci.org/dvc94ch/rust-ipfs)
+
 Currently implements an altruistic bitswap strategy over mdns.
 
 ## Getting started
@@ -15,7 +17,8 @@ fn main() {
 
     tokio_run(async move {
         // Start daemon and initialize repo
-        tokio_spawn(ipfs.start_daemon());
+        let fut = ipfs.start_daemon().unwrap();
+        tokio_spawn(fut);
         await!(ipfs.init_repo()).unwrap();
         await!(ipfs.open_repo()).unwrap();
 

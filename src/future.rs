@@ -1,4 +1,5 @@
 use crate::block::{Block, Cid};
+use crate::error::Error;
 use crate::repo::BlockStore;
 use futures::FutureExt;
 use futures::compat::Compat;
@@ -22,7 +23,7 @@ pub fn tokio_spawn<F: Future<Output=()> + Send + 'static>(future: F) {
 pub struct BlockFuture<TBlockStore: BlockStore> {
     block_store: TBlockStore,
     cid: Cid,
-    future: FutureObj<'static, Result<Option<Block>, std::io::Error>>,
+    future: FutureObj<'static, Result<Option<Block>, Error>>,
 }
 
 impl<TBlockStore: BlockStore> BlockFuture<TBlockStore> {
@@ -37,7 +38,7 @@ impl<TBlockStore: BlockStore> BlockFuture<TBlockStore> {
 }
 
 impl<TBlockStore: BlockStore> Future for BlockFuture<TBlockStore> {
-    type Output = Result<Block, std::io::Error>;
+    type Output = Result<Block, Error>;
 
     fn poll(mut self: Pin<&mut Self>, waker: &Waker) -> Poll<Self::Output> {
         return match self.future.poll_unpin(waker) {

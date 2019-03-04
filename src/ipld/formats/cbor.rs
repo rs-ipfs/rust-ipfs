@@ -1,22 +1,31 @@
 use cbor::{Cbor, Decoder, Encoder};
 pub use cbor::{CborBytes, CborTagEncode, CborError, ReadError};
+use cid::Prefix;
 use crate::block::Cid;
-use crate::ipld::{Ipld, IpldError};
-use rustc_serialize::{Encodable};
+use crate::error::Error;
+use crate::ipld::Ipld;
+use rustc_serialize::{Encodable, Encoder as RustcEncoder};
 
-pub(crate) fn decode(bytes: Vec<u8>) -> Result<Ipld, IpldError> {
+pub(crate) const PREFIX: Prefix = Prefix {
+    version: cid::Version::V1,
+    codec: cid::Codec::DagCBOR,
+    mh_type: multihash::Hash::SHA2256,
+    mh_len: 32,
+};
+
+pub(crate) fn decode(bytes: Vec<u8>) -> Result<Ipld, Error> {
     let mut d = Decoder::from_bytes(bytes);
     let cbor: Cbor = d.read_data_item(None)?;
     cbor_to_ipld(cbor)
 }
 
-pub(crate) fn encode(data: &Ipld) -> Result<Vec<u8>, IpldError> {
+pub(crate) fn encode(data: &Ipld) -> Result<Vec<u8>, Error> {
     let mut e = Encoder::from_memory();
     data.encode(&mut e)?;
     Ok(e.as_bytes().to_owned())
 }
 
-fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, IpldError> {
+fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, Error> {
     let ipld = match cbor {
         Cbor::Break => {
             let err = ReadError::Other("Break.".into());
@@ -41,7 +50,7 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, IpldError> {
                 .map(|(k, v)| {
                     Ok((k, cbor_to_ipld(v)?))
                 })
-                .collect::<Result<_, IpldError>>()?;
+                .collect::<Result<_, Error>>()?;
             Ipld::Object(ipld_map)
         }
         Cbor::Tag(tag) => {
@@ -60,6 +69,44 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, IpldError> {
         }
     };
     Ok(ipld)
+}
+
+impl Encodable for Ipld {
+    fn encode<E: RustcEncoder>(&self, e: &mut E) -> Result<(), E::Error> {
+        match *self {
+            Ipld::U64(ref u) => {
+                u.encode(e)
+            }
+            Ipld::I64(ref i) => {
+                i.encode(e)
+            }
+            Ipld::Bytes(ref bytes) => {
+                cbor::CborBytes(bytes.to_owned()).encode(e)
+            }
+            Ipld::String(ref string) => {
+                string.encode(e)
+            }
+            Ipld::Array(ref vec) => {
+                vec.encode(e)
+            }
+            Ipld::Object(ref map) => {
+                map.encode(e)
+            }
+            Ipld::F64(f) => {
+                f.encode(e)
+            },
+            Ipld::Bool(b) => {
+                b.encode(e)
+            },
+            Ipld::Null => {
+                e.emit_nil()
+            },
+            Ipld::Cid(ref cid) => {
+                let bytes = cbor::CborBytes(cid.to_bytes());
+                cbor::CborTagEncode::new(42, &bytes).encode(e)
+            }
+        }
+    }
 }
 
 #[cfg(test)]

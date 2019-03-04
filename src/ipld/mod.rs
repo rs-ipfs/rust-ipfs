@@ -1,6 +1,6 @@
-mod cbor;
 pub mod dag;
 pub mod error;
+pub mod formats;
 pub mod ipld;
 pub mod path;
 

@@ -1,5 +1,7 @@
 use crate::block::Cid;
+use crate::error::Error;
 use crate::ipld::IpldError;
+use std::convert::TryFrom;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IpldPath {
@@ -15,11 +17,14 @@ impl IpldPath {
         }
     }
 
-    pub fn from(cid: Cid, string: &str) -> Result<Self, IpldError> {
+    pub fn from(cid: Cid, string: &str) -> Result<Self, Error> {
         let mut path = IpldPath::new(cid);
+        if string.is_empty() {
+            return Ok(path);
+        }
         for sub_path in string.split("/") {
             if sub_path == "" {
-                return Err(IpldError::InvalidPath(string.to_owned()));
+                return Err(IpldError::InvalidPath(string.to_owned()).into());
             }
             let index = sub_path.parse::<usize>();
             if index.is_ok() {
@@ -31,14 +36,14 @@ impl IpldPath {
         Ok(path)
     }
 
-    pub fn from_str(string: &str) -> Result<Self, IpldError> {
+    pub fn from_str(string: &str) -> Result<Self, Error> {
         let mut subpath = string.split("/");
         if subpath.next() != Some("") {
-            return Err(IpldError::InvalidPath(string.to_owned()));
+            return Err(IpldError::InvalidPath(string.to_owned()).into());
         }
         let cid_string = subpath.next();
         if cid_string.is_none() {
-            return Err(IpldError::InvalidPath(string.to_owned()));
+            return Err(IpldError::InvalidPath(string.to_owned()).into());
         }
         let cid = Cid::from(cid_string.unwrap())?;
         IpldPath::from(cid, &subpath.collect::<Vec<&str>>().join("/"))
@@ -65,6 +70,14 @@ impl IpldPath {
             path.push_str(&sub_path.to_string());
         }
         path
+    }
+}
+
+impl TryFrom<&str> for IpldPath {
+    type Error = Error;
+
+    fn try_from(string: &str) -> Result<Self, Self::Error> {
+        IpldPath::from_str(string)
     }
 }
 
@@ -156,7 +169,7 @@ mod tests {
     #[test]
     fn test_from_errors() {
         let cid = Block::from("hello").cid().to_owned();
-        assert!(IpldPath::from(cid.clone(), "").is_err());
+        assert!(IpldPath::from(cid.clone(), "").is_ok());
         assert!(IpldPath::from(cid.clone(), "/").is_err());
         assert!(IpldPath::from(cid.clone(), "/abc").is_err());
         assert!(IpldPath::from(cid.clone(), "abc/").is_err());

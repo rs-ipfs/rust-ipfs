@@ -4,13 +4,14 @@ use ipfs::{tokio_run, tokio_spawn};
 use futures::join;
 
 fn main() {
-    let options = IpfsOptions::new();
+    let options = IpfsOptions::<Types>::default();
     env_logger::Builder::new().parse(&options.ipfs_log).init();
-    let mut ipfs = Ipfs::<Types>::new(options);
+    let mut ipfs = Ipfs::new(options);
 
     tokio_run(async move {
         // Start daemon and initialize repo
-        tokio_spawn(ipfs.start_daemon());
+        let fut = ipfs.start_daemon().unwrap();
+        tokio_spawn(fut);
         await!(ipfs.init_repo()).unwrap();
         await!(ipfs.open_repo()).unwrap();
 
