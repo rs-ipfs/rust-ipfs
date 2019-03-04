@@ -8,6 +8,7 @@
 #[macro_use] extern crate failure;
 #[macro_use] extern crate log;
 use futures::prelude::*;
+pub use libp2p::PeerId;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -21,6 +22,7 @@ mod config;
 pub mod error;
 mod future;
 pub mod ipld;
+pub mod ipns;
 pub mod p2p;
 pub mod path;
 pub mod repo;
@@ -31,6 +33,7 @@ use self::config::ConfigFile;
 pub use self::error::Error;
 use self::ipld::IpldDag;
 pub use self::ipld::Ipld;
+use self::ipns::Ipns;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
@@ -124,6 +127,7 @@ pub struct Ipfs<Types: IpfsTypes> {
     repo: Repo<Types>,
     repo_events: Option<Receiver<RepoEvent>>,
     dag: IpldDag<Types>,
+    ipns: Ipns<Types>,
     swarm: Option<TSwarm<Types>>,
     exit_events: Vec<Sender<IpfsEvent>>,
 }
@@ -140,10 +144,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         let swarm_options = SwarmOptions::<Types>::from(&options);
         let swarm = create_swarm(swarm_options, repo.clone());
         let dag = IpldDag::new(repo.clone());
+        let ipns = Ipns::new(repo.clone());
 
         Ipfs {
             repo,
             dag,
+            ipns,
             repo_events: Some(repo_events),
             swarm: Some(swarm),
             exit_events: Vec::default(),
@@ -198,6 +204,27 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Gets a file from the ipfs repo.
     pub fn get(&self, path: IpfsPath) -> impl Future<Output=Result<File, Error>> {
         File::get_unixfs_v1(&self.dag, path)
+    }
+
+    /// Resolves a ipns path to an ipld path.
+    pub fn resolve_ipns(&self, path: &IpfsPath) ->
+    impl Future<Output=Result<IpfsPath, Error>>
+    {
+        self.ipns.resolve(path)
+    }
+
+    /// Publishes an ipld path.
+    pub fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) ->
+    impl Future<Output=Result<IpfsPath, Error>>
+    {
+        self.ipns.publish(key, path)
+    }
+
+    /// Cancel an ipns path.
+    pub fn cancel_ipns(&self, key: &PeerId) ->
+    impl Future<Output=Result<(), Error>>
+    {
+        self.ipns.cancel(key)
     }
 
     /// Start daemon.

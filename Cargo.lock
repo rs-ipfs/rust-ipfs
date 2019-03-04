@@ -804,6 +804,7 @@ dependencies = [
 name = "ipfs"
 version = "0.1.0"
 dependencies = [
+ "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "cbor 0.4.1 (git+https://github.com/dvc94ch/rust-cbor?branch=read-data-item)",
  "cid 0.3.0 (git+https://github.com/dvc94ch/rust-cid?branch=implement-hash)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
