@@ -1,6 +1,7 @@
 use crate::block::Cid;
 use crate::error::Error;
 use crate::ipld::Ipld;
+use crate::path::PathRoot;
 use cid::Prefix;
 use protobuf::Message;
 use std::collections::HashMap;
@@ -25,7 +26,7 @@ pub(crate) fn encode(data: Ipld) -> Result<Vec<u8>, Error> {
 }
 
 pub(crate) struct PbLink {
-    pub cid: Cid,
+    pub cid: PathRoot,
     pub name: String,
     pub size: u64,
 }
@@ -41,7 +42,7 @@ impl PbNode {
         let data = proto.get_Data().to_vec();
         let mut links = Vec::new();
         for link in proto.get_Links() {
-            let cid = Cid::from(link.get_Hash())?;
+            let cid = Cid::from(link.get_Hash())?.into();
             let name = link.get_Name().to_string();
             let size = link.get_Tsize();
             links.push(PbLink {
@@ -117,7 +118,7 @@ impl TryFrom<Ipld> for PbLink {
     fn try_from(ipld: Ipld) -> Result<PbLink, Self::Error> {
         match ipld {
             Ipld::Object(mut map) => {
-                let cid: Cid = map.remove("Hash")?.try_into()?;
+                let cid: PathRoot = map.remove("Hash")?.try_into()?;
                 let name: String = map.remove("Name")?.try_into()?;
                 let size: u64 = map.remove("Tsize")?.try_into()?;
                 Ok(PbLink {

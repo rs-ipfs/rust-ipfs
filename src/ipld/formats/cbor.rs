@@ -56,7 +56,7 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, Error> {
         Cbor::Tag(tag) => {
             if tag.tag == 42 {
                 if let Cbor::Bytes(bytes) = *tag.data {
-                    Ipld::Cid(Cid::from(bytes.0)?)
+                    Ipld::Link(Cid::from(bytes.0)?.into())
                 } else {
                     println!("{:?}", *tag.data);
                     let err = ReadError::Other("Invalid CID.".into());
@@ -101,8 +101,8 @@ impl Encodable for Ipld {
             Ipld::Null => {
                 e.emit_nil()
             },
-            Ipld::Cid(ref cid) => {
-                let bytes = cbor::CborBytes(cid.to_bytes());
+            Ipld::Link(ref root) => {
+                let bytes = cbor::CborBytes(root.to_bytes());
                 cbor::CborTagEncode::new(42, &bytes).encode(e)
             }
         }
@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn test_cid_encode_decode() {
         let cid = Block::from("hello").cid().to_owned();
-        let data = Ipld::Cid(cid);
+        let data = Ipld::Link(cid.into());
         let bytes = encode(&data).unwrap();
         let data2 = decode(bytes).unwrap();
         assert_eq!(data, data2);

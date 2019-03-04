@@ -84,7 +84,7 @@ mod tests {
 
         tokio::run_async(async move {
             let path = await!(file.put_unixfs_v1(&dag)).unwrap();
-            assert_eq!(cid.to_string(), path.cid().to_string());
+            assert_eq!(cid.to_string(), path.root().cid().unwrap().to_string());
         });
     }
 }

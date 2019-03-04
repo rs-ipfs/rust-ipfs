@@ -189,8 +189,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         let dag = self.dag.clone();
         async move {
             let file = await!(File::new(path))?;
-            let cid = await!(file.put_unixfs_v1(&dag))?;
-            Ok(cid)
+            let path = await!(file.put_unixfs_v1(&dag))?;
+            Ok(path)
         }
     }
 

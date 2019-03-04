@@ -40,6 +40,10 @@ impl ConfigFile {
         SecioKeyPair::ed25519_raw_key(&self.raw_key).unwrap()
     }
 
+    pub fn peer_id(&self) -> PeerId {
+        self.secio_key_pair().to_peer_id()
+    }
+
     pub fn bootstrap(&self) -> Vec<(Multiaddr, PeerId)> {
         let mut bootstrap = Vec::new();
         for addr in &self.bootstrap {

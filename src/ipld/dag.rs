@@ -31,7 +31,8 @@ impl<Types: RepoTypes> IpldDag<Types> {
     pub fn get(&self, path: IpfsPath) -> impl Future<Output=Result<Ipld, Error>> {
         let repo = self.repo.clone();
         async move {
-            let mut ipld = Ipld::from(&await!(repo.get_block(path.ipld_root()?))?)?;
+            let cid = path.root().cid()?;
+            let mut ipld = Ipld::from(&await!(repo.get_block(&cid))?)?;
             for sub_path in path.iter() {
                 if !can_resolve(&ipld, sub_path) {
                     let path = sub_path.to_owned();
@@ -39,8 +40,8 @@ impl<Types: RepoTypes> IpldDag<Types> {
                 }
                 ipld = resolve(ipld, sub_path);
                 ipld = match ipld {
-                    Ipld::Cid(cid) => {
-                        Ipld::from(&await!(repo.get_block(&cid))?)?
+                    Ipld::Link(root) => {
+                        Ipld::from(&await!(repo.get_block(root.cid()?))?)?
                     }
                     ipld => ipld,
                 };
@@ -150,7 +151,7 @@ mod tests {
             let dag = IpldDag::new(repo);
             let data1 = vec![1].into();
             let path1 = await!(dag.put(data1, Codec::DagCBOR)).unwrap();
-            let data2 = vec![path1.cid()].into();
+            let data2 = vec![path1.root().to_owned()].into();
             let path = await!(dag.put(data2, Codec::DagCBOR)).unwrap();
             let res = await!(dag.get(path.sub_path("0/0").unwrap())).unwrap();
             assert_eq!(res, Ipld::U64(1));

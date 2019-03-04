@@ -1,6 +1,8 @@
 use crate::block::Cid;
 use crate::error::Error;
-use std::convert::TryFrom;
+use libp2p::PeerId;
+use std::convert::{TryFrom, TryInto};
+use std::str::FromStr;
 
 pub mod error;
 pub use self::error::IpfsPathError;
@@ -23,13 +25,12 @@ impl IpfsPath {
         let mut subpath = string.split("/");
         let empty = subpath.next();
         let root_type = subpath.next();
-        let cid = subpath.next().map(|cid_string| {
-            Cid::from(cid_string)
-        });
-        let root = match (empty, root_type, cid) {
-            (Some(""), Some("ipfs"), Some(Ok(cid))) => PathRoot::Ipld(cid),
-            (Some(""), Some("ipld"), Some(Ok(cid))) => PathRoot::Ipld(cid),
-            (Some(""), Some("ipns"), Some(Ok(cid))) => PathRoot::Ipns(cid),
+        let key = subpath.next();
+
+        let root = match (empty, root_type, key) {
+            (Some(""), Some("ipfs"), Some(key)) => PathRoot::Ipld(Cid::from(key)?),
+            (Some(""), Some("ipld"), Some(key)) => PathRoot::Ipld(Cid::from(key)?),
+            (Some(""), Some("ipns"), Some(key)) => PathRoot::Ipns(PeerId::from_str(key).ok()?),
             _ => return Err(IpfsPathError::InvalidPath(string.to_owned()).into()),
         };
         let mut path = IpfsPath::new(root);
@@ -37,16 +38,12 @@ impl IpfsPath {
         Ok(path)
     }
 
-    pub fn ipld_root(&self) -> Result<&Cid, Error> {
-        if self.root.is_ipld() {
-            Ok(self.root.cid())
-        } else {
-            Err(IpfsPathError::ExpectedIpldPath.into())
-        }
+    pub fn root(&self) -> &PathRoot {
+        &self.root
     }
 
-    pub fn cid(&self) -> Cid {
-        self.root.cid().to_owned()
+    pub fn set_root(&mut self, root: PathRoot) {
+        self.root = root;
     }
 
     pub fn push<T: Into<SubPath>>(&mut self, sub_path: T) {
@@ -104,16 +101,32 @@ impl TryFrom<&str> for IpfsPath {
     }
 }
 
-impl From<PathRoot> for IpfsPath {
-    fn from(root: PathRoot) -> Self {
-        IpfsPath::new(root)
+impl<T: Into<PathRoot>> From<T> for IpfsPath {
+    fn from(root: T) -> Self {
+        IpfsPath::new(root.into())
+    }
+}
+
+impl TryInto<Cid> for IpfsPath {
+    type Error = Error;
+
+    fn try_into(self) -> Result<Cid, Self::Error> {
+        Ok(self.root().cid()?.to_owned())
+    }
+}
+
+impl TryInto<PeerId> for IpfsPath {
+    type Error = Error;
+
+    fn try_into(self) -> Result<PeerId, Self::Error> {
+        Ok(self.root().peer_id()?.to_owned())
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PathRoot {
     Ipld(Cid),
-    Ipns(Cid),
+    Ipns(PeerId),
 }
 
 impl PathRoot {
@@ -131,20 +144,69 @@ impl PathRoot {
         }
     }
 
-    pub fn cid(&self) -> &Cid {
+    pub fn cid(&self) -> Option<&Cid> {
         match self {
-            PathRoot::Ipld(cid) => cid,
-            PathRoot::Ipns(cid) => cid,
+            PathRoot::Ipld(cid) => Some(cid),
+            _ => None,
+        }
+    }
+
+    pub fn peer_id(&self) -> Option<&PeerId> {
+        match self {
+            PathRoot::Ipns(peer_id) => Some(peer_id),
+            _ => None,
         }
     }
 
     pub fn to_string(&self) -> String {
-        let mut string = match self {
-            PathRoot::Ipld(_) => "/ipfs/",
-            PathRoot::Ipns(_) => "/ipns/",
-        }.to_string();
-        string.push_str(&self.cid().to_string());
+        let (prefix, key) = match self {
+            PathRoot::Ipld(cid) => ("/ipfs/", cid.to_string()),
+            PathRoot::Ipns(peer_id) => ("/ipns/", peer_id.to_base58()),
+        };
+        let mut string = prefix.to_string();
+        string.push_str(&key);
         string
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            PathRoot::Ipld(cid) => cid.to_bytes(),
+            PathRoot::Ipns(peer_id) => peer_id.as_bytes().to_vec(),
+        }
+    }
+}
+
+impl From<Cid> for PathRoot {
+    fn from(cid: Cid) -> Self {
+        PathRoot::Ipld(cid)
+    }
+}
+
+impl From<PeerId> for PathRoot {
+    fn from(peer_id: PeerId) -> Self {
+        PathRoot::Ipns(peer_id)
+    }
+}
+
+impl TryInto<Cid> for PathRoot {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<Cid, Self::Error> {
+        match self {
+            PathRoot::Ipld(cid) => Ok(cid),
+            _ => None?,
+        }
+    }
+}
+
+impl TryInto<PeerId> for PathRoot {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<PeerId, Self::Error> {
+        match self {
+            PathRoot::Ipns(peer_id) => Ok(peer_id),
+            _ => None?,
+        }
     }
 }
 
