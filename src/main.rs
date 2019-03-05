@@ -1,10 +1,10 @@
 #![feature(async_await, await_macro, futures_api)]
 use ipfs::{Ipfs, IpfsOptions, Types};
-use ipfs::server::{gen_routes, IpfsService};
+use ipfs::server::{serve_ipfs, load_file, IpfsService};
 use ipfs::{tokio_run, tokio_spawn};
 use futures::compat::Compat01As03;
 use std::sync::{Arc, Mutex};
-use warp;
+use warp::{self, Filter};
 
 fn main() {
     let options = IpfsOptions::<Types>::default();
@@ -22,8 +22,11 @@ fn main() {
         let ipfs_service : IpfsService<Types> = Arc::new(Mutex::new(ipfs));
 
         let addr = ([127, 0, 0, 1], 8081);
-        let routes = gen_routes(ipfs_service);
         println!("Listening on {:?}", addr);
+
+        let routes = warp::path("ipfs")
+            .and(serve_ipfs(ipfs_service.clone()))
+            .or(load_file(ipfs_service.clone()));
         await!(Compat01As03::new(warp::serve(routes).bind(addr))).unwrap();
     });
 }
