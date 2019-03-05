@@ -1,6 +1,6 @@
 #![feature(async_await, await_macro, futures_api)]
 use ipfs::{Ipfs, IpfsOptions, Types};
-use ipfs::server::{serve_ipfs, load_file, IpfsService};
+use ipfs::server::{serve_ipfs, IpfsService};
 use ipfs::{tokio_run, tokio_spawn};
 use futures::compat::Compat01As03;
 use std::sync::{Arc, Mutex};
@@ -25,8 +25,9 @@ fn main() {
         println!("Listening on {:?}", addr);
 
         let routes = warp::path("ipfs")
-            .and(serve_ipfs(ipfs_service.clone()))
-            .or(load_file(ipfs_service.clone()));
+            // .and(serve_ipfs(ipfs_service.clone()))
+            // .or(warp::path("ipfs")
+            .and(serve_ipfs(ipfs_service.clone()));
         await!(Compat01As03::new(warp::serve(routes).bind(addr))).unwrap();
     });
 }

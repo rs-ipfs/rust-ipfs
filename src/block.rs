@@ -31,6 +31,10 @@ impl Block {
     pub fn data(&self) -> &Vec<u8> {
         &self.data
     }
+
+    pub fn into_inner(self) -> (Cid, Vec<u8>) {
+        (self.cid, self.data)
+    }
 }
 
 impl From<&str> for Block {

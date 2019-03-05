@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 // use ipfs::{Block, Ipfs, IpfsOptions, RepoTypes, SwarmTypes, IpfsTypes};
 use super::{Block, Ipfs, IpfsTypes, Cid};
-use warp::{filters::BoxedFilter, Filter, Rejection, Reply, http::Response};
+use warp::{filters::BoxedFilter, Filter, Rejection, Reply};
+use warp::http::{Response, status::StatusCode, header::CONTENT_TYPE};
 use std::sync::{Arc, Mutex};
 use futures::compat::Compat;
 use futures::{Future, TryFutureExt};
@@ -19,22 +20,78 @@ fn load_block<T: IpfsTypes>(item: &Cid, service: IpfsService<T>)
         .map_err(|_err| warp::reject::not_found())
 }
 
-pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
-    -> BoxedFilter<(impl Reply,)> {
-    warp::path::param::<Cid>()
-        .and(warp::path::end())
-        .and(warp::any().map(move || ipfs_service.clone()))
-        // just fetch and return the block
-        .and_then(|c, s| Compat::new(Box::pin(load_block(&c, s))))
-        .map(|block: Block| Response::builder()
-            .status(200)
-            .header("ETag", block.cid().to_string())
-            .body::<String>(block.into())
-        )
-        .boxed()
+fn serve_block(block: Block, path: String) -> Response<Vec<u8>> {
+    
+    let mut builder = Response::builder();
+
+    builder.status(200)
+        .header("ETag", block.cid().to_string());
+
+    if path.ends_with(".html") {
+        builder.header(CONTENT_TYPE, "text/html");
+    }
+    
+    if let Ok(Ipld::Object(hp)) = Ipld::from(&block) {
+        println!("Could parse for {:}", path);
+        if let Some(Ipld::Bytes(d)) = hp.get(&"Data".to_owned()) {
+            println!("only serving data");
+            return builder.body(d.to_vec()).expect("Body never fails on first call")
+        }
+    }
+
+    let (_cid, data) = block.into_inner();
+
+    builder.body(data).expect("Body never fails on first call")
 }
 
-pub fn load_file<T: IpfsTypes>(ipfs_service: IpfsService<T>)
+fn moved(cid: &Cid) -> Response<String> {
+    let url = format!("/ipfs/{}", cid.to_string());
+    println!("moved to: {}", url);
+
+    Response::builder()
+        .status(StatusCode::MOVED_PERMANENTLY)
+        .header("Location", url.clone())
+        .header(CONTENT_TYPE, "text/html")
+        .body(format!("<a href=\"{}\">This page has moved permanently</a>", url))
+            .expect("Body never fails on first attempt")
+}
+
+fn find_item<'d>(ipld: &'d Ipld, path: String) -> Option<&'d Cid> {
+    let wrapped_path = Ipld::String(path);
+    if let Ipld::Object(hp) = ipld {
+        if let Some(Ipld::Array(ref links)) = hp.get(&"Links".to_owned()) {
+            if let Some(Ipld::Object(entry)) = links
+                .iter()
+                .find(|e| {
+                    if let Ipld::Object(hp) = e {
+                        if Some(&wrapped_path) == hp.get(&"Name".to_owned()) {
+                            return true
+                        }
+                    }
+                    false
+                })
+            {
+                if let Some(Ipld::Cid(cid)) = entry.get(&"Hash".to_owned()) {
+                    return Some(cid)
+                }
+            }
+        }
+    }
+    None
+}
+
+// pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
+//     -> BoxedFilter<(impl Reply,)> {
+//     warp::path::param::<Cid>()
+//         .and(warp::path::end())
+//         .and(warp::any().map(move || ipfs_service.clone()))
+//         // just fetch and return the block
+//         .and_then(|c, s| Compat::new(Box::pin(load_block(&c, s))))
+//         .map(|b| serve_block(b, "index.html".to_owned()))
+//         .boxed()
+// }
+
+pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
     -> BoxedFilter<(impl Reply,)>
 {
     let convert_block = |b: &Block| Ipld::from(b);
@@ -46,41 +103,27 @@ pub fn load_file<T: IpfsTypes>(ipfs_service: IpfsService<T>)
         .and_then(move |service: IpfsService<T>, item: Cid, tail: warp::path::Tail | {
             let load_inner = async move || {
                 // TODO: recursive support
-                let path = Ipld::String(tail.as_str().to_owned());
-                let block = await!(load_block(&item, service.clone()))?;
+                let mut full_path = tail.as_str().split("/");
+                let mut cid = item;
+                loop {
+                    let path : String = full_path.next().unwrap_or("index.html").to_owned();
+                    let block = await!(load_block(&cid, service.clone()))?;
 
-                match convert_block(&block) {
-                    Ok(Ipld::Object(hp)) => {
-                        if let Some(Ipld::Array(ref links)) = hp.get(&"Links".to_owned()) {
-                            if let Some(Ipld::Object(entry)) = links
-                                .iter()
-                                .find(|e| {
-                                    if let Ipld::Object(hp) = e {
-                                        if Some(&path) == hp.get(&"name".to_owned()) {
-                                            return true
-                                        }
-                                    }
-                                    false
-                                })
-                            {
-                                if let Some(Ipld::Cid(cid)) = entry.get(&"cid".to_owned()) {
-
-                                    return await!(load_block(&cid, service.clone()))
-                                        .map_err(|_err| warp::reject::not_found())
-                                }
-                            }
+                    if let Ok(ref ipld) = convert_block(&block) {
+                        if let Some(file_id) = find_item(ipld, path.clone()) {
+                            cid = file_id.clone();
+                            continue
                         }
-                        Err(warp::reject::not_found())
-                    },
-                    _ => Err(warp::reject::not_found())
+                    }
+                    if full_path.next().is_some() {
+                        // no more lookups, but still some path?
+                        return Err(warp::reject::not_found())
+                    } else {
+                        return Ok(serve_block(block, path))
+                    }
                 }
             };
             Compat::new(Box::pin(load_inner()))
         })
-        .map(|block: Block| Response::builder()
-            .status(200)
-            .header("x-ben", "yo")
-            .body::<String>(block.into())
-        )
         .boxed()
 }
