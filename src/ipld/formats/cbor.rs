@@ -58,7 +58,7 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, Error> {
                 if let Cbor::Bytes(bytes) = *tag.data {
                     Ipld::Cid(Cid::from(bytes.0)?)
                 } else {
-                    println!("{:?}", *tag.data);
+                    println!("inner message: {:?}", *tag.data);
                     let err = ReadError::Other("Invalid CID.".into());
                     return Err(CborError::Decode(err).into())
                 }

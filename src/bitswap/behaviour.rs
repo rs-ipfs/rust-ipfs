@@ -175,7 +175,7 @@ where
         event: InnerMessage,
     ) {
         debug!("bitswap: inject_node_event");
-        debug!("{:?}", event);
+        debug!("event: {:?}", event);
         let message = match event {
             InnerMessage::Rx(message) => {
                 message
@@ -229,7 +229,7 @@ where
                     });
                 }
             } else {
-                debug!("{:?}", event);
+                debug!("other {:?}", event);
                 debug!("");
                 return Async::Ready(event);
             }

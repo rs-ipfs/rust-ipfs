@@ -37,7 +37,7 @@ where
         debug!("upgrade_inbound: {}", std::str::from_utf8(info).unwrap());
         upgrade::read_one_then(socket, 2048, (), |packet, ()| {
             let message = Message::from_bytes(&packet)?;
-            debug!("{:?}", message);
+            debug!("inbound message: {:?}", message);
             Ok(message)
         })
     }
