@@ -21,7 +21,7 @@ fn main() {
 
         let ipfs_service : IpfsService<Types> = Arc::new(Mutex::new(ipfs));
 
-        let addr = ([127, 0, 0, 1], 8081);
+        let addr = ([0, 0, 0, 0], 8081);
         println!("Listening on {:?}", addr);
 
         let routes = warp::path("ipfs")
