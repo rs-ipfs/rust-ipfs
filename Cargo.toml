@@ -17,12 +17,12 @@ cid = "*"
 env_logger = "*"
 fnv = "*"
 futures-preview = { version = "0.3.0-alpha.13", features = ["io-compat"] }
-libp2p = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }
+libp2p = { version = "*", git = "https://github.com/libp2p/rust-libp2p", branch = "ben-legacy-mdns" }
 log = "*"
 multibase = "*"
 multihash = "*"
-parity-multiaddr = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }
-parity-multihash = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }
+parity-multiaddr = { version = "*", git = "https://github.com/libp2p/rust-libp2p", branch = "ben-legacy-mdns" }
+parity-multihash = { version = "*", git = "https://github.com/libp2p/rust-libp2p", branch = "ben-legacy-mdns" }
 protobuf = "2.0.2"
 rand = "0.6"
 rocksdb = "*"
