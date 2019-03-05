@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 use futures::compat::Compat;
 use futures::{Future, TryFutureExt};
 use super::ipld::Ipld;
+use super::unixfs::unixfs::Data as UnixfsData;
+use protobuf;
 
 pub type IpfsService<T> = Arc<Mutex<Ipfs<T>>>; 
 
@@ -32,8 +34,11 @@ fn serve_block(block: Block, path: String, etag: String) -> Response<Vec<u8>> {
 
     if let Ok(Ipld::Object(hp)) = Ipld::from(&block) {
         if let Some(Ipld::Bytes(d)) = hp.get(&"Data".to_owned()) {
+            let data = protobuf::parse_from_bytes::<UnixfsData>(d)
+                .map(|mut u| u.take_Data())
+                .unwrap_or_else(|_| d.to_vec());
             return builder
-                .body(d.to_vec())
+                .body(data)
                 .expect("Body never fails on first call")
         }
     }
@@ -92,21 +97,26 @@ pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
             let load_inner = async move || {
                 let mut full_path = tail.as_str().split("/");
                 let mut cid = item.clone();
+                let mut prev_filename: String = "index.html".to_owned();
                 loop {
-                    let path : String = full_path.next().unwrap_or("index.html").to_owned();
                     let block = await!(load_block(&cid, service.clone()))?;
+                    let path = full_path
+                        .next()
+                        .map(|s|s.to_owned())
+                        .unwrap_or_else(|| "index.html".to_owned());
 
                     if let Ok(ref ipld) = convert_block(&block) {
                         if let Some(file_id) = find_item(ipld, path.clone()) {
                             cid = file_id.clone();
+                            prev_filename = path;
                             continue
                         }
                     }
                     if full_path.next().is_some() {
-                        // no more lookups, but still some path?
+                        // no more lookups, but still some path -> fail
                         return Err(warp::reject::not_found())
                     } else {
-                        return Ok(serve_block(block, path, item.to_string()))
+                        return Ok(serve_block(block, prev_filename, item.to_string()))
                     }
                 }
             };
