@@ -4,12 +4,12 @@ use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::boxed::Boxed;
 use libp2p::core::upgrade::{self, InboundUpgradeExt, OutboundUpgradeExt,
                             SelectUpgrade};
-use libp2p::mplex::MplexConfig;
+use libp2p::mplex::{self, MplexConfig};
 use libp2p::secio::SecioConfig;
 use libp2p::tcp::TcpConfig;
 use libp2p::yamux::Config as YamuxConfig;
 use std::io::{Error, ErrorKind};
-use std::time::Duration;
+use std::{usize, time::Duration};
 use tokio::prelude::*;
 
 /// Transport type.
@@ -22,7 +22,10 @@ pub fn build_transport<TSwarmTypes: SwarmTypes>(options: &SwarmOptions<TSwarmTyp
     let transport = TcpConfig::new();
     let secio_config = SecioConfig::new(options.key_pair.to_owned());
     let yamux_config = YamuxConfig::default();
-    let mplex_config = MplexConfig::new();
+    let mut mplex_config = MplexConfig::new();
+
+	mplex_config.max_buffer_len_behaviour(mplex::MaxBufferBehaviour::Block);
+	mplex_config.max_buffer_len(usize::MAX);
 
     transport
         .with_upgrade(secio_config)
