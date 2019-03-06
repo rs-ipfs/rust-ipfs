@@ -8,6 +8,8 @@ use futures::{Future, TryFutureExt};
 use super::ipld::Ipld;
 use super::unixfs::unixfs::{Data_DataType, Data as UnixfsData};
 use protobuf;
+use std::str::FromStr;
+use cid::ToCid;
 
 pub type IpfsService<T> = Arc<Mutex<Ipfs<T>>>; 
 
@@ -76,46 +78,43 @@ fn extract_file_data<'d>(ipld: &'d Ipld) -> Option<Vec<u8>> {
 async fn fetch_file<'d, T: IpfsTypes>(ipfs_service: IpfsService<T>, ipld: &'d Ipld)
     -> Result<Vec<u8>, Rejection>
 {
-    match ipld {
-        // Ipld::String(s) => return Ok(s.into()),
-        // Ipld::Bytes(b) => return Ok(b),
-        Ipld::Object(hp) => {
-            if let Some(Ipld::Bytes(d)) = hp.get(&"Data".to_owned()) {
-                if let Ok(item) = protobuf::parse_from_bytes::<UnixfsData>(d) {
-                    if item.get_Type() == Data_DataType::File && item.get_blocksizes().len() > 0
-                    {
-                        if let Some(Ipld::Array(links)) = hp.get(&"Links".to_owned()) {
-                            let name = &"".to_owned();
-                            let mut buffer : Vec<u8> = vec![];
-                            // TODO: can we somehow return this iterator to hyper
-                            //       and have it chunk-transfer the data?
-                            for cid in links.iter().filter_map(move |x|
+    if let Ipld::Object(hp) = ipld {
+        if let Some(Ipld::Bytes(d)) = hp.get(&"Data".to_owned()) {
+            if let Ok(item) = protobuf::parse_from_bytes::<UnixfsData>(d) {
+                if item.get_Type() == Data_DataType::File && item.get_blocksizes().len() > 0
+                {
+                    if let Some(Ipld::Array(links)) = hp.get(&"Links".to_owned()) {
+                        let name = &"".to_owned();
+                        let mut buffer : Vec<u8> = vec![];
+                        // TODO: can we somehow return this iterator to hyper
+                        //       and have it chunk-transfer the data?
+                        for cid in links
+                            .iter()
+                            .filter_map(move |x|
                                 if let Ipld::Object(l) = x {
                                     match (l.get(&"Name".to_owned()), l.get(&"Hash".to_owned())) {
                                         (Some(Ipld::String(n)),
-                                         Some(Ipld::Cid(cid))) if n == name => Some(cid),
+                                            Some(Ipld::Cid(cid))) if n == name => Some(cid),
                                         _=> None
                                     }
                                 } else {
                                     None
                                 }
-                            ) {
-                                let block = await!(load_block(cid, ipfs_service.clone()))?;
-                                let mut data = extract_block(block);
-                                buffer.append(&mut data)
-                            }
-
-                            return Ok(buffer)
+                        ) {
+                            let block = await!(load_block(cid, ipfs_service.clone()))?;
+                            let mut data = extract_block(block);
+                            buffer.append(&mut data)
                         }
-                    }
 
-                    return Ok(item.get_Data().into())
-                } else {
-                    return Ok(d.to_vec())
+                        return Ok(buffer)
+                    }
                 }
+
+                return Ok(item.get_Data().into())
+            } else {
+                return Ok(d.to_vec())
             }
         }
-        _ => {}
     };
 
     Err(warp::reject::not_found())
@@ -125,24 +124,31 @@ fn find_item<'d>(ipld: &'d Ipld, path: String) -> Option<&'d Cid> {
     let wrapped_path = Ipld::String(path);
     if let Ipld::Object(hp) = ipld {
         if let Some(Ipld::Array(ref links)) = hp.get(&"Links".to_owned()) {
-            if let Some(Ipld::Object(entry)) = links
-                .iter()
-                .find(|e| {
-                    if let Ipld::Object(hp) = e {
-                        if Some(&wrapped_path) == hp.get(&"Name".to_owned()) {
-                            return true
-                        }
+            for e in links.iter() {
+                if let Ipld::Object(hp) = e {
+                    if  hp.get(&"Name".to_owned()) != Some(&wrapped_path) {
+                        continue // object has a different name
                     }
-                    false
-                })
-            {
-                if let Some(Ipld::Cid(cid)) = entry.get(&"Hash".to_owned()) {
-                    return Some(cid)
+                    if let Some(Ipld::Cid(cid)) = hp.get(&"Hash".to_owned()) {
+                        return Some(cid)
+                    }
                 }
             }
         }
     }
     None
+}
+
+struct OptionalCid(pub Option<Cid>);
+
+impl FromStr for OptionalCid {
+    type Err = ();
+    fn from_str(src: &str) -> Result<Self, Self::Err> {
+        Ok(match src.to_cid() {
+            Ok(o) => Self(Some(o)),
+            _ => Self(None)
+        })
+    }
 }
 
 pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
@@ -154,23 +160,29 @@ pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
         .map(move || ipfs_service.clone())
         .and(warp::path::param::<Cid>()) // CiD
         .and(warp::path::tail()) // everything after
-        // .and(warp::filters::header::header::<Option<Cid>>("If-None-Match"))
+        .and(warp::filters::header::header::<OptionalCid>("If-None-Match"))
         .and_then(move |
             service: IpfsService<T>,
             item: Cid,
             tail: warp::path::Tail,
-            // etag: Option<Cid>
+            etag: OptionalCid
         | {
-            // if let Some(etag) = etag {
-            //     if etag == item {
-            //         return warp::reply::with_status(StatusCode::NOT_MODIFIED)
-            //     }
-            // }
             let load_inner = async move || {
+
+                if let Some(etag) = etag.0 {
+                    if etag == item {
+                        return Ok(Response::builder()
+                            .status(StatusCode::NOT_MODIFIED)
+                            .body(Vec::default()).expect("Body call doesn't fail first time"))
+                    }
+                }
+
                 let mut full_path = tail.as_str().split("/");
                 let mut cid = item.clone();
                 let mut prev_filename: String = "index.html".to_owned();
-                let ipld = loop {
+
+                // iterate through the path, finding the deepest entry
+                let last = loop {
                     let block = await!(load_block(&cid, service.clone()))?;
                     let path = full_path
                         .next()
@@ -188,6 +200,7 @@ pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
                                 // no more lookups, but still some path -> fail
                                 return Err(warp::reject::not_found())
                             } else {
+                                // no more entries, this is the last we want
                                 break ipld
                             }
                         }
@@ -202,7 +215,7 @@ pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
                     }
                 };
 
-                await!(fetch_file(service, &ipld)).map(move |data| {
+                await!(fetch_file(service, &last)).map(move |data| {
 
                     let mut builder = Response::builder();
 
