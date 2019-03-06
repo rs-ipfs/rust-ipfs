@@ -26,7 +26,8 @@ fn serve_block(block: Block, path: String, etag: String) -> Response<Vec<u8>> {
     let mut builder = Response::builder();
 
     builder.status(200)
-        .header("ETag", etag);
+        .header("ETag", etag)
+        .header("x-ipfs-cid", block.cid().to_string());
 
     if path.ends_with(".html") {
         builder.header(CONTENT_TYPE, "text/html");
