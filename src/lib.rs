@@ -38,6 +38,8 @@ use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, RepoOptions, Repo, RepoEvent};
 use self::unixfs::File;
+#[cfg(feature="server")]
+pub use self::server::{serve, IpfsService};
 
 static IPFS_LOG: &str = "info";
 static IPFS_PATH: &str = ".rust-ipfs";

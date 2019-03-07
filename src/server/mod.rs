@@ -1,15 +1,16 @@
 #![allow(dead_code)]
 use super::{Block, Ipfs, IpfsTypes, Cid};
-use warp::{filters::BoxedFilter, Filter, Rejection, Reply};
+use warp::{self, filters::BoxedFilter, Filter, Rejection, Reply};
 use warp::http::{Response, status::StatusCode, header::CONTENT_TYPE};
 use std::sync::{Arc, Mutex};
-use futures::compat::Compat;
+use futures::compat::{Compat, Compat01As03};
 use futures::{Future, TryFutureExt};
 use super::ipld::Ipld;
 use super::unixfs::unixfs::{Data_DataType, Data as UnixfsData};
 use protobuf;
 use std::str::FromStr;
 use cid::ToCid;
+use std::net::SocketAddr;
 
 pub type IpfsService<T> = Arc<Mutex<Ipfs<T>>>; 
 
@@ -233,4 +234,13 @@ pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
             Compat::new(Box::pin(load_inner()))
         })
         .boxed()
+}
+
+
+pub fn serve<T: IpfsTypes>(service: IpfsService<T>, addr: impl Into<SocketAddr> + 'static)
+    -> impl Future<Output = Result<(), ()>> + 'static
+{
+    let routes = warp::path("ipfs")
+        .and(serve_ipfs(service));
+    Compat01As03::new(warp::serve(routes).bind(addr))
 }
