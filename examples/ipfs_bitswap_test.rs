@@ -4,7 +4,7 @@ use std::convert::TryInto;
 
 fn main() {
     let options = IpfsOptions::<TestTypes>::default();
-    env_logger::Builder::new().parse(&options.ipfs_log).init();
+    env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
     let mut ipfs = Ipfs::new(options);
 
     tokio::run_async(async move {
