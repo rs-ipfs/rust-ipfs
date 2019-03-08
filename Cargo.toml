@@ -8,7 +8,7 @@ edition = "2018"
 byteorder = "*"
 cbor = { git = "https://github.com/dvc94ch/rust-cbor", branch = "read-data-item" }
 cid = { git = "https://github.com/multiformats/rust-cid", branch = "master" }
-domain = { path = "../domain/domain" }
+domain = "*"
 env_logger = "*"
 failure = "*"
 fnv = "*"
