@@ -1,5 +1,5 @@
 #![feature(async_await, await_macro, futures_api)]
-use ipfs::{Ipfs, IpfsOptions, PeerId, TestTypes};
+use ipfs::{Ipfs, IpfsOptions, IpfsPath, PeerId, TestTypes};
 
 fn main() {
     let options = IpfsOptions::<TestTypes>::default();
@@ -21,6 +21,14 @@ fn main() {
         // Resolve a Block
         let new_ipfs_path = await!(ipfs.resolve_ipns(&ipns_path)).unwrap();
         assert_eq!(ipfs_path, new_ipfs_path);
+
+        // Resolve dnslink
+        let ipfs_path = IpfsPath::from_str("/ipns/ipfs.io").unwrap();
+        println!("Resolving {:?}", ipfs_path.to_string());
+        let ipfs_path = await!(ipfs.resolve_ipns(&ipfs_path)).unwrap();
+        println!("Resolved stage 1: {:?}", ipfs_path.to_string());
+        let ipfs_path = await!(ipfs.resolve_ipns(&ipfs_path)).unwrap();
+        println!("Resolved stage 2: {:?}", ipfs_path.to_string());
 
         ipfs.exit_daemon();
     });

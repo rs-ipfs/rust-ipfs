@@ -6,12 +6,13 @@ edition = "2018"
 
 [dependencies]
 byteorder = "*"
-cbor = "*"
-cid = "*"
+cbor = { git = "https://github.com/dvc94ch/rust-cbor", branch = "read-data-item" }
+cid = { git = "https://github.com/multiformats/rust-cid", branch = "master" }
+domain = { path = "../domain/domain" }
 env_logger = "*"
 failure = "*"
 fnv = "*"
-futures-preview = { version = "0.3.0-alpha.13", features = ["compat"] }
+futures-preview = { git = "https://github.com/rust-lang-nursery/futures-rs", branch = "master", features = ["compat"] }
 libp2p = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }
 log = "*"
 multibase = "*"
@@ -25,24 +26,5 @@ rustc-serialize = "0.3"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-tokio = { version = "0.1", features = ["async-await-preview"] }
+tokio = { version = "0.1", features = ["async-await-preview"]  }
 xdg = "*"
-
-[patch.crates-io]
-cbor = { git = "https://github.com/dvc94ch/rust-cbor", branch = "read-data-item" }
-cid = { git = "https://github.com/dvc94ch/rust-cid", branch = "implement-hash" }
-tokio = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-async-await = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-codec = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-current-thread = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-executor = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-fs = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-io = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-reactor = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-sync = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-threadpool = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-timer = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-tcp = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-tls = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-udp = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }
-tokio-uds = { git = "https://github.com/dvc94ch/tokio", branch = "2018-edition" }

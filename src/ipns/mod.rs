@@ -5,8 +5,9 @@ use crate::repo::{Repo, RepoTypes};
 use libp2p::PeerId;
 use std::future::Future;
 
-mod ipns_pb;
+mod dns;
 mod entry;
+mod ipns_pb;
 
 pub struct Ipns<Types: RepoTypes> {
     repo: Repo<Types>,
@@ -26,10 +27,17 @@ impl<Types: RepoTypes> Ipns<Types> {
         let repo = self.repo.clone();
         let path = path.to_owned();
         async move {
-            if path.root().is_ipns() {
-                Ok(await!(repo.get_ipns(path.root().peer_id()?))??)
-            } else {
-                Ok(path)
+            match path.root() {
+                PathRoot::Ipld(_) => Ok(path),
+                PathRoot::Ipns(peer_id) => {
+                    match await!(repo.get_ipns(peer_id))? {
+                        Some(path) => Ok(path),
+                        None => bail!("unimplemented"),
+                    }
+                },
+                PathRoot::Dns(domain) => {
+                    Ok(await!(dns::resolve(domain)?)?)
+                },
             }
         }
     }

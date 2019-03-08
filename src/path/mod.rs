@@ -30,7 +30,12 @@ impl IpfsPath {
         let root = match (empty, root_type, key) {
             (Some(""), Some("ipfs"), Some(key)) => PathRoot::Ipld(Cid::from(key)?),
             (Some(""), Some("ipld"), Some(key)) => PathRoot::Ipld(Cid::from(key)?),
-            (Some(""), Some("ipns"), Some(key)) => PathRoot::Ipns(PeerId::from_str(key).ok()?),
+            (Some(""), Some("ipns"), Some(key)) => {
+                match PeerId::from_str(key).ok() {
+                    Some(peer_id) => PathRoot::Ipns(peer_id),
+                    None => PathRoot::Dns(key.to_string())
+                }
+            },
             _ => return Err(IpfsPathError::InvalidPath(string.to_owned()).into()),
         };
         let mut path = IpfsPath::new(root);
@@ -133,6 +138,7 @@ impl TryInto<PeerId> for IpfsPath {
 pub enum PathRoot {
     Ipld(Cid),
     Ipns(PeerId),
+    Dns(String),
 }
 
 impl PathRoot {
@@ -168,6 +174,7 @@ impl PathRoot {
         let (prefix, key) = match self {
             PathRoot::Ipld(cid) => ("/ipfs/", cid.to_string()),
             PathRoot::Ipns(peer_id) => ("/ipns/", peer_id.to_base58()),
+            PathRoot::Dns(domain) => ("/ipns/", domain.to_owned()),
         };
         let mut string = prefix.to_string();
         string.push_str(&key);
@@ -178,6 +185,7 @@ impl PathRoot {
         match self {
             PathRoot::Ipld(cid) => cid.to_bytes(),
             PathRoot::Ipns(peer_id) => peer_id.as_bytes().to_vec(),
+            PathRoot::Dns(domain) => domain.as_bytes().to_vec(),
         }
     }
 }
