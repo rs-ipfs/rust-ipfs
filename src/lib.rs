@@ -5,6 +5,7 @@
 #![feature(drain_filter)]
 #![feature(try_trait)]
 
+#[macro_use] extern crate failure;
 #[macro_use] extern crate log;
 use futures::prelude::*;
 use std::marker::PhantomData;

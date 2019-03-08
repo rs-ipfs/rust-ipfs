@@ -31,7 +31,10 @@ impl<Types: RepoTypes> IpldDag<Types> {
     pub fn get(&self, path: IpfsPath) -> impl Future<Output=Result<Ipld, Error>> {
         let repo = self.repo.clone();
         async move {
-            let cid = path.root().cid()?;
+            let cid = match path.root().cid() {
+                Some(cid) => cid,
+                None => bail!("expected cid"),
+            };
             let mut ipld = Ipld::from(&await!(repo.get_block(&cid))?)?;
             for sub_path in path.iter() {
                 if !can_resolve(&ipld, sub_path) {
@@ -41,7 +44,10 @@ impl<Types: RepoTypes> IpldDag<Types> {
                 ipld = resolve(ipld, sub_path);
                 ipld = match ipld {
                     Ipld::Link(root) => {
-                        Ipld::from(&await!(repo.get_block(root.cid()?))?)?
+                        match root.cid() {
+                            Some(cid) => Ipld::from(&await!(repo.get_block(cid))?)?,
+                            None => bail!("expected cid"),
+                        }
                     }
                     ipld => ipld,
                 };

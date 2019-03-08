@@ -21,7 +21,10 @@ pub(crate) fn decode(bytes: &Vec<u8>) -> Result<Ipld, Error> {
 }
 
 pub(crate) fn encode(data: Ipld) -> Result<Vec<u8>, Error> {
-    let pb_node: PbNode = data.to_owned().try_into()?;
+    let pb_node: PbNode = match data.to_owned().try_into() {
+        Ok(pb_node) => pb_node,
+        Err(_) => bail!("ipld data is not compatible with dag_pb format"),
+    };
     Ok(pb_node.into_bytes())
 }
 

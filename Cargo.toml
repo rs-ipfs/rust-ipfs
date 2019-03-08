@@ -8,6 +8,7 @@ edition = "2018"
 cbor = "*"
 cid = "*"
 env_logger = "*"
+failure = "*"
 fnv = "*"
 futures-preview = { version = "0.3.0-alpha.13", features = ["compat"] }
 libp2p = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }

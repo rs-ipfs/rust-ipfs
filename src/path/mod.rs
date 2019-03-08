@@ -111,7 +111,10 @@ impl TryInto<Cid> for IpfsPath {
     type Error = Error;
 
     fn try_into(self) -> Result<Cid, Self::Error> {
-        Ok(self.root().cid()?.to_owned())
+        match self.root().cid() {
+            Some(cid) => Ok(cid.to_owned()),
+            None => bail!("expected cid"),
+        }
     }
 }
 
@@ -119,7 +122,10 @@ impl TryInto<PeerId> for IpfsPath {
     type Error = Error;
 
     fn try_into(self) -> Result<PeerId, Self::Error> {
-        Ok(self.root().peer_id()?.to_owned())
+        match self.root().peer_id() {
+            Some(peer_id) => Ok(peer_id.to_owned()),
+            None => bail!("expected peer id"),
+        }
     }
 }
 

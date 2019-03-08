@@ -28,7 +28,10 @@ impl File {
         let future = dag.get(path);
         async move {
             let ipld = await!(future)?;
-            let pb_node: PbNode = ipld.try_into()?;
+            let pb_node: PbNode = match ipld.try_into() {
+                Ok(pb_node) => pb_node,
+                Err(_) => bail!("invalid dag_pb node"),
+            };
             Ok(File {
                 data: pb_node.data,
             })
