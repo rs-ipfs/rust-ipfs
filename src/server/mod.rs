@@ -1,14 +1,13 @@
 #![allow(dead_code)]
 use super::{Block, Ipfs, IpfsTypes, Cid};
 use warp::{self, filters::BoxedFilter, Filter, Rejection, Reply};
-use warp::http::{Response, status::StatusCode, header::CONTENT_TYPE};
+use warp::http::{Response, status::StatusCode, HeaderMap, header::CONTENT_TYPE};
 use std::sync::{Arc, Mutex};
 use futures::compat::{Compat, Compat01As03};
 use futures::{Future, TryFutureExt};
 use super::ipld::Ipld;
 use super::unixfs::unixfs::{Data_DataType, Data as UnixfsData};
 use protobuf;
-use std::str::FromStr;
 use cid::ToCid;
 use std::net::SocketAddr;
 
@@ -140,18 +139,6 @@ fn find_item<'d>(ipld: &'d Ipld, path: String) -> Option<&'d Cid> {
     None
 }
 
-struct OptionalCid(pub Option<Cid>);
-
-impl FromStr for OptionalCid {
-    type Err = ();
-    fn from_str(src: &str) -> Result<Self, Self::Err> {
-        Ok(match src.to_cid() {
-            Ok(o) => Self(Some(o)),
-            _ => Self(None)
-        })
-    }
-}
-
 pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
     -> BoxedFilter<(impl Reply,)>
 {
@@ -161,23 +148,23 @@ pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
         .map(move || ipfs_service.clone())
         .and(warp::path::param::<Cid>()) // CiD
         .and(warp::path::tail()) // everything after
-        .and(warp::filters::header::header::<OptionalCid>("If-None-Match"))
+        .and(warp::header::headers_cloned())
         .and_then(move |
             service: IpfsService<T>,
             item: Cid,
             tail: warp::path::Tail,
-            etag: OptionalCid
+            header: HeaderMap
         | {
             let load_inner = async move || {
-
-                if let Some(etag) = etag.0 {
-                    if etag == item {
-                        return Ok(Response::builder()
-                            .status(StatusCode::NOT_MODIFIED)
-                            .body(Vec::default()).expect("Body call doesn't fail first time"))
+                if let Some(val) = header.get("If-None-Match") {
+                    if let Ok(etag) = val.as_bytes().to_cid() {
+                        if etag == item {
+                            return Ok(Response::builder()
+                                .status(StatusCode::NOT_MODIFIED)
+                                .body(Vec::default()).expect("Body call doesn't fail first time"))
+                        }
                     }
                 }
-
                 let mut full_path = tail.as_str().split("/");
                 let mut cid = item.clone();
                 let mut prev_filename: String = "index.html".to_owned();
