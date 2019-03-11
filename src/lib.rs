@@ -6,13 +6,18 @@
 #![feature(try_trait)]
 
 #[macro_use] extern crate log;
-use futures::prelude::*;
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::task::{Poll, Waker};
 use tokio::prelude::{Async, Stream as StreamOld};
+
+// re-export for future-compability
+pub use futures::compat::Compat;
+pub use futures::future::FutureObj;
+pub use futures::FutureExt;
+pub use std::future::Future;
+pub use std::pin::Pin;
 
 pub mod bitswap;
 pub mod block;
