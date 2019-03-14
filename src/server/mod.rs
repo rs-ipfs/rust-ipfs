@@ -139,10 +139,11 @@ fn find_item<'d>(ipld: &'d Ipld, path: String) -> Option<&'d Cid> {
     None
 }
 
+const INDEX: &'static str = "index.html";
+
 pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
     -> BoxedFilter<(impl Reply,)>
 {
-    let convert_block = |b: &Block| Ipld::from(b);
 
     warp::any()
         .map(move || ipfs_service.clone())
@@ -167,16 +168,23 @@ pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
                 }
                 let mut full_path = tail.as_str().split("/");
                 let mut cid = item.clone();
-                let mut prev_filename: String = "index.html".to_owned();
+                let mut prev_filename = INDEX.to_owned() ;
 
                 // iterate through the path, finding the deepest entry
                 let last = loop {
                     let block = await!(load_block(&cid, service.clone()))?;
-                    let path = full_path
-                        .next()
-                        .map(|s|s.to_owned())
-                        .unwrap_or_else(|| "index.html".to_owned());
-                    let ipld = convert_block(&block);
+                    let path = {
+                        if let Some(s) = full_path.next() {
+                            if s.len() > 0 {
+                                s
+                            } else {
+                                INDEX
+                            }
+                        } else {
+                            INDEX
+                        }
+                    }.to_owned();
+                    let ipld = Ipld::from(&block);
 
                     match ipld {
                         Ok(ipld) => {
