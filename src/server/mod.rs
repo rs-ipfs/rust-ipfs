@@ -40,11 +40,11 @@ fn serve_block(block: Block, path: String, etag: String) -> Response<Vec<u8>> {
         .expect("Body never fails on first call")
 }
 
-fn moved(cid: &Cid) -> Response<String> {
+pub fn moved(cid: &Cid) -> impl warp::Reply {
     let url = format!("/ipfs/{}", cid.to_string());
 
     Response::builder()
-        .status(StatusCode::MOVED_PERMANENTLY)
+        .status(StatusCode::TEMPORARY_REDIRECT)
         .header("Location", url.clone())
         .header(CONTENT_TYPE, "text/html")
         .body(format!("<a href=\"{}\">This page has moved permanently</a>", url))

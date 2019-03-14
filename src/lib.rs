@@ -13,7 +13,7 @@ use std::task::{Poll, Waker};
 use tokio::prelude::{Async, Stream as StreamOld};
 
 // re-export for future-compability
-pub use futures::compat::Compat;
+pub use futures::compat::{Compat, Compat01As03};
 pub use futures::future::FutureObj;
 pub use futures::FutureExt;
 pub use std::future::Future;
