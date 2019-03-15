@@ -10,6 +10,7 @@ use super::unixfs::unixfs::{Data_DataType, Data as UnixfsData};
 use protobuf;
 use cid::ToCid;
 use std::net::SocketAddr;
+use std::pin::Pin;
 
 pub type IpfsService<T> = Arc<Mutex<Ipfs<T>>>; 
 
@@ -139,6 +140,86 @@ fn find_item<'d>(ipld: &'d Ipld, path: String) -> Option<&'d Cid> {
     None
 }
 
+pub fn ipfs_responder<'d, T: IpfsTypes>(
+    service: IpfsService<T>,
+    item: Cid,
+    tail: warp::path::Tail,
+    header: HeaderMap
+) -> Compat<Pin<Box<impl Future<Output=Result<impl Reply + 'd, Rejection>>>>>
+{
+    let load_inner = async move || {
+        if let Some(val) = header.get("If-None-Match") {
+            if let Ok(etag) = val.as_bytes().to_cid() {
+                if etag == item {
+                    return Ok(Response::builder()
+                        .status(StatusCode::NOT_MODIFIED)
+                        .body(Vec::default()).expect("Body call doesn't fail first time"))
+                }
+            }
+        }
+        let mut full_path = tail.as_str().split("/");
+        let mut cid = item.clone();
+        let mut prev_filename = INDEX.to_owned() ;
+
+        // iterate through the path, finding the deepest entry
+        let last = loop {
+            let block = await!(load_block(&cid, service.clone()))?;
+            let path = {
+                if let Some(s) = full_path.next() {
+                    if s.len() > 0 {
+                        s
+                    } else {
+                        INDEX
+                    }
+                } else {
+                    INDEX
+                }
+            }.to_owned();
+            let ipld = Ipld::from(&block);
+
+            match ipld {
+                Ok(ipld) => {
+                    if let Some(file_id) = find_item(&ipld, path.clone()) {
+                        cid = file_id.clone();
+                        prev_filename = path;
+                        continue
+                    } else if full_path.next().is_some() {
+                        // no more lookups, but still some path -> fail
+                        return Err(warp::reject::not_found())
+                    } else {
+                        // no more entries, this is the last we want
+                        break ipld
+                    }
+                }
+                _ => {
+                    if full_path.next().is_some() {
+                        // no more lookups, but still some path -> fail
+                        return Err(warp::reject::not_found())
+                    } else {
+                        return Ok(serve_block(block, prev_filename, item.to_string()))
+                    }
+                }
+            }
+        };
+
+        await!(fetch_file(service, &last)).map(move |data| {
+
+            let mut builder = Response::builder();
+
+            builder.status(200)
+                .header("ETag", item.to_string())
+                .header("x-ipfs-cid", cid.to_string());
+
+            if prev_filename.ends_with(".html") {
+                builder.header(CONTENT_TYPE, "text/html");
+            }
+
+            Ok(builder.body(data).expect("Body never fails on first call"))
+        })?
+    };
+    Compat::new(Box::pin(load_inner()))
+}
+
 const INDEX: &'static str = "index.html";
 
 pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
@@ -150,84 +231,7 @@ pub fn serve_ipfs<T: IpfsTypes>(ipfs_service: IpfsService<T>)
         .and(warp::path::param::<Cid>()) // CiD
         .and(warp::path::tail()) // everything after
         .and(warp::header::headers_cloned())
-        .and_then(move |
-            service: IpfsService<T>,
-            item: Cid,
-            tail: warp::path::Tail,
-            header: HeaderMap
-        | {
-            let load_inner = async move || {
-                if let Some(val) = header.get("If-None-Match") {
-                    if let Ok(etag) = val.as_bytes().to_cid() {
-                        if etag == item {
-                            return Ok(Response::builder()
-                                .status(StatusCode::NOT_MODIFIED)
-                                .body(Vec::default()).expect("Body call doesn't fail first time"))
-                        }
-                    }
-                }
-                let mut full_path = tail.as_str().split("/");
-                let mut cid = item.clone();
-                let mut prev_filename = INDEX.to_owned() ;
-
-                // iterate through the path, finding the deepest entry
-                let last = loop {
-                    let block = await!(load_block(&cid, service.clone()))?;
-                    let path = {
-                        if let Some(s) = full_path.next() {
-                            if s.len() > 0 {
-                                s
-                            } else {
-                                INDEX
-                            }
-                        } else {
-                            INDEX
-                        }
-                    }.to_owned();
-                    let ipld = Ipld::from(&block);
-
-                    match ipld {
-                        Ok(ipld) => {
-                            if let Some(file_id) = find_item(&ipld, path.clone()) {
-                                cid = file_id.clone();
-                                prev_filename = path;
-                                continue
-                            } else if full_path.next().is_some() {
-                                // no more lookups, but still some path -> fail
-                                return Err(warp::reject::not_found())
-                            } else {
-                                // no more entries, this is the last we want
-                                break ipld
-                            }
-                        }
-                        _ => {
-                            if full_path.next().is_some() {
-                                // no more lookups, but still some path -> fail
-                                return Err(warp::reject::not_found())
-                            } else {
-                                return Ok(serve_block(block, prev_filename, item.to_string()))
-                            }
-                        }
-                    }
-                };
-
-                await!(fetch_file(service, &last)).map(move |data| {
-
-                    let mut builder = Response::builder();
-
-                    builder.status(200)
-                        .header("ETag", item.to_string())
-                        .header("x-ipfs-cid", cid.to_string());
-
-                    if prev_filename.ends_with(".html") {
-                        builder.header(CONTENT_TYPE, "text/html");
-                    }
-
-                    Ok(builder.body(data).expect("Body never fails on first call"))
-                })?
-            };
-            Compat::new(Box::pin(load_inner()))
-        })
+        .and_then(ipfs_responder)
         .boxed()
 }
 
