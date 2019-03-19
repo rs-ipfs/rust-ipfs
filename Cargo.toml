@@ -13,7 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 cbor = { git = "https://github.com/dvc94ch/rust-cbor", branch = "read-data-item" }
-cid = { git = "https://github.com/gnunicorn/rust-cid", branch = "implement-from-str" }
+cid = { git = "https://github.com/multiformats/rust-cid.git" }
 env_logger = "*"
 fnv = "*"
 futures-preview = { version = "0.3.0-alpha.13", features = ["io-compat"] }
@@ -37,5 +37,3 @@ warp = { version = "0.1.13", optional = true}
 [features]
 default = ["server"]
 server = ["warp"]
-
-# [patch.crates-io]

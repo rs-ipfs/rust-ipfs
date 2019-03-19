@@ -305,7 +305,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "cid"
 version = "0.3.0"
-source = "git+https://github.com/gnunicorn/rust-cid?branch=implement-from-str#c31f253d724b7ce2ba835a5171fe8935216590bb"
+source = "git+https://github.com/multiformats/rust-cid.git#e26293a0de54e3152da0b5736331711179cc0524"
 dependencies = [
  "integer-encoding 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "multibase 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -913,7 +913,7 @@ name = "ipfs"
 version = "0.1.0"
 dependencies = [
  "cbor 0.4.1 (git+https://github.com/dvc94ch/rust-cbor?branch=read-data-item)",
- "cid 0.3.0 (git+https://github.com/gnunicorn/rust-cid?branch=implement-from-str)",
+ "cid 0.3.0 (git+https://github.com/multiformats/rust-cid.git)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-preview 0.3.0-alpha.13 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2904,7 +2904,7 @@ dependencies = [
 "checksum cc 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)" = "389803e36973d242e7fecb092b2de44a3d35ac62524b3b9339e51d577d668e02"
 "checksum cexpr 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "644d693ecfa91955ed32dcc7eda4914e1be97a641fb6f0645a37348e20b230da"
 "checksum cfg-if 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "082bb9b28e00d3c9d39cc03e64ce4cea0f1bb9b3fde493f0cbc008472d22bdf4"
-"checksum cid 0.3.0 (git+https://github.com/gnunicorn/rust-cid?branch=implement-from-str)" = "<none>"
+"checksum cid 0.3.0 (git+https://github.com/multiformats/rust-cid.git)" = "<none>"
 "checksum clang-sys 0.26.4 (registry+https://github.com/rust-lang/crates.io-index)" = "6ef0c1bcf2e99c649104bd7a7012d8f8802684400e03db0ec0af48583c6fa0e4"
 "checksum clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b957d88f4b6a63b9d70d5f454ac8011819c6efa7727858f458ab71c756ce2d3e"
 "checksum clear_on_drop 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "97276801e127ffb46b66ce23f35cc96bd454fa311294bced4bbace7baa8b1d17"
