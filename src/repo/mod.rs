@@ -14,6 +14,11 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 pub mod mem;
 pub mod fs;
 
+pub trait BlockLoader {
+    type Fut: Future<Output=Result<Block, Error>>;
+    fn load_block(&self, item: &Cid) -> Self::Fut;
+}
+
 pub trait RepoTypes: Clone + Send + Sync + 'static {
     type TBlockStore: BlockStore;
     type TDataStore: DataStore;

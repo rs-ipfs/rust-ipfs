@@ -42,7 +42,7 @@ pub use self::ipld::{Ipld, IpldPath};
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::repo::RepoTypes;
-use self::repo::{create_repo, RepoOptions, Repo, RepoEvent};
+use self::repo::{create_repo, BlockLoader, RepoOptions, Repo, RepoEvent};
 use self::unixfs::File;
 #[cfg(feature="server")]
 pub use self::server::{serve, IpfsService};

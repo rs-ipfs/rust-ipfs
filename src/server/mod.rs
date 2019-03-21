@@ -1,9 +1,10 @@
 #![allow(dead_code)]
-use super::{Block, Ipfs, IpfsTypes, Cid};
+use super::{Block, BlockLoader, Ipfs, IpfsTypes, Cid};
 use warp::{self, filters::BoxedFilter, Filter, Rejection, Reply};
 use warp::http::{Response, status::StatusCode, HeaderMap, header::CONTENT_TYPE};
 use std::sync::{Arc, Mutex};
 use futures::compat::{Compat, Compat01As03};
+use crate::error::Error;
 use futures::{self, Future, TryFutureExt};
 use super::ipld::Ipld;
 use super::unixfs::unixfs::{Data_DataType, Data as UnixfsData};
@@ -21,20 +22,14 @@ impl<T: IpfsTypes> IpfsService<T> {
     }
 }
 
-pub trait BlockLoader {
-    type Fut: Future<Output=Result<Block, Rejection>>;
-    fn load_block(&self, item: &Cid) -> Self::Fut;
-}
-
 impl<T> BlockLoader for IpfsService<T> where T: IpfsTypes {
-    existential type Fut: Future<Output=Result<Block, Rejection>>;
+    existential type Fut: Future<Output=Result<Block, Error>>;
 
     fn load_block(&self, item: &Cid) -> Self::Fut {
         self.0
             .lock()
             .unwrap()
             .get_block(item)
-            .map_err(|_err| warp::reject::not_found())
     }
 }
 
@@ -117,7 +112,8 @@ async fn fetch_file<'d, B: 'd + BlockLoader>(ipld: &'d Ipld, loader: B)
                                     None
                                 }
                         ) {
-                            let block = await!(loader.load_block(cid))?;
+                            let block = await!(loader.load_block(cid)
+                                .map_err(|_err| warp::reject::not_found()))?;
                             let mut data = extract_block(block);
                             buffer.append(&mut data)
                         }
@@ -178,7 +174,8 @@ pub fn ipfs_responder<'d, T: IpfsTypes>(
 
         // iterate through the path, finding the deepest entry
         let last = loop {
-            let block = await!(service.load_block(&cid))?;
+            let block = await!(service.load_block(&cid)
+                .map_err(|_err| warp::reject::not_found()))?;
             let path = {
                 if let Some(s) = full_path.next() {
                     if s.len() > 0 {
