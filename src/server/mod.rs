@@ -5,13 +5,12 @@ use warp::http::{Response, status::StatusCode, HeaderMap, header::CONTENT_TYPE};
 use std::sync::{Arc, Mutex};
 use futures::compat::{Compat, Compat01As03};
 use crate::error::Error;
-use futures::{self, Future, TryFutureExt};
+use futures::{self, Future};
 use super::ipld::Ipld;
-use super::unixfs::unixfs::{Data_DataType, Data as UnixfsData};
-use protobuf;
 use cid::ToCid;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use super::unixfs::{extract_block, fetch_file};
 
 #[derive(Clone)]
 pub struct IpfsService<T: IpfsTypes>(Arc<Mutex<Ipfs<T>>>);
@@ -19,6 +18,14 @@ pub struct IpfsService<T: IpfsTypes>(Arc<Mutex<Ipfs<T>>>);
 impl<T: IpfsTypes> IpfsService<T> {
     pub fn new(ipfs: Ipfs<T>) -> Self {
         IpfsService(Arc::new(Mutex::new(ipfs)))
+    }
+}
+
+impl From<Error> for Rejection {
+    #[inline]
+    fn from(_error: Error) -> Rejection {
+        // TODO: actually understand the error and return something smarter
+        warp::reject::not_found()
     }
 }
 
@@ -60,76 +67,6 @@ pub fn moved(cid: &Cid) -> impl warp::Reply {
         .header(CONTENT_TYPE, "text/html")
         .body(format!("<a href=\"{}\">This page has moved permanently</a>", url))
             .expect("Body never fails on first attempt")
-}
-
-fn extract_block(block: Block) -> Vec<u8> {
-    match Ipld::from(&block) {
-        Ok(ref i) => extract_file_data(i),
-        _ => None
-    }.unwrap_or_else(move || {
-        let (_cid, data) = block.into_inner();
-        data
-    }
-}
-
-fn extract_file_data<'d>(ipld: &'d Ipld) -> Option<Vec<u8>> {
-    match ipld {
-        Ipld::Bytes(b) => {
-            protobuf::parse_from_bytes::<UnixfsData>(&b)
-                .map(|mut u| u.take_Data()).ok()
-        },
-        Ipld::Object(hp) => match hp.get(&"Data".to_owned()) {
-                Some(i) => extract_file_data(i),
-                _ => None
-            },
-        _ => None
-    }
-}
-
-async fn fetch_file<'d, B: 'd + BlockLoader>(ipld: &'d Ipld, loader: B)
-    -> Result<Vec<u8>, Rejection>
-{
-    if let Ipld::Object(hp) = ipld {
-        if let Some(Ipld::Bytes(d)) = hp.get(&"Data".to_owned()) {
-            if let Ok(item) = protobuf::parse_from_bytes::<UnixfsData>(d) {
-                if item.get_Type() == Data_DataType::File && item.get_blocksizes().len() > 0
-                {
-                    if let Some(Ipld::Array(links)) = hp.get(&"Links".to_owned()) {
-                        let name = &"".to_owned();
-                        let mut buffer : Vec<u8> = vec![];
-                        // TODO: can we somehow return this iterator to hyper
-                        //       and have it chunk-transfer the data?
-                        for cid in links
-                            .iter()
-                            .filter_map(move |x|
-                                if let Ipld::Object(l) = x {
-                                    match (l.get(&"Name".to_owned()), l.get(&"Hash".to_owned())) {
-                                        (Some(Ipld::String(n)),
-                                            Some(Ipld::Cid(cid))) if n == name => Some(cid),
-                                        _=> None
-                                    }
-                                } else {
-                                    None
-                                }
-                        ) {
-                            let block = await!(loader.load_block(cid)
-                                .map_err(|_err| warp::reject::not_found()))?;
-                            let mut data = extract_block(block);
-                            buffer.append(&mut data)
-                        }
-
-                        return Ok(buffer)
-                    }
-                }
-
-                return Ok(item.get_Data().into())
-            } else {
-                return Ok(d.to_vec())
-            }
-        }
-    };
-
-    Err(warp::reject::not_found())
 }
 
 fn find_item<'d>(ipld: &'d Ipld, path: String) -> Option<&'d Cid> {
@@ -174,8 +111,7 @@ pub fn ipfs_responder<'d, T: IpfsTypes>(
 
         // iterate through the path, finding the deepest entry
         let last = loop {
-            let block = await!(service.load_block(&cid)
-                .map_err(|_err| warp::reject::not_found()))?;
+            let block = await!(service.load_block(&cid))?;
             let path = {
                 if let Some(s) = full_path.next() {
                     if s.len() > 0 {
