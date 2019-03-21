@@ -4,7 +4,7 @@ use warp::{self, filters::BoxedFilter, Filter, Rejection, Reply};
 use warp::http::{Response, status::StatusCode, HeaderMap, header::CONTENT_TYPE};
 use std::sync::{Arc, Mutex};
 use futures::compat::{Compat, Compat01As03};
-use crate::error::Error;
+use super::error::Error;
 use futures::{self, Future};
 use super::ipld::Ipld;
 use cid::ToCid;
@@ -18,14 +18,6 @@ pub struct IpfsService<T: IpfsTypes>(Arc<Mutex<Ipfs<T>>>);
 impl<T: IpfsTypes> IpfsService<T> {
     pub fn new(ipfs: Ipfs<T>) -> Self {
         IpfsService(Arc::new(Mutex::new(ipfs)))
-    }
-}
-
-impl From<Error> for Rejection {
-    #[inline]
-    fn from(_error: Error) -> Rejection {
-        // TODO: actually understand the error and return something smarter
-        warp::reject::not_found()
     }
 }
 
@@ -78,8 +70,10 @@ fn find_item<'d>(ipld: &'d Ipld, path: String) -> Option<&'d Cid> {
                     if  hp.get(&"Name".to_owned()) != Some(&wrapped_path) {
                         continue // object has a different name
                     }
-                    if let Some(Ipld::Cid(cid)) = hp.get(&"Hash".to_owned()) {
-                        return Some(cid)
+                    if let Some(Ipld::Link(root)) = hp.get(&"Hash".to_owned()) {
+                        if let Some(cid) = root.cid() {
+                            return Some(cid)
+                        }
                     }
                 }
             }
@@ -111,7 +105,8 @@ pub fn ipfs_responder<'d, T: IpfsTypes>(
 
         // iterate through the path, finding the deepest entry
         let last = loop {
-            let block = await!(service.load_block(&cid))?;
+            let block = await!(service.load_block(&cid))
+                .map_err(|_| warp::reject::not_found())?;
             let path = {
                 if let Some(s) = full_path.next() {
                     if s.len() > 0 {
@@ -163,7 +158,7 @@ pub fn ipfs_responder<'d, T: IpfsTypes>(
             }
 
             Ok(builder.body(data).expect("Body never fails on first call"))
-        })?
+        }).map_err(|_| warp::reject::not_found())?
     };
     Compat::new(Box::pin(load_inner()))
 }

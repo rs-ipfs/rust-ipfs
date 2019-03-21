@@ -6,6 +6,7 @@
 #![feature(try_trait)]
 #![feature(existential_type)]
 
+#[macro_use] extern crate failure;
 #[macro_use] extern crate log;
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -26,21 +27,26 @@ mod config;
 pub mod error;
 mod future;
 pub mod ipld;
+pub mod ipns;
 pub mod p2p;
+pub mod path;
 pub mod repo;
 pub mod unixfs;
 
 #[cfg(feature="server")]
 pub mod server;
 
+use libp2p::PeerId;
 pub use crate::future::{tokio_run, tokio_spawn};
 pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
 pub use self::error::Error;
 use self::ipld::IpldDag;
-pub use self::ipld::{Ipld, IpldPath};
+pub use self::ipld::Ipld;
+use self::ipns::Ipns;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
+pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, BlockLoader, RepoOptions, Repo, RepoEvent};
 use self::unixfs::File;
@@ -133,6 +139,7 @@ pub struct Ipfs<Types: IpfsTypes + Send + Sync> {
     repo: Repo<Types>,
     repo_events: Option<Receiver<RepoEvent>>,
     dag: IpldDag<Types>,
+    ipns: Ipns<Types>,
     swarm: Option<TSwarm<Types>>,
     exit_events: Vec<Sender<IpfsEvent>>,
 }
@@ -152,10 +159,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         let swarm_options = SwarmOptions::<Types>::from(&options);
         let swarm = create_swarm(swarm_options, repo.clone());
         let dag = IpldDag::new(repo.clone());
+        let ipns = Ipns::new(repo.clone());
 
         Ipfs {
             repo,
             dag,
+            ipns,
             repo_events: Some(repo_events),
             swarm: Some(swarm),
             exit_events: Vec::default(),
@@ -188,28 +197,49 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Puts an ipld dag node into the ipfs repo.
-    pub fn put_dag(&self, ipld: Ipld) -> impl Future<Output=Result<Cid, Error>> {
+    pub fn put_dag(&self, ipld: Ipld) -> impl Future<Output=Result<IpfsPath, Error>> {
         self.dag.put(ipld, cid::Codec::DagCBOR)
     }
 
     /// Gets an ipld dag node from the ipfs repo.
-    pub fn get_dag(&self, path: IpldPath) -> impl Future<Output=Result<Ipld, Error>> {
+    pub fn get_dag(&self, path: IpfsPath) -> impl Future<Output=Result<Ipld, Error>> {
         self.dag.get(path)
     }
 
     /// Adds a file into the ipfs repo.
-    pub fn add(&self, path: PathBuf) -> impl Future<Output=Result<Cid, Error>> {
+    pub fn add(&self, path: PathBuf) -> impl Future<Output=Result<IpfsPath, Error>> {
         let dag = self.dag.clone();
         async move {
             let file = await!(File::new(path))?;
-            let cid = await!(file.put_unixfs_v1(&dag))?;
-            Ok(cid)
+            let path = await!(file.put_unixfs_v1(&dag))?;
+            Ok(path)
         }
     }
 
     /// Gets a file from the ipfs repo.
-    pub fn get(&self, path: IpldPath) -> impl Future<Output=Result<File, Error>> {
+    pub fn get(&self, path: IpfsPath) -> impl Future<Output=Result<File, Error>> {
         File::get_unixfs_v1(&self.dag, path)
+    }
+
+    /// Resolves a ipns path to an ipld path.
+    pub fn resolve_ipns(&self, path: &IpfsPath) ->
+    impl Future<Output=Result<IpfsPath, Error>>
+    {
+        self.ipns.resolve(path)
+    }
+
+    /// Publishes an ipld path.
+    pub fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) ->
+    impl Future<Output=Result<IpfsPath, Error>>
+    {
+        self.ipns.publish(key, path)
+    }
+
+    /// Cancel an ipns path.
+    pub fn cancel_ipns(&self, key: &PeerId) ->
+    impl Future<Output=Result<(), Error>>
+    {
+        self.ipns.cancel(key)
     }
 
     /// Start daemon.

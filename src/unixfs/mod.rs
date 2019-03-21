@@ -1,6 +1,7 @@
-use crate::block::{Block, Cid};
+use crate::block::Block;
 use crate::error::Error;
-use crate::ipld::{Ipld, IpldDag, IpldPath, formats::pb::PbNode};
+use crate::ipld::{Ipld, IpldDag,  formats::pb::PbNode};
+use crate::path::IpfsPath;
 use crate::repo::{BlockLoader, RepoTypes};
 use core::future::Future;
 use futures::compat::*;
@@ -26,12 +27,15 @@ impl File {
         }
     }
 
-    pub fn get_unixfs_v1<T: RepoTypes>(dag: &IpldDag<T>, path: IpldPath) ->
+    pub fn get_unixfs_v1<T: RepoTypes>(dag: &IpldDag<T>, path: IpfsPath) ->
     impl Future<Output=Result<Self, Error>> {
         let future = dag.get(path);
         async move {
             let ipld = await!(future)?;
-            let pb_node: PbNode = ipld.try_into()?;
+            let pb_node: PbNode = match ipld.try_into() {
+                Ok(pb_node) => pb_node,
+                Err(_) => bail!("invalid dag_pb node"),
+            };
             Ok(File {
                 data: pb_node.data,
             })
@@ -39,7 +43,7 @@ impl File {
     }
 
     pub fn put_unixfs_v1<T: RepoTypes>(&self, dag: &IpldDag<T>) ->
-    impl Future<Output=Result<Cid, Error>>
+    impl Future<Output=Result<IpfsPath, Error>>
     {
         let links: Vec<Ipld> = vec![];
         let mut pb_node = HashMap::<&str, Ipld>::new();
@@ -110,19 +114,21 @@ pub(crate) async fn fetch_file<'d, B: 'd + BlockLoader>(ipld: &'d Ipld, loader: 
                         let mut buffer : Vec<u8> = vec![];
                         // TODO: can we somehow return this iterator to hyper
                         //       and have it chunk-transfer the data?
-                        for cid in links
+                        for path in links
                             .iter()
                             .filter_map(move |x|
                                 if let Ipld::Object(l) = x {
                                     match (l.get(&"Name".to_owned()), l.get(&"Hash".to_owned())) {
                                         (Some(Ipld::String(n)),
-                                            Some(Ipld::Cid(cid))) if n == name => Some(cid),
+                                            Some(Ipld::Link(path))) if n == name => Some(path),
                                         _=> None
                                     }
                                 } else {
                                     None
                                 }
                         ) {
+                            let cid = path.cid()
+                                .ok_or(Error::from(::std::io::Error::new(::std::io::ErrorKind::NotFound, "")))?;
                             let block = await!(loader.load_block(cid))?;
                             let mut data = extract_block(block);
                             buffer.append(&mut data)
@@ -145,6 +151,7 @@ pub(crate) async fn fetch_file<'d, B: 'd + BlockLoader>(ipld: &'d Ipld, loader: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block::Cid;
     use crate::repo::tests::create_mock_repo;
     use crate::future::tokio_run;
     
@@ -156,8 +163,8 @@ mod tests {
         let cid = Cid::from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
 
         tokio_run(async move {
-            let cid2 = await!(file.put_unixfs_v1(&dag)).unwrap();
-            assert_eq!(cid.to_string(), cid2.to_string());
+            let path = await!(file.put_unixfs_v1(&dag)).unwrap();
+            assert_eq!(cid.to_string(), path.root().cid().unwrap().to_string());
         });
     }
 }

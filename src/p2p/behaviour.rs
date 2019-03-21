@@ -9,6 +9,7 @@ use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::kad::{Kademlia, KademliaOut as KademliaEvent};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
+use libp2p::floodsub::{Floodsub, FloodsubEvent};
 //use parity_multihash::Multihash;
 use std::sync::Arc;
 use tokio::prelude::*;
@@ -21,6 +22,7 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes
     bitswap: Bitswap<TSubstream, TSwarmTypes>,
     ping: Ping<TSubstream>,
     identify: Identify<TSubstream>,
+    floodsub: Floodsub<TSubstream>,
 }
 
 impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
@@ -32,13 +34,15 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
             MdnsEvent::Discovered(list) => {
                 for (peer, _) in list {
                     debug!("mdns: Discovered peer {}", peer.to_base58());
-                    self.bitswap.connect(peer);
+                    self.bitswap.connect(peer.clone());
+                    self.floodsub.add_node_to_partial_view(peer);
                 }
             }
             MdnsEvent::Expired(list) => {
                 for (peer, _) in list {
                     if !self.mdns.has_node(&peer) {
                         debug!("mdns: Expired peer {}", peer.to_base58());
+                        self.floodsub.remove_node_from_partial_view(&peer);
                     }
                 }
             }
@@ -111,6 +115,15 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     }
 }
 
+impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+    NetworkBehaviourEventProcess<FloodsubEvent> for
+    Behaviour<TSubstream, TSwarmTypes>
+{
+    fn inject_event(&mut self, event: FloodsubEvent) {
+        debug!("floodsub: {:?}", event);
+    }
+}
+
 impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
 {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
@@ -133,6 +146,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
             "rust-ipfs".into(),
             options.key_pair.to_public_key(),
         );
+        let floodsub = Floodsub::new(options.peer_id.to_owned());
 
         Behaviour {
             mdns,
@@ -140,6 +154,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
             bitswap,
             ping,
             identify,
+            floodsub,
         }
     }
 

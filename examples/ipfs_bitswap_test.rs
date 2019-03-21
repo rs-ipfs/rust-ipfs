@@ -5,9 +5,8 @@ use std::convert::TryInto;
 
 fn main() {
     let options = IpfsOptions::<TestTypes>::default();
-    env_logger::Builder::new().parse(&options.ipfs_log).init();
-    let mut ipfs = Ipfs::<TestTypes>::new(options);
-    // let _cid = Cid::from("QmR7tiySn6vFHcEjBeZNtYGAFh735PJHfEMdVEycj9jAPy").unwrap();
+    env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
+    let mut ipfs = Ipfs::new(options);
 
     tokio_run(async move {
         // Start daemon and initialize repo

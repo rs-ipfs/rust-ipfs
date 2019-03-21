@@ -1,6 +1,7 @@
 use crate::block::{Block, Cid};
 use crate::error::Error;
 use crate::ipld::{formats, IpldError};
+use crate::path::{IpfsPath, PathRoot};
 use cid::Codec;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -27,7 +28,7 @@ pub enum Ipld {
     /// Represents the absence of a value or the value undefined.
     Null,
     /// Represents a link to an Ipld node
-    Cid(Cid),
+    Link(PathRoot),
 }
 
 impl Ipld {
@@ -109,6 +110,12 @@ impl From<String> for Ipld {
     }
 }
 
+impl From<&str> for Ipld {
+    fn from(string: &str) -> Self {
+        Ipld::String(string.to_string())
+    }
+}
+
 impl<T: Into<Ipld>> From<Vec<T>> for Ipld {
     fn from(vec: Vec<T>) -> Self {
         Ipld::Array(vec.into_iter().map(|ipld| ipld.into()).collect())
@@ -141,7 +148,19 @@ impl From<bool> for Ipld {
 
 impl From<Cid> for Ipld {
     fn from(cid: Cid) -> Self {
-        Ipld::Cid(cid)
+        Ipld::Link(cid.into())
+    }
+}
+
+impl From<PathRoot> for Ipld {
+    fn from(root: PathRoot) -> Self {
+        Ipld::Link(root)
+    }
+}
+
+impl From<IpfsPath> for Ipld {
+    fn from(path: IpfsPath) -> Self {
+        Ipld::Link(path.root().to_owned())
     }
 }
 
@@ -233,12 +252,23 @@ impl TryInto<bool> for Ipld {
     }
 }
 
+impl TryInto<PathRoot> for Ipld {
+    type Error = std::option::NoneError;
+
+    fn try_into(self) -> Result<PathRoot, Self::Error> {
+        match self {
+            Ipld::Link(root) => Ok(root),
+            _ => Err(None?)
+        }
+    }
+}
+
 impl TryInto<Cid> for Ipld {
     type Error = std::option::NoneError;
 
     fn try_into(self) -> Result<Cid, Self::Error> {
         match self {
-            Ipld::Cid(cid) => Ok(cid),
+            Ipld::Link(root) => root.try_into(),
             _ => Err(None?)
         }
     }

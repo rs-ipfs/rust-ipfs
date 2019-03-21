@@ -5,7 +5,7 @@ use futures::join;
 
 fn main() {
     let options = IpfsOptions::<Types>::default();
-    env_logger::Builder::new().parse(&options.ipfs_log).init();
+    env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
     let mut ipfs = Ipfs::new(options);
 
     tokio_run(async move {

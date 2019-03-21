@@ -1,5 +1,7 @@
 //! Block
 pub use cid::Cid;
+pub use crate::error::Error;
+pub use crate::path::{IpfsPath, PathRoot};
 
 #[derive(Clone, Debug, PartialEq)]
 /// An immutable ipfs block.
@@ -34,6 +36,11 @@ impl Block {
 
     pub fn into_inner(self) -> (Cid, Vec<u8>) {
         (self.cid, self.data)
+    }
+    
+    /// Returns the ipfs path of the block.
+    pub fn path(&self, path: &str) -> Result<IpfsPath, Error> {
+        IpfsPath::new(PathRoot::Ipld(self.cid.clone())).into_sub_path(path)
     }
 }
 
