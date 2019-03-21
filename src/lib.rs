@@ -4,6 +4,7 @@
 #![feature(async_await, await_macro, futures_api)]
 #![feature(drain_filter)]
 #![feature(try_trait)]
+#![feature(existential_type)]
 
 #[macro_use] extern crate log;
 use std::marker::PhantomData;

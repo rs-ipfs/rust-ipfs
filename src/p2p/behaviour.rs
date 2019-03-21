@@ -117,7 +117,8 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
     pub fn new(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Self {
         info!("Local peer id: {}", options.peer_id.to_base58());
 
-        let mdns = Mdns::new_with_legacy().expect("Failed to create mDNS service");
+        let mdns = Mdns::new_with_legacy()
+            .expect("Failed to create mDNS service. Are you connected to a Network?");
 
         let mut kademlia = Kademlia::new(options.peer_id.to_owned());
         for (addr, peer_id) in &options.bootstrap {

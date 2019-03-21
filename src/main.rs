@@ -1,7 +1,6 @@
 #![feature(async_await, await_macro, futures_api)]
 use ipfs::{serve, IpfsService, Ipfs, IpfsOptions, Types};
 use ipfs::{tokio_run, tokio_spawn};
-use std::sync::{Arc, Mutex};
 
 
 fn main() {
@@ -16,7 +15,7 @@ fn main() {
         await!(ipfs.open_repo()).unwrap();
         // Set the address to run our socket on.
 
-        let ipfs_service : IpfsService<Types> = Arc::new(Mutex::new(ipfs));
+        let ipfs_service = IpfsService::new(ipfs);
 
         let addr = ([0, 0, 0, 0], 8081);
         println!("Listening on {:?}", addr);

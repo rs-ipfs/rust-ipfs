@@ -4,7 +4,7 @@ use warp::{self, filters::BoxedFilter, Filter, Rejection, Reply};
 use warp::http::{Response, status::StatusCode, HeaderMap, header::CONTENT_TYPE};
 use std::sync::{Arc, Mutex};
 use futures::compat::{Compat, Compat01As03};
-use futures::{Future, TryFutureExt};
+use futures::{self, Future, TryFutureExt};
 use super::ipld::Ipld;
 use super::unixfs::unixfs::{Data_DataType, Data as UnixfsData};
 use protobuf;
@@ -12,17 +12,32 @@ use cid::ToCid;
 use std::net::SocketAddr;
 use std::pin::Pin;
 
-pub type IpfsService<T> = Arc<Mutex<Ipfs<T>>>; 
+#[derive(Clone)]
+pub struct IpfsService<T: IpfsTypes>(Arc<Mutex<Ipfs<T>>>);
 
-fn load_block<T: IpfsTypes>(item: &Cid, service: IpfsService<T>)
-    -> impl Future<Output=Result<Block, Rejection>>
-{
-    service
-        .lock()
-        .unwrap()
-        .get_block(item)
-        .map_err(|_err| warp::reject::not_found())
+impl<T: IpfsTypes> IpfsService<T> {
+    pub fn new(ipfs: Ipfs<T>) -> Self {
+        IpfsService(Arc::new(Mutex::new(ipfs)))
+    }
 }
+
+pub trait BlockLoader {
+    type Fut: Future<Output=Result<Block, Rejection>>;
+    fn load_block(&self, item: &Cid) -> Self::Fut;
+}
+
+impl<T> BlockLoader for IpfsService<T> where T: IpfsTypes {
+    existential type Fut: Future<Output=Result<Block, Rejection>>;
+
+    fn load_block(&self, item: &Cid) -> Self::Fut {
+        self.0
+            .lock()
+            .unwrap()
+            .get_block(item)
+            .map_err(|_err| warp::reject::not_found())
+    }
+}
+
 
 fn serve_block(block: Block, path: String, etag: String) -> Response<Vec<u8>> {
     
@@ -76,7 +91,7 @@ fn extract_file_data<'d>(ipld: &'d Ipld) -> Option<Vec<u8>> {
     }
 }
 
-async fn fetch_file<'d, T: IpfsTypes>(ipfs_service: IpfsService<T>, ipld: &'d Ipld)
+async fn fetch_file<'d, B: 'd + BlockLoader>(ipld: &'d Ipld, loader: B)
     -> Result<Vec<u8>, Rejection>
 {
     if let Ipld::Object(hp) = ipld {
@@ -102,7 +117,7 @@ async fn fetch_file<'d, T: IpfsTypes>(ipfs_service: IpfsService<T>, ipld: &'d Ip
                                     None
                                 }
                         ) {
-                            let block = await!(load_block(cid, ipfs_service.clone()))?;
+                            let block = await!(loader.load_block(cid))?;
                             let mut data = extract_block(block);
                             buffer.append(&mut data)
                         }
@@ -163,7 +178,7 @@ pub fn ipfs_responder<'d, T: IpfsTypes>(
 
         // iterate through the path, finding the deepest entry
         let last = loop {
-            let block = await!(load_block(&cid, service.clone()))?;
+            let block = await!(service.load_block(&cid))?;
             let path = {
                 if let Some(s) = full_path.next() {
                     if s.len() > 0 {
@@ -202,7 +217,7 @@ pub fn ipfs_responder<'d, T: IpfsTypes>(
             }
         };
 
-        await!(fetch_file(service, &last)).map(move |data| {
+        await!(fetch_file(&last, service.clone())).map(move |data| {
 
             let mut builder = Response::builder();
 
