@@ -22,7 +22,7 @@ pub struct DnsLinkFuture {
 impl Future for DnsLinkFuture {
     type Output = Result<IpfsPath, Error>;
 
-    fn poll(mut self: Pin<&mut Self>, _waker: &Waker) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, _waker: &Waker) -> Poll<Self::Output> {
         let _self = self.get_mut();
         loop {
             let poll = _self.query.poll();
