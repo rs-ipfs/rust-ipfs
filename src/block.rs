@@ -34,6 +34,10 @@ impl Block {
         &self.data
     }
 
+    pub fn into_inner(self) -> (Cid, Vec<u8>) {
+        (self.cid, self.data)
+    }
+    
     /// Returns the ipfs path of the block.
     pub fn path(&self, path: &str) -> Result<IpfsPath, Error> {
         IpfsPath::new(PathRoot::Ipld(self.cid.clone())).into_sub_path(path)

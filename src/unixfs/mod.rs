@@ -1,12 +1,16 @@
+use crate::block::Block;
 use crate::error::Error;
-use crate::ipld::{Ipld, IpldDag, formats::pb::PbNode};
+use crate::ipld::{Ipld, IpldDag,  formats::pb::PbNode};
 use crate::path::IpfsPath;
-use crate::repo::RepoTypes;
+use crate::repo::{BlockLoader, RepoTypes};
 use core::future::Future;
 use futures::compat::*;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::path::PathBuf;
+
+pub mod unixfs;
+use unixfs::{Data_DataType, Data as UnixfsData};
 
 pub struct File {
     data: Vec<u8>,
@@ -72,12 +76,84 @@ impl Into<String> for File {
     }
 }
 
+
+pub fn extract_block(block: Block) -> Vec<u8> {
+    match Ipld::from(&block) {
+        Ok(ref i) => extract_file_data(i),
+        _ => None
+    }.unwrap_or_else(move || {
+        let (_cid, data) = block.into_inner();
+        data
+    }
+}
+
+pub fn extract_file_data<'d>(ipld: &'d Ipld) -> Option<Vec<u8>> {
+    match ipld {
+        Ipld::Bytes(b) => {
+            protobuf::parse_from_bytes::<UnixfsData>(&b)
+                .map(|mut u| u.take_Data()).ok()
+        },
+        Ipld::Object(hp) => match hp.get(&"Data".to_owned()) {
+                Some(i) => extract_file_data(i),
+                _ => None
+            },
+        _ => None
+    }
+}
+
+pub async fn fetch_file<'d, B: 'd + BlockLoader>(ipld: &'d Ipld, loader: B)
+    -> Result<Vec<u8>, Error>
+{
+    if let Ipld::Object(hp) = ipld {
+        if let Some(Ipld::Bytes(d)) = hp.get(&"Data".to_owned()) {
+            if let Ok(item) = protobuf::parse_from_bytes::<UnixfsData>(d) {
+                if item.get_Type() == Data_DataType::File && item.get_blocksizes().len() > 0
+                {
+                    if let Some(Ipld::Array(links)) = hp.get(&"Links".to_owned()) {
+                        let name = &"".to_owned();
+                        let mut buffer : Vec<u8> = vec![];
+                        // TODO: can we somehow return this iterator to hyper
+                        //       and have it chunk-transfer the data?
+                        for path in links
+                            .iter()
+                            .filter_map(move |x|
+                                if let Ipld::Object(l) = x {
+                                    match (l.get(&"Name".to_owned()), l.get(&"Hash".to_owned())) {
+                                        (Some(Ipld::String(n)),
+                                            Some(Ipld::Link(path))) if n == name => Some(path),
+                                        _=> None
+                                    }
+                                } else {
+                                    None
+                                }
+                        ) {
+                            let cid = path.cid()
+                                .ok_or(Error::from(::std::io::Error::new(::std::io::ErrorKind::NotFound, "")))?;
+                            let block = await!(loader.load_block(cid))?;
+                            let mut data = extract_block(block);
+                            buffer.append(&mut data)
+                        }
+
+                        return Ok(buffer)
+                    }
+                }
+
+                return Ok(item.get_Data().into())
+            } else {
+                return Ok(d.to_vec())
+            }
+        }
+    };
+
+    Err(Error::from(::std::io::Error::new(::std::io::ErrorKind::NotFound, "")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::block::Cid;
     use crate::repo::tests::create_mock_repo;
-
+    
     #[test]
     fn test_file_cid() {
         let repo = create_mock_repo();

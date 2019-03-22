@@ -37,8 +37,8 @@ use self::ipns::Ipns;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
-pub use self::repo::RepoTypes;
-use self::repo::{create_repo, RepoOptions, Repo, RepoEvent};
+pub use self::repo::{RepoTypes, BlockLoader};
+use self::repo::{create_repo,  RepoOptions, Repo, RepoEvent};
 use self::unixfs::File;
 
 static IPFS_LOG: &str = "info";
