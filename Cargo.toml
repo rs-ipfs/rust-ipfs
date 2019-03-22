@@ -15,7 +15,7 @@ path = "src/main.rs"
 byteorder = "*"
 cbor = { git = "https://github.com/dvc94ch/rust-cbor", branch = "read-data-item" }
 cid = { git = "https://github.com/multiformats/rust-cid", branch = "master" }
-domain = "*"
+domain = { version = "0.4.1", git = "https://github.com/NLnetLabs/domain.git" }
 env_logger = "*"
 failure = "*"
 fnv = "*"
