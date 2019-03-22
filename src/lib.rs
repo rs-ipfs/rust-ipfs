@@ -36,7 +36,7 @@ pub mod unixfs;
 #[cfg(feature="server")]
 pub mod server;
 
-use libp2p::PeerId;
+pub use libp2p::PeerId;
 pub use crate::future::{tokio_run, tokio_spawn};
 pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
