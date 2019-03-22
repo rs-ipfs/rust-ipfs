@@ -11,6 +11,10 @@ use protobuf::ProtobufError;
 use std::{io, iter};
 use tokio::prelude::*;
 
+// Undocumented, but according to JS we our messages have a max size of 512*1024
+// https://github.com/ipfs/js-ipfs-bitswap/blob/d8f80408aadab94c962f6b88f343eb9f39fa0fcc/src/decision-engine/index.js#L16
+const MAX_BUF_SIZE : usize = 524288;
+
 #[derive(Clone, Debug, Default)]
 pub struct BitswapConfig {}
 
@@ -35,9 +39,9 @@ where
     #[inline]
     fn upgrade_inbound(self, socket: TSocket, info: Self::Info) -> Self::Future {
         debug!("upgrade_inbound: {}", std::str::from_utf8(info).unwrap());
-        upgrade::read_one_then(socket, 2048, (), |packet, ()| {
+        upgrade::read_one_then(socket, MAX_BUF_SIZE, (), |packet, ()| {
             let message = Message::from_bytes(&packet)?;
-            debug!("{:?}", message);
+            debug!("inbound message: {:?}", message);
             Ok(message)
         })
     }
