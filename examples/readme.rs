@@ -1,6 +1,4 @@
-#![feature(async_await, await_macro, futures_api)]
 use ipfs::{Ipfs, IpfsOptions, Ipld, Types};
-use futures::join;
 
 fn main() {
     let options = IpfsOptions::<Types>::default();
@@ -11,8 +9,8 @@ fn main() {
         // Start daemon and initialize repo
         let fut = ipfs.start_daemon().unwrap();
         tokio::spawn_async(fut);
-        await!(ipfs.init_repo()).unwrap();
-        await!(ipfs.open_repo()).unwrap();
+        ipfs.init_repo().await.unwrap();
+        ipfs.open_repo().await.unwrap();
 
         // Create a DAG
         let block1: Ipld = "block1".to_string().into();
@@ -21,7 +19,7 @@ fn main() {
         let f2 = ipfs.put_dag(block2);
         let (res1, res2) = join!(f1, f2);
         let root: Ipld = vec![res1.unwrap(), res2.unwrap()].into();
-        let path = await!(ipfs.put_dag(root)).unwrap();
+        let path = ipfs.put_dag(root).await.unwrap();
 
         // Query the DAG
         let path1 = path.sub_path("0").unwrap();

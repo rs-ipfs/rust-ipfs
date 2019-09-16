@@ -3,6 +3,7 @@ use crate::error::Error;
 use libp2p::PeerId;
 use std::convert::{TryFrom, TryInto};
 use std::str::FromStr;
+use failure::bail;
 
 pub mod error;
 pub use self::error::IpfsPathError;

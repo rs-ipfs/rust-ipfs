@@ -1,6 +1,4 @@
-#![feature(async_await, await_macro, futures_api)]
 use ipfs::{Ipfs, IpfsOptions, Ipld, Types};
-use futures::join;
 
 fn main() {
     let options = IpfsOptions::<Types>::default();
@@ -10,8 +8,8 @@ fn main() {
     tokio::run_async(async move {
         let fut = ipfs.start_daemon().unwrap();
         tokio::spawn_async(fut);
-        await!(ipfs.init_repo()).unwrap();
-        await!(ipfs.open_repo()).unwrap();
+        ipfs.init_repo().await.unwrap();
+        ipfs.open_repo().await.unwrap();
 
         let block1: Ipld = "block1".to_string().into();
         let block2: Ipld = "block2".to_string().into();
@@ -20,6 +18,6 @@ fn main() {
         let (res1, res2) = join!(f1, f2);
 
         let root: Ipld = vec![res1.unwrap(), res2.unwrap()].into();
-        await!(ipfs.put_dag(root)).unwrap();
+        ipfs.put_dag(root).await.unwrap();
     });
 }

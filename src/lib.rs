@@ -1,20 +1,21 @@
 //! IPFS node implementation
 //#![deny(missing_docs)]
 #![deny(warnings)]
-#![feature(async_await, await_macro, futures_api)]
 #![feature(drain_filter)]
 #![feature(try_trait)]
 
 #[macro_use] extern crate failure;
 #[macro_use] extern crate log;
-use futures::prelude::*;
+// use futures::prelude::*;
+use futures::{ Async };
 pub use libp2p::PeerId;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::mpsc::{channel, Sender, Receiver};
-use std::task::{Poll, Waker};
-use tokio::prelude::{Async, Stream as StreamOld};
+use std::task::{Poll, Context};
+
+use std::future::Future;
 
 pub mod bitswap;
 pub mod block;
@@ -40,6 +41,7 @@ pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, RepoOptions, Repo, RepoEvent};
 use self::unixfs::File;
+use libp2p::kad::record::store::{ MemoryStore, RecordStore };
 
 static IPFS_LOG: &str = "info";
 static IPFS_PATH: &str = ".rust-ipfs";
@@ -123,7 +125,8 @@ impl Default for IpfsOptions<TestTypes> {
 
 /// Ipfs struct creates a new IPFS node and is the main entry point
 /// for interacting with IPFS.
-pub struct Ipfs<Types: IpfsTypes> {
+pub struct Ipfs<Types>
+where Types: IpfsTypes {
     repo: Repo<Types>,
     repo_events: Option<Receiver<RepoEvent>>,
     dag: IpldDag<Types>,
@@ -142,7 +145,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         let repo_options = RepoOptions::<Types>::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let swarm_options = SwarmOptions::<Types>::from(&options);
-        let swarm = create_swarm(swarm_options, repo.clone());
+        let store = MemoryStore::new(PeerId::random());
+        let swarm = create_swarm(swarm_options, repo.clone(), store);
         let dag = IpldDag::new(repo.clone());
         let ipns = Ipns::new(repo.clone());
 
@@ -192,11 +196,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Adds a file into the ipfs repo.
-    pub fn add(&self, path: PathBuf) -> impl Future<Output=Result<IpfsPath, Error>> {
+    pub fn add(&self, path: PathBuf) -> impl Future<Output=Result<IpfsPath, failure::Error>> {
         let dag = self.dag.clone();
         async move {
-            let file = await!(File::new(path))?;
-            let path = await!(file.put_unixfs_v1(&dag))?;
+            let file = File::new(path).await?;
+            let path = file.put_unixfs_v1(&dag).await?;
             Ok(path)
         }
     }
@@ -249,7 +253,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 }
 
-pub struct IpfsFuture<Types: SwarmTypes> {
+pub struct IpfsFuture<Types>
+where Types: SwarmTypes {
     swarm: Box<TSwarm<Types>>,
     repo_events: Receiver<RepoEvent>,
     exit_events: Receiver<IpfsEvent>,
@@ -258,7 +263,7 @@ pub struct IpfsFuture<Types: SwarmTypes> {
 impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
     type Output = ();
 
-    fn poll(self: Pin<&mut Self>, _waker: &Waker) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<Self::Output> {
         let _self = self.get_mut();
         loop {
             if let Ok(IpfsEvent::Exit) = _self.exit_events.try_recv() {
@@ -311,8 +316,8 @@ mod tests {
             let fut = ipfs.start_daemon().unwrap();
             tokio::spawn_async(fut);
 
-            let cid = await!(ipfs.put_block(block.clone())).unwrap();
-            let new_block = await!(ipfs.get_block(&cid)).unwrap();
+            let cid = ipfs.put_block(block.clone()).await.unwrap();
+            let new_block = ipfs.get_block(&cid).await.unwrap();
             assert_eq!(block, new_block);
 
             ipfs.exit_daemon();
@@ -329,8 +334,8 @@ mod tests {
             tokio::spawn_async(fut);
 
             let data: Ipld = vec![-1, -2, -3].into();
-            let cid = await!(ipfs.put_dag(data.clone())).unwrap();
-            let new_data = await!(ipfs.get_dag(cid.into())).unwrap();
+            let cid = ipfs.put_dag(data.clone()).await.unwrap();
+            let new_data = ipfs.get_dag(cid.into()).await.unwrap();
             assert_eq!(data, new_data);
 
             ipfs.exit_daemon();

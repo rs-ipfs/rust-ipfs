@@ -11,14 +11,14 @@ use crate::bitswap::strategy::{Strategy, StrategyEvent};
 use crate::block::{Block, Cid};
 use crate::p2p::SwarmTypes;
 use fnv::FnvHashSet;
-use libp2p::core::swarm::{
-    ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
-};
-use libp2p::core::protocols_handler::{OneShotHandler, ProtocolsHandler};
+use libp2p::swarm::{ NetworkBehaviour, NetworkBehaviourAction, PollParameters };
+use libp2p::core::ConnectedPoint;
+use libp2p::swarm::protocols_handler::{OneShotHandler, ProtocolsHandler};
 use libp2p::{Multiaddr, PeerId};
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
 use tokio::prelude::*;
+use futures::{ Async, task };
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
 pub struct Bitswap<TSubstream, TSwarmTypes: SwarmTypes> {
@@ -36,7 +36,7 @@ pub struct Bitswap<TSubstream, TSwarmTypes: SwarmTypes> {
     strategy: TSwarmTypes::TStrategy,
 }
 
-impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
+impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
     /// Creates a `Bitswap`.
     pub fn new(strategy: TSwarmTypes::TStrategy) -> Self {
         debug!("bitswap: new");
@@ -205,9 +205,9 @@ where
         debug!("");
     }
 
-    fn poll(
+fn poll(
         &mut self,
-        _: &mut PollParameters,
+        _: &mut dyn PollParameters<ExternalAddressesIter=(), SupportedProtocolsIter=(), ListenedAddressesIter=()>,
     ) -> Async<NetworkBehaviourAction<
             <Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
         // TODO concat messages to same destination to reduce traffic.

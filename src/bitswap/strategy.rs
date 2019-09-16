@@ -19,14 +19,14 @@ pub enum StrategyEvent {
 }
 
 pub struct AltruisticStrategy<TRepoTypes: RepoTypes> {
-    repo: Repo<TRepoTypes>,
+    _repo: Repo<TRepoTypes>,
     events: (Sender<StrategyEvent>, Receiver<StrategyEvent>),
 }
 
 impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTypes> {
-    fn new(repo: Repo<TRepoTypes>) -> Self {
+    fn new(_repo: Repo<TRepoTypes>) -> Self {
         AltruisticStrategy {
-            repo,
+            _repo,
             events: channel::<StrategyEvent>(),
         }
     }
@@ -39,25 +39,25 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
     ) {
         info!("Peer {} wants block {} with priority {}",
               source.to_base58(), cid.to_string(), priority);
-        let events = self.events.0.clone();
-        let future = self.repo.get_block(&cid);
-        tokio::spawn_async(async move {
-            let block = await!(future).unwrap();
-            events.send(StrategyEvent::Send {
-                peer_id: source,
-                block: block,
-            }).unwrap();
-        });
+        // let events = self.events.0.clone();
+        // let future = self.repo.get_block(&cid);
+        // tokio::spawn(async move {
+        //     let block = future.await.unwrap();
+        //     events.send(StrategyEvent::Send {
+        //         peer_id: source,
+        //         block: block,
+        //     }).unwrap();
+        // });
     }
 
     fn process_block(&mut self, source: PeerId, block: Block) {
         info!("Received block {} from peer {}",
               block.cid().to_string(),
               source.to_base58());
-        let future = self.repo.put_block(block);
-        tokio::spawn_async(async move {
-            await!(future).unwrap();
-        });
+        // let future = self.repo.put_block(block);
+        // tokio::spawn(async move {
+        //     future.await.unwrap();
+        // });
     }
 
     fn poll(&mut self) -> Option<StrategyEvent> {

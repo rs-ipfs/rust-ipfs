@@ -3,7 +3,7 @@ use crate::ipns::ipns_pb as proto;
 use crate::path::IpfsPath;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use libp2p::core::PublicKey;
-use libp2p::secio::SecioKeyPair;
+use libp2p::identity::Keypair;
 use protobuf::{self, ProtobufError, Message as ProtobufMessage};
 use std::time::{Duration, SystemTime};
 
@@ -17,7 +17,7 @@ pub struct IpnsEntry {
 }
 
 impl IpnsEntry {
-    pub fn new(value: String, seq: u64, ttl: Duration, key: &SecioKeyPair) -> Self {
+    pub fn new(value: String, seq: u64, ttl: Duration, key: &Keypair) -> Self {
         let validity = SystemTime::now() + ttl;
         let public_key = key.to_public_key();
         let signature = IpnsEntry::sign(&validity, &value, &key);
@@ -34,14 +34,14 @@ impl IpnsEntry {
         self.seq
     }
 
-    pub fn from_path(path: &IpfsPath, seq: u64, key: &SecioKeyPair) -> Self {
+    pub fn from_path(path: &IpfsPath, seq: u64, key: &Keypair) -> Self {
         let value = path.to_string();
         // TODO what is a reasonable default?
         let ttl = Duration::new(1, 0);
         IpnsEntry::new(value, seq, ttl, key)
     }
 
-    fn sign(_validity: &SystemTime, _value: &String, _key: &SecioKeyPair) -> Vec<u8> {
+    fn sign(_validity: &SystemTime, _value: &String, _key: &Keypair) -> Vec<u8> {
         // TODO
         Vec::new()
     }

@@ -1,6 +1,6 @@
 use libp2p::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
-use libp2p::secio::SecioKeyPair;
+use libp2p::identity::Keypair;
 use rand::{Rng, rngs::EntropyRng};
 use serde_derive::{Serialize, Deserialize};
 use std::fs;
@@ -36,8 +36,8 @@ impl ConfigFile {
         })
     }
 
-    pub fn secio_key_pair(&self) -> SecioKeyPair {
-        SecioKeyPair::ed25519_raw_key(&self.raw_key).unwrap()
+    pub fn secio_key_pair(&self) -> Keypair {
+        Keypair::ed25519_raw_key(&self.raw_key).unwrap()
     }
 
     pub fn peer_id(&self) -> PeerId {

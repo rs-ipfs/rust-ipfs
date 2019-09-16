@@ -3,10 +3,11 @@ use crate::ipld::{Ipld, IpldDag, formats::pb::PbNode};
 use crate::path::IpfsPath;
 use crate::repo::RepoTypes;
 use core::future::Future;
-use futures::compat::*;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::path::PathBuf;
+use failure::bail;
+use tokio::io::AsyncReadExt;
 
 pub struct File {
     data: Vec<u8>,
@@ -15,8 +16,9 @@ pub struct File {
 impl File {
     pub fn new(path: PathBuf) -> impl Future<Output=Result<Self, Error>> {
         async move {
-            let file = await!(tokio::fs::File::open(path).compat())?;
-            let (_, data) = await!(tokio::io::read_to_end(file, Vec::new()).compat())?;
+            let file = tokio::fs::File::open(path).await?;
+            let mut data: Vec<u8> = Vec::new();
+            AsyncReadExt::read_to_end(&mut file, &mut data).await?;
             Ok(File {
                 data
             })
@@ -24,10 +26,10 @@ impl File {
     }
 
     pub fn get_unixfs_v1<T: RepoTypes>(dag: &IpldDag<T>, path: IpfsPath) ->
-    impl Future<Output=Result<Self, Error>> {
+    impl Future<Output=Result<Self, failure::Error>> {
         let future = dag.get(path);
         async move {
-            let ipld = await!(future)?;
+            let ipld = future.await?;
             let pb_node: PbNode = match ipld.try_into() {
                 Ok(pb_node) => pb_node,
                 Err(_) => bail!("invalid dag_pb node"),
@@ -39,7 +41,7 @@ impl File {
     }
 
     pub fn put_unixfs_v1<T: RepoTypes>(&self, dag: &IpldDag<T>) ->
-    impl Future<Output=Result<IpfsPath, Error>>
+    impl Future<Output=Result<IpfsPath, failure::Error>>
     {
         let links: Vec<Ipld> = vec![];
         let mut pb_node = HashMap::<&str, Ipld>::new();
@@ -86,7 +88,7 @@ mod tests {
         let cid = Cid::from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
 
         tokio::run_async(async move {
-            let path = await!(file.put_unixfs_v1(&dag)).unwrap();
+            let path = file.put_unixfs_v1(&dag).await.unwrap();
             assert_eq!(cid.to_string(), path.root().cid().unwrap().to_string());
         });
     }

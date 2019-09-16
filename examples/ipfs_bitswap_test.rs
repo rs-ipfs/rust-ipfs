@@ -1,4 +1,3 @@
-#![feature(async_await, await_macro, futures_api)]
 use ipfs::{Block, Ipfs, IpfsOptions, TestTypes};
 use std::convert::TryInto;
 
@@ -11,23 +10,23 @@ fn main() {
         // Start daemon and initialize repo
         let fut = ipfs.start_daemon().unwrap();
         tokio::spawn_async(fut);
-        await!(ipfs.init_repo()).unwrap();
-        await!(ipfs.open_repo()).unwrap();
+        ipfs.init_repo().await.unwrap();
+        ipfs.open_repo().await.unwrap();
 
         // Create a Block
-        await!(ipfs.put_block(Block::from("block-provide"))).unwrap();
+        ipfs.put_block(Block::from("block-provide")).await.unwrap();
 
         // Retrive a Block
-        let block = await!(ipfs.get_block(Block::from("block-want\n").cid())).unwrap();
+        let block = ipfs.get_block(Block::from("block-want\n").cid()).await.unwrap();
         let contents: String = block.into();
         println!("block contents: {:?}", contents);
 
         // Add a file
-        await!(ipfs.add("./examples/block.data".into())).unwrap();
+        ipfs.add("./examples/block.data".into()).await.unwrap();
 
         // Get a file
         let path = "/QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW".try_into().unwrap();
-        let file = await!(ipfs.get(path)).unwrap();
+        let file = ipfs.get(path).await.unwrap();
         let contents: String = file.into();
         println!("file contents: {:?}", contents);
     });

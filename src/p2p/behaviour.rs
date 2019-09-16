@@ -3,29 +3,35 @@ use crate::block::Cid;
 use crate::p2p::{SwarmOptions, SwarmTypes};
 use crate::repo::Repo;
 use libp2p::{NetworkBehaviour, PeerId};
-use libp2p::core::swarm::NetworkBehaviourEventProcess;
+use libp2p::swarm::NetworkBehaviourEventProcess;
 use libp2p::core::muxing::{StreamMuxerBox, SubstreamRef};
 use libp2p::identify::{Identify, IdentifyEvent};
-use libp2p::kad::{Kademlia, KademliaOut as KademliaEvent};
+use libp2p::kad::{Kademlia, KademliaEvent };
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
 use libp2p::floodsub::{Floodsub, FloodsubEvent};
 //use parity_multihash::Multihash;
 use std::sync::Arc;
 use tokio::prelude::*;
+use tokio::io::{ AsyncRead, AsyncWrite };
+use libp2p::kad::record::store::MemoryStore;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
-pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> {
+pub struct Behaviour<TSubstream, TSwarmTypes>
+where
+    // TSubstream: tokio::io::AsyncRead + tokio::io::AsyncWrite,
+      TSwarmTypes: SwarmTypes,
+{
     mdns: Mdns<TSubstream>,
-    kademlia: Kademlia<TSubstream>,
+    kademlia: Kademlia<TSubstream, MemoryStore>,
     bitswap: Bitswap<TSubstream, TSwarmTypes>,
     ping: Ping<TSubstream>,
     identify: Identify<TSubstream>,
     floodsub: Floodsub<TSubstream>,
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSubstream, TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<MdnsEvent> for
     Behaviour<TSubstream, TSwarmTypes>
 {
@@ -180,7 +186,8 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
 /// Behaviour type.
 pub(crate) type TBehaviour<TSwarmTypes> = Behaviour<SubstreamRef<Arc<StreamMuxerBox>>, TSwarmTypes>;
 
+
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
-pub fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TBehaviour<TSwarmTypes> {
-    Behaviour::new(options, repo)
+pub fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>, store: MemoryStore) -> TBehaviour<TSwarmTypes> {
+    Behaviour::new(options, repo, store)
 }

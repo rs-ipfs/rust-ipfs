@@ -6,6 +6,7 @@ use cid::Prefix;
 use protobuf::Message;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
+use failure::bail;
 
 mod dag_pb;
 

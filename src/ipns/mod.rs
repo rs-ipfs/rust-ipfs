@@ -4,6 +4,7 @@ use crate::path::{IpfsPath, PathRoot};
 use crate::repo::{Repo, RepoTypes};
 use libp2p::PeerId;
 use std::future::Future;
+use failure::bail;
 
 mod dns;
 mod entry;
@@ -22,7 +23,7 @@ impl<Types: RepoTypes> Ipns<Types> {
 
     /// Resolves a ipns path to an ipld path.
     pub fn resolve(&self, path: &IpfsPath) ->
-    impl Future<Output=Result<IpfsPath, Error>>
+    impl Future<Output=Result<IpfsPath, failure::Error>>
     {
         let repo = self.repo.clone();
         let path = path.to_owned();
@@ -30,13 +31,13 @@ impl<Types: RepoTypes> Ipns<Types> {
             match path.root() {
                 PathRoot::Ipld(_) => Ok(path),
                 PathRoot::Ipns(peer_id) => {
-                    match await!(repo.get_ipns(peer_id))? {
+                    match repo.get_ipns(peer_id).await? {
                         Some(path) => Ok(path),
                         None => bail!("unimplemented"),
                     }
                 },
                 PathRoot::Dns(domain) => {
-                    Ok(await!(dns::resolve(domain)?)?)
+                    Ok(dns::resolve(domain)?.await?)
                 },
             }
         }
@@ -44,13 +45,13 @@ impl<Types: RepoTypes> Ipns<Types> {
 
     /// Publishes an ipld path.
     pub fn publish(&self, key: &PeerId, path: &IpfsPath) ->
-    impl Future<Output=Result<IpfsPath, Error>>
+    impl Future<Output=Result<IpfsPath, failure::Error>>
     {
         let future = self.repo.put_ipns(key, path);
         let key = key.to_owned();
         let mut path = path.to_owned();
         async move {
-            await!(future)?;
+            future.await?;
             path.set_root(PathRoot::Ipns(key));
             Ok(path)
         }

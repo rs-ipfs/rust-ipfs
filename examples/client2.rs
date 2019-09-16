@@ -1,6 +1,4 @@
-#![feature(async_await, await_macro, futures_api)]
 use ipfs::{Ipfs, IpfsOptions, IpfsPath, TestTypes};
-use futures::join;
 
 fn main() {
     let options = IpfsOptions::<TestTypes>::default();
