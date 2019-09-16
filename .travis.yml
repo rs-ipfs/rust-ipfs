@@ -1,6 +1,6 @@
 language: rust
 rust:
-  - nightly-2019-03-01
+  - nightly-2019-09-12
 cache: cargo
 script:
   - cargo test
