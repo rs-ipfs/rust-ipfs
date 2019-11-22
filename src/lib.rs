@@ -111,7 +111,7 @@ impl Default for IpfsOptions<TestTypes> {
     fn default() -> Self {
         let ipfs_log = std::env::var("IPFS_LOG").unwrap_or(IPFS_LOG.into());
         let ipfs_path = std::env::var("IPFS_PATH").unwrap_or(IPFS_PATH.into()).into();
-        let config = ConfigFile::default();
+        let config = std::env::var("IPFS_TEST_CONFIG").map(|s| ConfigFile::new(s)).unwrap_or_else(|_| ConfigFile::default());
         IpfsOptions {
             _marker: PhantomData,
             ipfs_log,
