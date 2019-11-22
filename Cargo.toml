@@ -13,12 +13,12 @@ env_logger = "*"
 failure = "*"
 fnv = "*"
 futures-preview = { git = "https://github.com/rust-lang-nursery/futures-rs", branch = "master", features = ["compat"] }
-libp2p = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }
+libp2p = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "040d8c8" }
 log = "*"
 multibase = "*"
 multihash = "*"
-parity-multiaddr = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }
-parity-multihash = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "5655624" }
+parity-multiaddr = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "040d8c8" }
+parity-multihash = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "040d8c8" }
 protobuf = "2.0.2"
 rand = "0.6"
 rocksdb = "*"
