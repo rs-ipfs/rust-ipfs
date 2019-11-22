@@ -60,7 +60,7 @@ impl ConfigFile {
 
 impl Default for ConfigFile {
     fn default() -> Self {
-	      let raw_key: [u8; 32] = EntropyRng::new().gen();
+        let raw_key: [u8; 32] = EntropyRng::new().gen();
         let bootstrap = BOOTSTRAP_NODES.iter().map(|node| {
             node.parse().unwrap()
         }).collect();
