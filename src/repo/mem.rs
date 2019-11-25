@@ -2,7 +2,7 @@
 use crate::block::{Cid, Block};
 use crate::error::Error;
 use crate::repo::{BlockStore, DataStore, Column};
-use futures::future::FutureObj;
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -12,6 +12,7 @@ pub struct MemBlockStore {
     blocks: Arc<Mutex<HashMap<Cid, Block>>>,
 }
 
+#[async_trait]
 impl BlockStore for MemBlockStore {
     fn new(_path: PathBuf) -> Self {
         MemBlockStore {
@@ -19,36 +20,35 @@ impl BlockStore for MemBlockStore {
         }
     }
 
-    fn init(&self) -> FutureObj<'static, Result<(), Error>> {
-        FutureObj::new(Box::new(futures::future::ok(())))
+    async fn init(&self) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn open(&self) -> FutureObj<'static, Result<(), Error>> {
-        FutureObj::new(Box::new(futures::future::ok(())))
+    async fn open(&self) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn contains(&self, cid: &Cid) -> FutureObj<'static, Result<bool, Error>> {
+    async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
         let contains = self.blocks.lock().unwrap().contains_key(cid);
-        FutureObj::new(Box::new(futures::future::ok(contains)))
+        Ok(contains)
     }
 
-    fn get(&self, cid: &Cid) -> FutureObj<'static, Result<Option<Block>, Error>> {
+    async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
         let block = self.blocks.lock().unwrap()
             .get(cid)
             .map(|block| block.to_owned());
-        FutureObj::new(Box::new(futures::future::ok(block)))
+        Ok(block)
     }
 
-    fn put(&self, block: Block) -> FutureObj<'static, Result<Cid, Error>> {
+    async fn put(&self, block: Block) -> Result<Cid, Error> {
         let cid = block.cid().to_owned();
-        self.blocks.lock().unwrap()
-            .insert(cid.clone(), block);
-        FutureObj::new(Box::new(futures::future::ok(cid)))
+        self.blocks.lock().unwrap().insert(cid.clone(), block);
+        Ok(cid)
     }
 
-    fn remove(&self, cid: &Cid) -> FutureObj<'static, Result<(), Error>> {
+    async fn remove(&self, cid: &Cid) -> Result<(), Error> {
         self.blocks.lock().unwrap().remove(cid);
-        FutureObj::new(Box::new(futures::future::ok(())))
+        Ok(())
     }
 }
 
@@ -57,6 +57,7 @@ pub struct MemDataStore {
     ipns: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
 }
 
+#[async_trait]
 impl DataStore for MemDataStore {
     fn new(_path: PathBuf) -> Self {
         MemDataStore {
@@ -64,52 +65,44 @@ impl DataStore for MemDataStore {
         }
     }
 
-    fn init(&self) -> FutureObj<'static, Result<(), Error>> {
-        FutureObj::new(Box::new(futures::future::ok(())))
+    async fn init(&self) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn open(&self) -> FutureObj<'static, Result<(), Error>> {
-        FutureObj::new(Box::new(futures::future::ok(())))
+    async fn open(&self) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn contains(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<bool, Error>>
-    {
+    async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
         let map = match col {
             Column::Ipns => &self.ipns
         };
         let contains = map.lock().unwrap().contains_key(key);
-        FutureObj::new(Box::new(futures::future::ok(contains)))
+        Ok(contains)
     }
 
-    fn get(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<Option<Vec<u8>>, Error>>
-    {
+    async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let map = match col {
             Column::Ipns => &self.ipns
         };
         let value = map.lock().unwrap().get(key).map(|value| value.to_owned());
-        FutureObj::new(Box::new(futures::future::ok(value)))
+        Ok(value)
     }
 
-    fn put(&self, col: Column, key: &[u8], value: &[u8]) ->
-        FutureObj<'static, Result<(), Error>>
-    {
+    async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error> {
         let map = match col {
             Column::Ipns => &self.ipns
         };
         map.lock().unwrap().insert(key.to_owned(), value.to_owned());
-        FutureObj::new(Box::new(futures::future::ok(())))
+        Ok(())
     }
 
-    fn remove(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<(), Error>>
-    {
+    async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error> {
         let map = match col {
             Column::Ipns => &self.ipns
         };
         map.lock().unwrap().remove(key);
-        FutureObj::new(Box::new(futures::future::ok(())))
+        Ok(())
     }
 }
 
@@ -117,73 +110,75 @@ impl DataStore for MemDataStore {
 mod tests {
     use super::*;
     use std::env::temp_dir;
+    use futures::{FutureExt, TryFutureExt};
 
     #[test]
     fn test_mem_blockstore() {
+
         let tmp = temp_dir();
         let store = MemBlockStore::new(tmp);
-        tokio::run_async(async move {
+        tokio::runtime::current_thread::block_on_all(async move {
             let block = Block::from("1");
             let cid = block.cid();
 
-            assert_eq!(await!(store.init()).unwrap(), ());
-            assert_eq!(await!(store.open()).unwrap(), ());
+            assert_eq!(store.init().await.unwrap(), ());
+            assert_eq!(store.open().await.unwrap(), ());
 
             let contains = store.contains(cid);
-            assert_eq!(await!(contains).unwrap(), false);
+            assert_eq!(contains.await.unwrap(), false);
             let get = store.get(cid);
-            assert_eq!(await!(get).unwrap(), None);
+            assert_eq!(get.await.unwrap(), None);
             let remove = store.remove(cid);
-            assert_eq!(await!(remove).unwrap(), ());
+            assert_eq!(remove.await.unwrap(), ());
 
             let put = store.put(block.clone());
-            assert_eq!(await!(put).unwrap(), cid.to_owned());
+            assert_eq!(put.await.unwrap(), cid.to_owned());
             let contains = store.contains(cid);
-            assert_eq!(await!(contains).unwrap(), true);
+            assert_eq!(contains.await.unwrap(), true);
             let get = store.get(cid);
-            assert_eq!(await!(get).unwrap(), Some(block.clone()));
+            assert_eq!(get.await.unwrap(), Some(block.clone()));
 
             let remove = store.remove(cid);
-            assert_eq!(await!(remove).unwrap(), ());
+            assert_eq!(remove.await.unwrap(), ());
             let contains = store.contains(cid);
-            assert_eq!(await!(contains).unwrap(), false);
+            assert_eq!(contains.await.unwrap(), false);
             let get = store.get(cid);
-            assert_eq!(await!(get).unwrap(), None);
-        });
+            assert_eq!(get.await.unwrap(), None);
+        }.unit_error().boxed().compat()).unwrap();
     }
 
     #[test]
     fn test_mem_datastore() {
         let tmp = temp_dir();
         let store = MemDataStore::new(tmp);
-        tokio::run_async(async move {
+        tokio::runtime::current_thread::block_on_all(async move {
             let col = Column::Ipns;
             let key = [1, 2, 3, 4];
             let value = [5, 6, 7, 8];
 
-            assert_eq!(await!(store.init()).unwrap(), ());
-            assert_eq!(await!(store.open()).unwrap(), ());
+            assert_eq!(store.init().await.unwrap(), ());
+            assert_eq!(store.open().await.unwrap(), ());
 
             let contains = store.contains(col, &key);
-            assert_eq!(await!(contains).unwrap(), false);
+            assert_eq!(contains.await.unwrap(), false);
             let get = store.get(col, &key);
-            assert_eq!(await!(get).unwrap(), None);
+            assert_eq!(get.await.unwrap(), None);
             let remove = store.remove(col, &key);
-            assert_eq!(await!(remove).unwrap(), ());
+            assert_eq!(remove.await.unwrap(), ());
 
             let put = store.put(col, &key, &value);
-            assert_eq!(await!(put).unwrap(), ());
+            assert_eq!(put.await.unwrap(), ());
             let contains = store.contains(col, &key);
-            assert_eq!(await!(contains).unwrap(), true);
+            assert_eq!(contains.await.unwrap(), true);
             let get = store.get(col, &key);
-            assert_eq!(await!(get).unwrap(), Some(value.to_vec()));
+            assert_eq!(get.await.unwrap(), Some(value.to_vec()));
 
             let remove = store.remove(col, &key);
-            assert_eq!(await!(remove).unwrap(), ());
+            assert_eq!(remove.await.unwrap(), ());
             let contains = store.contains(col, &key);
-            assert_eq!(await!(contains).unwrap(), false);
+            assert_eq!(contains.await.unwrap(), false);
             let get = store.get(col, &key);
-            assert_eq!(await!(get).unwrap(), None);
-        });
+            assert_eq!(get.await.unwrap(), None);
+        }.unit_error().boxed().compat()).unwrap();
     }
 }

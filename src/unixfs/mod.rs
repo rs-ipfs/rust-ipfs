@@ -2,51 +2,43 @@ use crate::error::Error;
 use crate::ipld::{Ipld, IpldDag, formats::pb::PbNode};
 use crate::path::IpfsPath;
 use crate::repo::RepoTypes;
-use core::future::Future;
-use futures::compat::*;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::path::PathBuf;
+// use futures::prelude::*;
+use futures::compat::Future01CompatExt;
 
 pub struct File {
     data: Vec<u8>,
 }
 
 impl File {
-    pub fn new(path: PathBuf) -> impl Future<Output=Result<Self, Error>> {
-        async move {
-            let file = await!(tokio::fs::File::open(path).compat())?;
-            let (_, data) = await!(tokio::io::read_to_end(file, Vec::new()).compat())?;
-            Ok(File {
-                data
-            })
-        }
+    pub async fn new(path: PathBuf) -> Result<Self, Error> {
+        let file = tokio::fs::File::open(path).compat().await?;
+        let (_, data) = tokio::io::read_to_end(file, Vec::new()).compat().await?;
+        Ok(File {
+            data
+        })
     }
 
-    pub fn get_unixfs_v1<T: RepoTypes>(dag: &IpldDag<T>, path: IpfsPath) ->
-    impl Future<Output=Result<Self, Error>> {
-        let future = dag.get(path);
-        async move {
-            let ipld = await!(future)?;
-            let pb_node: PbNode = match ipld.try_into() {
-                Ok(pb_node) => pb_node,
-                Err(_) => bail!("invalid dag_pb node"),
-            };
-            Ok(File {
-                data: pb_node.data,
-            })
-        }
+    pub async fn get_unixfs_v1<T: RepoTypes>(dag: &IpldDag<T>, path: IpfsPath) -> Result<Self, Error> {
+        let ipld = dag.get(path).await?;
+        let pb_node: PbNode = match ipld.try_into() {
+            Ok(pb_node) => pb_node,
+            Err(_) => bail!("invalid dag_pb node"),
+        };
+        Ok(File {
+            data: pb_node.data,
+        })
     }
 
-    pub fn put_unixfs_v1<T: RepoTypes>(&self, dag: &IpldDag<T>) ->
-    impl Future<Output=Result<IpfsPath, Error>>
-    {
+    pub async fn put_unixfs_v1<T: RepoTypes>(&self, dag: &IpldDag<T>) -> Result<IpfsPath, Error> {
         let links: Vec<Ipld> = vec![];
         let mut pb_node = HashMap::<&str, Ipld>::new();
         pb_node.insert("Data", self.data.clone().into());
         pb_node.insert("Links", links.into());
         let ipld = pb_node.into();
-        dag.put(ipld, cid::Codec::DagProtobuf)
+        dag.put(ipld, cid::Codec::DagProtobuf).await
     }
 }
 
@@ -78,6 +70,8 @@ mod tests {
     use crate::block::Cid;
     use crate::repo::tests::create_mock_repo;
 
+    use futures::{FutureExt, TryFutureExt};
+
     #[test]
     fn test_file_cid() {
         let repo = create_mock_repo();
@@ -85,9 +79,9 @@ mod tests {
         let file = File::from("\u{8}\u{2}\u{12}\u{12}Here is some data\n\u{18}\u{12}");
         let cid = Cid::from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
 
-        tokio::run_async(async move {
-            let path = await!(file.put_unixfs_v1(&dag)).unwrap();
+        tokio::runtime::current_thread::block_on_all(async move {
+            let path = file.put_unixfs_v1(&dag).await.unwrap();
             assert_eq!(cid.to_string(), path.root().cid().unwrap().to_string());
-        });
+        }.unit_error().boxed().compat()).unwrap();
     }
 }

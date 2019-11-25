@@ -1,11 +1,11 @@
-use crate::block::{Block, Cid};
+/*use crate::block::{Block, Cid};
 use crate::error::Error;
 use crate::repo::BlockStore;
-use futures::future::FutureObj;
+use std::future::Future;
 use futures::prelude::*;
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Poll, Waker};
+use std::task::{Poll, Context};
 
 pub struct BlockFuture<TBlockStore: BlockStore> {
     block_store: TBlockStore,
@@ -27,7 +27,7 @@ impl<TBlockStore: BlockStore> BlockFuture<TBlockStore> {
 impl<TBlockStore: BlockStore> Future for BlockFuture<TBlockStore> {
     type Output = Result<Block, Error>;
 
-    fn poll(mut self: Pin<&mut Self>, waker: &Waker) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, context: &Context) -> Poll<Self::Output> {
         return match self.future.poll_unpin(waker) {
             Poll::Ready(Ok(Some(block))) => Poll::Ready(Ok(block)),
             Poll::Ready(Ok(None)) => {
@@ -43,4 +43,4 @@ impl<TBlockStore: BlockStore> Future for BlockFuture<TBlockStore> {
             Poll::Pending => Poll::Pending,
         }
     }
-}
+}*/

@@ -1,15 +1,16 @@
 //! Persistent fs backed repo
 use crate::block::{Cid, Block};
 use crate::error::Error;
-use crate::repo::{BlockStore, Column, DataStore};
-use futures::compat::*;
-use futures::future::FutureObj;
+use crate::repo::{BlockStore, /*Column, DataStore*/};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tokio::prelude::{Future as OldFuture, Stream as OldStream};
-use tokio::fs;
+use async_trait::async_trait;
+use tokio_fs as fs;
+use futures::stream::StreamExt;
+use futures::compat::Future01CompatExt;
+use futures::compat::Stream01CompatExt;
 
 #[derive(Clone, Debug)]
 pub struct FsBlockStore {
@@ -17,6 +18,7 @@ pub struct FsBlockStore {
     cids: Arc<Mutex<HashSet<Cid>>>,
 }
 
+#[async_trait]
 impl BlockStore for FsBlockStore {
     fn new(path: PathBuf) -> Self {
         FsBlockStore {
@@ -25,85 +27,84 @@ impl BlockStore for FsBlockStore {
         }
     }
 
-    fn init(&self) -> FutureObj<'static, Result<(), Error>> {
+    async fn init(&self) -> Result<(), Error> {
         let path = self.path.clone();
-        FutureObj::new(Box::new(async move {
-            await!(fs::create_dir_all(path).compat())?;
-            Ok(())
-        }))
+        fs::create_dir_all(path).compat().await?;
+        Ok(())
     }
 
-    fn open(&self) -> FutureObj<'static, Result<(), Error>> {
+    async fn open(&self) -> Result<(), Error> {
         let path = self.path.clone();
         let cids = self.cids.clone();
-        FutureObj::new(Box::new(async move {
-            await!(fs::read_dir(path).flatten_stream().for_each(|dir| {
-                let path = dir.path();
-                if path.extension() == Some(OsStr::new("data")) {
-                    let cid_str = path.file_stem().unwrap();
-                    let cid = Cid::from(cid_str.to_str().unwrap()).unwrap();
-                    cids.lock().unwrap().insert(cid);
-                }
-                Ok(())
-            }).compat())?;
-            Ok(())
-        }))
+
+        // not sure why this type needs to be specified
+        let mut stream = fs::read_dir(path).compat().await?.compat();
+
+        fn append_cid(cids: &Arc<Mutex<HashSet<Cid>>>, path: PathBuf) {
+            if path.extension() != Some(OsStr::new("data")) {
+                return;
+            }
+            let cid_str = path.file_stem().unwrap();
+            let cid = Cid::from(cid_str.to_str().unwrap()).unwrap();
+            cids.lock().unwrap_or_else(|p| p.into_inner()).insert(cid);
+        }
+
+        loop {
+            let dir = stream.next().await;
+
+            match dir {
+                Some(Ok(dir)) => append_cid(&cids, dir.path()),
+                Some(Err(e)) => return Err(e.into()),
+                None => return Ok(()),
+            }
+        }
     }
 
-    fn contains(&self, cid: &Cid) -> FutureObj<'static, Result<bool, Error>> {
+    async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
         let contains = self.cids.lock().unwrap().contains(cid);
-        FutureObj::new(Box::new(async move {
-            Ok(contains)
-        })
+        Ok(contains)
     }
 
-    fn get(&self, cid: &Cid) -> FutureObj<'static, Result<Option<Block>, Error>> {
+    async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
         let path = block_path(self.path.clone(), cid);
         let cid = cid.to_owned();
-        FutureObj::new(Box::new(async move {
-            let file = match await!(fs::File::open(path).compat()) {
-                Ok(file) => file,
-                Err(err) => {
-                    if err.kind() == std::io::ErrorKind::NotFound {
-                        return Ok(None);
-                    } else {
-                        return Err(err.into());
-                    }
+        let file = match fs::File::open(path).compat().await {
+            Ok(file) => file,
+            Err(err) => {
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    return Ok(None);
+                } else {
+                    return Err(err.into());
                 }
-            };
-            let (_, data) = await!(tokio::io::read_to_end(file, Vec::new()).compat())?;
-            let block = Block::new(data, cid);
-            Ok(Some(block))
-        }))
+            }
+        };
+        let (_, data) = tokio::io::read_to_end(file, Vec::new()).compat().await?;
+        let block = Block::new(data, cid);
+        Ok(Some(block))
     }
 
-    fn put(&self, block: Block) -> FutureObj<'static, Result<Cid, Error>> {
+    async fn put(&self, block: Block) -> Result<Cid, Error> {
         let path = block_path(self.path.clone(), &block.cid());
         let cids = self.cids.clone();
-        FutureObj::new(Box::new(async move {
-            let file = await!(fs::File::create(path).compat())?;
-            let data = block.data();
-            await!(tokio::io::write_all(file, &*data).compat())?;
-            cids.lock().unwrap().insert(block.cid().to_owned());
-            Ok(block.cid().to_owned())
-        }))
+        let file = fs::File::create(path).compat().await?;
+        let data = block.data();
+        tokio::io::write_all(file, &*data).compat().await?;
+        cids.lock().unwrap().insert(block.cid().to_owned());
+        Ok(block.cid().to_owned())
     }
 
-    fn remove(&self, cid: &Cid) -> FutureObj<'static, Result<(), Error>> {
+    async fn remove(&self, cid: &Cid) -> Result<(), Error> {
         let path = block_path(self.path.clone(), cid);
         let cid = cid.to_owned();
         let cids = self.cids.clone();
-        let contains = self.contains(&cid);
-        FutureObj::new(Box::new(async move {
-            if await!(contains)? {
-                await!(fs::remove_file(path).compat())?;
-                cids.lock().unwrap().remove(&cid);
-            }
-            Ok(())
-        }))
+        if cids.lock().unwrap().remove(&cid) {
+            fs::remove_file(path).compat().await?;
+        }
+        Ok(())
     }
 }
 
+/*
 #[derive(Clone, Debug)]
 pub struct RocksDataStore {
     path: PathBuf,
@@ -214,6 +215,7 @@ impl DataStore for RocksDataStore {
         }))
     }
 }
+*/
 
 fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
     let mut file = cid.to_string();
@@ -226,6 +228,7 @@ fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
 mod tests {
     use super::*;
     use std::env::temp_dir;
+    use futures::{FutureExt, TryFutureExt};
 
     #[test]
     fn test_fs_blockstore() {
@@ -234,34 +237,34 @@ mod tests {
         std::fs::remove_dir_all(tmp.clone()).ok();
         let store = FsBlockStore::new(tmp.clone());
 
-        tokio::run_async(async move {
+        tokio::runtime::current_thread::block_on_all(async move {
             let block = Block::from("1");
             let cid = block.cid();
 
-            assert_eq!(await!(store.init()).unwrap(), ());
-            assert_eq!(await!(store.open()).unwrap(), ());
+            assert_eq!(store.init().await.unwrap(), ());
+            assert_eq!(store.open().await.unwrap(), ());
 
             let contains = store.contains(cid);
-            assert_eq!(await!(contains).unwrap(), false);
+            assert_eq!(contains.await.unwrap(), false);
             let get = store.get(cid);
-            assert_eq!(await!(get).unwrap(), None);
+            assert_eq!(get.await.unwrap(), None);
             let remove = store.remove(cid);
-            assert_eq!(await!(remove).unwrap(), ());
+            assert_eq!(remove.await.unwrap(), ());
 
             let put = store.put(block.clone());
-            assert_eq!(await!(put).unwrap(), cid.to_owned());
+            assert_eq!(put.await.unwrap(), cid.to_owned());
             let contains = store.contains(cid);
-            assert_eq!(await!(contains).unwrap(), true);
+            assert_eq!(contains.await.unwrap(), true);
             let get = store.get(cid);
-            assert_eq!(await!(get).unwrap(), Some(block.clone()));
+            assert_eq!(get.await.unwrap(), Some(block.clone()));
 
             let remove = store.remove(cid);
-            assert_eq!(await!(remove).unwrap(), ());
+            assert_eq!(remove.await.unwrap(), ());
             let contains = store.contains(cid);
-            assert_eq!(await!(contains).unwrap(), false);
+            assert_eq!(contains.await.unwrap(), false);
             let get = store.get(cid);
-            assert_eq!(await!(get).unwrap(), None);
-        });
+            assert_eq!(get.await.unwrap(), None);
+        }.unit_error().boxed().compat()).unwrap();
 
         std::fs::remove_dir_all(tmp).ok();
     }
@@ -273,27 +276,29 @@ mod tests {
         std::fs::remove_dir_all(tmp.clone()).ok();
 
         let blockstore_path = tmp.clone();
-        tokio::run_async(async move {
+        tokio::runtime::current_thread::block_on_all(async move {
             let block = Block::from("1");
 
             let block_store = FsBlockStore::new(blockstore_path.clone());
-            await!(block_store.init()).unwrap();
-            await!(block_store.open()).unwrap();
+            block_store.init().await.unwrap();
+            block_store.open().await.unwrap();
 
-            assert!(!await!(block_store.contains(block.cid())).unwrap());
-            await!(block_store.put(block.clone())).unwrap();
+            assert!(!block_store.contains(block.cid()).await.unwrap());
+            block_store.put(block.clone()).await.unwrap();
 
             let block_store = FsBlockStore::new(blockstore_path);
-            await!(block_store.open()).unwrap();
-            assert!(await!(block_store.contains(block.cid())).unwrap());
-            assert_eq!(await!(block_store.get(block.cid())).unwrap().unwrap(), block);
-        });
+            block_store.open().await.unwrap();
+            assert!(block_store.contains(block.cid()).await.unwrap());
+            assert_eq!(block_store.get(block.cid()).await.unwrap().unwrap(), block);
+        }.unit_error().boxed().compat()).unwrap();
 
         std::fs::remove_dir_all(tmp).ok();
     }
 
     #[test]
     fn test_rocks_datastore() {
+        unimplemented!();
+        /*
         let mut tmp = temp_dir();
         tmp.push("datastore1");
         std::fs::remove_dir_all(tmp.clone()).ok();
@@ -304,31 +309,32 @@ mod tests {
             let key = [1, 2, 3, 4];
             let value = [5, 6, 7, 8];
 
-            assert_eq!(await!(store.init()).unwrap(), ());
-            assert_eq!(await!(store.open()).unwrap(), ());
+            assert_eq!(store.init().await.unwrap(), ());
+            assert_eq!(store.open().await.unwrap(), ());
 
             let contains = store.contains(col, &key);
-            assert_eq!(await!(contains).unwrap(), false);
+            assert_eq!(contains.await.unwrap(), false);
             let get = store.get(col, &key);
-            assert_eq!(await!(get).unwrap(), None);
+            assert_eq!(get.await.unwrap(), None);
             let remove = store.remove(col, &key);
-            assert_eq!(await!(remove).unwrap(), ());
+            assert_eq!(remove.await.unwrap(), ());
 
             let put = store.put(col, &key, &value);
-            assert_eq!(await!(put).unwrap(), ());
+            assert_eq!(put.await.unwrap(), ());
             let contains = store.contains(col, &key);
-            assert_eq!(await!(contains).unwrap(), true);
+            assert_eq!(contains.await.unwrap(), true);
             let get = store.get(col, &key);
-            assert_eq!(await!(get).unwrap(), Some(value.to_vec()));
+            assert_eq!(get.await.unwrap(), Some(value.to_vec()));
 
             let remove = store.remove(col, &key);
-            assert_eq!(await!(remove).unwrap(), ());
+            assert_eq!(remove.await.unwrap(), ());
             let contains = store.contains(col, &key);
-            assert_eq!(await!(contains).unwrap(), false);
+            assert_eq!(contains.await.unwrap(), false);
             let get = store.get(col, &key);
-            assert_eq!(await!(get).unwrap(), None);
+            assert_eq!(get.await.unwrap(), None);
         });
 
         std::fs::remove_dir_all(tmp).ok();
+        */
     }
 }

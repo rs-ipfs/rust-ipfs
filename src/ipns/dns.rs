@@ -7,7 +7,7 @@ use domain::resolv::{Resolver, StubResolver};
 use domain::resolv::stub::resolver::Query;
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Poll, Waker};
+use std::task::{Poll, Context};
 use std::str::FromStr;
 use tokio::prelude::{Async, Future as FutureOld, future::SelectOk, future::select_ok};
 
@@ -22,7 +22,7 @@ pub struct DnsLinkFuture {
 impl Future for DnsLinkFuture {
     type Output = Result<IpfsPath, Error>;
 
-    fn poll(self: Pin<&mut Self>, _waker: &Waker) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, _context: &mut Context) -> Poll<Self::Output> {
         let _self = self.get_mut();
         loop {
             let poll = _self.query.poll();
@@ -74,16 +74,18 @@ mod tests {
 
     #[test]
     fn test_resolve1() {
-        tokio::run_async(async {
-            let res = await!(resolve("ipfs.io").unwrap()).unwrap().to_string();
+        unimplemented!();
+        /*tokio::run_async(async {
+            let res = resolve("ipfs.io").unwrap().await.unwrap().to_string();
             assert_eq!(res, "/ipns/website.ipfs.io");
-        })
+        })*/
     }
 
     fn test_resolve2() {
-        tokio::run_async(async {
-            let res = await!(resolve("website.ipfs.io").unwrap()).unwrap().to_string();
+        unimplemented!();
+        /*tokio::run_async(async {
+            let res = resolve("website.ipfs.io").unwrap().await.unwrap().to_string();
             assert_eq!(res, "/ipfs/QmYfHCcUQBjyvrLfQ8Cnt2YAEiLDNRqMXAeHndM6fDW8yB");
-        })
+        })*/
     }
 }
