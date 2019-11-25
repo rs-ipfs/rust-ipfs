@@ -3,8 +3,8 @@ use crate::ipns::ipns_pb as proto;
 use crate::path::IpfsPath;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use libp2p::core::PublicKey;
-use libp2p::secio::SecioKeyPair;
-use protobuf::{self, ProtobufError, Message as ProtobufMessage};
+use libp2p::identity::Keypair;
+use protobuf::{self, Message as ProtobufMessage};
 use std::time::{Duration, SystemTime};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -17,9 +17,9 @@ pub struct IpnsEntry {
 }
 
 impl IpnsEntry {
-    pub fn new(value: String, seq: u64, ttl: Duration, key: &SecioKeyPair) -> Self {
+    pub fn new(value: String, seq: u64, ttl: Duration, key: &Keypair) -> Self {
         let validity = SystemTime::now() + ttl;
-        let public_key = key.to_public_key();
+        let public_key = key.public();
         let signature = IpnsEntry::sign(&validity, &value, &key);
         IpnsEntry {
             value,
@@ -34,14 +34,14 @@ impl IpnsEntry {
         self.seq
     }
 
-    pub fn from_path(path: &IpfsPath, seq: u64, key: &SecioKeyPair) -> Self {
+    pub fn from_path(path: &IpfsPath, seq: u64, key: &Keypair) -> Self {
         let value = path.to_string();
         // TODO what is a reasonable default?
         let ttl = Duration::new(1, 0);
         IpnsEntry::new(value, seq, ttl, key)
     }
 
-    fn sign(_validity: &SystemTime, _value: &String, _key: &SecioKeyPair) -> Vec<u8> {
+    fn sign(_validity: &SystemTime, _value: &String, _key: &Keypair) -> Vec<u8> {
         // TODO
         Vec::new()
     }
@@ -65,7 +65,7 @@ impl IpnsEntry {
             .expect("there is no situation in which the protobuf message can be invalid")
     }
 
-    pub fn from_bytes(bytes: &Vec<u8>) -> Result<Self, ProtobufError> {
+    pub fn from_bytes(bytes: &Vec<u8>) -> Result<Self, Error> {
         let proto: proto::IpnsEntry = protobuf::parse_from_bytes(bytes)?;
         let value = String::from_utf8_lossy(proto.get_value()).to_string();
         let public_key = PublicKey::from_protobuf_encoding(proto.get_pubKey())?;
@@ -95,11 +95,15 @@ impl IpnsEntry {
 mod tests {
     use super::*;
 
+    fn generate_key() -> Keypair {
+        Keypair::Ed25519(libp2p::core::identity::ed25519::Keypair::generate())
+    }
+
     #[test]
     fn test_valid() {
         let value = "/ipfs/".into();
         let duration = Duration::new(1, 0);
-        let key = SecioKeyPair::ed25519_generated().unwrap();
+        let key = generate_key();
         let ipns = IpnsEntry::new(value, 0, duration, &key);
         assert!(ipns.is_valid());
     }
@@ -108,7 +112,7 @@ mod tests {
     fn test_to_from_bytes() {
         let value = "/ipfs/".into();
         let duration = Duration::new(1, 0);
-        let key = SecioKeyPair::ed25519_generated().unwrap();
+        let key = generate_key();
         let ipns = IpnsEntry::new(value, 0, duration, &key);
         let bytes = ipns.to_bytes();
         let ipns2 = IpnsEntry::from_bytes(&bytes).unwrap();
@@ -117,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_from_path() {
-        let key = SecioKeyPair::ed25519_generated().unwrap();
+        let key = generate_key();
         let path = IpfsPath::from_str("/ipfs/QmUJPTFZnR2CPGAzmfdYPghgrFtYFB6pf1BqMvqfiPDam8").unwrap();
         let ipns = IpnsEntry::from_path(&path, 0, &key);
         assert_eq!(path, ipns.resolve().unwrap());

@@ -127,9 +127,8 @@ impl<T> Message<T> {
     }
 
     /// Removes the block from the message.
-    #[allow(unused)]
     pub fn remove_block(&mut self, cid: &Cid) {
-        self.blocks.drain_filter(|block| block.cid() == cid);
+        self.blocks.retain(|block| block.cid() != cid);
     }
 
     /// Adds a block to the want list.

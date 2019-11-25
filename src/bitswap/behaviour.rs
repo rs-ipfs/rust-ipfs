@@ -11,10 +11,9 @@ use crate::bitswap::strategy::{Strategy, StrategyEvent};
 use crate::block::{Block, Cid};
 use crate::p2p::SwarmTypes;
 use fnv::FnvHashSet;
-use libp2p::core::swarm::{
-    ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
-};
-use libp2p::core::protocols_handler::{OneShotHandler, ProtocolsHandler};
+use libp2p::core::ConnectedPoint;
+use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
+use libp2p::swarm::protocols_handler::{OneShotHandler, ProtocolsHandler};
 use libp2p::{Multiaddr, PeerId};
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
@@ -205,11 +204,9 @@ where
         debug!("");
     }
 
-    fn poll(
-        &mut self,
-        _: &mut PollParameters,
-    ) -> Async<NetworkBehaviourAction<
-            <Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
+    fn poll(&mut self, _: &mut impl PollParameters)
+        -> Async<NetworkBehaviourAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>>
+    {
         // TODO concat messages to same destination to reduce traffic.
         if let Some(event) = self.events.pop_front() {
             if let NetworkBehaviourAction::SendEvent { peer_id, event } = event {

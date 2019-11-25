@@ -1,6 +1,6 @@
 use libp2p::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
-use libp2p::secio::SecioKeyPair;
+use libp2p::identity::Keypair;
 use rand::{Rng, rngs::EntropyRng};
 use serde_derive::{Serialize, Deserialize};
 use std::fs;
@@ -20,7 +20,7 @@ const BOOTSTRAP_NODES: &[&'static str] = &[
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConfigFile {
-    raw_key: [u8; 32],
+    private_key: [u8; 32],
     bootstrap: Vec<Multiaddr>,
 }
 
@@ -36,12 +36,21 @@ impl ConfigFile {
         })
     }
 
-    pub fn secio_key_pair(&self) -> SecioKeyPair {
-        SecioKeyPair::ed25519_raw_key(&self.raw_key).unwrap()
+    pub fn secio_key_pair(&self) -> Keypair {
+        // FIXME: the keypair should be extract at load time and only cloned here
+        // there could also some (de)serialization support in libp2p like there is for rsa and
+        // secp256k1?
+        let mut cloned = self.private_key.clone();
+        let sk = libp2p::identity::ed25519::SecretKey::from_bytes(&mut cloned)
+            .expect("Failed to extract ed25519::SecretKey");
+
+        let kp = libp2p::identity::ed25519::Keypair::from(sk);
+
+        Keypair::Ed25519(kp)
     }
 
     pub fn peer_id(&self) -> PeerId {
-        self.secio_key_pair().to_peer_id()
+        self.secio_key_pair().public().into_peer_id()
     }
 
     pub fn bootstrap(&self) -> Vec<(Multiaddr, PeerId)> {
@@ -60,12 +69,12 @@ impl ConfigFile {
 
 impl Default for ConfigFile {
     fn default() -> Self {
-        let raw_key: [u8; 32] = EntropyRng::new().gen();
+        let private_key: [u8; 32] = EntropyRng::new().gen();
         let bootstrap = BOOTSTRAP_NODES.iter().map(|node| {
             node.parse().unwrap()
         }).collect();
         ConfigFile {
-            raw_key,
+            private_key,
             bootstrap,
         }
     }

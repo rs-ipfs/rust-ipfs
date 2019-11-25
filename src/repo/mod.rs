@@ -1,13 +1,10 @@
 //! IPFS repo
 use crate::block::{Cid, Block};
 use crate::error::Error;
-use crate::future::BlockFuture;
 use crate::path::IpfsPath;
 use crate::IpfsOptions;
-use core::future::Future;
-use futures::future::FutureObj;
-use futures::join;
 use libp2p::PeerId;
+use async_trait::async_trait;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -39,36 +36,26 @@ pub fn create_repo<TRepoTypes: RepoTypes>(options: RepoOptions<TRepoTypes>) -> (
     Repo::new(options)
 }
 
+#[async_trait]
 pub trait BlockStore: Clone + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
-    fn init(&self) ->
-        FutureObj<'static, Result<(), Error>>;
-    fn open(&self) ->
-        FutureObj<'static, Result<(), Error>>;
-    fn contains(&self, cid: &Cid) ->
-        FutureObj<'static, Result<bool, Error>>;
-    fn get(&self, cid: &Cid) ->
-        FutureObj<'static, Result<Option<Block>, Error>>;
-    fn put(&self, block: Block) ->
-        FutureObj<'static, Result<Cid, Error>>;
-    fn remove(&self, cid: &Cid) ->
-        FutureObj<'static, Result<(), Error>>;
+    async fn init(&self) -> Result<(), Error>;
+    async fn open(&self) -> Result<(), Error>;
+    async fn contains(&self, cid: &Cid) -> Result<bool, Error>;
+    async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error>;
+    async fn put(&self, block: Block) -> Result<Cid, Error>;
+    async fn remove(&self, cid: &Cid) -> Result<(), Error>;
 }
 
+#[async_trait]
 pub trait DataStore: Clone + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
-    fn init(&self) ->
-        FutureObj<'static, Result<(), Error>>;
-    fn open(&self) ->
-        FutureObj<'static, Result<(), Error>>;
-    fn contains(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<bool, Error>>;
-    fn get(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<Option<Vec<u8>>, Error>>;
-    fn put(&self, col: Column, key: &[u8], value: &[u8]) ->
-        FutureObj<'static, Result<(), Error>>;
-    fn remove(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<(), Error>>;
+    async fn init(&self) -> Result<(), Error>;
+    async fn open(&self) -> Result<(), Error>;
+    async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error>;
+    async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
+    async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error>;
+    async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error>;
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -80,7 +67,7 @@ pub enum Column {
 pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
-    events: Sender<RepoEvent>,
+    events: std::sync::Arc<std::sync::Mutex<Sender<RepoEvent>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -102,115 +89,108 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         (Repo {
             block_store,
             data_store,
-            events: sender,
+            events: std::sync::Arc::new(std::sync::Mutex::new(sender)),
         }, receiver)
     }
 
-    pub fn init(&self) -> impl Future<Output=Result<(), Error>> {
+    pub async fn init(&self) -> Result<(), Error> {
         let block_store = self.block_store.clone();
         let data_store = self.data_store.clone();
-        async move {
-            let f1 = block_store.init();
-            let f2 = data_store.init();
-            let (r1, r2) = join!(f1, f2);
-            if r1.is_err() {
-                r1
-            } else {
-                r2
-            }
+        // FIXME: unsure why this fails with failure::core::future::future::Future
+        let f1 = block_store.init();
+        let f2 = data_store.init();
+        let (r1, r2) = futures::future::join(f1, f2).await;
+        if r1.is_err() {
+            r1.into()
+        } else {
+            r2.into()
         }
     }
 
-    pub fn open(&self) -> impl Future<Output=Result<(), Error>> {
+    pub async fn open(&self) -> Result<(), Error> {
         let block_store = self.block_store.clone();
         let data_store = self.data_store.clone();
-        async move {
-            let f1 = block_store.open();
-            let f2 = data_store.open();
-            let (r1, r2) = join!(f1, f2);
-            if r1.is_err() {
-                r1
-            } else {
-                r2
-            }
+        let f1 = block_store.open();
+        let f2 = data_store.open();
+        let (r1, r2) = futures::future::join(f1, f2).await;
+        if r1.is_err() {
+            r1
+        } else {
+            r2
         }
     }
 
     /// Puts a block into the block store.
-    pub fn put_block(&self, block: Block) ->
-    impl Future<Output=Result<Cid, Error>>
+    pub async fn put_block(&self, block: Block) -> Result<Cid, Error>
     {
         let events = self.events.clone();
         let block_store = self.block_store.clone();
-        async move {
-            let cid = await!(block_store.put(block))?;
-            // sending only fails if no one is listening anymore
-            // and that is okay with us.
-            let _ = events.send(RepoEvent::ProvideBlock(cid.clone()));
-            Ok(cid)
-        }
+        let cid = block_store.put(block).await?;
+        // sending only fails if no one is listening anymore
+        // and that is okay with us.
+        let _ = events.lock().unwrap_or_else(|p| p.into_inner()).send(RepoEvent::ProvideBlock(cid.clone()));
+        Ok(cid)
     }
 
     /// Retrives a block from the block store.
-    pub fn get_block(&self, cid: &Cid) ->
-    impl Future<Output=Result<Block, Error>>
+    pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error>
     {
-        let cid = cid.to_owned();
+        let cid = cid.clone();
         let events = self.events.clone();
         let block_store = self.block_store.clone();
-        async move {
-            if !await!(block_store.contains(&cid))? {
+
+        loop {
+            if !block_store.contains(&cid).await? {
                 // sending only fails if no one is listening anymore
                 // and that is okay with us.
-                let _ = events.send(RepoEvent::WantBlock(cid.clone()));
+                let _ = events.lock().unwrap_or_else(|p| p.into_inner()).send(RepoEvent::WantBlock(cid.clone()));
             }
-            await!(BlockFuture::new(block_store, cid))
+            // FIXME: not really sure of how I removed the BlockFuture from here
+            match block_store.get(&cid.clone()).await? {
+                Some(block) => return Ok(block),
+                None => continue,
+            }
         }
     }
 
     /// Remove block from the block store.
-    pub fn remove_block(&self, cid: &Cid)
-        -> impl Future<Output=Result<(), Error>>
+    pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error>
     {
         // sending only fails if no one is listening anymore
         // and that is okay with us.
-        let _ = self.events.send(RepoEvent::UnprovideBlock(cid.to_owned()));
-        self.block_store.remove(cid)
+        let _ = self.events.lock().unwrap_or_else(|p| p.into_inner()).send(RepoEvent::UnprovideBlock(cid.to_owned()));
+        self.block_store.remove(cid).await?;
+        Ok(())
     }
 
     /// Get an ipld path from the datastore.
-    pub fn get_ipns(&self, ipns: &PeerId) ->
-    impl Future<Output=Result<Option<IpfsPath>, Error>>
+    pub async fn get_ipns(&self, ipns: &PeerId) -> Result<Option<IpfsPath>, Error>
     {
         let data_store = self.data_store.clone();
         let key = ipns.to_owned();
-        async move {
-            let bytes = await!(data_store.get(Column::Ipns, key.as_bytes()))?;
-            match bytes {
-                Some(ref bytes) => {
-                    let string = String::from_utf8_lossy(bytes);
-                    let path = IpfsPath::from_str(&string)?;
-                    Ok(Some(path))
-                }
-                None => Ok(None)
+        let bytes = data_store.get(Column::Ipns, key.as_bytes()).await?;
+        match bytes {
+            Some(ref bytes) => {
+                let string = String::from_utf8_lossy(bytes);
+                let path = IpfsPath::from_str(&string)?;
+                Ok(Some(path))
             }
+            None => Ok(None)
         }
     }
 
     /// Put an ipld path into the datastore.
-    pub fn put_ipns(&self, ipns: &PeerId, path: &IpfsPath) ->
-    impl Future<Output=Result<(), Error>>
+    pub async fn put_ipns(&self, ipns: &PeerId, path: &IpfsPath) -> Result<(), Error>
     {
         let string = path.to_string();
         let value = string.as_bytes();
-        self.data_store.put(Column::Ipns, ipns.as_bytes(), value)
+        self.data_store.put(Column::Ipns, ipns.as_bytes(), value).await
     }
 
     /// Remove an ipld path from the datastore.
-    pub fn remove_ipns(&self, ipns: &PeerId) ->
-    impl Future<Output=Result<(), Error>>
+    pub async fn remove_ipns(&self, ipns: &PeerId) -> Result<(), Error>
     {
-        self.data_store.remove(Column::Ipns, ipns.as_bytes())
+        self.data_store.remove(Column::Ipns, ipns.as_bytes()).await
     }
 }
 
@@ -218,6 +198,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 pub(crate) mod tests {
     use super::*;
     use std::env::temp_dir;
+    use futures::{FutureExt, TryFutureExt};
 
     #[derive(Clone)]
     pub struct Types;
@@ -247,8 +228,8 @@ pub(crate) mod tests {
             path: tmp,
         };
         let (repo, _) = Repo::new(options);
-        tokio::run_async(async move {
-            await!(repo.init()).unwrap();
-        });
+        tokio::runtime::current_thread::block_on_all(async move {
+            repo.init().await.unwrap();
+        }.unit_error().boxed().compat()).unwrap();
     }
 }

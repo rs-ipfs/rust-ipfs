@@ -3,8 +3,8 @@ use crate::bitswap::Strategy;
 use crate::IpfsOptions;
 use crate::repo::{Repo, RepoTypes};
 use libp2p::{Multiaddr, PeerId};
-use libp2p::core::Swarm;
-use libp2p::secio::SecioKeyPair;
+use libp2p::Swarm;
+use libp2p::identity::Keypair;
 use std::marker::PhantomData;
 
 mod behaviour;
@@ -18,7 +18,7 @@ pub trait SwarmTypes: RepoTypes + Sized {
 
 pub struct SwarmOptions<TSwarmTypes: SwarmTypes> {
     _marker: PhantomData<TSwarmTypes>,
-    pub key_pair: SecioKeyPair,
+    pub key_pair: Keypair,
     pub peer_id: PeerId,
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
 }
@@ -26,7 +26,7 @@ pub struct SwarmOptions<TSwarmTypes: SwarmTypes> {
 impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<TSwarmTypes> {
     fn from(options: &IpfsOptions<TSwarmTypes>) -> Self {
         let key_pair = options.config.secio_key_pair();
-        let peer_id = key_pair.to_peer_id();
+        let peer_id = key_pair.public().into_peer_id();
         let bootstrap = options.config.bootstrap();
         SwarmOptions {
             _marker: PhantomData,
@@ -48,7 +48,7 @@ pub fn create_swarm<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>,
     let behaviour = behaviour::build_behaviour(options, repo);
 
     // Create a Swarm
-    let mut swarm = libp2p::core::Swarm::new(transport, behaviour, peer_id);
+    let mut swarm = libp2p::Swarm::new(transport, behaviour, peer_id);
 
     // Listen on all interfaces and whatever port the OS assigns
     let addr = Swarm::listen_on(&mut swarm, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();

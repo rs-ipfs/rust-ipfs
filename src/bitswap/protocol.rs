@@ -6,7 +6,7 @@
 
 use crate::bitswap::ledger::{Message, I, O};
 use crate::error::Error;
-use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo, upgrade};
+use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo, upgrade::{self, Negotiated}};
 use protobuf::ProtobufError;
 use std::{io, iter};
 use tokio::prelude::*;
@@ -28,16 +28,15 @@ impl UpgradeInfo for BitswapConfig {
     }
 }
 
-impl<TSocket> InboundUpgrade<TSocket> for BitswapConfig
-where
-    TSocket: AsyncRead + AsyncWrite,
+impl<C> InboundUpgrade<C> for BitswapConfig
+    where C: AsyncRead + AsyncWrite
 {
     type Output = Message<I>;
     type Error = Error;
-    type Future = upgrade::ReadOneThen<TSocket, (), fn(Vec<u8>, ()) -> Result<Self::Output, Self::Error>>;
+    type Future = upgrade::ReadOneThen<Negotiated<C>, (), fn(Vec<u8>, ()) -> Result<Self::Output, Self::Error>>;
 
     #[inline]
-    fn upgrade_inbound(self, socket: TSocket, info: Self::Info) -> Self::Future {
+    fn upgrade_inbound(self, socket: Negotiated<C>, info: Self::Info) -> Self::Future {
         debug!("upgrade_inbound: {}", std::str::from_utf8(info).unwrap());
         upgrade::read_one_then(socket, MAX_BUF_SIZE, (), |packet, ()| {
             let message = Message::from_bytes(&packet)?;
@@ -97,16 +96,16 @@ impl UpgradeInfo for Message<O> {
     }
 }
 
-impl<TSocket> OutboundUpgrade<TSocket> for Message<O>
+impl<C> OutboundUpgrade<C> for Message<O>
 where
-    TSocket: AsyncRead + AsyncWrite,
+    C: AsyncRead + AsyncWrite,
 {
     type Output = ();
     type Error = io::Error;
-    type Future = upgrade::WriteOne<TSocket>;
+    type Future = upgrade::WriteOne<Negotiated<C>>;
 
     #[inline]
-    fn upgrade_outbound(self, socket: TSocket, info: Self::Info) -> Self::Future {
+    fn upgrade_outbound(self, socket: Negotiated<C>, info: Self::Info) -> Self::Future {
         debug!("upgrade_outbound: {}", std::str::from_utf8(info).unwrap());
         let bytes = self.into_bytes();
         upgrade::write_one(socket, bytes)

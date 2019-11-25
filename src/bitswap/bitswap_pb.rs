@@ -17,6 +17,7 @@
 #![allow(unsafe_code)]
 #![allow(unused_imports)]
 #![allow(unused_results)]
+#![allow(bare_trait_objects)]
 
 use protobuf::Message as Message_imported_for_functions;
 use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;

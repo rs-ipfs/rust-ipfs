@@ -3,10 +3,10 @@ use crate::block::Cid;
 use crate::p2p::{SwarmOptions, SwarmTypes};
 use crate::repo::Repo;
 use libp2p::{NetworkBehaviour, PeerId};
-use libp2p::core::swarm::NetworkBehaviourEventProcess;
+use libp2p::swarm::NetworkBehaviourEventProcess;
 use libp2p::core::muxing::{StreamMuxerBox, SubstreamRef};
 use libp2p::identify::{Identify, IdentifyEvent};
-use libp2p::kad::{Kademlia, KademliaOut as KademliaEvent};
+use libp2p::kad::{Kademlia, KademliaEvent, record::store::MemoryStore};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
 use libp2p::floodsub::{Floodsub, FloodsubEvent};
@@ -18,7 +18,7 @@ use tokio::prelude::*;
 #[derive(NetworkBehaviour)]
 pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> {
     mdns: Mdns<TSubstream>,
-    kademlia: Kademlia<TSubstream>,
+    kademlia: Kademlia<TSubstream, MemoryStore>,
     bitswap: Bitswap<TSubstream, TSwarmTypes>,
     ping: Ping<TSubstream>,
     identify: Identify<TSubstream>,
@@ -55,10 +55,14 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     Behaviour<TSubstream, TSwarmTypes>
 {
     fn inject_event(&mut self, event: KademliaEvent) {
+        use libp2p::kad::{GetProvidersOk, GetProvidersError};
+
         match event {
             KademliaEvent::Discovered { peer_id, addresses: _, ty } => {
                 debug!("kad: Discovered peer {} {:?}", peer_id.to_base58(), ty);
             }
+            // FIXME: unsure what this has been superceded with... perhaps with GetRecordResult?
+            /*
             KademliaEvent::FindNodeResult { key, closer_peers } => {
                 if closer_peers.is_empty() {
                     info!("kad: Could not find closer peer to {}", key.to_base58());
@@ -66,22 +70,26 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
                 for peer in closer_peers {
                     info!("kad: Found closer peer {} to {}", peer.to_base58(), key.to_base58());
                 }
-            }
-            KademliaEvent::GetProvidersResult {
-                key,
-                provider_peers,
-                ..
-            } => {
-                let cid = PeerId::from_multihash(key).unwrap().to_base58();
-                if provider_peers.is_empty() {
+            }*/
+            KademliaEvent::GetProvidersResult(Ok(GetProvidersOk { key, providers, closest_peers })) => {
+                // FIXME: really wasteful to run this through Vec
+                let cid = PeerId::from_bytes(key.to_vec()).unwrap().to_base58();
+                if providers.is_empty() {
+                    // FIXME: not sure if this is possible
                     info!("kad: Could not find provider for {}", cid);
                 } else {
-                    for peer in provider_peers {
+                    for peer in closest_peers {
                         info!("kad: {} provided by {}", cid, peer.to_base58());
                         self.bitswap.connect(peer);
                     }
                 }
-            }
+            },
+            KademliaEvent::GetProvidersResult(Err(GetProvidersError::Timeout { key, .. })) => {
+                // FIXME: really wasteful to run this through Vec
+                let cid = PeerId::from_bytes(key.to_vec()).unwrap().to_base58();
+                warn!("kad: timed out get providers query for {}", cid);
+            },
+            x => { debug!("kad ignored event {:?}", x); },
         }
     }
 }
@@ -98,9 +106,19 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     Behaviour<TSubstream, TSwarmTypes>
 {
     fn inject_event(&mut self, event: PingEvent) {
+        use libp2p::ping::handler::{PingSuccess, PingFailure};
         match event {
-            PingEvent::PingSuccess { peer, time } => {
-                debug!("ping: rtt to {} is {} ms", peer.to_base58(), time.as_millis());
+            PingEvent { peer, result: Result::Ok(PingSuccess::Ping { rtt }) } => {
+                debug!("ping: rtt to {} is {} ms", peer.to_base58(), rtt.as_millis());
+            },
+            PingEvent { peer, result: Result::Ok(PingSuccess::Pong) } => {
+                debug!("ping: pong from {}", peer.to_base58());
+            },
+            PingEvent { peer, result: Result::Err(PingFailure::Timeout) } => {
+                warn!("ping: timeout to {}", peer.to_base58());
+            },
+            PingEvent { peer, result: Result::Err(PingFailure::Other { error }) } => {
+                error!("ping: failure with {}: {}", peer.to_base58(), error);
             }
         }
     }
@@ -132,18 +150,20 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
 
         let mdns = Mdns::new().expect("Failed to create mDNS service");
 
-        let mut kademlia = Kademlia::new(options.peer_id.to_owned());
+        let store = libp2p::kad::record::store::MemoryStore::new(options.peer_id.to_owned());
+
+        let mut kademlia = Kademlia::new(options.peer_id.to_owned(), store);
         for (addr, peer_id) in &options.bootstrap {
-            kademlia.add_not_connected_address(peer_id, addr.to_owned());
+            kademlia.add_address(peer_id, addr.to_owned());
         }
 
         let strategy = TSwarmTypes::TStrategy::new(repo);
         let bitswap = Bitswap::new(strategy);
-        let ping = Ping::new();
+        let ping = Ping::default();
         let identify = Identify::new(
             "/ipfs/0.1.0".into(),
             "rust-ipfs".into(),
-            options.key_pair.to_public_key(),
+            options.key_pair.public(),
         );
         let floodsub = Floodsub::new(options.peer_id.to_owned());
 
