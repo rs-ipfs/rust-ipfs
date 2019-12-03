@@ -123,7 +123,9 @@ mod tests {
     // TODO: rewrite tests with the MemoryTransport
     // TODO: figure out why it doesn't exit
     #[test]
+    #[ignore]
     fn test_upgrade() {
+        // yeah this probably did not work before
         let listener = TcpListener::bind(&"127.0.0.1:0".parse().unwrap()).unwrap();
         let listener_addr = listener.local_addr().unwrap();
 
@@ -146,5 +148,6 @@ mod tests {
             });
 
         //tokio::run(server.select(client).map(|_| ()).map_err(|_| panic!()));
-    }*/
+    }
+    */
 }

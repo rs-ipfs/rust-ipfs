@@ -1,7 +1,7 @@
 //! Persistent fs backed repo
 use crate::block::{Cid, Block};
 use crate::error::Error;
-use crate::repo::{BlockStore, /*Column, DataStore*/};
+use crate::repo::BlockStore;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::PathBuf;
@@ -228,7 +228,8 @@ fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
 mod tests {
     use super::*;
     use std::env::temp_dir;
-    use futures::{FutureExt, TryFutureExt};
+    use crate::tests::async_test;
+
 
     #[test]
     fn test_fs_blockstore() {
@@ -237,7 +238,7 @@ mod tests {
         std::fs::remove_dir_all(tmp.clone()).ok();
         let store = FsBlockStore::new(tmp.clone());
 
-        tokio::runtime::current_thread::block_on_all(async move {
+        async_test(async move {
             let block = Block::from("1");
             let cid = block.cid();
 
@@ -264,7 +265,7 @@ mod tests {
             assert_eq!(contains.await.unwrap(), false);
             let get = store.get(cid);
             assert_eq!(get.await.unwrap(), None);
-        }.unit_error().boxed().compat()).unwrap();
+        });
 
         std::fs::remove_dir_all(tmp).ok();
     }
@@ -276,7 +277,7 @@ mod tests {
         std::fs::remove_dir_all(tmp.clone()).ok();
 
         let blockstore_path = tmp.clone();
-        tokio::runtime::current_thread::block_on_all(async move {
+        async_test(async move {
             let block = Block::from("1");
 
             let block_store = FsBlockStore::new(blockstore_path.clone());
@@ -290,12 +291,13 @@ mod tests {
             block_store.open().await.unwrap();
             assert!(block_store.contains(block.cid()).await.unwrap());
             assert_eq!(block_store.get(block.cid()).await.unwrap().unwrap(), block);
-        }.unit_error().boxed().compat()).unwrap();
+        });
 
         std::fs::remove_dir_all(tmp).ok();
     }
 
     #[test]
+    #[ignore]
     fn test_rocks_datastore() {
         unimplemented!();
         /*

@@ -69,8 +69,7 @@ mod tests {
     use super::*;
     use crate::block::Cid;
     use crate::repo::tests::create_mock_repo;
-
-    use futures::{FutureExt, TryFutureExt};
+    use crate::tests::async_test;
 
     #[test]
     fn test_file_cid() {
@@ -79,9 +78,9 @@ mod tests {
         let file = File::from("\u{8}\u{2}\u{12}\u{12}Here is some data\n\u{18}\u{12}");
         let cid = Cid::from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
 
-        tokio::runtime::current_thread::block_on_all(async move {
+        async_test(async move {
             let path = file.put_unixfs_v1(&dag).await.unwrap();
             assert_eq!(cid.to_string(), path.root().cid().unwrap().to_string());
-        }.unit_error().boxed().compat()).unwrap();
+        });
     }
 }

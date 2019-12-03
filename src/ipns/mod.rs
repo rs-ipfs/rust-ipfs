@@ -22,7 +22,7 @@ impl<Types: RepoTypes> Ipns<Types> {
     /// Resolves a ipns path to an ipld path.
     pub async fn resolve(&self, path: &IpfsPath) -> Result<IpfsPath, Error>
     {
-        let repo = self.repo.clone();
+        let mut repo = self.repo.clone();
         let path = path.to_owned();
         match path.root() {
             PathRoot::Ipld(_) => Ok(path),

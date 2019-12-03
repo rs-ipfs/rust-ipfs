@@ -1,19 +1,15 @@
 use ipfs::{Ipfs, IpfsOptions, Ipld, Types};
 use futures::join;
+use futures::{FutureExt, TryFutureExt};
 
 fn main() {
-    unimplemented!();
-    /*
     let options = IpfsOptions::<Types>::default();
     env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
-    let mut ipfs = Ipfs::new(options);
 
     tokio::runtime::current_thread::block_on_all(async move {
         // Start daemon and initialize repo
-        let fut = ipfs.start_daemon().unwrap();
-        tokio::spawn_async(fut);
-        ipfs.init_repo().await.unwrap();
-        ipfs.open_repo().await.unwrap();
+        let (ipfs, fut) = Ipfs::new(options).start().await.unwrap();
+        tokio::spawn(fut.unit_error().boxed().compat());
 
         // Create a DAG
         let block1: Ipld = "block1".to_string().into();
@@ -36,5 +32,4 @@ fn main() {
         // Exit
         ipfs.exit_daemon();
     }.unit_error().boxed().compat()).unwrap();
-    */
 }

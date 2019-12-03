@@ -4,14 +4,11 @@ use futures::{FutureExt, TryFutureExt};
 fn main() {
     let options = IpfsOptions::<TestTypes>::default();
     env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
-    let mut ipfs = Ipfs::new(options);
 
     tokio::runtime::current_thread::block_on_all(async move {
         // Start daemon and initialize repo
-        let fut = ipfs.start_daemon().unwrap();
+        let (ipfs, fut) = Ipfs::new(options).start().await.unwrap();
         tokio::spawn(fut.unit_error().boxed().compat());
-        ipfs.init_repo().await.unwrap();
-        ipfs.open_repo().await.unwrap();
 
         // Create a Block
         let ipfs_path = ipfs.put_dag("block v0".into()).await.unwrap();
@@ -31,20 +28,5 @@ fn main() {
         println!("Resolved stage 2: {:?}", ipfs_path.to_string());
 
         ipfs.exit_daemon();
-    }.unit_error().boxed_local().compat()).unwrap();
-
-    // FIXME: trying to use .boxed above results in a wall of bound mismatches which
-    // seem to focus around PingEvent in libp2p which has:
-    // struct PingEvent { ..., PingResult };
-    // type PingResult = Result<PingSuccess, PingFailure>;
-    // enum PingSuccess { Pong, Ping { rtt: Duration } }
-    // enum PingFailure {
-    //   Timeout,
-    //   Other { error: Box<dyn std::error::Error + Send + 'static> }
-    // }
-    // and here's the issue:^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    //
-    // this can be fixed by patching the bounds to contain Sync to use boxed() instead of
-    // boxed_local() but tokio::run(...) remains out of reach as there are so many non-Sync
-    // parts.
+    }.unit_error().boxed().compat()).unwrap();
 }
