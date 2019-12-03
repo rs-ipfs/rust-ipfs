@@ -18,14 +18,14 @@ impl<Types: RepoTypes> IpldDag<Types> {
 
     pub async fn put(&self, data: Ipld, codec: Codec) -> Result<IpfsPath, Error>
     {
-        let repo = self.repo.clone();
+        let mut repo = self.repo.clone();
         let block = data.to_block(codec)?;
         let cid = repo.put_block(block).await?;
         Ok(IpfsPath::new(PathRoot::Ipld(cid)))
     }
 
     pub async fn get(&self, path: IpfsPath) -> Result<Ipld, Error> {
-        let repo = self.repo.clone();
+        let mut repo = self.repo.clone();
         let cid = match path.root().cid() {
             Some(cid) => cid,
             None => bail!("expected cid"),
@@ -91,12 +91,12 @@ fn resolve(ipld: Ipld, sub_path: &SubPath) -> Ipld {
 mod tests {
     use super::*;
     use crate::repo::tests::create_mock_repo;
+    use crate::tests::async_test;
     use std::collections::HashMap;
 
     #[test]
     fn test_resolve_root_cid() {
-        unimplemented!();
-        /*tokio::run_async(async {
+        async_test(async {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data = Ipld::Array(vec![Ipld::U64(1), Ipld::U64(2), Ipld::U64(3)]);
@@ -104,39 +104,36 @@ mod tests {
 
             let res = dag.get(path).await.unwrap();
             assert_eq!(res, data);
-        });*/
+        });
     }
 
     #[test]
     fn test_resolve_array_elem() {
-        unimplemented!();
-        /*tokio::run_async(async {
+        async_test(async move {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data: Ipld = vec![1, 2, 3].into();
             let path = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
             let res = dag.get(path.sub_path("1").unwrap()).await.unwrap();
             assert_eq!(res, Ipld::U64(2));
-        });*/
+        });
     }
 
     #[test]
     fn test_resolve_nested_array_elem() {
-        unimplemented!();
-        /*tokio::run_async(async {
+        async_test(async move {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data = Ipld::Array(vec![Ipld::U64(1), Ipld::Array(vec![Ipld::U64(2)]), Ipld::U64(3)]);
             let path = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
             let res = dag.get(path.sub_path("1/0").unwrap()).await.unwrap();
             assert_eq!(res, Ipld::U64(2));
-        });*/
+        });
     }
 
     #[test]
     fn test_resolve_object_elem() {
-        unimplemented!();
-        /*tokio::run_async(async {
+        async_test(async move {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let mut data = HashMap::new();
@@ -144,13 +141,12 @@ mod tests {
             let path = dag.put(data.into(), Codec::DagCBOR).await.unwrap();
             let res = dag.get(path.sub_path("key").unwrap()).await.unwrap();
             assert_eq!(res, Ipld::Bool(false));
-        });*/
+        });
     }
 
     #[test]
     fn test_resolve_cid_elem() {
-        unimplemented!();
-        /*tokio::run_async(async {
+        async_test(async move {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
             let data1 = vec![1].into();
@@ -159,6 +155,6 @@ mod tests {
             let path = dag.put(data2, Codec::DagCBOR).await.unwrap();
             let res = dag.get(path.sub_path("0/0").unwrap()).await.unwrap();
             assert_eq!(res, Ipld::U64(1));
-        });*/
+        });
     }
 }

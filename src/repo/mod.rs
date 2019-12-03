@@ -7,7 +7,8 @@ use libp2p::PeerId;
 use async_trait::async_trait;
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Sender, Receiver};
+use futures::channel::mpsc::{channel, Sender, Receiver};
+use futures::SinkExt;
 
 pub mod mem;
 pub mod fs;
@@ -67,7 +68,7 @@ pub enum Column {
 pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
-    events: std::sync::Arc<std::sync::Mutex<Sender<RepoEvent>>>,
+    events: Sender<RepoEvent>,
 }
 
 #[derive(Clone, Debug)]
@@ -85,11 +86,11 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         datastore_path.push("datastore");
         let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
         let data_store = TRepoTypes::TDataStore::new(datastore_path);
-        let (sender, receiver) = channel::<RepoEvent>();
+        let (sender, receiver) = channel::<RepoEvent>(1);
         (Repo {
             block_store,
             data_store,
-            events: std::sync::Arc::new(std::sync::Mutex::new(sender)),
+            events: sender,
         }, receiver)
     }
 
@@ -121,32 +122,26 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     /// Puts a block into the block store.
-    pub async fn put_block(&self, block: Block) -> Result<Cid, Error>
+    pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error>
     {
-        let events = self.events.clone();
-        let block_store = self.block_store.clone();
-        let cid = block_store.put(block).await?;
+        let cid = self.block_store.put(block).await?;
         // sending only fails if no one is listening anymore
         // and that is okay with us.
-        let _ = events.lock().unwrap_or_else(|p| p.into_inner()).send(RepoEvent::ProvideBlock(cid.clone()));
+        let _ = self.events.send(RepoEvent::ProvideBlock(cid.clone())).await;
         Ok(cid)
     }
 
     /// Retrives a block from the block store.
-    pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error>
+    pub async fn get_block(&mut self, cid: &Cid) -> Result<Block, Error>
     {
-        let cid = cid.clone();
-        let events = self.events.clone();
-        let block_store = self.block_store.clone();
-
         loop {
-            if !block_store.contains(&cid).await? {
+            if !self.block_store.contains(&cid).await? {
                 // sending only fails if no one is listening anymore
                 // and that is okay with us.
-                let _ = events.lock().unwrap_or_else(|p| p.into_inner()).send(RepoEvent::WantBlock(cid.clone()));
+                let _ = self.events.send(RepoEvent::WantBlock(cid.clone())).await;
             }
             // FIXME: not really sure of how I removed the BlockFuture from here
-            match block_store.get(&cid.clone()).await? {
+            match self.block_store.get(&cid.clone()).await? {
                 Some(block) => return Ok(block),
                 None => continue,
             }
@@ -154,17 +149,17 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     /// Remove block from the block store.
-    pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error>
+    pub async fn remove_block(&mut self, cid: &Cid) -> Result<(), Error>
     {
         // sending only fails if no one is listening anymore
         // and that is okay with us.
-        let _ = self.events.lock().unwrap_or_else(|p| p.into_inner()).send(RepoEvent::UnprovideBlock(cid.to_owned()));
+        let _ = self.events.send(RepoEvent::UnprovideBlock(cid.to_owned())).await;
         self.block_store.remove(cid).await?;
         Ok(())
     }
 
     /// Get an ipld path from the datastore.
-    pub async fn get_ipns(&self, ipns: &PeerId) -> Result<Option<IpfsPath>, Error>
+    pub async fn get_ipns(&mut self, ipns: &PeerId) -> Result<Option<IpfsPath>, Error>
     {
         let data_store = self.data_store.clone();
         let key = ipns.to_owned();
@@ -198,7 +193,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 pub(crate) mod tests {
     use super::*;
     use std::env::temp_dir;
-    use futures::{FutureExt, TryFutureExt};
+    use crate::tests::async_test;
 
     #[derive(Clone)]
     pub struct Types;
@@ -228,8 +223,8 @@ pub(crate) mod tests {
             path: tmp,
         };
         let (repo, _) = Repo::new(options);
-        tokio::runtime::current_thread::block_on_all(async move {
+        async_test(async move {
             repo.init().await.unwrap();
-        }.unit_error().boxed().compat()).unwrap();
+        });
     }
 }

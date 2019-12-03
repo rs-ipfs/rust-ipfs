@@ -110,14 +110,13 @@ impl DataStore for MemDataStore {
 mod tests {
     use super::*;
     use std::env::temp_dir;
-    use futures::{FutureExt, TryFutureExt};
+    use crate::tests::async_test;
 
     #[test]
     fn test_mem_blockstore() {
-
         let tmp = temp_dir();
         let store = MemBlockStore::new(tmp);
-        tokio::runtime::current_thread::block_on_all(async move {
+        async_test(async move {
             let block = Block::from("1");
             let cid = block.cid();
 
@@ -144,14 +143,14 @@ mod tests {
             assert_eq!(contains.await.unwrap(), false);
             let get = store.get(cid);
             assert_eq!(get.await.unwrap(), None);
-        }.unit_error().boxed().compat()).unwrap();
+        });
     }
 
     #[test]
     fn test_mem_datastore() {
         let tmp = temp_dir();
         let store = MemDataStore::new(tmp);
-        tokio::runtime::current_thread::block_on_all(async move {
+        async_test(async move {
             let col = Column::Ipns;
             let key = [1, 2, 3, 4];
             let value = [5, 6, 7, 8];
@@ -179,6 +178,6 @@ mod tests {
             assert_eq!(contains.await.unwrap(), false);
             let get = store.get(col, &key);
             assert_eq!(get.await.unwrap(), None);
-        }.unit_error().boxed().compat()).unwrap();
+        });
     }
 }

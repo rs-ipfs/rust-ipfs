@@ -8,11 +8,8 @@
 pub use libp2p::PeerId;
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::pin::Pin;
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::task::{Poll, Context};
+use futures::channel::mpsc::{channel, Sender, Receiver};
 use std::future::Future;
-use tokio::prelude::{Async, Stream as StreamOld};
 
 pub mod bitswap;
 pub mod block;
@@ -124,10 +121,8 @@ impl Default for IpfsOptions<TestTypes> {
 /// for interacting with IPFS.
 pub struct Ipfs<Types: IpfsTypes> {
     repo: Repo<Types>,
-    repo_events: Option<Receiver<RepoEvent>>,
     dag: IpldDag<Types>,
     ipns: Ipns<Types>,
-    swarm: Option<TSwarm<Types>>,
     exit_events: Vec<Sender<IpfsEvent>>,
 }
 
@@ -135,8 +130,16 @@ enum IpfsEvent {
     Exit,
 }
 
-impl<Types: IpfsTypes> Ipfs<Types> {
-    /// Creates a new ipfs node.
+/// Configured Ipfs instace or value which can be only initialized.
+pub struct UninitializedIpfs<Types: IpfsTypes> {
+    repo: Repo<Types>,
+    dag: IpldDag<Types>,
+    ipns: Ipns<Types>,
+    moved_on_init: Option<(Receiver<RepoEvent>, TSwarm<Types>)>,
+    exit_events: Vec<Sender<IpfsEvent>>,
+}
+
+impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     pub fn new(options: IpfsOptions<Types>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
@@ -145,38 +148,64 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         let dag = IpldDag::new(repo.clone());
         let ipns = Ipns::new(repo.clone());
 
-        Ipfs {
+        UninitializedIpfs {
             repo,
             dag,
             ipns,
-            repo_events: Some(repo_events),
-            swarm: Some(swarm),
+            moved_on_init: Some((repo_events, swarm)),
             exit_events: Vec::default(),
         }
     }
 
     /// Initialize the ipfs repo.
-    pub async fn init_repo(&self) -> Result<(), Error> {
-        Ok(self.repo.init().await?)
-    }
+    pub async fn start(mut self) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
+        use futures::compat::Stream01CompatExt;
 
-    /// Open the ipfs repo.
-    pub async fn open_repo(&self) -> Result<(), Error> {
-        Ok(self.repo.open().await?)
+        let (repo_events, swarm) = self.moved_on_init
+            .take()
+            .expect("Cant see how this should happen");
+
+        self.repo.init().await?;
+        self.repo.init().await?;
+
+        let (sender, receiver) = channel::<IpfsEvent>(1);
+        self.exit_events.push(sender);
+
+        let fut = IpfsFuture {
+            repo_events,
+            exit_events: receiver,
+            swarm: swarm.compat(),
+        };
+
+        let UninitializedIpfs { repo, dag, ipns, exit_events, .. } = self;
+
+        Ok((Ipfs {
+            repo,
+            dag,
+            ipns,
+            exit_events
+        }, fut))
+    }
+}
+
+impl<Types: IpfsTypes> Ipfs<Types> {
+    /// Creates a new ipfs node.
+    pub fn new(options: IpfsOptions<Types>) -> UninitializedIpfs<Types> {
+        UninitializedIpfs::new(options)
     }
 
     /// Puts a block into the ipfs repo.
-    pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
+    pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error> {
         Ok(self.repo.put_block(block).await?)
     }
 
     /// Retrives a block from the ipfs repo.
-    pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
+    pub async fn get_block(&mut self, cid: &Cid) -> Result<Block, Error> {
         Ok(self.repo.get_block(cid).await?)
     }
 
     /// Remove block from the ipfs repo.
-    pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error> {
+    pub async fn remove_block(&mut self, cid: &Cid) -> Result<(), Error> {
         Ok(self.repo.remove_block(cid).await?)
     }
 
@@ -204,91 +233,81 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Resolves a ipns path to an ipld path.
-    pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error>
-    {
+    pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
         Ok(self.ipns.resolve(path).await?)
     }
 
     /// Publishes an ipld path.
-    pub async fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error>
-    {
+    pub async fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error> {
         Ok(self.ipns.publish(key, path).await?)
     }
 
     /// Cancel an ipns path.
-    pub async fn cancel_ipns(&self, key: &PeerId) -> Result<(), Error>
-    {
+    pub async fn cancel_ipns(&self, key: &PeerId) -> Result<(), Error> {
         self.ipns.cancel(key).await?;
         Ok(())
     }
 
-    /// Start daemon.
-    pub fn start_daemon(&mut self) -> Option<IpfsFuture<Types>> {
-        self.repo_events.take().map(|repo_events|{
-            let (sender, receiver) = channel::<IpfsEvent>();
-            self.exit_events.push(sender);
-
-            IpfsFuture {
-                repo_events,
-                exit_events: receiver,
-                swarm: std::sync::Mutex::new(Box::new(self.swarm.take().unwrap())),
-            }
-        })
-    }
-
     /// Exit daemon.
-    pub fn exit_daemon(&mut self) {
-        for s in self.exit_events.drain(..) {
-            let _ = s.send(IpfsEvent::Exit);
+    pub fn exit_daemon(mut self) {
+        for mut s in self.exit_events.drain(..) {
+            let _ = s.try_send(IpfsEvent::Exit);
         }
     }
 }
 
 pub struct IpfsFuture<Types: SwarmTypes> {
-    // FIXME: for some reason this needs to be Sync in addition to Send + 'static
-    swarm: std::sync::Mutex<Box<TSwarm<Types>>>,
+    swarm: futures::compat::Compat01As03<TSwarm<Types>>,
     repo_events: Receiver<RepoEvent>,
     exit_events: Receiver<IpfsEvent>,
 }
 
+use std::pin::Pin;
+use std::task::{Poll, Context};
+
 impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
     type Output = ();
 
-    fn poll(self: Pin<&mut Self>, _context: &mut Context) -> Poll<Self::Output> {
-        let _self = self.get_mut();
+    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        use futures::Stream;
         loop {
-            if let Ok(IpfsEvent::Exit) = _self.exit_events.try_recv() {
-                return Poll::Ready(());
-            }
+            // FIXME: this can probably be rewritten as a async { loop { select! { ... } } } once
+            // libp2p uses std::future ... I couldn't figure out way to wrap it as compat,
+            // box it and fuse it to for it to be used with futures::select!
 
-            let mut g = _self.swarm.lock().unwrap_or_else(|p| p.into_inner());
+            {
+                let pin = Pin::new(&mut self.exit_events);
 
-            loop {
-                if let Ok(event) = _self.repo_events.try_recv() {
-                    match event {
-                        RepoEvent::WantBlock(cid) => {
-                            g.want_block(cid);
-                        }
-                        RepoEvent::ProvideBlock(cid) => {
-                            g.provide_block(cid);
-                        }
-                        RepoEvent::UnprovideBlock(cid) => {
-                            g.stop_providing_block(&cid);
-                        }
-                    }
-                } else {
-                    break
+                if let Poll::Ready(Some(IpfsEvent::Exit)) = pin.poll_next(ctx) {
+                    return Poll::Ready(());
                 }
             }
 
-            let poll = g.poll().expect("Error while polling swarm");
-            match poll {
-                Async::Ready(Some(_)) => {},
-                Async::Ready(None) => {
-                    return Poll::Ready(());
-                },
-                Async::NotReady => {
-                    return Poll::Pending;
+            {
+
+                loop {
+                    let pin = Pin::new(&mut self.repo_events);
+                    match pin.poll_next(ctx) {
+                        Poll::Ready(Some(RepoEvent::WantBlock(cid))) =>
+                            self.swarm.get_mut().want_block(cid),
+                        Poll::Ready(Some(RepoEvent::ProvideBlock(cid))) =>
+                            self.swarm.get_mut().provide_block(cid),
+                        Poll::Ready(Some(RepoEvent::UnprovideBlock(cid))) =>
+                            self.swarm.get_mut().stop_providing_block(&cid),
+                        Poll::Ready(None) => panic!("other side closed the repo_events?"),
+                        Poll::Pending => break,
+                    }
+
+                }
+            }
+
+            {
+                let poll = Pin::new(&mut self.swarm).poll_next(ctx);
+                match poll {
+                    // FIXME: this sounds wrong, I wonder if I've removed something needed?
+                    Poll::Ready(Some(_)) => {},
+                    Poll::Ready(None) => { return Poll::Ready(()); },
+                    Poll::Pending => { return Poll::Pending; }
                 }
             }
         }
@@ -298,38 +317,47 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::future::{FutureExt, TryFutureExt};
+
+    /// Testing helper for std::future::Futures until we can upgrade tokio
+    pub(crate) fn async_test<O, F>(future: F) -> O
+        where O: 'static + Send,
+              F: std::future::Future<Output = O> + 'static + Send
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        tokio::run(async move {
+            let tx = tx;
+            let awaited = future.await;
+            tx.send(awaited).unwrap();
+        }.unit_error().boxed().compat());
+        rx.recv().unwrap()
+    }
 
     #[test]
     fn test_put_and_get_block() {
-        unimplemented!();
-        /*
-        let options = IpfsOptions::<TestTypes>::default();
-        let mut ipfs = Ipfs::new(options);
-        let block = Block::from("hello block\n");
+        async_test(async move {
+            let options = IpfsOptions::<TestTypes>::default();
+            let block = Block::from("hello block\n");
+            let ipfs = Ipfs::new(options);
+            let (mut ipfs, fut) = ipfs.start().await.unwrap();
+            tokio::spawn(fut.unit_error().boxed().compat());
 
-        tokio::run_async(async move {
-            let fut = ipfs.start_daemon().unwrap();
-            tokio::spawn_async(fut);
-
-            let cid = ipfs.put_block(block.clone()).await?.unwrap();
-            let new_block = ipfs.get_block(&cid).await?.unwrap();
+            let cid: Cid = ipfs.put_block(block.clone()).await.unwrap();
+            let new_block = ipfs.get_block(&cid).await.unwrap();
             assert_eq!(block, new_block);
 
             ipfs.exit_daemon();
         });
-        */
     }
 
     #[test]
     fn test_put_and_get_dag() {
-        unimplemented!();
-        /*
         let options = IpfsOptions::<TestTypes>::default();
-        let mut ipfs = Ipfs::new(options);
 
-        tokio::run_async(async move {
-            let fut = ipfs.start_daemon().unwrap();
-            tokio::spawn_async(fut);
+        async_test(async move {
+
+            let (ipfs, fut) = Ipfs::new(options).start().await.unwrap();
+            tokio::spawn(fut.unit_error().boxed().compat());
 
             let data: Ipld = vec![-1, -2, -3].into();
             let cid = ipfs.put_dag(data.clone()).await.unwrap();
@@ -338,6 +366,5 @@ mod tests {
 
             ipfs.exit_daemon();
         });
-        */
     }
 }

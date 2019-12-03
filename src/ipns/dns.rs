@@ -71,21 +71,21 @@ pub fn resolve(domain: &str) -> Result<DnsLinkFuture, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::async_test;
 
     #[test]
     fn test_resolve1() {
-        unimplemented!();
-        /*tokio::run_async(async {
+        async_test(async move {
             let res = resolve("ipfs.io").unwrap().await.unwrap().to_string();
             assert_eq!(res, "/ipns/website.ipfs.io");
-        })*/
+        });
     }
 
+    #[test]
     fn test_resolve2() {
-        unimplemented!();
-        /*tokio::run_async(async {
+        async_test(async move {
             let res = resolve("website.ipfs.io").unwrap().await.unwrap().to_string();
             assert_eq!(res, "/ipfs/QmYfHCcUQBjyvrLfQ8Cnt2YAEiLDNRqMXAeHndM6fDW8yB");
-        })*/
+        });
     }
 }
