@@ -5,7 +5,6 @@ use crate::repo::RepoTypes;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::path::PathBuf;
-// use futures::prelude::*;
 use futures::compat::Future01CompatExt;
 
 pub struct File {
