@@ -4,7 +4,6 @@
 
 #[macro_use] extern crate failure;
 #[macro_use] extern crate log;
-// use futures::prelude::*;
 pub use libp2p::PeerId;
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -15,7 +14,6 @@ pub mod bitswap;
 pub mod block;
 mod config;
 pub mod error;
-mod future;
 pub mod ipld;
 pub mod ipns;
 pub mod p2p;
@@ -304,7 +302,6 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
             {
                 let poll = Pin::new(&mut self.swarm).poll_next(ctx);
                 match poll {
-                    // FIXME: this sounds wrong, I wonder if I've removed something needed?
                     Poll::Ready(Some(_)) => {},
                     Poll::Ready(None) => { return Poll::Ready(()); },
                     Poll::Pending => { return Poll::Pending; }

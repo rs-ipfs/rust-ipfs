@@ -97,7 +97,6 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub async fn init(&self) -> Result<(), Error> {
         let block_store = self.block_store.clone();
         let data_store = self.data_store.clone();
-        // FIXME: unsure why this fails with failure::core::future::future::Future
         let f1 = block_store.init();
         let f2 = data_store.init();
         let (r1, r2) = futures::future::join(f1, f2).await;
@@ -140,7 +139,6 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 // and that is okay with us.
                 let _ = self.events.send(RepoEvent::WantBlock(cid.clone())).await;
             }
-            // FIXME: not really sure of how I removed the BlockFuture from here
             match self.block_store.get(&cid.clone()).await? {
                 Some(block) => return Ok(block),
                 None => continue,
