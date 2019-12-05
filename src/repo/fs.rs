@@ -2,6 +2,8 @@
 use crate::block::{Cid, Block};
 use crate::error::Error;
 use crate::repo::BlockStore;
+#[cfg(feature = "rocksdb")]
+use crate::repo::{Column, DataStore};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::PathBuf;
@@ -104,28 +106,32 @@ impl BlockStore for FsBlockStore {
     }
 }
 
-/*
 #[derive(Clone, Debug)]
+#[cfg(feature = "rocksdb")]
 pub struct RocksDataStore {
     path: PathBuf,
     db: Arc<Mutex<Option<rocksdb::DB>>>,
 }
 
-impl RocksDataStore {
-    fn get_cf(&self, col: Column) -> rocksdb::ColumnFamily {
-        let cf_name = match col {
-            Column::Ipns => "ipns"
+#[cfg(feature = "rocksdb")]
+trait ResolveColumnFamily {
+    fn resolve<'a>(&self, db: &'a rocksdb::DB) -> &'a rocksdb::ColumnFamily;
+}
+
+#[cfg(feature = "rocksdb")]
+impl ResolveColumnFamily for Column {
+    fn resolve<'a>(&self, db: &'a rocksdb::DB) -> &'a rocksdb::ColumnFamily {
+        let name = match *self {
+            Column::Ipns => "ipns",
         };
-        self.db.lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .cf_handle(cf_name)
-            // TODO safe to unwrap
-            .unwrap()
+
+        // not sure why this isn't always present?
+        db.cf_handle(name).unwrap()
     }
 }
 
+#[cfg(feature = "rocksdb")]
+#[async_trait]
 impl DataStore for RocksDataStore {
     fn new(path: PathBuf) -> Self {
         RocksDataStore {
@@ -134,88 +140,69 @@ impl DataStore for RocksDataStore {
         }
     }
 
-    fn init(&self) -> FutureObj<'static, Result<(), Error>> {
-        FutureObj::new(Box::new(futures::future::ok(())))
+    async fn init(&self) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn open(&self) -> FutureObj<'static, Result<(), Error>> {
+    async fn open(&self) -> Result<(), Error> {
         let db = self.db.clone();
         let path = self.path.clone();
-        FutureObj::new(Box::new(async move {
-            let mut db_opts = rocksdb::Options::default();
-            db_opts.create_missing_column_families(true);
-            db_opts.create_if_missing(true);
+        let mut db_opts = rocksdb::Options::default();
+        db_opts.create_missing_column_families(true);
+        db_opts.create_if_missing(true);
 
-            let ipns_opts = rocksdb::Options::default();
-            let ipns_cf = rocksdb::ColumnFamilyDescriptor::new("ipns", ipns_opts);
-            let rdb = rocksdb::DB::open_cf_descriptors(
-                &db_opts,
-                &path,
-                vec![ipns_cf],
-            )?;
-            *db.lock().unwrap() = Some(rdb);
-            Ok(())
-        }))
+        let ipns_opts = rocksdb::Options::default();
+        let ipns_cf = rocksdb::ColumnFamilyDescriptor::new("ipns", ipns_opts);
+        let rdb = rocksdb::DB::open_cf_descriptors(
+            &db_opts,
+            &path,
+            vec![ipns_cf],
+        )?;
+        *db.lock().unwrap() = Some(rdb);
+        Ok(())
     }
 
-    fn contains(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<bool, Error>>
-    {
-        let cf = self.get_cf(col);
+    async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
         let db = self.db.clone();
         let key = key.to_owned();
-        FutureObj::new(Box::new(async move {
-            let db = db.lock().unwrap();
-            let db = db.as_ref().unwrap();
-            let contains = db.get_cf(cf, &key)?.is_some();
-            Ok(contains)
-        }))
+        let db = db.lock().unwrap();
+        let db = db.as_ref().unwrap();
+        let cf = col.resolve(db);
+        let contains = db.get_cf(cf, &key)?.is_some();
+        Ok(contains)
     }
 
-    fn get(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<Option<Vec<u8>>, Error>>
-    {
-        let cf = self.get_cf(col);
+    async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let db = self.db.clone();
         let key = key.to_owned();
-        FutureObj::new(Box::new(async move {
-            let db = db.lock().unwrap();
-            let db = db.as_ref().unwrap();
-            let get = db.get_cf(cf, &key)?.map(|value| value.to_vec());
-            Ok(get)
-        }))
+        let db = db.lock().unwrap();
+        let db = db.as_ref().unwrap();
+        let cf = col.resolve(db);
+        let get = db.get_cf(cf, &key)?.map(|value| value.to_vec());
+        Ok(get)
     }
 
-    fn put(&self, col: Column, key: &[u8], value: &[u8]) ->
-        FutureObj<'static, Result<(), Error>>
-    {
-        let cf = self.get_cf(col);
+    async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error> {
         let db = self.db.clone();
         let key = key.to_owned();
         let value = value.to_owned();
-        FutureObj::new(Box::new(async move {
-            let db = db.lock().unwrap();
-            let db = db.as_ref().unwrap();
-            db.put_cf(cf, &key, &value)?;
-            Ok(())
-        }))
+        let db = db.lock().unwrap();
+        let db = db.as_ref().unwrap();
+        let cf = col.resolve(db);
+        db.put_cf(cf, &key, &value)?;
+        Ok(())
     }
 
-    fn remove(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<(), Error>>
-    {
-        let cf = self.get_cf(col);
+    async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error> {
         let db = self.db.clone();
         let key = key.to_owned();
-        FutureObj::new(Box::new(async move {
-            let db = db.lock().unwrap();
-            let db = db.as_ref().unwrap();
-            db.delete_cf(cf, &key)?;
-            Ok(())
-        }))
+        let db = db.lock().unwrap();
+        let db = db.as_ref().unwrap();
+        let cf = col.resolve(db);
+        db.delete_cf(cf, &key)?;
+        Ok(())
     }
 }
-*/
 
 fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
     let mut file = cid.to_string();
@@ -297,16 +284,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[cfg(feature = "rocksdb")]
     fn test_rocks_datastore() {
-        unimplemented!();
-        /*
         let mut tmp = temp_dir();
         tmp.push("datastore1");
         std::fs::remove_dir_all(tmp.clone()).ok();
         let store = RocksDataStore::new(tmp.clone());
 
-        tokio::run_async(async move {
+        async_test(async move {
             let col = Column::Ipns;
             let key = [1, 2, 3, 4];
             let value = [5, 6, 7, 8];
@@ -337,6 +322,5 @@ mod tests {
         });
 
         std::fs::remove_dir_all(tmp).ok();
-        */
     }
 }
