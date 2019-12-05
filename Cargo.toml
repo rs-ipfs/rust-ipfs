@@ -21,8 +21,6 @@ libp2p = { version = "0.13.1", git = "https://github.com/libp2p/rust-libp2p" }
 log = "*"
 multibase = "*"
 multihash = "*"
-# parity-multiaddr = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "master" }
-# parity-multihash = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "master" }
 protobuf = "2.0.2"
 rand = "0.6"
 rustc-serialize = "0.3"
