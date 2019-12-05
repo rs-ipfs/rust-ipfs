@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["David Craven <david@craven.ch>"]
 edition = "2018"
 
+[features]
+default = []
+all = ["rocksdb"]
+
 [dependencies]
 byteorder = "*"
 cbor = { git = "https://github.com/dvc94ch/rust-cbor", branch = "read-data-item" }
@@ -21,7 +25,6 @@ multihash = "*"
 # parity-multihash = { version = "*", git = "https://github.com/libp2p/rust-libp2p", rev = "master" }
 protobuf = "2.0.2"
 rand = "0.6"
-# rocksdb = "*"
 rustc-serialize = "0.3"
 serde = "1.0"
 serde_derive = "1.0"
@@ -30,3 +33,5 @@ tokio = { version = "0.1.21" }
 tokio-fs = { version = "0.1" }
 xdg = "*"
 async-trait = "*"
+
+rocksdb = { version = "*", optional = true }
