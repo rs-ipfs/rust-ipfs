@@ -85,7 +85,9 @@ mod tests {
     fn test_resolve2() {
         async_test(async move {
             let res = resolve("website.ipfs.io").unwrap().await.unwrap().to_string();
-            assert_eq!(res, "/ipfs/QmYfHCcUQBjyvrLfQ8Cnt2YAEiLDNRqMXAeHndM6fDW8yB");
+            // FIXME: perhaps this should just be a path to multihash? otherwise it'll
+            // break every time they update the site.
+            assert_eq!(res, "/ipfs/QmbV3st6TDZVocp4H2f4KE3tvLP1BEpeRHhZyFL9gD4Ut4");
         });
     }
 }
