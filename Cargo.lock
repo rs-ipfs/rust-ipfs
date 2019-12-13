@@ -12,7 +12,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "aes-soft 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "aesni 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ctr 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ctr 0.3.2 (git+https://github.com/koivunej/stream-ciphers.git?branch=ctr128-64to128)",
  "stream-cipher 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -433,7 +433,7 @@ dependencies = [
 [[package]]
 name = "ctr"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/koivunej/stream-ciphers.git?branch=ctr128-64to128#3c5a767bd30d17998515df29c93bd50b6486cc66"
 dependencies = [
  "block-cipher-trait 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "stream-cipher 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1225,7 +1225,7 @@ source = "git+https://github.com/libp2p/rust-libp2p#88c2287e444d9c6bb25bf84a30fc
 dependencies = [
  "aes-ctr 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "ctr 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ctr 0.3.2 (git+https://github.com/koivunej/stream-ciphers.git?branch=ctr128-64to128)",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "hmac 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "js-sys 0.3.32 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2786,7 +2786,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum crossbeam-utils 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ce446db02cdc3165b94ae73111e570793400d0794e46125cc4056c81cbb039f4"
 "checksum crunchy 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7a81dae078cea95a014a339291cec439d2f232ebe854a9d672b796c6afafa9b7"
 "checksum crypto-mac 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4434400df11d95d556bac068ddfedd482915eb18fe8bea89bc80b6e4b1c179e5"
-"checksum ctr 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "022cd691704491df67d25d006fe8eca083098253c4d43516c2206479c58c6736"
+"checksum ctr 0.3.2 (git+https://github.com/koivunej/stream-ciphers.git?branch=ctr128-64to128)" = "<none>"
 "checksum cuckoofilter 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "8dd43f7cfaffe0a386636a10baea2ee05cc50df3b77bea4a456c9572a939bf1f"
 "checksum curve25519-dalek 1.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "8b7dcd30ba50cdf88b55b033456138b7c0ac4afdc436d82e1b79f370f24cc66d"
 "checksum data-encoding 2.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "f4f47ca1860a761136924ddd2422ba77b2ea54fe8cc75b9040804a0d9d32ad97"

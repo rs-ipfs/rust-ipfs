@@ -33,3 +33,6 @@ xdg = "*"
 async-trait = "*"
 
 rocksdb = { version = "*", optional = true }
+
+[patch.crates-io]
+ctr = { git = "https://github.com/koivunej/stream-ciphers.git", branch = "ctr128-64to128" }
