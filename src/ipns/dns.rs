@@ -82,6 +82,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_resolve2() {
         async_test(async move {
             let res = resolve("website.ipfs.io").unwrap().await.unwrap().to_string();
