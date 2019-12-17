@@ -1,5 +1,5 @@
 use crate::block::Cid;
-use crate::error::Error;
+use crate::error::{Error, TryError};
 use libp2p::PeerId;
 use std::convert::{TryFrom, TryInto};
 use std::str::FromStr;
@@ -203,23 +203,23 @@ impl From<PeerId> for PathRoot {
 }
 
 impl TryInto<Cid> for PathRoot {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<Cid, Self::Error> {
         match self {
             PathRoot::Ipld(cid) => Ok(cid),
-            _ => None?,
+            _ => Err(TryError),
         }
     }
 }
 
 impl TryInto<PeerId> for PathRoot {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<PeerId, Self::Error> {
         match self {
             PathRoot::Ipns(peer_id) => Ok(peer_id),
-            _ => None?,
+            _ => Err(TryError),
         }
     }
 }

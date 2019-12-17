@@ -1,5 +1,5 @@
 use crate::block::{Block, Cid};
-use crate::error::Error;
+use crate::error::{Error, TryError};
 use crate::ipld::{formats, IpldError};
 use crate::path::{IpfsPath, PathRoot};
 use cid::Codec;
@@ -165,111 +165,111 @@ impl From<IpfsPath> for Ipld {
 }
 
 impl TryInto<u64> for Ipld {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<u64, Self::Error> {
         match self {
             Ipld::U64(u) => Ok(u),
-            _ => Err(None?)
+            _ => Err(TryError)
         }
     }
 }
 
 impl TryInto<i64> for Ipld {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<i64, Self::Error> {
         match self {
             Ipld::I64(i) => Ok(i),
-            _ => Err(None?)
+            _ => Err(TryError)
         }
     }
 }
 
 impl TryInto<Vec<u8>> for Ipld {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<Vec<u8>, Self::Error> {
         match self {
             Ipld::Bytes(bytes) => Ok(bytes),
-            _ => Err(None?)
+            _ => Err(TryError)
         }
     }
 }
 
 impl TryInto<String> for Ipld {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<String, Self::Error> {
         match self {
             Ipld::String(string) => Ok(string),
-            _ => Err(None?)
+            _ => Err(TryError)
         }
     }
 }
 
 impl TryInto<Vec<Ipld>> for Ipld {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<Vec<Ipld>, Self::Error> {
         match self {
             Ipld::Array(vec) => Ok(vec),
-            _ => Err(None?)
+            _ => Err(TryError)
         }
     }
 }
 
 impl TryInto<HashMap<String, Ipld>> for Ipld {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<HashMap<String, Ipld>, Self::Error> {
         match self {
             Ipld::Object(map) => Ok(map),
-            _ => Err(None?)
+            _ => Err(TryError)
         }
     }
 }
 
 impl TryInto<f64> for Ipld {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<f64, Self::Error> {
         match self {
             Ipld::F64(f) => Ok(f),
-            _ => Err(None?)
+            _ => Err(TryError)
         }
     }
 }
 
 impl TryInto<bool> for Ipld {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<bool, Self::Error> {
         match self {
             Ipld::Bool(b) => Ok(b),
-            _ => Err(None?)
+            _ => Err(TryError)
         }
     }
 }
 
 impl TryInto<PathRoot> for Ipld {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<PathRoot, Self::Error> {
         match self {
             Ipld::Link(root) => Ok(root),
-            _ => Err(None?)
+            _ => Err(TryError)
         }
     }
 }
 
 impl TryInto<Cid> for Ipld {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_into(self) -> Result<Cid, Self::Error> {
         match self {
             Ipld::Link(root) => root.try_into(),
-            _ => Err(None?)
+            _ => Err(TryError)
         }
     }
 }

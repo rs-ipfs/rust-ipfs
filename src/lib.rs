@@ -1,6 +1,5 @@
 //! IPFS node implementation
 //#![deny(missing_docs)]
-#![feature(try_trait)]
 
 #[macro_use] extern crate failure;
 #[macro_use] extern crate log;
