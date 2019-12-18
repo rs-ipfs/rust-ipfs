@@ -1,5 +1,5 @@
 use crate::block::Cid;
-use crate::error::Error;
+use crate::error::{Error, TryError};
 use crate::ipld::Ipld;
 use crate::path::PathRoot;
 use cid::Prefix;
@@ -96,41 +96,41 @@ impl Into<Ipld> for PbLink {
 }
 
 impl TryFrom<Ipld> for PbNode {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_from(ipld: Ipld) -> Result<PbNode, Self::Error> {
         match ipld {
             Ipld::Object(mut map) => {
-                let links: Vec<Ipld> = map.remove("Links")?.try_into()?;
+                let links: Vec<Ipld> = map.remove("Links").ok_or(TryError)?.try_into()?;
                 let links: Vec<PbLink> = links.into_iter()
                     .map(|link| link.try_into()).collect::<Result<_, Self::Error>>()?;
-                let data: Vec<u8> = map.remove("Data")?.try_into()?;
+                let data: Vec<u8> = map.remove("Data").ok_or(TryError)?.try_into()?;
                 Ok(PbNode {
                     links,
                     data,
                 })
             }
-            _ => None?
+            _ => Err(TryError)
         }
     }
 }
 
 impl TryFrom<Ipld> for PbLink {
-    type Error = std::option::NoneError;
+    type Error = TryError;
 
     fn try_from(ipld: Ipld) -> Result<PbLink, Self::Error> {
         match ipld {
             Ipld::Object(mut map) => {
-                let cid: PathRoot = map.remove("Hash")?.try_into()?;
-                let name: String = map.remove("Name")?.try_into()?;
-                let size: u64 = map.remove("Tsize")?.try_into()?;
+                let cid: PathRoot = map.remove("Hash").ok_or(TryError)?.try_into()?;
+                let name: String = map.remove("Name").ok_or(TryError)?.try_into()?;
+                let size: u64 = map.remove("Tsize").ok_or(TryError)?.try_into()?;
                 Ok(PbLink {
                     cid,
                     name,
                     size,
                 })
             }
-            _ => None?
+            _ => Err(TryError)
         }
     }
 }
