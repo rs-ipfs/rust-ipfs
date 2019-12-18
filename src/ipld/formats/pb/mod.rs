@@ -101,16 +101,10 @@ impl TryFrom<Ipld> for PbNode {
     fn try_from(ipld: Ipld) -> Result<PbNode, Self::Error> {
         match ipld {
             Ipld::Object(mut map) => {
-                let links: Vec<Ipld> = match map.remove("Links") {
-                    Some(links) => links.try_into()?,
-                    None => return Err(TryError)
-                };
+                let links: Vec<Ipld> = map.remove("Links").ok_or(TryError)?.try_into()?;
                 let links: Vec<PbLink> = links.into_iter()
                     .map(|link| link.try_into()).collect::<Result<_, Self::Error>>()?;
-                let data: Vec<u8> = match map.remove("Data") {
-                    Some(data) => data.try_into()?,
-                    None => return Err(TryError)
-                };
+                let data: Vec<u8> = map.remove("Data").ok_or(TryError)?.try_into()?;
                 Ok(PbNode {
                     links,
                     data,
@@ -127,18 +121,9 @@ impl TryFrom<Ipld> for PbLink {
     fn try_from(ipld: Ipld) -> Result<PbLink, Self::Error> {
         match ipld {
             Ipld::Object(mut map) => {
-                let cid: PathRoot = match map.remove("Hash") {
-                    Some(cid) => cid.try_into()?,
-                    None => return Err(TryError)
-                };
-                let name: String = match map.remove("Name") {
-                    Some(name) => name.try_into()?,
-                    None => return Err(TryError)
-                };
-                let size: u64 = match map.remove("Tsize") {
-                    Some(size) => size.try_into()?,
-                    None => return Err(TryError)
-                };
+                let cid: PathRoot = map.remove("Hash").ok_or(TryError)?.try_into()?;
+                let name: String = map.remove("Name").ok_or(TryError)?.try_into()?;
+                let size: u64 = map.remove("Tsize").ok_or(TryError)?.try_into()?;
                 Ok(PbLink {
                     cid,
                     name,
