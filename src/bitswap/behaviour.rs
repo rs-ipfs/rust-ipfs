@@ -120,11 +120,12 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
         debug!("bitswap: cancel_block");
         for (peer_id, ledger) in self.connected_peers.iter_mut() {
             let message = ledger.cancel_block(cid);
-            if message.is_some() {
+            if let Some(event) = message {
+                let peer_id = peer_id.to_owned();
                 debug!("  queuing cancel for {}", peer_id.to_base58());
                 self.events.push_back(NetworkBehaviourAction::SendEvent {
-                    peer_id: peer_id.to_owned(),
-                    event: message.unwrap(),
+                    peer_id,
+                    event,
                 });
             }
         }
