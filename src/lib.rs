@@ -139,6 +139,7 @@ pub struct UninitializedIpfs<Types: IpfsTypes> {
 }
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
+    /// Configures a new UninitializedIpfs with from the given options.
     pub fn new(options: IpfsOptions<Types>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
@@ -156,7 +157,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         }
     }
 
-    /// Initialize the ipfs repo.
+    /// Initialize the ipfs node.
     pub async fn start(mut self) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
         use futures::compat::Stream01CompatExt;
 
@@ -188,11 +189,6 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
-    /// Creates a new ipfs node.
-    pub fn new(options: IpfsOptions<Types>) -> UninitializedIpfs<Types> {
-        UninitializedIpfs::new(options)
-    }
-
     /// Puts a block into the ipfs repo.
     pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error> {
         Ok(self.repo.put_block(block).await?)
