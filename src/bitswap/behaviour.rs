@@ -57,7 +57,7 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
         if self.target_peers.insert(peer_id.clone()) {
             debug!("  queuing dial_peer to {}", peer_id.to_base58());
             self.events.push_back(NetworkBehaviourAction::DialPeer {
-                peer_id: peer_id.clone(),
+                peer_id,
             });
         }
         debug!("");
@@ -83,13 +83,13 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
     fn send_want_list(&mut self, peer_id: PeerId) {
         debug!("bitswap: send_want_list");
         if !self.wanted_blocks.is_empty() {
-            let mut message = Message::new();
+            let mut message = Message::default();
             for (cid, priority) in &self.wanted_blocks {
                 message.want_block(cid, *priority);
             }
             debug!("  queuing wanted blocks");
             self.events.push_back(NetworkBehaviourAction::SendEvent {
-                peer_id: peer_id.clone(),
+                peer_id,
                 event: message,
             });
         }
