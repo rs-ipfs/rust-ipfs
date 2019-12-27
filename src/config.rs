@@ -6,7 +6,7 @@ use serde_derive::{Serialize, Deserialize};
 use std::fs;
 use std::path::Path;
 
-const BOOTSTRAP_NODES: &[&'static str] = &[
+const BOOTSTRAP_NODES: &[&str] = &[
     "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
     "/ip4/104.236.179.241/tcp/4001/p2p/QmSoLPppuBtQSGwKDZT2M73ULpjvfd3aZ6ha4oFGL1KrGM",
     "/ip4/104.236.76.40/tcp/4001/p2p/QmSoLV4Bbm51jM9C4gDYZQ9Cy3U6aXMJDAbzgu2fzaDs64",
@@ -34,13 +34,13 @@ enum KeyMaterial {
     Ed25519 {
         private_key: [u8; 32],
         #[serde(skip)]
-        keypair: Option<libp2p::identity::ed25519::Keypair>,
+        keypair: Option<Box<libp2p::identity::ed25519::Keypair>>,
     },
     RsaPkcs8File {
         #[serde(rename = "rsa_pkcs8_filename")]
         filename: String,
         #[serde(skip)]
-        keypair: Option<libp2p::identity::rsa::Keypair>,
+        keypair: Option<Box<libp2p::identity::rsa::Keypair>>,
     },
 }
 
@@ -75,8 +75,8 @@ impl KeyMaterial {
 
     fn clone_keypair(&self) -> Keypair {
         match *self {
-            KeyMaterial::Ed25519 { ref keypair, .. } => keypair.clone().map(Keypair::Ed25519),
-            KeyMaterial::RsaPkcs8File { ref keypair, .. } => keypair.clone().map(Keypair::Rsa),
+            KeyMaterial::Ed25519 { ref keypair, .. } => keypair.as_ref().map(|kp| Keypair::Ed25519(kp.as_ref().clone())),
+            KeyMaterial::RsaPkcs8File { ref keypair, .. } => keypair.as_ref().map(|kp| Keypair::Rsa(kp.as_ref().clone())),
         }.expect("KeyMaterial needs to be loaded before accessing the keypair")
     }
 
@@ -85,22 +85,22 @@ impl KeyMaterial {
     }
 
     fn load(&mut self) -> Result<(), KeyMaterialLoadingFailure> {
-        match self {
-            &mut KeyMaterial::Ed25519 { ref private_key, ref mut keypair } if keypair.is_none() => {
-                let mut cloned = private_key.clone();
+        match *self {
+            KeyMaterial::Ed25519 { ref private_key, ref mut keypair } if keypair.is_none() => {
+                let mut cloned = *private_key;
                 let sk = libp2p::identity::ed25519::SecretKey::from_bytes(&mut cloned)
                     .expect("Failed to extract ed25519::SecretKey");
 
                 let kp = libp2p::identity::ed25519::Keypair::from(sk);
 
-                *keypair = Some(kp);
+                *keypair = Some(Box::new(kp));
             },
-            &mut KeyMaterial::RsaPkcs8File { ref filename, ref mut keypair } if keypair.is_none() => {
+            KeyMaterial::RsaPkcs8File { ref filename, ref mut keypair } if keypair.is_none() => {
                 let mut bytes = std::fs::read(filename)
-                    .map_err(|e| KeyMaterialLoadingFailure::Io(e))?;
+                    .map_err(KeyMaterialLoadingFailure::Io)?;
                 let kp = libp2p::identity::rsa::Keypair::from_pkcs8(&mut bytes)
-                    .map_err(|e| KeyMaterialLoadingFailure::RsaDecoding(e))?;
-                *keypair = Some(kp);
+                    .map_err(KeyMaterialLoadingFailure::RsaDecoding)?;
+                *keypair = Some(Box::new(kp));
             }
             _ => { /* all set */ }
         }

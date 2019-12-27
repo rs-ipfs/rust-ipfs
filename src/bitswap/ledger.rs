@@ -89,9 +89,8 @@ pub struct Message<T> {
     blocks: Vec<Block>,
 }
 
-impl<T> Message<T> {
-    /// Creates a new bitswap message.
-    pub fn new() -> Self {
+impl<T> Default for Message<T> {
+    fn default() -> Self {
         Message {
             _phantom_data: PhantomData,
             want: HashMap::new(),
@@ -99,6 +98,12 @@ impl<T> Message<T> {
             full: false,
             blocks: Vec::new(),
         }
+    }
+}
+
+impl<T> Message<T> {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Returns the list of blocks.
@@ -145,7 +150,7 @@ impl<T> Message<T> {
 
 impl Message<O> {
     /// Turns this `Message` into a message that can be sent to a substream.
-    pub fn into_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Vec<u8> {
         let mut proto = bitswap_pb::Message::new();
         let mut wantlist = bitswap_pb::Message_Wantlist::new();
         for (cid, priority) in self.want() {
@@ -176,7 +181,7 @@ impl Message<O> {
 
 impl Message<I> {
     /// Creates a `Message` from bytes that were received from a substream.
-    pub fn from_bytes(bytes: &Vec<u8>) -> Result<Self, Error> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         let proto: bitswap_pb::Message = protobuf::parse_from_bytes(bytes)?;
         let mut message = Message::new();
         for entry in proto.get_wantlist().get_entries() {

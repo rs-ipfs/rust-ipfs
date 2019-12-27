@@ -118,7 +118,7 @@ mod tests {
     fn test_encode_decode() {
         let data = Ipld::Array(vec![Ipld::U64(1), Ipld::U64(2), Ipld::U64(3)]);
         let bytes = encode(&data).unwrap();
-        let data2 = decode(bytes).unwrap();
+        let data2 = decode(bytes.as_slice()).unwrap();
         assert_eq!(data, data2);
     }
 
@@ -127,7 +127,7 @@ mod tests {
         let cid = Block::from("hello").cid().to_owned();
         let data = Ipld::Link(cid.into());
         let bytes = encode(&data).unwrap();
-        let data2 = decode(bytes).unwrap();
+        let data2 = decode(bytes.as_slice()).unwrap();
         assert_eq!(data, data2);
     }
 }
