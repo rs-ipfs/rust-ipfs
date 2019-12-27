@@ -235,12 +235,9 @@ where
             }
         }
 
-        match self.strategy.poll() {
-            Some(StrategyEvent::Send { peer_id, block }) => {
-                self.send_block(peer_id, block);
-                task::current().notify();
-            }
-            None => {}
+        if let Some(StrategyEvent::Send { peer_id, block }) = self.strategy.poll() {
+            self.send_block(peer_id, block);
+            task::current().notify();
         }
 
         Async::NotReady
