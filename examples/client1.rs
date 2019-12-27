@@ -1,4 +1,4 @@
-use ipfs::{Ipfs, IpfsOptions, Ipld, Types};
+use ipfs::{UninitializedIpfs, IpfsOptions, Ipld, Types};
 use futures::join;
 use futures::{FutureExt, TryFutureExt};
 
@@ -7,7 +7,7 @@ fn main() {
     env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
 
     tokio::runtime::current_thread::block_on_all(async move {
-        let (ipfs, fut) = Ipfs::new(options).start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::new(options).start().await.unwrap();
         tokio::spawn(fut.unit_error().boxed().compat());
 
         let block1: Ipld = "block1".to_string().into();

@@ -58,7 +58,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
         use libp2p::kad::{GetProvidersOk, GetProvidersError};
 
         match event {
-            KademliaEvent::Discovered { peer_id, addresses: _, ty } => {
+            KademliaEvent::Discovered { peer_id, ty, .. } => {
                 debug!("kad: Discovered peer {} {:?}", peer_id.to_base58(), ty);
             }
             // FIXME: unsure what this has been superceded with... perhaps with GetRecordResult?

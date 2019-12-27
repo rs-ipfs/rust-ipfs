@@ -332,7 +332,7 @@ mod tests {
         async_test(async move {
             let options = IpfsOptions::<TestTypes>::default();
             let block = Block::from("hello block\n");
-            let ipfs = Ipfs::new(options);
+            let ipfs = UninitializedIpfs::new(options);
             let (mut ipfs, fut) = ipfs.start().await.unwrap();
             tokio::spawn(fut.unit_error().boxed().compat());
 
@@ -350,7 +350,7 @@ mod tests {
 
         async_test(async move {
 
-            let (ipfs, fut) = Ipfs::new(options).start().await.unwrap();
+            let (ipfs, fut) = UninitializedIpfs::new(options).start().await.unwrap();
             tokio::spawn(fut.unit_error().boxed().compat());
 
             let data: Ipld = vec![-1, -2, -3].into();

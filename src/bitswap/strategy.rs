@@ -50,7 +50,7 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
 
             let req = StrategyEvent::Send {
                 peer_id: source.clone(),
-                block: block,
+                block,
             };
 
             if let Err(e) = events.send(req) {

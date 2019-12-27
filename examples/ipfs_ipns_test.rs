@@ -1,4 +1,5 @@
-use ipfs::{Ipfs, IpfsOptions, IpfsPath, PeerId, TestTypes};
+use std::str::FromStr;
+use ipfs::{UninitializedIpfs, IpfsOptions, IpfsPath, PeerId, TestTypes};
 use futures::{FutureExt, TryFutureExt};
 
 fn main() {
@@ -7,7 +8,7 @@ fn main() {
 
     tokio::runtime::current_thread::block_on_all(async move {
         // Start daemon and initialize repo
-        let (ipfs, fut) = Ipfs::new(options).start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::new(options).start().await.unwrap();
         tokio::spawn(fut.unit_error().boxed().compat());
 
         // Create a Block

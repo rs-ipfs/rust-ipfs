@@ -13,7 +13,7 @@ use tokio::prelude::*;
 
 // Undocumented, but according to JS we our messages have a max size of 512*1024
 // https://github.com/ipfs/js-ipfs-bitswap/blob/d8f80408aadab94c962f6b88f343eb9f39fa0fcc/src/decision-engine/index.js#L16
-const MAX_BUF_SIZE : usize = 524288;
+const MAX_BUF_SIZE : usize = 524_288;
 
 #[derive(Clone, Debug, Default)]
 pub struct BitswapConfig {}
@@ -33,6 +33,7 @@ impl<C> InboundUpgrade<C> for BitswapConfig
 {
     type Output = Message<I>;
     type Error = Error;
+    #[allow(clippy::type_complexity)]
     type Future = upgrade::ReadOneThen<Negotiated<C>, (), fn(Vec<u8>, ()) -> Result<Self::Output, Self::Error>>;
 
     #[inline]
@@ -107,7 +108,7 @@ where
     #[inline]
     fn upgrade_outbound(self, socket: Negotiated<C>, info: Self::Info) -> Self::Future {
         debug!("upgrade_outbound: {}", std::str::from_utf8(info).unwrap());
-        let bytes = self.into_bytes();
+        let bytes = self.to_bytes();
         upgrade::write_one(socket, bytes)
     }
 }
