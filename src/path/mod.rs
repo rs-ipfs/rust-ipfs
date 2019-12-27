@@ -3,6 +3,7 @@ use crate::error::{Error, TryError};
 use libp2p::PeerId;
 use std::convert::{TryFrom, TryInto};
 use std::str::FromStr;
+use std::fmt;
 
 pub mod error;
 pub use self::error::IpfsPathError;
@@ -89,12 +90,17 @@ impl IpfsPath {
     }
 
     pub fn to_string(&self) -> String {
-        let mut path = self.root.to_string();
+        format!("{}", self)
+    }
+}
+
+impl fmt::Display for IpfsPath {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "{}", self.root)?;
         for sub_path in &self.path {
-            path.push_str("/");
-            path.push_str(&sub_path.to_string());
+            write!(fmt, "/{}", sub_path)?;
         }
-        path
+        Ok(())
     }
 }
 
@@ -171,14 +177,7 @@ impl PathRoot {
     }
 
     pub fn to_string(&self) -> String {
-        let (prefix, key) = match self {
-            PathRoot::Ipld(cid) => ("/ipfs/", cid.to_string()),
-            PathRoot::Ipns(peer_id) => ("/ipns/", peer_id.to_base58()),
-            PathRoot::Dns(domain) => ("/ipns/", domain.to_owned()),
-        };
-        let mut string = prefix.to_string();
-        string.push_str(&key);
-        string
+        format!("{}", self)
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -187,6 +186,17 @@ impl PathRoot {
             PathRoot::Ipns(peer_id) => peer_id.as_bytes().to_vec(),
             PathRoot::Dns(domain) => domain.as_bytes().to_vec(),
         }
+    }
+}
+
+impl fmt::Display for PathRoot {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        let (prefix, key) = match self {
+            PathRoot::Ipld(cid) => ("/ipfs/", cid.to_string()),
+            PathRoot::Ipns(peer_id) => ("/ipns/", peer_id.to_base58()),
+            PathRoot::Dns(domain) => ("/ipns/", domain.to_owned()),
+        };
+        write!(fmt, "{}{}", prefix, key)
     }
 }
 
@@ -278,9 +288,15 @@ impl SubPath {
     }
 
     pub fn to_string(&self) -> String {
-        match self {
-            SubPath::Key(ref key) => key.to_owned(),
-            SubPath::Index(index) => index.to_string(),
+        format!("{}", self)
+    }
+}
+
+impl fmt::Display for SubPath {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SubPath::Key(ref key) => write!(fmt, "{}", key),
+            SubPath::Index(index) => write!(fmt, "{}", index),
         }
     }
 }
