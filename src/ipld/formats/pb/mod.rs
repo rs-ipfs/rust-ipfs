@@ -16,12 +16,12 @@ pub(crate) const PREFIX: Prefix = Prefix {
     mh_len: 32,
 };
 
-pub(crate) fn decode(bytes: &Vec<u8>) -> Result<Ipld, Error> {
+pub(crate) fn decode(bytes: &[u8]) -> Result<Ipld, Error> {
     Ok(PbNode::from_bytes(bytes)?.into())
 }
 
 pub(crate) fn encode(data: Ipld) -> Result<Vec<u8>, Error> {
-    let pb_node: PbNode = match data.to_owned().try_into() {
+    let pb_node: PbNode = match data.try_into() {
         Ok(pb_node) => pb_node,
         Err(_) => bail!("ipld data is not compatible with dag_pb format"),
     };
@@ -40,7 +40,7 @@ pub(crate) struct PbNode {
 }
 
 impl PbNode {
-    fn from_bytes(bytes: &Vec<u8>) -> Result<Self, Error> {
+    fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         let proto: dag_pb::PBNode = protobuf::parse_from_bytes(bytes)?;
         let data = proto.get_Data().to_vec();
         let mut links = Vec::new();
