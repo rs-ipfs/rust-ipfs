@@ -4,6 +4,7 @@ use crate::error::Error;
 use protobuf::Message as ProtobufMessage;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::convert::TryFrom;
 
 pub type Priority = i32;
 
@@ -148,9 +149,8 @@ impl<T> Message<T> {
     }
 }
 
-impl Message<O> {
-    /// Turns this `Message` into a message that can be sent to a substream.
-    pub fn to_bytes(&self) -> Vec<u8> {
+impl Into<Vec<u8>> for &Message<O> {
+    fn into(self) -> Vec<u8> {
         let mut proto = bitswap_pb::Message::new();
         let mut wantlist = bitswap_pb::Message_Wantlist::new();
         for (cid, priority) in self.want() {
@@ -176,12 +176,18 @@ impl Message<O> {
             .write_to_bytes()
             .expect("there is no situation in which the protobuf message can be invalid")
     }
-
 }
 
-impl Message<I> {
-    /// Creates a `Message` from bytes that were received from a substream.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+impl Message<O> {
+    /// Turns this `Message` into a message that can be sent to a substream.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.into()
+    }
+}
+
+impl TryFrom<&[u8]> for Message<I> {
+    type Error = Error;
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         let proto: bitswap_pb::Message = protobuf::parse_from_bytes(bytes)?;
         let mut message = Message::new();
         for entry in proto.get_wantlist().get_entries() {
@@ -199,6 +205,13 @@ impl Message<I> {
             message.add_block(block);
         }
         Ok(message)
+    }
+}
+
+impl Message<I> {
+    /// Creates a `Message` from bytes that were received from a substream.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Self::try_from(bytes)
     }
 }
 
