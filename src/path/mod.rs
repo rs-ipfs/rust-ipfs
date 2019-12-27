@@ -88,10 +88,6 @@ impl IpfsPath {
     pub fn iter(&self) -> impl Iterator<Item=&SubPath> {
         self.path.iter()
     }
-
-    pub fn to_string(&self) -> String {
-        format!("{}", self)
-    }
 }
 
 impl fmt::Display for IpfsPath {
@@ -174,10 +170,6 @@ impl PathRoot {
             PathRoot::Ipns(peer_id) => Some(peer_id),
             _ => None,
         }
-    }
-
-    pub fn to_string(&self) -> String {
-        format!("{}", self)
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -285,10 +277,6 @@ impl SubPath {
             SubPath::Index(index) => Some(*index),
             _ => None,
         }
-    }
-
-    pub fn to_string(&self) -> String {
-        format!("{}", self)
     }
 }
 

@@ -6,6 +6,8 @@ use libp2p::core::PublicKey;
 use libp2p::identity::Keypair;
 use protobuf::{self, Message as ProtobufMessage};
 use std::time::{Duration, SystemTime};
+use std::str::FromStr;
+use std::convert::TryFrom;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IpnsEntry {
