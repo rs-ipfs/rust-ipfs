@@ -179,6 +179,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     /// Get an ipld path from the datastore.
     pub async fn get_ipns(&mut self, ipns: &PeerId) -> Result<Option<IpfsPath>, Error>
     {
+        use std::str::FromStr;
+
         let data_store = self.data_store.clone();
         let key = ipns.to_owned();
         let bytes = data_store.get(Column::Ipns, key.as_bytes()).await?;
