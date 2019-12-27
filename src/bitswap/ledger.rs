@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 pub type Priority = i32;
 
 /// The Ledger contains the history of transactions with a peer.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Ledger {
     /// The number of blocks sent to the peer.
     sent_blocks: usize,
@@ -23,12 +23,7 @@ pub struct Ledger {
 impl Ledger {
     /// Creates a new `PeerLedger`.
     pub fn new() -> Self {
-        Ledger {
-            sent_blocks: 0,
-            received_blocks: 0,
-            sent_want_list: HashMap::new(),
-            received_want_list: HashMap::new(),
-        }
+        Self::default()
     }
 
     pub fn send_block(&mut self, block: Block) -> Message<O> {
