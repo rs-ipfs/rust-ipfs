@@ -178,6 +178,12 @@ impl PathRoot {
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
+        self.into()
+    }
+}
+
+impl Into<Vec<u8>> for &PathRoot {
+    fn into(self) -> Vec<u8> {
         match self {
             PathRoot::Ipld(cid) => cid.to_bytes(),
             PathRoot::Ipns(peer_id) => peer_id.as_bytes().to_vec(),
