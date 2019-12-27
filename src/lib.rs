@@ -80,9 +80,9 @@ pub struct IpfsOptions<Types: IpfsTypes> {
 impl Default for IpfsOptions<Types> {
     /// Create `IpfsOptions` from environment.
     fn default() -> Self {
-        let ipfs_log = std::env::var("IPFS_LOG").unwrap_or(IPFS_LOG.into());
+        let ipfs_log = std::env::var("IPFS_LOG").unwrap_or_else(|_| IPFS_LOG.into());
         let ipfs_path = std::env::var("IPFS_PATH").unwrap_or_else(|_| {
-            let mut ipfs_path = std::env::var("HOME").unwrap_or("".into());
+            let mut ipfs_path = std::env::var("HOME").unwrap_or_else(|_| "".into());
             ipfs_path.push_str("/");
             ipfs_path.push_str(IPFS_PATH);
             ipfs_path
@@ -104,9 +104,9 @@ impl Default for IpfsOptions<TestTypes> {
     /// Creates `IpfsOptions` for testing without reading or writing to the
     /// file system.
     fn default() -> Self {
-        let ipfs_log = std::env::var("IPFS_LOG").unwrap_or(IPFS_LOG.into());
-        let ipfs_path = std::env::var("IPFS_PATH").unwrap_or(IPFS_PATH.into()).into();
-        let config = std::env::var("IPFS_TEST_CONFIG").map(|s| ConfigFile::new(s)).unwrap_or_else(|_| ConfigFile::default());
+        let ipfs_log = std::env::var("IPFS_LOG").unwrap_or_else(|_| IPFS_LOG.into());
+        let ipfs_path = std::env::var("IPFS_PATH").unwrap_or_else(|_| IPFS_PATH.into()).into();
+        let config = std::env::var("IPFS_TEST_CONFIG").map(ConfigFile::new).unwrap_or_default();
         IpfsOptions {
             _marker: PhantomData,
             ipfs_log,

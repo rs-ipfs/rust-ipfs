@@ -101,9 +101,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let f2 = data_store.init();
         let (r1, r2) = futures::future::join(f1, f2).await;
         if r1.is_err() {
-            r1.into()
+            r1
         } else {
-            r2.into()
+            r2
         }
     }
 
