@@ -4,3 +4,4 @@ rust:
 cache: cargo
 script:
   - cargo test
+  - cargo clippy
