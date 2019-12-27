@@ -14,16 +14,11 @@ pub struct IpfsPath {
     path: Vec<SubPath>,
 }
 
-impl IpfsPath {
-    pub fn new(root: PathRoot) -> Self {
-        IpfsPath {
-            root,
-            path: Vec::new(),
-        }
-    }
+impl FromStr for IpfsPath {
+    type Err = Error;
 
-    pub fn from_str(string: &str) -> Result<Self, Error> {
-        let mut subpath = string.split("/");
+    fn from_str(string: &str) -> Result<Self, Error> {
+        let mut subpath = string.split('/');
         let empty = subpath.next();
         let root_type = subpath.next();
         let key = subpath.next();
@@ -43,6 +38,16 @@ impl IpfsPath {
         path.push_str(&subpath.collect::<Vec<&str>>().join("/"))?;
         Ok(path)
     }
+}
+
+impl IpfsPath {
+    pub fn new(root: PathRoot) -> Self {
+        IpfsPath {
+            root,
+            path: Vec::new(),
+        }
+    }
+
 
     pub fn root(&self) -> &PathRoot {
         &self.root
@@ -60,13 +65,13 @@ impl IpfsPath {
         if string.is_empty() {
             return Ok(());
         }
-        for sub_path in string.split("/") {
+        for sub_path in string.split('/') {
             if sub_path == "" {
                 return Err(IpfsPathError::InvalidPath(string.to_owned()).into());
             }
             let index = sub_path.parse::<usize>();
-            if index.is_ok() {
-                self.push(index.unwrap());
+            if let Ok(index) = index {
+                self.push(index);
             } else {
                 self.push(sub_path);
             }
@@ -258,7 +263,7 @@ impl SubPath {
         }
     }
 
-    pub fn to_key<'a>(&'a self) -> Option<&'a String> {
+    pub fn to_key(&self) -> Option<&String> {
         match self {
             SubPath::Key(ref key) => Some(key),
             _ => None,

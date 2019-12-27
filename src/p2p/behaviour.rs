@@ -165,7 +165,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
             "rust-ipfs".into(),
             options.key_pair.public(),
         );
-        let floodsub = Floodsub::new(options.peer_id.to_owned());
+        let floodsub = Floodsub::new(options.peer_id);
 
         Behaviour {
             mdns,

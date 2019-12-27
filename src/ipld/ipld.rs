@@ -63,7 +63,7 @@ impl Ipld {
     pub fn from(block: &Block) -> Result<Self, Error> {
         let data = match block.cid().prefix().codec {
             Codec::DagCBOR => {
-                formats::cbor::decode(block.data().to_owned())?
+                formats::cbor::decode(block.data())?
             }
             Codec::DagProtobuf => {
                 formats::pb::decode(block.data())?

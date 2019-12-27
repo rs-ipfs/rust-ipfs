@@ -13,7 +13,7 @@ pub(crate) const PREFIX: Prefix = Prefix {
     mh_len: 32,
 };
 
-pub(crate) fn decode(bytes: Vec<u8>) -> Result<Ipld, Error> {
+pub(crate) fn decode(bytes: &[u8]) -> Result<Ipld, Error> {
     let mut d = Decoder::from_bytes(bytes);
     let cbor: Cbor = d.read_data_item(None)?;
     cbor_to_ipld(cbor)
@@ -41,7 +41,7 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, Error> {
         Cbor::Unicode(string) => Ipld::String(string),
         Cbor::Array(vec) => {
             let ipld_vec = vec.into_iter()
-                .map(|item| cbor_to_ipld(item))
+                .map(cbor_to_ipld)
                 .collect::<Result<_, _>>()?;
             Ipld::Array(ipld_vec)
         }

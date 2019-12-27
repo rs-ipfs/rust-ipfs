@@ -40,7 +40,7 @@ impl Future for DnsLinkFuture {
                             return Poll::Ready(Ok(path));
                         }
                     }
-                    if rest.len() > 0 {
+                    if !rest.is_empty() {
                         _self.query = select_ok(rest);
                     } else {
                         return Poll::Ready(Err(DnsLinkError.into()))
