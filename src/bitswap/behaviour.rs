@@ -211,20 +211,22 @@ where
         // TODO concat messages to same destination to reduce traffic.
         if let Some(event) = self.events.pop_front() {
             if let NetworkBehaviourAction::SendEvent { peer_id, event } = event {
-                let ledger = self.connected_peers.get_mut(&peer_id);
-                if ledger.is_none() {
-                    debug!("  requeueing send event to {}", peer_id.to_base58());
-                    self.events.push_back(NetworkBehaviourAction::SendEvent {
-                        peer_id,
-                        event,
-                    });
-                } else {
-                    ledger.unwrap().update_outgoing_stats(&event);
-                    debug!("  send_message to {}", peer_id.to_base58());
-                    return Async::Ready(NetworkBehaviourAction::SendEvent {
-                        peer_id,
-                        event,
-                    });
+                match self.connected_peers.get_mut(&peer_id) {
+                    None => {
+                        debug!("  requeueing send event to {}", peer_id.to_base58());
+                        self.events.push_back(NetworkBehaviourAction::SendEvent {
+                            peer_id,
+                            event,
+                        })
+                    },
+                    Some(ref mut ledger) => {
+                        ledger.update_outgoing_stats(&event);
+                        debug!("  send_message to {}", peer_id.to_base58());
+                        return Async::Ready(NetworkBehaviourAction::SendEvent {
+                            peer_id,
+                            event,
+                        });
+                    }
                 }
             } else {
                 debug!("{:?}", event);
