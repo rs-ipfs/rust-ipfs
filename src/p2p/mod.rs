@@ -38,14 +38,14 @@ impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<T
 }
 
 /// Creates a new IPFS swarm.
-pub fn create_swarm<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TSwarm<TSwarmTypes> {
+pub async fn create_swarm<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TSwarm<TSwarmTypes> {
     let peer_id = options.peer_id.clone();
 
     // Set up an encrypted TCP transport over the Mplex protocol.
     let transport = transport::build_transport(&options);
 
     // Create a Kademlia behaviour
-    let behaviour = behaviour::build_behaviour(options, repo);
+    let behaviour = behaviour::build_behaviour(options, repo).await;
 
     // Create a Swarm
     let mut swarm = libp2p::Swarm::new(transport, behaviour, peer_id);

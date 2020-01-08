@@ -8,7 +8,7 @@ fn main() {
 
     tokio::runtime::current_thread::block_on_all(async move {
         // Start daemon and initialize repo
-        let (mut ipfs, fut) = UninitializedIpfs::new(options).start().await.unwrap();
+        let (mut ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         tokio::spawn(fut.unit_error().boxed().compat());
 
         // Create a Block

@@ -2,17 +2,19 @@ use crate::bitswap::{Bitswap, Strategy};
 use crate::block::Cid;
 use crate::p2p::{SwarmOptions, SwarmTypes};
 use crate::repo::Repo;
-use libp2p::{NetworkBehaviour, PeerId};
+use libp2p::{NetworkBehaviour};
 use libp2p::swarm::NetworkBehaviourEventProcess;
 use libp2p::core::muxing::{StreamMuxerBox, SubstreamRef};
 use libp2p::identify::{Identify, IdentifyEvent};
-use libp2p::kad::{Kademlia, KademliaEvent, record::store::MemoryStore};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
+use libp2p::PeerId;
 use libp2p::floodsub::{Floodsub, FloodsubEvent};
+use futures::io::{AsyncRead, AsyncWrite};
+use libp2p::kad::record::store::MemoryStore;
+use libp2p::kad::{Kademlia, KademliaEvent};
 //use parity_multihash::Multihash;
 use std::sync::Arc;
-use tokio::prelude::*;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
@@ -145,10 +147,10 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
 impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
 {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
-    pub fn new(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Self {
+    pub async fn new(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Self {
         info!("Local peer id: {}", options.peer_id.to_base58());
 
-        let mdns = Mdns::new().expect("Failed to create mDNS service");
+        let mdns = Mdns::new().await.expect("Failed to create mDNS service");
 
         let store = libp2p::kad::record::store::MemoryStore::new(options.peer_id.to_owned());
 
@@ -201,6 +203,6 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
 pub(crate) type TBehaviour<TSwarmTypes> = Behaviour<SubstreamRef<Arc<StreamMuxerBox>>, TSwarmTypes>;
 
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
-pub fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TBehaviour<TSwarmTypes> {
-    Behaviour::new(options, repo)
+pub async fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TBehaviour<TSwarmTypes> {
+    Behaviour::new(options, repo).await
 }

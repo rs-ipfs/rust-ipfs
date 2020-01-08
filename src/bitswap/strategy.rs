@@ -3,6 +3,7 @@ use crate::bitswap::Priority;
 use crate::repo::{Repo, RepoTypes};
 use libp2p::PeerId;
 use std::sync::mpsc::{channel, Sender, Receiver};
+use async_std::task;
 
 pub trait Strategy<TRepoTypes: RepoTypes>: Send + Unpin {
     fn new(repo: Repo<TRepoTypes>) -> Self;
@@ -11,6 +12,7 @@ pub trait Strategy<TRepoTypes: RepoTypes>: Send + Unpin {
     fn poll(&self) -> Option<StrategyEvent>;
 }
 
+#[derive(Debug)]
 pub enum StrategyEvent {
     Send {
         peer_id: PeerId,
@@ -32,13 +34,11 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
     }
 
     fn process_want(&self, source: PeerId, cid: Cid, priority: Priority) {
-        use futures::FutureExt;
-        use futures::TryFutureExt;
         info!("Peer {} wants block {} with priority {}", source.to_base58(), cid.to_string(), priority);
         let events = self.events.0.clone();
         let mut repo = self.repo.clone();
 
-        tokio::spawn(async move {
+        task::spawn(async move {
             let res = repo.get_block(&cid).await;
 
             let block = if let Err(e) = res {
@@ -56,23 +56,22 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
             if let Err(e) = events.send(req) {
                 warn!("Peer {} wanted block {} we failed start sending it: {}", source.to_base58(), cid, e);
             }
-        }.unit_error().boxed().compat());
+        });
     }
 
     fn process_block(&self, source: PeerId, block: Block) {
         use futures::FutureExt;
-        use futures::TryFutureExt;
         let cid = block.cid().to_string();
         info!("Received block {} from peer {}", cid, source.to_base58());
 
         let mut repo = self.repo.clone();
 
-        tokio::spawn(async move {
+        task::spawn(async move {
             let future = repo.put_block(block).boxed();
             if let Err(e) = future.await {
                 debug!("Got block {} from peer {} but failed to store it: {}", cid, source.to_base58(), e);
             }
-        }.unit_error().boxed().compat());
+        });
     }
 
     fn poll(&self) -> Option<StrategyEvent> {

@@ -140,11 +140,11 @@ pub struct UninitializedIpfs<Types: IpfsTypes> {
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// Configures a new UninitializedIpfs with from the given options.
-    pub fn new(options: IpfsOptions<Types>) -> Self {
+    pub async fn new(options: IpfsOptions<Types>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let swarm_options = SwarmOptions::<Types>::from(&options);
-        let swarm = create_swarm(swarm_options, repo.clone());
+        let swarm = create_swarm(swarm_options, repo.clone()).await;
         let dag = IpldDag::new(repo.clone());
         let ipns = Ipns::new(repo.clone());
 
@@ -159,7 +159,6 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
     /// Initialize the ipfs node.
     pub async fn start(mut self) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
-        use futures::compat::Stream01CompatExt;
 
         let (repo_events, swarm) = self.moved_on_init
             .take()
@@ -174,7 +173,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let fut = IpfsFuture {
             repo_events,
             exit_events: receiver,
-            swarm: swarm.compat(),
+            swarm,
         };
 
         let UninitializedIpfs { repo, dag, ipns, exit_events, .. } = self;
@@ -252,7 +251,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 }
 
 pub struct IpfsFuture<Types: SwarmTypes> {
-    swarm: futures::compat::Compat01As03<TSwarm<Types>>,
+    swarm: TSwarm<Types>,
     repo_events: Receiver<RepoEvent>,
     exit_events: Receiver<IpfsEvent>,
 }
@@ -284,11 +283,11 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     let pin = Pin::new(&mut self.repo_events);
                     match pin.poll_next(ctx) {
                         Poll::Ready(Some(RepoEvent::WantBlock(cid))) =>
-                            self.swarm.get_mut().want_block(cid),
+                            self.swarm.want_block(cid),
                         Poll::Ready(Some(RepoEvent::ProvideBlock(cid))) =>
-                            self.swarm.get_mut().provide_block(cid),
+                            self.swarm.provide_block(cid),
                         Poll::Ready(Some(RepoEvent::UnprovideBlock(cid))) =>
-                            self.swarm.get_mut().stop_providing_block(&cid),
+                            self.swarm.stop_providing_block(&cid),
                         Poll::Ready(None) => panic!("other side closed the repo_events?"),
                         Poll::Pending => break,
                     }
@@ -332,7 +331,7 @@ mod tests {
         async_test(async move {
             let options = IpfsOptions::<TestTypes>::default();
             let block = Block::from("hello block\n");
-            let ipfs = UninitializedIpfs::new(options);
+            let ipfs = UninitializedIpfs::new(options).await;
             let (mut ipfs, fut) = ipfs.start().await.unwrap();
             tokio::spawn(fut.unit_error().boxed().compat());
 
@@ -350,7 +349,7 @@ mod tests {
 
         async_test(async move {
 
-            let (ipfs, fut) = UninitializedIpfs::new(options).start().await.unwrap();
+            let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
             tokio::spawn(fut.unit_error().boxed().compat());
 
             let data: Ipld = vec![-1, -2, -3].into();
