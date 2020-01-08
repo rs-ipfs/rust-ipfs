@@ -17,7 +17,7 @@ env_logger = "*"
 failure = "*"
 fnv = "*"
 futures = { version = "0.3", features = [ "compat", "io-compat", "async-await" ] }
-libp2p = { version = "0.13.1", git = "https://github.com/libp2p/rust-libp2p" }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "324f0dc326cfdbc2d40d1e134a5734513d809b4c" }
 log = "*"
 multibase = "*"
 multihash = "*"
