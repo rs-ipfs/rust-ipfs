@@ -9,7 +9,7 @@ fn main() {
     let path = IpfsPath::from_str("/ipfs/zdpuB1caPcm4QNXeegatVfLQ839Lmprd5zosXGwRUBJHwj66X").unwrap();
 
     tokio::runtime::current_thread::block_on_all(async move {
-        let (ipfs, fut) = UninitializedIpfs::new(options).start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         tokio::spawn(fut.unit_error().boxed().compat());
 
         let f1 = ipfs.get_dag(path.sub_path("0").unwrap());
