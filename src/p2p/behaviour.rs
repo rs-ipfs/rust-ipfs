@@ -150,7 +150,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
     pub async fn new(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Self {
         info!("Local peer id: {}", options.peer_id.to_base58());
 
-        let mdns = Mdns::new().await.expect("Failed to create mDNS service");
+        let mdns = Mdns::new().expect("Failed to create mDNS service");
 
         let store = libp2p::kad::record::store::MemoryStore::new(options.peer_id.to_owned());
 

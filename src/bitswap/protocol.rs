@@ -6,7 +6,7 @@
 
 use crate::bitswap::ledger::{Message, I, O};
 use crate::error::Error;
-use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo, upgrade::{self, Negotiated}};
+use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo, upgrade};
 use protobuf::ProtobufError;
 use std::{io, iter};
 use futures::future::Future;
@@ -39,7 +39,7 @@ where TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     #[inline]
-    fn upgrade_inbound(self, mut socket: Negotiated<TSocket>, info: Self::Info) -> Self::Future {
+    fn upgrade_inbound(self, mut socket: TSocket, info: Self::Info) -> Self::Future {
         Box::pin(async move {
             debug!("upgrade_inbound: {}", std::str::from_utf8(info).unwrap());
             let packet = upgrade::read_one(&mut socket, MAX_BUF_SIZE).await?;
@@ -108,7 +108,7 @@ impl<TSocket> OutboundUpgrade<TSocket> for Message<O>
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     #[inline]
-    fn upgrade_outbound(self, mut socket: Negotiated<TSocket>, info: Self::Info) -> Self::Future {
+    fn upgrade_outbound(self, mut socket: TSocket, info: Self::Info) -> Self::Future {
         Box::pin(async move {
             debug!("upgrade_outbound: {}", std::str::from_utf8(info).unwrap());
             let bytes = self.to_bytes();
