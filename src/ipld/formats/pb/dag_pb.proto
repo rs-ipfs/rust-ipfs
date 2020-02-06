@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+package dag_pb;
+
 // An IPFS MerkleDAG Link
 message PBLink {
   // multihash of the target object

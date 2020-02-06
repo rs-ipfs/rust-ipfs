@@ -1,10 +1,10 @@
 use crate::block::{Block, Cid};
 use crate::bitswap::bitswap_pb;
 use crate::error::Error;
-use protobuf::Message as ProtobufMessage;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::convert::TryFrom;
+use prost::{Message as ProstMessage};
 
 pub type Priority = i32;
 
@@ -151,30 +151,31 @@ impl<T> Message<T> {
 
 impl Into<Vec<u8>> for &Message<O> {
     fn into(self) -> Vec<u8> {
-        let mut proto = bitswap_pb::Message::new();
-        let mut wantlist = bitswap_pb::Message_Wantlist::new();
+        let mut proto = bitswap_pb::Message::default();
+        let mut wantlist = bitswap_pb::message::Wantlist::default();
         for (cid, priority) in self.want() {
-            let mut entry = bitswap_pb::Message_Wantlist_Entry::new();
-            entry.set_block(cid.to_bytes());
-            entry.set_priority(*priority as _);
-            wantlist.mut_entries().push(entry);
+            let mut entry = bitswap_pb::message::wantlist::Entry::default();
+            entry.block = cid.to_bytes();
+            entry.priority = *priority;
+            wantlist.entries.push(entry);
         }
         for cid in self.cancel() {
-            let mut entry = bitswap_pb::Message_Wantlist_Entry::new();
-            entry.set_block(cid.to_bytes());
-            entry.set_cancel(true);
-            wantlist.mut_entries().push(entry);
+            let mut entry = bitswap_pb::message::wantlist::Entry::default();
+            entry.block = cid.to_bytes();
+            entry.cancel = true;
+            wantlist.entries.push(entry);
         }
-        proto.set_wantlist(wantlist);
         for block in self.blocks() {
-            let mut payload = bitswap_pb::Message_Block::new();
-            payload.set_prefix(block.cid().prefix().as_bytes());
-            payload.set_data(block.data().to_vec());
-            proto.mut_payload().push(payload);
+            let mut payload = bitswap_pb::message::Block::default();
+            payload.prefix = block.cid().prefix().as_bytes();
+            payload.data = block.data().to_vec();
+            proto.payload.push(payload);
         }
+        let mut res = Vec::with_capacity(proto.encoded_len());
         proto
-            .write_to_bytes()
-            .expect("there is no situation in which the protobuf message can be invalid")
+            .encode(&mut res)
+            .expect("there is no situation in which the protobuf message can be invalid");
+        res
     }
 }
 
@@ -188,20 +189,20 @@ impl Message<O> {
 impl TryFrom<&[u8]> for Message<I> {
     type Error = Error;
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let proto: bitswap_pb::Message = protobuf::parse_from_bytes(bytes)?;
+        let proto: bitswap_pb::Message = bitswap_pb::Message::decode(bytes)?;
         let mut message = Message::new();
-        for entry in proto.get_wantlist().get_entries() {
-            let cid = Cid::from(entry.get_block())?;
-            if entry.get_cancel() {
+        for entry in proto.wantlist.unwrap_or_default().entries {
+            let cid = Cid::from(entry.block)?;
+            if entry.cancel {
                 message.cancel_block(&cid);
             } else {
-                message.want_block(&cid, entry.get_priority() as _);
+                message.want_block(&cid, entry.priority.into());
             }
         }
-        for payload in proto.get_payload() {
-            let prefix = cid::Prefix::new_from_bytes(payload.get_prefix())?;
-            let cid = cid::Cid::new_from_prefix(&prefix, payload.get_data());
-            let block = Block::new(payload.get_data().to_vec(), cid);
+        for payload in proto.payload {
+            let prefix = cid::Prefix::new_from_bytes(&payload.prefix)?;
+            let cid = cid::Cid::new_from_prefix(&prefix, &payload.data);
+            let block = Block::new(payload.data.to_vec(), cid);
             message.add_block(block);
         }
         Ok(message)

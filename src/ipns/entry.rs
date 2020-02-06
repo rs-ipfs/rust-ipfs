@@ -4,7 +4,6 @@ use crate::path::IpfsPath;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use libp2p::core::PublicKey;
 use libp2p::identity::Keypair;
-use protobuf::{self, Message as ProtobufMessage};
 use std::time::{Duration, SystemTime};
 use std::str::FromStr;
 use std::convert::TryFrom;
@@ -66,20 +65,23 @@ impl IpnsEntry {
     }
 }
 
+use std::io::Cursor;
+use prost::Message;
+
 impl TryFrom<&[u8]> for IpnsEntry {
     type Error = Error;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let proto: proto::IpnsEntry = protobuf::parse_from_bytes(bytes)?;
-        let value = String::from_utf8_lossy(proto.get_value()).to_string();
-        let public_key = PublicKey::from_protobuf_encoding(proto.get_pubKey())?;
-        let nanos = proto.get_validity().read_u64::<BigEndian>()?;
+        let proto: proto::IpnsEntry = proto::IpnsEntry::decode(bytes)?;
+        let value = String::from_utf8_lossy(&proto.value).to_string();
+        let public_key = PublicKey::from_protobuf_encoding(&proto.pub_key)?;
+        let nanos = Cursor::new(&proto.validity).read_u64::<BigEndian>()?;
         let validity = SystemTime::UNIX_EPOCH + Duration::from_nanos(nanos);
         let ipns = IpnsEntry {
             value,
-            seq: proto.get_sequence(),
+            seq: proto.sequence,
             validity,
-            signature: proto.get_signature().to_vec(),
+            signature: proto.signature.to_vec(),
             public_key,
         };
         Ok(ipns)
@@ -88,22 +90,22 @@ impl TryFrom<&[u8]> for IpnsEntry {
 
 impl Into<Vec<u8>> for &IpnsEntry {
     fn into(self) -> Vec<u8> {
-        let mut proto = proto::IpnsEntry::new();
-        proto.set_value(self.value.as_bytes().to_vec());
-        proto.set_sequence(self.seq);
+        let mut proto = proto::IpnsEntry::default();
+        proto.value = self.value.as_bytes().to_vec();
+        proto.sequence = self.seq;
         let nanos = self.validity
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let mut validity = vec![];
         validity.write_u64::<BigEndian>(nanos as u64).unwrap();
-        proto.set_validityType(proto::IpnsEntry_ValidityType::EOL);
-        proto.set_validity(validity);
-        proto.set_signature(self.signature.clone());
-        proto.set_pubKey(self.public_key.clone().into_protobuf_encoding());
-        proto
-            .write_to_bytes()
-            .expect("there is no situation in which the protobuf message can be invalid")
+        proto.validity_type = proto::ipns_entry::ValidityType::Eol.into();
+        proto.validity = validity;
+        proto.signature = self.signature.clone();
+        proto.pub_key = self.public_key.clone().into_protobuf_encoding();
+        let mut res = Vec::with_capacity(proto.encoded_len());
+        proto.encode(&mut res).expect("there is no situation in which the protobuf message can be invalid");
+        res
     }
 }
 

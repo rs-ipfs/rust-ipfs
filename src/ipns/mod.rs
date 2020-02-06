@@ -6,7 +6,9 @@ use libp2p::PeerId;
 
 mod dns;
 mod entry;
-mod ipns_pb;
+mod ipns_pb {
+    include!(concat!(env!("OUT_DIR"), "/ipns_pb.rs"));
+}
 
 pub struct Ipns<Types: RepoTypes> {
     repo: Repo<Types>,

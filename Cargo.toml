@@ -21,7 +21,6 @@ libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "f2d70913765015a
 log = "*"
 multibase = "*"
 multihash = "*"
-protobuf = "2.0.2"
 rand = "0.6"
 rustc-serialize = "0.3"
 serde = "1.0"
@@ -34,6 +33,10 @@ async-trait = "*"
 async-std = { version = "1.4.0", features = [ "unstable", "std" ] }
 
 rocksdb = { version = "*", optional = true }
+prost = "0.6.1"
 
 [patch.crates-io]
 ctr = { git = "https://github.com/koivunej/stream-ciphers.git", branch = "ctr128-64to128" }
+
+[build-dependencies]
+prost-build = "0.6.1"
