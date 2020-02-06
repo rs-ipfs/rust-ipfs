@@ -3,13 +3,10 @@ use crate::error::{Error, TryError};
 use crate::ipld::Ipld;
 use crate::path::PathRoot;
 use cid::Prefix;
-use protobuf::Message;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 
-mod dag_pb;
-
-mod dag_pb_2 {
+mod dag_pb {
     include!(concat!(env!("OUT_DIR"), "/dag_pb.rs"));
 }
 
@@ -43,15 +40,17 @@ pub(crate) struct PbNode {
     pub data: Vec<u8>,
 }
 
+use prost::Message;
+
 impl PbNode {
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let proto: dag_pb::PBNode = protobuf::parse_from_bytes(bytes)?;
-        let data = proto.get_Data().to_vec();
+        let proto: dag_pb::PbNode = dag_pb::PbNode::decode(bytes)?;
+        let data = proto.data;
         let mut links = Vec::new();
-        for link in proto.get_Links() {
-            let cid = Cid::from(link.get_Hash())?.into();
-            let name = link.get_Name().to_string();
-            let size = link.get_Tsize();
+        for link in proto.links {
+            let cid = Cid::from(link.hash)?.into();
+            let name = link.name;
+            let size = link.tsize;
             links.push(PbLink {
                 cid,
                 name,
@@ -65,18 +64,21 @@ impl PbNode {
     }
 
     fn into_bytes(self) -> Vec<u8> {
-        let mut proto = dag_pb::PBNode::new();
-        proto.set_Data(self.data);
-        for link in self.links {
-            let mut pb_link = dag_pb::PBLink::new();
-            pb_link.set_Hash(link.cid.to_bytes());
-            pb_link.set_Name(link.name);
-            pb_link.set_Tsize(link.size);
-            proto.mut_Links().push(pb_link);
-        }
-        proto
-            .write_to_bytes()
-            .expect("there is no situation in which the protobuf message can be invalid")
+        let links = self.links.into_iter().map(|link| {
+            dag_pb::PbLink {
+                hash: link.cid.to_bytes(),
+                name: link.name,
+                tsize: link.size,
+            }
+        }).collect::<Vec<_>>();
+        let proto = dag_pb::PbNode {
+            data: self.data,
+            links: links,
+        };
+
+        let mut res = Vec::with_capacity(proto.encoded_len());
+        proto.encode(&mut res).expect("there is no situation in which the protobuf message can be invalid");
+        res
     }
 }
 

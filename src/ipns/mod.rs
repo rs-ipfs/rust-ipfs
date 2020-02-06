@@ -6,9 +6,7 @@ use libp2p::PeerId;
 
 mod dns;
 mod entry;
-mod ipns_pb;
-
-mod ipns_pb_2 {
+mod ipns_pb {
     include!(concat!(env!("OUT_DIR"), "/ipns_pb.rs"));
 }
 
