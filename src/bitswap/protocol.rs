@@ -7,7 +7,6 @@
 use crate::bitswap::ledger::{Message, I, O};
 use crate::error::Error;
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo, upgrade};
-use protobuf::ProtobufError;
 use std::{io, iter};
 use futures::future::Future;
 use futures::io::{AsyncRead, AsyncWrite};
@@ -53,7 +52,7 @@ where TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 #[derive(Debug)]
 pub enum BitswapError {
     ReadError(upgrade::ReadOneError),
-    ProtobufError(ProtobufError),
+    ProtobufError(prost::DecodeError),
 }
 
 impl From<upgrade::ReadOneError> for BitswapError {
@@ -63,9 +62,9 @@ impl From<upgrade::ReadOneError> for BitswapError {
     }
 }
 
-impl From<ProtobufError> for BitswapError {
+impl From<prost::DecodeError> for BitswapError {
     #[inline]
-    fn from(err: ProtobufError) -> Self {
+    fn from(err: prost::DecodeError) -> Self {
         BitswapError::ProtobufError(err)
     }
 }
