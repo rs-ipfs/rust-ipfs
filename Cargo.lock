@@ -1068,6 +1068,8 @@ dependencies = [
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "multibase 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "multihash 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "prost 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "prost-build 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "protobuf 2.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rocksdb 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",

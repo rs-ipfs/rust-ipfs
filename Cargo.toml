@@ -34,6 +34,10 @@ async-trait = "*"
 async-std = { version = "1.4.0", features = [ "unstable", "std" ] }
 
 rocksdb = { version = "*", optional = true }
+prost = "0.6.1"
 
 [patch.crates-io]
 ctr = { git = "https://github.com/koivunej/stream-ciphers.git", branch = "ctr128-64to128" }
+
+[build-dependencies]
+prost-build = "0.6.1"

@@ -9,6 +9,10 @@ use std::convert::{TryFrom, TryInto};
 
 mod dag_pb;
 
+mod dag_pb_2 {
+    include!(concat!(env!("OUT_DIR"), "/dag_pb.rs"));
+}
+
 pub(crate) const PREFIX: Prefix = Prefix {
     version: cid::Version::V0,
     codec: cid::Codec::DagProtobuf,
