@@ -90,15 +90,15 @@ impl TryFrom<&[u8]> for IpnsEntry {
 
 impl Into<Vec<u8>> for &IpnsEntry {
     fn into(self) -> Vec<u8> {
+        let mut proto = proto::IpnsEntry::default();
+        proto.value = self.value.as_bytes().to_vec();
+        proto.sequence = self.seq;
         let nanos = self.validity
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let mut validity = vec![];
         validity.write_u64::<BigEndian>(nanos as u64).unwrap();
-        let mut proto = proto::IpnsEntry::default();
-        proto.value = self.value.as_bytes().to_vec();
-        proto.sequence = self.seq;
         proto.validity_type = proto::ipns_entry::ValidityType::Eol.into();
         proto.validity = validity;
         proto.signature = self.signature.clone();
