@@ -73,7 +73,7 @@ impl PbNode {
         }).collect::<Vec<_>>();
         let proto = dag_pb::PbNode {
             data: self.data,
-            links: links,
+            links,
         };
 
         let mut res = Vec::with_capacity(proto.encoded_len());

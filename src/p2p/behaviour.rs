@@ -4,32 +4,29 @@ use crate::p2p::{SwarmOptions, SwarmTypes};
 use crate::repo::Repo;
 use libp2p::{NetworkBehaviour};
 use libp2p::swarm::NetworkBehaviourEventProcess;
-use libp2p::core::muxing::{StreamMuxerBox, SubstreamRef};
 use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
 use libp2p::PeerId;
 use libp2p::floodsub::{Floodsub, FloodsubEvent};
-use futures::io::{AsyncRead, AsyncWrite};
 use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::{Kademlia, KademliaEvent};
 //use parity_multihash::Multihash;
-use std::sync::Arc;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
-pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> {
-    mdns: Mdns<TSubstream>,
-    kademlia: Kademlia<TSubstream, MemoryStore>,
-    bitswap: Bitswap<TSubstream, TSwarmTypes>,
-    ping: Ping<TSubstream>,
-    identify: Identify<TSubstream>,
-    floodsub: Floodsub<TSubstream>,
+pub struct Behaviour<TSwarmTypes: SwarmTypes> {
+    mdns: Mdns,
+    kademlia: Kademlia<MemoryStore>,
+    bitswap: Bitswap<TSwarmTypes>,
+    ping: Ping,
+    identify: Identify,
+    floodsub: Floodsub,
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<MdnsEvent> for
-    Behaviour<TSubstream, TSwarmTypes>
+    Behaviour<TSwarmTypes>
 {
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
@@ -52,9 +49,9 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<KademliaEvent> for
-    Behaviour<TSubstream, TSwarmTypes>
+    Behaviour<TSwarmTypes>
 {
     fn inject_event(&mut self, event: KademliaEvent) {
         use libp2p::kad::{GetProvidersOk, GetProvidersError};
@@ -96,16 +93,16 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<()> for
-    Behaviour<TSubstream, TSwarmTypes>
+    Behaviour<TSwarmTypes>
 {
     fn inject_event(&mut self, _event: ()) {}
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<PingEvent> for
-    Behaviour<TSubstream, TSwarmTypes>
+    Behaviour<TSwarmTypes>
 {
     fn inject_event(&mut self, event: PingEvent) {
         use libp2p::ping::handler::{PingSuccess, PingFailure};
@@ -126,25 +123,25 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<IdentifyEvent> for
-    Behaviour<TSubstream, TSwarmTypes>
+    Behaviour<TSwarmTypes>
 {
     fn inject_event(&mut self, event: IdentifyEvent) {
         debug!("identify: {:?}", event);
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes>
+impl<TSwarmTypes: SwarmTypes>
     NetworkBehaviourEventProcess<FloodsubEvent> for
-    Behaviour<TSubstream, TSwarmTypes>
+    Behaviour<TSwarmTypes>
 {
     fn inject_event(&mut self, event: FloodsubEvent) {
         debug!("floodsub: {:?}", event);
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSubstream, TSwarmTypes>
+impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes>
 {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
     pub async fn new(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Self {
@@ -199,10 +196,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
     }
 }
 
-/// Behaviour type.
-pub(crate) type TBehaviour<TSwarmTypes> = Behaviour<SubstreamRef<Arc<StreamMuxerBox>>, TSwarmTypes>;
-
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
-pub async fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TBehaviour<TSwarmTypes> {
+pub async fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Behaviour<TSwarmTypes> {
     Behaviour::new(options, repo).await
 }

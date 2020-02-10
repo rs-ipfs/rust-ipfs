@@ -17,14 +17,10 @@ use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
 use libp2p::swarm::protocols_handler::{OneShotHandler, ProtocolsHandler, IntoProtocolsHandler};
 use libp2p::{Multiaddr, PeerId};
 use std::collections::{HashMap, VecDeque};
-use std::marker::PhantomData;
 use futures::task::Poll;
-use futures::io::{AsyncRead, AsyncWrite};
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
-pub struct Bitswap<TSubstream, TSwarmTypes: SwarmTypes> {
-    /// Marker to pin the generics.
-    marker: PhantomData<TSubstream>,
+pub struct Bitswap<TSwarmTypes: SwarmTypes> {
     /// Queue of events to report to the user.
     events: VecDeque<NetworkBehaviourAction<Message<O>, ()>>,
     /// List of peers to send messages to.
@@ -37,12 +33,11 @@ pub struct Bitswap<TSubstream, TSwarmTypes: SwarmTypes> {
     strategy: TSwarmTypes::TStrategy,
 }
 
-impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
+impl<TSwarmTypes: SwarmTypes> Bitswap<TSwarmTypes> {
     /// Creates a `Bitswap`.
     pub fn new(strategy: TSwarmTypes::TStrategy) -> Self {
         debug!("bitswap: new");
         Bitswap {
-            marker: PhantomData,
             events: VecDeque::new(),
             target_peers: FnvHashSet::default(),
             connected_peers: HashMap::new(),
@@ -136,12 +131,11 @@ impl<TSubstream, TSwarmTypes: SwarmTypes> Bitswap<TSubstream, TSwarmTypes> {
     }
 }
 
-impl<TSubstream, TSwarmTypes> NetworkBehaviour for Bitswap<TSubstream, TSwarmTypes>
+impl<TSwarmTypes> NetworkBehaviour for Bitswap<TSwarmTypes>
     where
-        TSubstream: AsyncRead + AsyncWrite + Unpin + Send + 'static,
         TSwarmTypes: SwarmTypes,
 {
-    type ProtocolsHandler = OneShotHandler<TSubstream, BitswapConfig, Message<O>, InnerMessage>;
+    type ProtocolsHandler = OneShotHandler<BitswapConfig, Message<O>, InnerMessage>;
     type OutEvent = ();
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
