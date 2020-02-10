@@ -171,6 +171,9 @@ impl Into<Vec<u8>> for &Message<O> {
             payload.data = block.data().to_vec();
             proto.payload.push(payload);
         }
+        if !wantlist.entries.is_empty() {
+            proto.wantlist = Some(wantlist);
+        }
         let mut res = Vec::with_capacity(proto.encoded_len());
         proto
             .encode(&mut res)
