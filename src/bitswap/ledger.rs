@@ -196,7 +196,7 @@ impl TryFrom<&[u8]> for Message<I> {
             if entry.cancel {
                 message.cancel_block(&cid);
             } else {
-                message.want_block(&cid, entry.priority.into());
+                message.want_block(&cid, entry.priority);
             }
         }
         for payload in proto.payload {
