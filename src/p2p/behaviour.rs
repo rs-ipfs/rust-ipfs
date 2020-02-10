@@ -196,10 +196,7 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes>
     }
 }
 
-/// Behaviour type.
-pub(crate) type TBehaviour<TSwarmTypes> = Behaviour<TSwarmTypes>;
-
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
-pub async fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TBehaviour<TSwarmTypes> {
+pub async fn build_behaviour<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> Behaviour<TSwarmTypes> {
     Behaviour::new(options, repo).await
 }

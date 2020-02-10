@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 mod behaviour;
 mod transport;
 
-pub type TSwarm<SwarmTypes> = Swarm<behaviour::TBehaviour<SwarmTypes>>;
+pub type TSwarm<SwarmTypes> = Swarm<behaviour::Behaviour<SwarmTypes>>;
 
 pub trait SwarmTypes: RepoTypes + Sized {
     type TStrategy: Strategy<Self>;
