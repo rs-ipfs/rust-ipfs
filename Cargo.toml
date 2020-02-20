@@ -3,6 +3,7 @@ name = "ipfs"
 version = "0.1.0"
 authors = ["David Craven <david@craven.ch>"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
 
 [features]
 default = []
