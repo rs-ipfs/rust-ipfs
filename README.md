@@ -1,5 +1,6 @@
 # Rust IPFS implementation
 [![Build Status](https://travis-ci.org/dvc94ch/rust-ipfs.svg?branch=master)](https://travis-ci.org/dvc94ch/rust-ipfs)
+[![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/ipfs-rust)
 
 Currently implements an altruistic bitswap strategy over mdns.
 
