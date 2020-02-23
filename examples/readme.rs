@@ -1,10 +1,12 @@
-use ipfs::{UninitializedIpfs, IpfsOptions, Ipld, Types};
-use futures::join;
 use async_std::task;
+use futures::join;
+use ipfs::{IpfsOptions, Ipld, Types, UninitializedIpfs};
 
 fn main() {
     let options = IpfsOptions::<Types>::default();
-    env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
+    env_logger::Builder::new()
+        .parse_filters(&options.ipfs_log)
+        .init();
 
     task::block_on(async move {
         // Start daemon and initialize repo

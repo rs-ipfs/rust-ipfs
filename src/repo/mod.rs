@@ -1,17 +1,17 @@
 //! IPFS repo
-use crate::block::{Cid, Block};
+use crate::block::{Block, Cid};
 use crate::error::Error;
 use crate::path::IpfsPath;
 use crate::IpfsOptions;
-use libp2p::PeerId;
-use async_trait::async_trait;
-use std::marker::PhantomData;
 use async_std::path::PathBuf;
-use futures::channel::mpsc::{channel, Sender, Receiver};
+use async_trait::async_trait;
+use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::SinkExt;
+use libp2p::PeerId;
+use std::marker::PhantomData;
 
-pub mod mem;
 pub mod fs;
+pub mod mem;
 
 pub trait RepoTypes: Clone + Send + Sync + 'static {
     type TBlockStore: BlockStore;
@@ -33,7 +33,9 @@ impl<TRepoTypes: RepoTypes> From<&IpfsOptions<TRepoTypes>> for RepoOptions<TRepo
     }
 }
 
-pub fn create_repo<TRepoTypes: RepoTypes>(options: RepoOptions<TRepoTypes>) -> (Repo<TRepoTypes>, Receiver<RepoEvent>) {
+pub fn create_repo<TRepoTypes: RepoTypes>(
+    options: RepoOptions<TRepoTypes>,
+) -> (Repo<TRepoTypes>, Receiver<RepoEvent>) {
     Repo::new(options)
 }
 
@@ -61,7 +63,7 @@ pub trait DataStore: Clone + Send + Sync + Unpin + 'static {
 
 #[derive(Clone, Copy, Debug)]
 pub enum Column {
-    Ipns
+    Ipns,
 }
 
 #[derive(Clone, Debug)]
@@ -87,11 +89,14 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
         let data_store = TRepoTypes::TDataStore::new(datastore_path);
         let (sender, receiver) = channel::<RepoEvent>(1);
-        (Repo {
-            block_store,
-            data_store,
-            events: sender,
-        }, receiver)
+        (
+            Repo {
+                block_store,
+                data_store,
+                events: sender,
+            },
+            receiver,
+        )
     }
 
     pub async fn init(&self) -> Result<(), Error> {
@@ -121,8 +126,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     /// Puts a block into the block store.
-    pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error>
-    {
+    pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error> {
         let cid = self.block_store.put(block).await?;
         // sending only fails if no one is listening anymore
         // and that is okay with us.
@@ -131,8 +135,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     /// Retrives a block from the block store.
-    pub async fn get_block(&mut self, cid: &Cid) -> Result<Block, Error>
-    {
+    pub async fn get_block(&mut self, cid: &Cid) -> Result<Block, Error> {
         loop {
             if !self.block_store.contains(&cid).await? {
                 // sending only fails if no one is listening anymore
@@ -147,18 +150,19 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     /// Remove block from the block store.
-    pub async fn remove_block(&mut self, cid: &Cid) -> Result<(), Error>
-    {
+    pub async fn remove_block(&mut self, cid: &Cid) -> Result<(), Error> {
         // sending only fails if no one is listening anymore
         // and that is okay with us.
-        let _ = self.events.send(RepoEvent::UnprovideBlock(cid.to_owned())).await;
+        let _ = self
+            .events
+            .send(RepoEvent::UnprovideBlock(cid.to_owned()))
+            .await;
         self.block_store.remove(cid).await?;
         Ok(())
     }
 
     /// Get an ipld path from the datastore.
-    pub async fn get_ipns(&mut self, ipns: &PeerId) -> Result<Option<IpfsPath>, Error>
-    {
+    pub async fn get_ipns(&mut self, ipns: &PeerId) -> Result<Option<IpfsPath>, Error> {
         use std::str::FromStr;
 
         let data_store = self.data_store.clone();
@@ -170,21 +174,21 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 let path = IpfsPath::from_str(&string)?;
                 Ok(Some(path))
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
     /// Put an ipld path into the datastore.
-    pub async fn put_ipns(&self, ipns: &PeerId, path: &IpfsPath) -> Result<(), Error>
-    {
+    pub async fn put_ipns(&self, ipns: &PeerId, path: &IpfsPath) -> Result<(), Error> {
         let string = path.to_string();
         let value = string.as_bytes();
-        self.data_store.put(Column::Ipns, ipns.as_bytes(), value).await
+        self.data_store
+            .put(Column::Ipns, ipns.as_bytes(), value)
+            .await
     }
 
     /// Remove an ipld path from the datastore.
-    pub async fn remove_ipns(&self, ipns: &PeerId) -> Result<(), Error>
-    {
+    pub async fn remove_ipns(&self, ipns: &PeerId) -> Result<(), Error> {
         self.data_store.remove(Column::Ipns, ipns.as_bytes()).await
     }
 }
@@ -192,8 +196,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use std::env::temp_dir;
     use crate::tests::async_test;
+    use std::env::temp_dir;
 
     #[derive(Clone)]
     pub struct Types;

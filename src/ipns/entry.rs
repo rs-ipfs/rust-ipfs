@@ -4,9 +4,9 @@ use crate::path::IpfsPath;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use libp2p::core::PublicKey;
 use libp2p::identity::Keypair;
-use std::time::{Duration, SystemTime};
-use std::str::FromStr;
 use std::convert::TryFrom;
+use std::str::FromStr;
+use std::time::{Duration, SystemTime};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IpnsEntry {
@@ -65,8 +65,8 @@ impl IpnsEntry {
     }
 }
 
-use std::io::Cursor;
 use prost::Message;
+use std::io::Cursor;
 
 impl TryFrom<&[u8]> for IpnsEntry {
     type Error = Error;
@@ -93,7 +93,8 @@ impl Into<Vec<u8>> for &IpnsEntry {
         let mut proto = proto::IpnsEntry::default();
         proto.value = self.value.as_bytes().to_vec();
         proto.sequence = self.seq;
-        let nanos = self.validity
+        let nanos = self
+            .validity
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
@@ -104,7 +105,9 @@ impl Into<Vec<u8>> for &IpnsEntry {
         proto.signature = self.signature.clone();
         proto.pub_key = self.public_key.clone().into_protobuf_encoding();
         let mut res = Vec::with_capacity(proto.encoded_len());
-        proto.encode(&mut res).expect("there is no situation in which the protobuf message can be invalid");
+        proto
+            .encode(&mut res)
+            .expect("there is no situation in which the protobuf message can be invalid");
         res
     }
 }
@@ -140,7 +143,8 @@ mod tests {
     #[test]
     fn test_from_path() {
         let key = generate_key();
-        let path = IpfsPath::from_str("/ipfs/QmUJPTFZnR2CPGAzmfdYPghgrFtYFB6pf1BqMvqfiPDam8").unwrap();
+        let path =
+            IpfsPath::from_str("/ipfs/QmUJPTFZnR2CPGAzmfdYPghgrFtYFB6pf1BqMvqfiPDam8").unwrap();
         let ipns = IpnsEntry::from_path(&path, 0, &key);
         assert_eq!(path, ipns.resolve().unwrap());
     }

@@ -1,8 +1,8 @@
-use libp2p::{Multiaddr, PeerId};
-use libp2p::multiaddr::Protocol;
 use libp2p::identity::{Keypair, PublicKey};
-use rand::{Rng, rngs::OsRng};
-use serde_derive::{Serialize, Deserialize};
+use libp2p::multiaddr::Protocol;
+use libp2p::{Multiaddr, PeerId};
+use rand::{rngs::OsRng, Rng};
+use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
@@ -49,18 +49,23 @@ use std::fmt;
 impl fmt::Debug for KeyMaterial {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            KeyMaterial::Ed25519 { ref keypair, .. } =>
+            KeyMaterial::Ed25519 { ref keypair, .. } => {
                 if let Some(kp) = keypair.as_ref() {
                     write!(fmt, "{:?}", kp)
                 } else {
                     write!(fmt, "Ed25519(not loaded)")
-                },
-            KeyMaterial::RsaPkcs8File { ref keypair, ref filename } =>
+                }
+            }
+            KeyMaterial::RsaPkcs8File {
+                ref keypair,
+                ref filename,
+            } => {
                 if let Some(kp) = keypair.as_ref() {
                     write!(fmt, "{:?}", kp.public())
                 } else {
                     write!(fmt, "Rsa(not loaded: {:?})", filename)
-                },
+                }
+            }
         }
     }
 }
@@ -72,12 +77,16 @@ enum KeyMaterialLoadingFailure {
 }
 
 impl KeyMaterial {
-
     fn clone_keypair(&self) -> Keypair {
         match *self {
-            KeyMaterial::Ed25519 { ref keypair, .. } => keypair.as_ref().map(|kp| Keypair::Ed25519(kp.as_ref().clone())),
-            KeyMaterial::RsaPkcs8File { ref keypair, .. } => keypair.as_ref().map(|kp| Keypair::Rsa(kp.as_ref().clone())),
-        }.expect("KeyMaterial needs to be loaded before accessing the keypair")
+            KeyMaterial::Ed25519 { ref keypair, .. } => keypair
+                .as_ref()
+                .map(|kp| Keypair::Ed25519(kp.as_ref().clone())),
+            KeyMaterial::RsaPkcs8File { ref keypair, .. } => {
+                keypair.as_ref().map(|kp| Keypair::Rsa(kp.as_ref().clone()))
+            }
+        }
+        .expect("KeyMaterial needs to be loaded before accessing the keypair")
     }
 
     fn public(&self) -> PublicKey {
@@ -86,7 +95,10 @@ impl KeyMaterial {
 
     fn load(&mut self) -> Result<(), KeyMaterialLoadingFailure> {
         match *self {
-            KeyMaterial::Ed25519 { ref private_key, ref mut keypair } if keypair.is_none() => {
+            KeyMaterial::Ed25519 {
+                ref private_key,
+                ref mut keypair,
+            } if keypair.is_none() => {
                 let mut cloned = *private_key;
                 let sk = libp2p::identity::ed25519::SecretKey::from_bytes(&mut cloned)
                     .expect("Failed to extract ed25519::SecretKey");
@@ -94,10 +106,12 @@ impl KeyMaterial {
                 let kp = libp2p::identity::ed25519::Keypair::from(sk);
 
                 *keypair = Some(Box::new(kp));
-            },
-            KeyMaterial::RsaPkcs8File { ref filename, ref mut keypair } if keypair.is_none() => {
-                let mut bytes = std::fs::read(filename)
-                    .map_err(KeyMaterialLoadingFailure::Io)?;
+            }
+            KeyMaterial::RsaPkcs8File {
+                ref filename,
+                ref mut keypair,
+            } if keypair.is_none() => {
+                let mut bytes = std::fs::read(filename).map_err(KeyMaterialLoadingFailure::Io)?;
                 let kp = libp2p::identity::rsa::Keypair::from_pkcs8(&mut bytes)
                     .map_err(KeyMaterialLoadingFailure::RsaDecoding)?;
                 *keypair = Some(Box::new(kp));
@@ -177,11 +191,17 @@ impl Default for ConfigFile {
         // https://github.com/libp2p/rust-libp2p/blob/eb7b7bd919b93e6acf00847c19d1a76c09016120/core/src/peer_id.rs#L62-L74
         let private_key: [u8; 32] = OsRng.gen();
 
-        let bootstrap = BOOTSTRAP_NODES.iter().map(|node| {
-            node.parse().unwrap()
-        }).collect();
+        let bootstrap = BOOTSTRAP_NODES
+            .iter()
+            .map(|node| node.parse().unwrap())
+            .collect();
         ConfigFile {
-            key: KeyMaterial::Ed25519 { private_key, keypair: None }.into_loaded().unwrap(),
+            key: KeyMaterial::Ed25519 {
+                private_key,
+                keypair: None,
+            }
+            .into_loaded()
+            .unwrap(),
             bootstrap,
         }
     }

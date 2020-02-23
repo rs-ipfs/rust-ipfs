@@ -1,10 +1,10 @@
 //! Volatile memory backed repo
-use crate::block::{Cid, Block};
+use crate::block::{Block, Cid};
 use crate::error::Error;
-use crate::repo::{BlockStore, DataStore, Column};
+use crate::repo::{BlockStore, Column, DataStore};
+use async_std::path::PathBuf;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use async_std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
@@ -16,7 +16,7 @@ pub struct MemBlockStore {
 impl BlockStore for MemBlockStore {
     fn new(_path: PathBuf) -> Self {
         MemBlockStore {
-            blocks: Arc::new(Mutex::new(HashMap::new()))
+            blocks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -34,7 +34,10 @@ impl BlockStore for MemBlockStore {
     }
 
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
-        let block = self.blocks.lock().unwrap()
+        let block = self
+            .blocks
+            .lock()
+            .unwrap()
             .get(cid)
             .map(|block| block.to_owned());
         Ok(block)
@@ -75,7 +78,7 @@ impl DataStore for MemDataStore {
 
     async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
         let map = match col {
-            Column::Ipns => &self.ipns
+            Column::Ipns => &self.ipns,
         };
         let contains = map.lock().unwrap().contains_key(key);
         Ok(contains)
@@ -83,7 +86,7 @@ impl DataStore for MemDataStore {
 
     async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let map = match col {
-            Column::Ipns => &self.ipns
+            Column::Ipns => &self.ipns,
         };
         let value = map.lock().unwrap().get(key).map(|value| value.to_owned());
         Ok(value)
@@ -91,7 +94,7 @@ impl DataStore for MemDataStore {
 
     async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error> {
         let map = match col {
-            Column::Ipns => &self.ipns
+            Column::Ipns => &self.ipns,
         };
         map.lock().unwrap().insert(key.to_owned(), value.to_owned());
         Ok(())
@@ -99,7 +102,7 @@ impl DataStore for MemDataStore {
 
     async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error> {
         let map = match col {
-            Column::Ipns => &self.ipns
+            Column::Ipns => &self.ipns,
         };
         map.lock().unwrap().remove(key);
         Ok(())
@@ -109,8 +112,8 @@ impl DataStore for MemDataStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env::temp_dir;
     use crate::tests::async_test;
+    use std::env::temp_dir;
 
     #[test]
     fn test_mem_blockstore() {

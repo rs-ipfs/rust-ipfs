@@ -2,8 +2,8 @@ use crate::block::Cid;
 use crate::error::{Error, TryError};
 use libp2p::PeerId;
 use std::convert::{TryFrom, TryInto};
-use std::str::FromStr;
 use std::fmt;
+use std::str::FromStr;
 
 pub mod error;
 pub use self::error::IpfsPathError;
@@ -26,11 +26,9 @@ impl FromStr for IpfsPath {
         let root = match (empty, root_type, key) {
             (Some(""), Some("ipfs"), Some(key)) => PathRoot::Ipld(Cid::from(key)?),
             (Some(""), Some("ipld"), Some(key)) => PathRoot::Ipld(Cid::from(key)?),
-            (Some(""), Some("ipns"), Some(key)) => {
-                match PeerId::from_str(key).ok() {
-                    Some(peer_id) => PathRoot::Ipns(peer_id),
-                    None => PathRoot::Dns(key.to_string())
-                }
+            (Some(""), Some("ipns"), Some(key)) => match PeerId::from_str(key).ok() {
+                Some(peer_id) => PathRoot::Ipns(peer_id),
+                None => PathRoot::Dns(key.to_string()),
             },
             _ => return Err(IpfsPathError::InvalidPath(string.to_owned()).into()),
         };
@@ -47,7 +45,6 @@ impl IpfsPath {
             path: Vec::new(),
         }
     }
-
 
     pub fn root(&self) -> &PathRoot {
         &self.root
@@ -90,7 +87,7 @@ impl IpfsPath {
         Ok(self)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=&SubPath> {
+    pub fn iter(&self) -> impl Iterator<Item = &SubPath> {
         self.path.iter()
     }
 }

@@ -1,13 +1,15 @@
 //! IPFS node implementation
 //#![deny(missing_docs)]
 
-#[macro_use] extern crate failure;
-#[macro_use] extern crate log;
-pub use libp2p::PeerId;
-use std::marker::PhantomData;
+#[macro_use]
+extern crate failure;
+#[macro_use]
+extern crate log;
 use async_std::path::PathBuf;
-use futures::channel::mpsc::{channel, Sender, Receiver};
+use futures::channel::mpsc::{channel, Receiver, Sender};
+pub use libp2p::PeerId;
 use std::future::Future;
+use std::marker::PhantomData;
 
 pub mod bitswap;
 pub mod block;
@@ -23,14 +25,14 @@ pub mod unixfs;
 pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
 pub use self::error::Error;
-use self::ipld::IpldDag;
 pub use self::ipld::Ipld;
+use self::ipld::IpldDag;
 use self::ipns::Ipns;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
-use self::repo::{create_repo, RepoOptions, Repo, RepoEvent};
+use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
 use self::unixfs::File;
 
 static IPFS_LOG: &str = "info";
@@ -81,12 +83,14 @@ impl Default for IpfsOptions<Types> {
     /// Create `IpfsOptions` from environment.
     fn default() -> Self {
         let ipfs_log = std::env::var("IPFS_LOG").unwrap_or_else(|_| IPFS_LOG.into());
-        let ipfs_path = std::env::var("IPFS_PATH").unwrap_or_else(|_| {
-            let mut ipfs_path = std::env::var("HOME").unwrap_or_else(|_| "".into());
-            ipfs_path.push_str("/");
-            ipfs_path.push_str(IPFS_PATH);
-            ipfs_path
-        }).into();
+        let ipfs_path = std::env::var("IPFS_PATH")
+            .unwrap_or_else(|_| {
+                let mut ipfs_path = std::env::var("HOME").unwrap_or_else(|_| "".into());
+                ipfs_path.push_str("/");
+                ipfs_path.push_str(IPFS_PATH);
+                ipfs_path
+            })
+            .into();
         let xdg_dirs = xdg::BaseDirectories::with_prefix(XDG_APP_NAME).unwrap();
         let path = xdg_dirs.place_config_file(CONFIG_FILE).unwrap();
         let config = ConfigFile::new(path);
@@ -95,7 +99,7 @@ impl Default for IpfsOptions<Types> {
             _marker: PhantomData,
             ipfs_log,
             ipfs_path,
-            config
+            config,
         }
     }
 }
@@ -105,8 +109,12 @@ impl Default for IpfsOptions<TestTypes> {
     /// file system.
     fn default() -> Self {
         let ipfs_log = std::env::var("IPFS_LOG").unwrap_or_else(|_| IPFS_LOG.into());
-        let ipfs_path = std::env::var("IPFS_PATH").unwrap_or_else(|_| IPFS_PATH.into()).into();
-        let config = std::env::var("IPFS_TEST_CONFIG").map(ConfigFile::new).unwrap_or_default();
+        let ipfs_path = std::env::var("IPFS_PATH")
+            .unwrap_or_else(|_| IPFS_PATH.into())
+            .into();
+        let config = std::env::var("IPFS_TEST_CONFIG")
+            .map(ConfigFile::new)
+            .unwrap_or_default();
         IpfsOptions {
             _marker: PhantomData,
             ipfs_log,
@@ -158,9 +166,11 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     }
 
     /// Initialize the ipfs node.
-    pub async fn start(mut self) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
-
-        let (repo_events, swarm) = self.moved_on_init
+    pub async fn start(
+        mut self,
+    ) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
+        let (repo_events, swarm) = self
+            .moved_on_init
             .take()
             .expect("Cant see how this should happen");
 
@@ -176,14 +186,23 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             swarm,
         };
 
-        let UninitializedIpfs { repo, dag, ipns, exit_events, .. } = self;
-
-        Ok((Ipfs {
+        let UninitializedIpfs {
             repo,
             dag,
             ipns,
-            exit_events
-        }, fut))
+            exit_events,
+            ..
+        } = self;
+
+        Ok((
+            Ipfs {
+                repo,
+                dag,
+                ipns,
+                exit_events,
+            },
+            fut,
+        ))
     }
 }
 
@@ -257,7 +276,7 @@ pub struct IpfsFuture<Types: SwarmTypes> {
 }
 
 use std::pin::Pin;
-use std::task::{Poll, Context};
+use std::task::{Context, Poll};
 
 impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
     type Output = ();
@@ -278,29 +297,32 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
             }
 
             {
-
                 loop {
                     let pin = Pin::new(&mut self.repo_events);
                     match pin.poll_next(ctx) {
-                        Poll::Ready(Some(RepoEvent::WantBlock(cid))) =>
-                            self.swarm.want_block(cid),
-                        Poll::Ready(Some(RepoEvent::ProvideBlock(cid))) =>
-                            self.swarm.provide_block(cid),
-                        Poll::Ready(Some(RepoEvent::UnprovideBlock(cid))) =>
-                            self.swarm.stop_providing_block(&cid),
+                        Poll::Ready(Some(RepoEvent::WantBlock(cid))) => self.swarm.want_block(cid),
+                        Poll::Ready(Some(RepoEvent::ProvideBlock(cid))) => {
+                            self.swarm.provide_block(cid)
+                        }
+                        Poll::Ready(Some(RepoEvent::UnprovideBlock(cid))) => {
+                            self.swarm.stop_providing_block(&cid)
+                        }
                         Poll::Ready(None) => panic!("other side closed the repo_events?"),
                         Poll::Pending => break,
                     }
-
                 }
             }
 
             {
                 let poll = Pin::new(&mut self.swarm).poll_next(ctx);
                 match poll {
-                    Poll::Ready(Some(_)) => {},
-                    Poll::Ready(None) => { return Poll::Ready(()); },
-                    Poll::Pending => { return Poll::Pending; }
+                    Poll::Ready(Some(_)) => {}
+                    Poll::Ready(None) => {
+                        return Poll::Ready(());
+                    }
+                    Poll::Pending => {
+                        return Poll::Pending;
+                    }
                 }
             }
         }
@@ -314,8 +336,9 @@ mod tests {
 
     /// Testing helper for std::future::Futures until we can upgrade tokio
     pub(crate) fn async_test<O, F>(future: F) -> O
-        where O: 'static + Send,
-              F: std::future::Future<Output = O> + 'static + Send
+    where
+        O: 'static + Send,
+        F: std::future::Future<Output = O> + 'static + Send,
     {
         let (tx, rx) = std::sync::mpsc::channel();
         task::block_on(async move {
@@ -348,7 +371,6 @@ mod tests {
         let options = IpfsOptions::<TestTypes>::default();
 
         async_test(async move {
-
             let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
             task::spawn(fut);
 
