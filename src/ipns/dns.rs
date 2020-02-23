@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::path::IpfsPath;
-use domain::core::bits::{Dname, Question};
+use domain::core::{Dname, Question};
 use domain::core::iana::Rtype;
 use domain::core::rdata::Txt;
 use domain::resolv::stub::resolver::Query;
@@ -56,7 +56,7 @@ impl Future for DnsLinkFuture {
 pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
     let mut dnslink = "_dnslink.".to_string();
     dnslink.push_str(domain);
-    let qname = Dname::from_str(&dnslink[9..])?;
+    let qname = Dname::from_str(&domain)?;
     let question = Question::new_in(qname, Rtype::Txt);
     let query1 = StubResolver::new().query(question).compat();
 
@@ -76,6 +76,7 @@ mod tests {
     use crate::tests::async_test;
 
     #[test]
+    #[ignore]
     fn test_resolve1() {
         async_test(async move {
             let res = resolve("ipfs.io").await.unwrap().to_string();
