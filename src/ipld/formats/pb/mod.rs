@@ -51,33 +51,30 @@ impl PbNode {
             let cid = Cid::from(link.hash)?.into();
             let name = link.name;
             let size = link.tsize;
-            links.push(PbLink {
-                cid,
-                name,
-                size,
-            });
+            links.push(PbLink { cid, name, size });
         }
-        Ok(PbNode {
-            links,
-            data,
-        })
+        Ok(PbNode { links, data })
     }
 
     fn into_bytes(self) -> Vec<u8> {
-        let links = self.links.into_iter().map(|link| {
-            dag_pb::PbLink {
+        let links = self
+            .links
+            .into_iter()
+            .map(|link| dag_pb::PbLink {
                 hash: link.cid.to_bytes(),
                 name: link.name,
                 tsize: link.size,
-            }
-        }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
         let proto = dag_pb::PbNode {
             data: self.data,
             links,
         };
 
         let mut res = Vec::with_capacity(proto.encoded_len());
-        proto.encode(&mut res).expect("there is no situation in which the protobuf message can be invalid");
+        proto
+            .encode(&mut res)
+            .expect("there is no situation in which the protobuf message can be invalid");
         res
     }
 }
@@ -108,15 +105,14 @@ impl TryFrom<Ipld> for PbNode {
         match ipld {
             Ipld::Object(mut map) => {
                 let links: Vec<Ipld> = map.remove("Links").ok_or(TryError)?.try_into()?;
-                let links: Vec<PbLink> = links.into_iter()
-                    .map(|link| link.try_into()).collect::<Result<_, Self::Error>>()?;
+                let links: Vec<PbLink> = links
+                    .into_iter()
+                    .map(|link| link.try_into())
+                    .collect::<Result<_, Self::Error>>()?;
                 let data: Vec<u8> = map.remove("Data").ok_or(TryError)?.try_into()?;
-                Ok(PbNode {
-                    links,
-                    data,
-                })
+                Ok(PbNode { links, data })
             }
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }
@@ -130,13 +126,9 @@ impl TryFrom<Ipld> for PbLink {
                 let cid: PathRoot = map.remove("Hash").ok_or(TryError)?.try_into()?;
                 let name: String = map.remove("Name").ok_or(TryError)?.try_into()?;
                 let size: u64 = map.remove("Tsize").ok_or(TryError)?.try_into()?;
-                Ok(PbLink {
-                    cid,
-                    name,
-                    size,
-                })
+                Ok(PbLink { cid, name, size })
             }
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }

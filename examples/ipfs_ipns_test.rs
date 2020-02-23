@@ -1,10 +1,12 @@
-use std::str::FromStr;
-use ipfs::{UninitializedIpfs, IpfsOptions, IpfsPath, PeerId, TestTypes};
 use async_std::task;
+use ipfs::{IpfsOptions, IpfsPath, PeerId, TestTypes, UninitializedIpfs};
+use std::str::FromStr;
 
 fn main() {
     let options = IpfsOptions::<TestTypes>::default();
-    env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
+    env_logger::Builder::new()
+        .parse_filters(&options.ipfs_log)
+        .init();
 
     task::block_on(async move {
         // Start daemon and initialize repo
@@ -14,7 +16,10 @@ fn main() {
         // Create a Block
         let ipfs_path = ipfs.put_dag("block v0".into()).await.unwrap();
         // Publish a Block
-        let ipns_path = ipfs.publish_ipns(&PeerId::random(), &ipfs_path).await.unwrap();
+        let ipns_path = ipfs
+            .publish_ipns(&PeerId::random(), &ipfs_path)
+            .await
+            .unwrap();
 
         // Resolve a Block
         let new_ipfs_path = ipfs.resolve_ipns(&ipns_path).await.unwrap();

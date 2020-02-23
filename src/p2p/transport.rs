@@ -1,5 +1,4 @@
 use crate::p2p::{SwarmOptions, SwarmTypes};
-use libp2p::{PeerId, Transport};
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::boxed::Boxed;
 use libp2p::core::transport::upgrade::Version;
@@ -7,6 +6,7 @@ use libp2p::mplex::MplexConfig;
 use libp2p::secio::SecioConfig;
 use libp2p::tcp::TcpConfig;
 use libp2p::yamux::Config as YamuxConfig;
+use libp2p::{PeerId, Transport};
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
 
@@ -25,7 +25,10 @@ pub fn build_transport<TSwarmTypes: SwarmTypes>(options: &SwarmOptions<TSwarmTyp
         .nodelay(true)
         .upgrade(Version::V1)
         .authenticate(secio_config)
-        .multiplex(libp2p::core::upgrade::SelectUpgrade::new(yamux_config, mplex_config))
+        .multiplex(libp2p::core::upgrade::SelectUpgrade::new(
+            yamux_config,
+            mplex_config,
+        ))
         .timeout(Duration::from_secs(20))
         .map(|(peer_id, muxer), _| (peer_id, StreamMuxerBox::new(muxer)))
         .map_err(|err| Error::new(ErrorKind::Other, err))

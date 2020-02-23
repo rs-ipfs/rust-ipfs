@@ -1,10 +1,10 @@
 //! P2P handling for IPFS nodes.
 use crate::bitswap::Strategy;
-use crate::IpfsOptions;
 use crate::repo::{Repo, RepoTypes};
-use libp2p::{Multiaddr, PeerId};
-use libp2p::Swarm;
+use crate::IpfsOptions;
 use libp2p::identity::Keypair;
+use libp2p::Swarm;
+use libp2p::{Multiaddr, PeerId};
 use std::marker::PhantomData;
 
 mod behaviour;
@@ -38,7 +38,10 @@ impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<T
 }
 
 /// Creates a new IPFS swarm.
-pub async fn create_swarm<TSwarmTypes: SwarmTypes>(options: SwarmOptions<TSwarmTypes>, repo: Repo<TSwarmTypes>) -> TSwarm<TSwarmTypes> {
+pub async fn create_swarm<TSwarmTypes: SwarmTypes>(
+    options: SwarmOptions<TSwarmTypes>,
+    repo: Repo<TSwarmTypes>,
+) -> TSwarm<TSwarmTypes> {
     let peer_id = options.peer_id.clone();
 
     // Set up an encrypted TCP transport over the Mplex protocol.

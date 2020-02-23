@@ -1,17 +1,17 @@
 //! Persistent fs backed repo
-use crate::block::{Cid, Block};
+use crate::block::{Block, Cid};
 use crate::error::Error;
 use crate::repo::BlockStore;
 #[cfg(feature = "rocksdb")]
 use crate::repo::{Column, DataStore};
+use async_std::fs;
+use async_std::path::PathBuf;
+use async_std::prelude::*;
+use async_trait::async_trait;
+use futures::stream::StreamExt;
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use async_std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use async_trait::async_trait;
-use async_std::fs;
-use async_std::prelude::*;
-use futures::stream::StreamExt;
 
 #[derive(Clone, Debug)]
 pub struct FsBlockStore {
@@ -24,7 +24,7 @@ impl BlockStore for FsBlockStore {
     fn new(path: PathBuf) -> Self {
         FsBlockStore {
             path,
-            cids: Arc::new(Mutex::new(HashSet::new()))
+            cids: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -152,11 +152,7 @@ impl DataStore for RocksDataStore {
 
         let ipns_opts = rocksdb::Options::default();
         let ipns_cf = rocksdb::ColumnFamilyDescriptor::new("ipns", ipns_opts);
-        let rdb = rocksdb::DB::open_cf_descriptors(
-            &db_opts,
-            &path,
-            vec![ipns_cf],
-        )?;
+        let rdb = rocksdb::DB::open_cf_descriptors(&db_opts, &path, vec![ipns_cf])?;
         *db.lock().unwrap() = Some(rdb);
         Ok(())
     }
@@ -213,9 +209,8 @@ fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env::temp_dir;
     use crate::tests::async_test;
-
+    use std::env::temp_dir;
 
     #[test]
     fn test_fs_blockstore() {

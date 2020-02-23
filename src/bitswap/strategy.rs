@@ -1,9 +1,9 @@
-use crate::block::{Block, Cid};
 use crate::bitswap::Priority;
+use crate::block::{Block, Cid};
 use crate::repo::{Repo, RepoTypes};
-use libp2p::PeerId;
-use std::sync::mpsc::{channel, Sender, Receiver};
 use async_std::task;
+use libp2p::PeerId;
+use std::sync::mpsc::{channel, Receiver, Sender};
 
 pub trait Strategy<TRepoTypes: RepoTypes>: Send + Unpin {
     fn new(repo: Repo<TRepoTypes>) -> Self;
@@ -14,10 +14,7 @@ pub trait Strategy<TRepoTypes: RepoTypes>: Send + Unpin {
 
 #[derive(Debug)]
 pub enum StrategyEvent {
-    Send {
-        peer_id: PeerId,
-        block: Block,
-    }
+    Send { peer_id: PeerId, block: Block },
 }
 
 pub struct AltruisticStrategy<TRepoTypes: RepoTypes> {
@@ -34,7 +31,12 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
     }
 
     fn process_want(&self, source: PeerId, cid: Cid, priority: Priority) {
-        info!("Peer {} wants block {} with priority {}", source.to_base58(), cid.to_string(), priority);
+        info!(
+            "Peer {} wants block {} with priority {}",
+            source.to_base58(),
+            cid.to_string(),
+            priority
+        );
         let events = self.events.0.clone();
         let mut repo = self.repo.clone();
 
@@ -42,7 +44,12 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
             let res = repo.get_block(&cid).await;
 
             let block = if let Err(e) = res {
-                warn!("Peer {} wanted block {} but we failed: {}", source.to_base58(), cid, e);
+                warn!(
+                    "Peer {} wanted block {} but we failed: {}",
+                    source.to_base58(),
+                    cid,
+                    e
+                );
                 return;
             } else {
                 res.unwrap()
@@ -54,7 +61,12 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
             };
 
             if let Err(e) = events.send(req) {
-                warn!("Peer {} wanted block {} we failed start sending it: {}", source.to_base58(), cid, e);
+                warn!(
+                    "Peer {} wanted block {} we failed start sending it: {}",
+                    source.to_base58(),
+                    cid,
+                    e
+                );
             }
         });
     }
@@ -69,7 +81,12 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
         task::spawn(async move {
             let future = repo.put_block(block).boxed();
             if let Err(e) = future.await {
-                debug!("Got block {} from peer {} but failed to store it: {}", cid, source.to_base58(), e);
+                debug!(
+                    "Got block {} from peer {} but failed to store it: {}",
+                    cid,
+                    source.to_base58(),
+                    e
+                );
             }
         });
     }

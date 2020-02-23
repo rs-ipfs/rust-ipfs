@@ -5,19 +5,19 @@
 //!
 //! The `Bitswap` struct implements the `NetworkBehaviour` trait. When used, it
 //! will allow providing and reciving IPFS blocks.
-use futures::task::Context;
 use crate::bitswap::ledger::{Ledger, Message, Priority, I, O};
 use crate::bitswap::protocol::BitswapConfig;
 use crate::bitswap::strategy::{Strategy, StrategyEvent};
 use crate::block::{Block, Cid};
 use crate::p2p::SwarmTypes;
 use fnv::FnvHashSet;
+use futures::task::Context;
+use futures::task::Poll;
 use libp2p::core::ConnectedPoint;
+use libp2p::swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
-use libp2p::swarm::protocols_handler::{OneShotHandler, ProtocolsHandler, IntoProtocolsHandler};
 use libp2p::{Multiaddr, PeerId};
 use std::collections::{HashMap, VecDeque};
-use futures::task::Poll;
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
 pub struct Bitswap<TSwarmTypes: SwarmTypes> {
@@ -53,9 +53,8 @@ impl<TSwarmTypes: SwarmTypes> Bitswap<TSwarmTypes> {
         debug!("bitswap: connect");
         if self.target_peers.insert(peer_id.clone()) {
             debug!("  queuing dial_peer to {}", peer_id.to_base58());
-            self.events.push_back(NetworkBehaviourAction::DialPeer {
-                peer_id,
-            });
+            self.events
+                .push_back(NetworkBehaviourAction::DialPeer { peer_id });
         }
         debug!("");
     }
@@ -65,7 +64,9 @@ impl<TSwarmTypes: SwarmTypes> Bitswap<TSwarmTypes> {
     /// Called from a Strategy.
     pub fn send_block(&mut self, peer_id: PeerId, block: Block) {
         debug!("bitswap: send_block");
-        let ledger = self.connected_peers.get_mut(&peer_id)
+        let ledger = self
+            .connected_peers
+            .get_mut(&peer_id)
             .expect("Peer not in ledger?!");
         let message = ledger.send_block(block);
         debug!("  queuing block for {}", peer_id.to_base58());
@@ -120,10 +121,8 @@ impl<TSwarmTypes: SwarmTypes> Bitswap<TSwarmTypes> {
             if let Some(event) = message {
                 let peer_id = peer_id.to_owned();
                 debug!("  queuing cancel for {}", peer_id.to_base58());
-                self.events.push_back(NetworkBehaviourAction::SendEvent {
-                    peer_id,
-                    event,
-                });
+                self.events
+                    .push_back(NetworkBehaviourAction::SendEvent { peer_id, event });
             }
         }
         self.wanted_blocks.remove(cid);
@@ -132,8 +131,8 @@ impl<TSwarmTypes: SwarmTypes> Bitswap<TSwarmTypes> {
 }
 
 impl<TSwarmTypes> NetworkBehaviour for Bitswap<TSwarmTypes>
-    where
-        TSwarmTypes: SwarmTypes,
+where
+    TSwarmTypes: SwarmTypes,
 {
     type ProtocolsHandler = OneShotHandler<BitswapConfig, Message<O>, InnerMessage>;
     type OutEvent = ();
@@ -166,25 +165,21 @@ impl<TSwarmTypes> NetworkBehaviour for Bitswap<TSwarmTypes>
         //self.connected_peers.remove(peer_id);
     }
 
-    fn inject_node_event(
-        &mut self,
-        source: PeerId,
-        event: InnerMessage,
-    ) {
+    fn inject_node_event(&mut self, source: PeerId, event: InnerMessage) {
         debug!("bitswap: inject_node_event");
         debug!("{:?}", event);
         let message = match event {
-            InnerMessage::Rx(message) => {
-                message
-            },
+            InnerMessage::Rx(message) => message,
             InnerMessage::Tx => {
                 return;
-            },
+            }
         };
         debug!("  received message");
 
         // Update the ledger.
-        let ledger = self.connected_peers.get_mut(&source)
+        let ledger = self
+            .connected_peers
+            .get_mut(&source)
             .expect("Peer not in ledger?!");
         ledger.update_incoming_stats(&message);
 
@@ -192,10 +187,12 @@ impl<TSwarmTypes> NetworkBehaviour for Bitswap<TSwarmTypes>
         for block in message.blocks() {
             // Cancel the block.
             self.cancel_block(&block.cid());
-            self.strategy.process_block(source.clone(), block.to_owned());
+            self.strategy
+                .process_block(source.clone(), block.to_owned());
         }
         for (cid, priority) in message.want() {
-            self.strategy.process_want(source.clone(), cid.to_owned(), *priority);
+            self.strategy
+                .process_want(source.clone(), cid.to_owned(), *priority);
         }
         // TODO: Remove cancelled `Want` events from the queue.
         // TODO: Remove cancelled blocks from `SendEvent`.
@@ -210,18 +207,13 @@ impl<TSwarmTypes> NetworkBehaviour for Bitswap<TSwarmTypes>
                 match self.connected_peers.get_mut(&peer_id) {
                     None => {
                         debug!("  requeueing send event to {}", peer_id.to_base58());
-                        self.events.push_back(NetworkBehaviourAction::SendEvent {
-                            peer_id,
-                            event,
-                        })
-                    },
+                        self.events
+                            .push_back(NetworkBehaviourAction::SendEvent { peer_id, event })
+                    }
                     Some(ref mut ledger) => {
                         ledger.update_outgoing_stats(&event);
                         debug!("  send_message to {}", peer_id.to_base58());
-                        return Poll::Ready(NetworkBehaviourAction::SendEvent {
-                            peer_id,
-                            event,
-                        });
+                        return Poll::Ready(NetworkBehaviourAction::SendEvent { peer_id, event });
                     }
                 }
             } else {

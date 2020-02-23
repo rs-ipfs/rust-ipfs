@@ -34,18 +34,8 @@ pub enum Ipld {
 impl Ipld {
     pub fn to_block(&self, codec: Codec) -> Result<Block, Error> {
         let (prefix, bytes) = match codec {
-            Codec::DagCBOR => {
-                (
-                    formats::cbor::PREFIX,
-                    formats::cbor::encode(&self)?,
-                )
-            }
-            Codec::DagProtobuf => {
-                (
-                    formats::pb::PREFIX,
-                    formats::pb::encode(self.to_owned())?,
-                )
-            }
+            Codec::DagCBOR => (formats::cbor::PREFIX, formats::cbor::encode(&self)?),
+            Codec::DagProtobuf => (formats::pb::PREFIX, formats::pb::encode(self.to_owned())?),
             codec => return Err(IpldError::UnsupportedCodec(codec).into()),
         };
         let cid = cid::Cid::new_from_prefix(&prefix, &bytes);
@@ -62,12 +52,8 @@ impl Ipld {
 
     pub fn from(block: &Block) -> Result<Self, Error> {
         let data = match block.cid().prefix().codec {
-            Codec::DagCBOR => {
-                formats::cbor::decode(block.data())?
-            }
-            Codec::DagProtobuf => {
-                formats::pb::decode(block.data())?
-            }
+            Codec::DagCBOR => formats::cbor::decode(block.data())?,
+            Codec::DagProtobuf => formats::pb::decode(block.data())?,
             codec => return Err(IpldError::UnsupportedCodec(codec).into()),
         };
         Ok(data)
@@ -130,7 +116,11 @@ impl<T: Into<Ipld>> From<HashMap<String, T>> for Ipld {
 
 impl<T: Into<Ipld>> From<HashMap<&str, T>> for Ipld {
     fn from(map: HashMap<&str, T>) -> Self {
-        Ipld::Object(map.into_iter().map(|(k, v)| (k.to_string(), v.into())).collect())
+        Ipld::Object(
+            map.into_iter()
+                .map(|(k, v)| (k.to_string(), v.into()))
+                .collect(),
+        )
     }
 }
 
@@ -170,7 +160,7 @@ impl TryInto<u64> for Ipld {
     fn try_into(self) -> Result<u64, Self::Error> {
         match self {
             Ipld::U64(u) => Ok(u),
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }
@@ -181,7 +171,7 @@ impl TryInto<i64> for Ipld {
     fn try_into(self) -> Result<i64, Self::Error> {
         match self {
             Ipld::I64(i) => Ok(i),
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }
@@ -192,7 +182,7 @@ impl TryInto<Vec<u8>> for Ipld {
     fn try_into(self) -> Result<Vec<u8>, Self::Error> {
         match self {
             Ipld::Bytes(bytes) => Ok(bytes),
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }
@@ -203,7 +193,7 @@ impl TryInto<String> for Ipld {
     fn try_into(self) -> Result<String, Self::Error> {
         match self {
             Ipld::String(string) => Ok(string),
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }
@@ -214,7 +204,7 @@ impl TryInto<Vec<Ipld>> for Ipld {
     fn try_into(self) -> Result<Vec<Ipld>, Self::Error> {
         match self {
             Ipld::Array(vec) => Ok(vec),
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }
@@ -225,7 +215,7 @@ impl TryInto<HashMap<String, Ipld>> for Ipld {
     fn try_into(self) -> Result<HashMap<String, Ipld>, Self::Error> {
         match self {
             Ipld::Object(map) => Ok(map),
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }
@@ -236,7 +226,7 @@ impl TryInto<f64> for Ipld {
     fn try_into(self) -> Result<f64, Self::Error> {
         match self {
             Ipld::F64(f) => Ok(f),
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }
@@ -247,7 +237,7 @@ impl TryInto<bool> for Ipld {
     fn try_into(self) -> Result<bool, Self::Error> {
         match self {
             Ipld::Bool(b) => Ok(b),
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }
@@ -258,7 +248,7 @@ impl TryInto<PathRoot> for Ipld {
     fn try_into(self) -> Result<PathRoot, Self::Error> {
         match self {
             Ipld::Link(root) => Ok(root),
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }
@@ -269,7 +259,7 @@ impl TryInto<Cid> for Ipld {
     fn try_into(self) -> Result<Cid, Self::Error> {
         match self {
             Ipld::Link(root) => root.try_into(),
-            _ => Err(TryError)
+            _ => Err(TryError),
         }
     }
 }

@@ -16,9 +16,7 @@ impl std::error::Error for IpldError {
 impl std::fmt::Display for IpldError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            IpldError::UnsupportedCodec(ref codec) => {
-                write!(f, "Unsupported codec {:?}", codec)
-            }
+            IpldError::UnsupportedCodec(ref codec) => write!(f, "Unsupported codec {:?}", codec),
         }
     }
 }

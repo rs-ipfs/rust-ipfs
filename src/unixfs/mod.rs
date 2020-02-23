@@ -1,12 +1,12 @@
 use crate::error::Error;
-use crate::ipld::{Ipld, IpldDag, formats::pb::PbNode};
+use crate::ipld::{formats::pb::PbNode, Ipld, IpldDag};
 use crate::path::IpfsPath;
 use crate::repo::RepoTypes;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use async_std::path::PathBuf;
 use async_std::fs;
 use async_std::io::ReadExt;
+use async_std::path::PathBuf;
+use std::collections::HashMap;
+use std::convert::TryInto;
 
 pub struct File {
     data: Vec<u8>,
@@ -17,20 +17,19 @@ impl File {
         let mut file = fs::File::open(path).await?;
         let mut data = Vec::new();
         file.read_to_end(&mut data).await?;
-        Ok(File {
-            data
-        })
+        Ok(File { data })
     }
 
-    pub async fn get_unixfs_v1<T: RepoTypes>(dag: &IpldDag<T>, path: IpfsPath) -> Result<Self, Error> {
+    pub async fn get_unixfs_v1<T: RepoTypes>(
+        dag: &IpldDag<T>,
+        path: IpfsPath,
+    ) -> Result<Self, Error> {
         let ipld = dag.get(path).await?;
         let pb_node: PbNode = match ipld.try_into() {
             Ok(pb_node) => pb_node,
             Err(_) => bail!("invalid dag_pb node"),
         };
-        Ok(File {
-            data: pb_node.data,
-        })
+        Ok(File { data: pb_node.data })
     }
 
     pub async fn put_unixfs_v1<T: RepoTypes>(&self, dag: &IpldDag<T>) -> Result<IpfsPath, Error> {
@@ -45,16 +44,14 @@ impl File {
 
 impl From<Vec<u8>> for File {
     fn from(data: Vec<u8>) -> Self {
-        File {
-            data,
-        }
+        File { data }
     }
 }
 
 impl From<&str> for File {
     fn from(string: &str) -> Self {
         File {
-            data: string.as_bytes().to_vec()
+            data: string.as_bytes().to_vec(),
         }
     }
 }

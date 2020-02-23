@@ -4,10 +4,7 @@ use crate::path::SubPath;
 #[derive(Debug)]
 pub enum IpfsPathError {
     InvalidPath(String),
-    ResolveError {
-        ipld: Ipld,
-        path: SubPath,
-    },
+    ResolveError { ipld: Ipld, path: SubPath },
     ExpectedIpldPath,
 }
 
@@ -24,15 +21,11 @@ impl std::error::Error for IpfsPathError {
 impl std::fmt::Display for IpfsPathError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            IpfsPathError::InvalidPath(ref path) => {
-                write!(f, "Invalid path {:?}", path)
-            }
+            IpfsPathError::InvalidPath(ref path) => write!(f, "Invalid path {:?}", path),
             IpfsPathError::ResolveError { ref path, .. } => {
                 write!(f, "Can't resolve {}", path.to_string())
             }
-            IpfsPathError::ExpectedIpldPath => {
-                write!(f, "Expected ipld path but found ipns path")
-            }
+            IpfsPathError::ExpectedIpldPath => write!(f, "Expected ipld path but found ipns path"),
         }
     }
 }

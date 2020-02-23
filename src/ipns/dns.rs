@@ -3,15 +3,15 @@ use crate::path::IpfsPath;
 use domain::core::bits::{Dname, Question};
 use domain::core::iana::Rtype;
 use domain::core::rdata::Txt;
-use domain::resolv::{Resolver, StubResolver};
 use domain::resolv::stub::resolver::Query;
+use domain::resolv::{Resolver, StubResolver};
+use futures::compat::{Compat01As03, Future01CompatExt};
+use futures::future::{select_ok, SelectOk};
+use futures::pin_mut;
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Poll, Context};
 use std::str::FromStr;
-use futures::future::{select_ok, SelectOk};
-use futures::compat::{Compat01As03, Future01CompatExt};
-use futures::pin_mut;
+use std::task::{Context, Poll};
 
 #[derive(Debug, Fail)]
 #[fail(display = "no dnslink entry")]
@@ -43,7 +43,7 @@ impl Future for DnsLinkFuture {
                     if !rest.is_empty() {
                         _self.query = select_ok(rest);
                     } else {
-                        return Poll::Ready(Err(DnsLinkError.into()))
+                        return Poll::Ready(Err(DnsLinkError.into()));
                     }
                 }
                 Poll::Pending => return Poll::Pending,
@@ -66,7 +66,8 @@ pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
 
     Ok(DnsLinkFuture {
         query: select_ok(vec![query1, query2]),
-    }.await?)
+    }
+    .await?)
 }
 
 #[cfg(test)]

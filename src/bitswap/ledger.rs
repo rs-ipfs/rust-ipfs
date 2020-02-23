@@ -1,10 +1,10 @@
-use crate::block::{Block, Cid};
 use crate::bitswap::bitswap_pb;
+use crate::block::{Block, Cid};
 use crate::error::Error;
+use prost::Message as ProstMessage;
 use std::collections::HashMap;
-use std::marker::PhantomData;
 use std::convert::TryFrom;
-use prost::{Message as ProstMessage};
+use std::marker::PhantomData;
 
 pub type Priority = i32;
 

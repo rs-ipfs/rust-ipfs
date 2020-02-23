@@ -3,18 +3,17 @@
 /// The protocol works the following way:
 ///
 /// - TODO
-
 use crate::bitswap::ledger::{Message, I, O};
 use crate::error::Error;
-use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo, upgrade};
-use std::{io, iter};
 use futures::future::Future;
 use futures::io::{AsyncRead, AsyncWrite};
+use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
 use std::pin::Pin;
+use std::{io, iter};
 
 // Undocumented, but according to JS we our messages have a max size of 512*1024
 // https://github.com/ipfs/js-ipfs-bitswap/blob/d8f80408aadab94c962f6b88f343eb9f39fa0fcc/src/decision-engine/index.js#L16
-const MAX_BUF_SIZE : usize = 524_288;
+const MAX_BUF_SIZE: usize = 524_288;
 
 #[derive(Clone, Debug, Default)]
 pub struct BitswapConfig {}
@@ -30,7 +29,8 @@ impl UpgradeInfo for BitswapConfig {
 }
 
 impl<TSocket> InboundUpgrade<TSocket> for BitswapConfig
-where TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+where
+    TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
     type Output = Message<I>;
     type Error = Error;
@@ -72,10 +72,12 @@ impl From<prost::DecodeError> for BitswapError {
 impl std::fmt::Display for BitswapError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            BitswapError::ReadError(ref err) =>
-                write!(f, "Error while reading from socket: {}", err),
-            BitswapError::ProtobufError(ref err) =>
-                write!(f, "Error while decoding protobuf: {}", err),
+            BitswapError::ReadError(ref err) => {
+                write!(f, "Error while reading from socket: {}", err)
+            }
+            BitswapError::ProtobufError(ref err) => {
+                write!(f, "Error while decoding protobuf: {}", err)
+            }
         }
     }
 }
@@ -100,7 +102,8 @@ impl UpgradeInfo for Message<O> {
 }
 
 impl<TSocket> OutboundUpgrade<TSocket> for Message<O>
-    where TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static
+where
+    TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
     type Output = ();
     type Error = io::Error;

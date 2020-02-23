@@ -11,13 +11,10 @@ pub struct IpldDag<Types: RepoTypes> {
 
 impl<Types: RepoTypes> IpldDag<Types> {
     pub fn new(repo: Repo<Types>) -> Self {
-        IpldDag {
-            repo,
-        }
+        IpldDag { repo }
     }
 
-    pub async fn put(&self, data: Ipld, codec: Codec) -> Result<IpfsPath, Error>
-    {
+    pub async fn put(&self, data: Ipld, codec: Codec) -> Result<IpfsPath, Error> {
         let mut repo = self.repo.clone();
         let block = data.to_block(codec)?;
         let cid = repo.put_block(block).await?;
@@ -38,12 +35,10 @@ impl<Types: RepoTypes> IpldDag<Types> {
             }
             ipld = resolve(ipld, sub_path);
             ipld = match ipld {
-                Ipld::Link(root) => {
-                    match root.cid() {
-                        Some(cid) => Ipld::from(&repo.get_block(cid).await?)?,
-                        None => bail!("expected cid"),
-                    }
-                }
+                Ipld::Link(root) => match root.cid() {
+                    Some(cid) => Ipld::from(&repo.get_block(cid).await?)?,
+                    None => bail!("expected cid"),
+                },
                 ipld => ipld,
             };
         }
@@ -75,16 +70,19 @@ fn resolve(ipld: Ipld, sub_path: &SubPath) -> Ipld {
     match sub_path {
         SubPath::Key(key) => {
             if let Ipld::Object(mut map) = ipld {
-                return map.remove(key).unwrap()
+                return map.remove(key).unwrap();
             }
         }
         SubPath::Index(index) => {
             if let Ipld::Array(mut vec) = ipld {
-                return vec.swap_remove(*index)
+                return vec.swap_remove(*index);
             }
         }
     }
-    panic!("Failed to resolved ipld: {:?} sub_path: {:?}", ipld, sub_path);
+    panic!(
+        "Failed to resolved ipld: {:?} sub_path: {:?}",
+        ipld, sub_path
+    );
 }
 
 #[cfg(test)]
@@ -124,7 +122,11 @@ mod tests {
         async_test(async move {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
-            let data = Ipld::Array(vec![Ipld::U64(1), Ipld::Array(vec![Ipld::U64(2)]), Ipld::U64(3)]);
+            let data = Ipld::Array(vec![
+                Ipld::U64(1),
+                Ipld::Array(vec![Ipld::U64(2)]),
+                Ipld::U64(3),
+            ]);
             let path = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
             let res = dag.get(path.sub_path("1/0").unwrap()).await.unwrap();
             assert_eq!(res, Ipld::U64(2));

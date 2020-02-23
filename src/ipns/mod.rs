@@ -16,33 +16,25 @@ pub struct Ipns<Types: RepoTypes> {
 
 impl<Types: RepoTypes> Ipns<Types> {
     pub fn new(repo: Repo<Types>) -> Self {
-        Ipns {
-            repo
-        }
+        Ipns { repo }
     }
 
     /// Resolves a ipns path to an ipld path.
-    pub async fn resolve(&self, path: &IpfsPath) -> Result<IpfsPath, Error>
-    {
+    pub async fn resolve(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
         let mut repo = self.repo.clone();
         let path = path.to_owned();
         match path.root() {
             PathRoot::Ipld(_) => Ok(path),
-            PathRoot::Ipns(peer_id) => {
-                match repo.get_ipns(peer_id).await? {
-                    Some(path) => Ok(path),
-                    None => bail!("unimplemented"),
-                }
+            PathRoot::Ipns(peer_id) => match repo.get_ipns(peer_id).await? {
+                Some(path) => Ok(path),
+                None => bail!("unimplemented"),
             },
-            PathRoot::Dns(domain) => {
-                Ok(dns::resolve(domain).await?)
-            },
+            PathRoot::Dns(domain) => Ok(dns::resolve(domain).await?),
         }
     }
 
     /// Publishes an ipld path.
-    pub async fn publish(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error>
-    {
+    pub async fn publish(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error> {
         let future = self.repo.put_ipns(key, path);
         let key = key.to_owned();
         let mut path = path.to_owned();
@@ -52,8 +44,7 @@ impl<Types: RepoTypes> Ipns<Types> {
     }
 
     /// Cancel an ipns path.
-    pub async fn cancel(&self, key: &PeerId) -> Result<(), Error>
-    {
+    pub async fn cancel(&self, key: &PeerId) -> Result<(), Error> {
         self.repo.remove_ipns(key).await?;
         Ok(())
     }

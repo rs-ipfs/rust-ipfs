@@ -1,9 +1,9 @@
-use cbor::{Cbor, Decoder, Encoder};
-pub use cbor::{CborBytes, CborTagEncode, CborError, ReadError};
-use cid::Prefix;
 use crate::block::Cid;
 use crate::error::Error;
 use crate::ipld::Ipld;
+use cbor::{Cbor, Decoder, Encoder};
+pub use cbor::{CborBytes, CborError, CborTagEncode, ReadError};
+use cid::Prefix;
 use rustc_serialize::{Encodable, Encoder as RustcEncoder};
 
 pub(crate) const PREFIX: Prefix = Prefix {
@@ -29,7 +29,7 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, Error> {
     let ipld = match cbor {
         Cbor::Break => {
             let err = ReadError::Other("Break.".into());
-            return Err(CborError::Decode(err).into())
+            return Err(CborError::Decode(err).into());
         }
         Cbor::Undefined => Ipld::Null,
         Cbor::Null => Ipld::Null,
@@ -40,16 +40,16 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, Error> {
         Cbor::Bytes(bytes) => Ipld::Bytes(bytes.0),
         Cbor::Unicode(string) => Ipld::String(string),
         Cbor::Array(vec) => {
-            let ipld_vec = vec.into_iter()
+            let ipld_vec = vec
+                .into_iter()
                 .map(cbor_to_ipld)
                 .collect::<Result<_, _>>()?;
             Ipld::Array(ipld_vec)
         }
         Cbor::Map(map) => {
-            let ipld_map = map.into_iter()
-                .map(|(k, v)| {
-                    Ok((k, cbor_to_ipld(v)?))
-                })
+            let ipld_map = map
+                .into_iter()
+                .map(|(k, v)| Ok((k, cbor_to_ipld(v)?)))
                 .collect::<Result<_, Error>>()?;
             Ipld::Object(ipld_map)
         }
@@ -60,11 +60,11 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, Error> {
                 } else {
                     println!("{:?}", *tag.data);
                     let err = ReadError::Other("Invalid CID.".into());
-                    return Err(CborError::Decode(err).into())
+                    return Err(CborError::Decode(err).into());
                 }
             } else {
                 let err = ReadError::Other("Unknown tag {}.".into());
-                return Err(CborError::Decode(err).into())
+                return Err(CborError::Decode(err).into());
             }
         }
     };
@@ -74,33 +74,15 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, Error> {
 impl Encodable for Ipld {
     fn encode<E: RustcEncoder>(&self, e: &mut E) -> Result<(), E::Error> {
         match *self {
-            Ipld::U64(ref u) => {
-                u.encode(e)
-            }
-            Ipld::I64(ref i) => {
-                i.encode(e)
-            }
-            Ipld::Bytes(ref bytes) => {
-                cbor::CborBytes(bytes.to_owned()).encode(e)
-            }
-            Ipld::String(ref string) => {
-                string.encode(e)
-            }
-            Ipld::Array(ref vec) => {
-                vec.encode(e)
-            }
-            Ipld::Object(ref map) => {
-                map.encode(e)
-            }
-            Ipld::F64(f) => {
-                f.encode(e)
-            },
-            Ipld::Bool(b) => {
-                b.encode(e)
-            },
-            Ipld::Null => {
-                e.emit_nil()
-            },
+            Ipld::U64(ref u) => u.encode(e),
+            Ipld::I64(ref i) => i.encode(e),
+            Ipld::Bytes(ref bytes) => cbor::CborBytes(bytes.to_owned()).encode(e),
+            Ipld::String(ref string) => string.encode(e),
+            Ipld::Array(ref vec) => vec.encode(e),
+            Ipld::Object(ref map) => map.encode(e),
+            Ipld::F64(f) => f.encode(e),
+            Ipld::Bool(b) => b.encode(e),
+            Ipld::Null => e.emit_nil(),
             Ipld::Link(ref root) => {
                 let bytes = cbor::CborBytes(root.to_bytes());
                 cbor::CborTagEncode::new(42, &bytes).encode(e)

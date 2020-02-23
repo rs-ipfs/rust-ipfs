@@ -1,7 +1,7 @@
 //! Block
-pub use cid::Cid;
 pub use crate::error::Error;
 pub use crate::path::{IpfsPath, PathRoot};
+pub use cid::Cid;
 
 #[derive(Clone, Debug, PartialEq)]
 /// An immutable ipfs block.
@@ -13,10 +13,7 @@ pub struct Block {
 impl Block {
     /// Creates a new immutable ipfs block.
     pub fn new(data: Vec<u8>, cid: Cid) -> Self {
-        Block {
-            data,
-            cid,
-        }
+        Block { data, cid }
     }
 
     /// Returns the size of the block in bytes.
@@ -74,10 +71,7 @@ mod tests {
             mh_type: multihash::Hash::SHA2256,
             mh_len: 32,
         };
-        let computed_cid = cid::Cid::new_from_prefix(
-            &prefix,
-            &content,
-        ).to_string();
+        let computed_cid = cid::Cid::new_from_prefix(&prefix, &content).to_string();
         assert_eq!(cid, computed_cid);
     }
 
@@ -91,18 +85,17 @@ mod tests {
             mh_type: multihash::Hash::SHA2256,
             mh_len: 32,
         };
-        let computed_cid = cid::Cid::new_from_prefix(
-            &prefix,
-            &content,
-        ).to_string();
+        let computed_cid = cid::Cid::new_from_prefix(&prefix, &content).to_string();
         assert_eq!(cid, computed_cid);
     }
 
     #[test]
     fn test_block() {
         let block = Block::from("hello block\n");
-        assert_eq!(block.cid().to_string(),
-                   "QmVNrZhKw9JwYa4YPEZVccQxfgQJq993yP78QEN28927vq");
+        assert_eq!(
+            block.cid().to_string(),
+            "QmVNrZhKw9JwYa4YPEZVccQxfgQJq993yP78QEN28927vq"
+        );
         assert_eq!(block.size(), 12);
     }
 }
