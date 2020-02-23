@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::repo::{BlockStore, DataStore, Column};
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use async_std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn test_mem_blockstore() {
         let tmp = temp_dir();
-        let store = MemBlockStore::new(tmp);
+        let store = MemBlockStore::new(tmp.into());
         async_test(async move {
             let block = Block::from("1");
             let cid = block.cid();
@@ -149,7 +149,7 @@ mod tests {
     #[test]
     fn test_mem_datastore() {
         let tmp = temp_dir();
-        let store = MemDataStore::new(tmp);
+        let store = MemDataStore::new(tmp.into());
         async_test(async move {
             let col = Column::Ipns;
             let key = [1, 2, 3, 4];

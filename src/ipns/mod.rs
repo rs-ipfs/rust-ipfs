@@ -35,7 +35,7 @@ impl<Types: RepoTypes> Ipns<Types> {
                 }
             },
             PathRoot::Dns(domain) => {
-                Ok(dns::resolve(domain)?.await?)
+                Ok(dns::resolve(domain).await?)
             },
         }
     }

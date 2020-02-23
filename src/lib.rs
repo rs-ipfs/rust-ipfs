@@ -5,7 +5,7 @@
 #[macro_use] extern crate log;
 pub use libp2p::PeerId;
 use std::marker::PhantomData;
-use std::path::PathBuf;
+use async_std::path::PathBuf;
 use futures::channel::mpsc::{channel, Sender, Receiver};
 use std::future::Future;
 
@@ -310,7 +310,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::future::{FutureExt, TryFutureExt};
+    use async_std::task;
 
     /// Testing helper for std::future::Futures until we can upgrade tokio
     pub(crate) fn async_test<O, F>(future: F) -> O
@@ -318,11 +318,11 @@ mod tests {
               F: std::future::Future<Output = O> + 'static + Send
     {
         let (tx, rx) = std::sync::mpsc::channel();
-        tokio::run(async move {
+        task::block_on(async move {
             let tx = tx;
             let awaited = future.await;
             tx.send(awaited).unwrap();
-        }.unit_error().boxed().compat());
+        });
         rx.recv().unwrap()
     }
 
@@ -333,7 +333,7 @@ mod tests {
             let block = Block::from("hello block\n");
             let ipfs = UninitializedIpfs::new(options).await;
             let (mut ipfs, fut) = ipfs.start().await.unwrap();
-            tokio::spawn(fut.unit_error().boxed().compat());
+            task::spawn(fut);
 
             let cid: Cid = ipfs.put_block(block.clone()).await.unwrap();
             let new_block = ipfs.get_block(&cid).await.unwrap();
@@ -350,7 +350,7 @@ mod tests {
         async_test(async move {
 
             let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-            tokio::spawn(fut.unit_error().boxed().compat());
+            task::spawn(fut);
 
             let data: Ipld = vec![-1, -2, -3].into();
             let cid = ipfs.put_dag(data.clone()).await.unwrap();

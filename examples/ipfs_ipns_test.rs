@@ -1,15 +1,15 @@
 use std::str::FromStr;
 use ipfs::{UninitializedIpfs, IpfsOptions, IpfsPath, PeerId, TestTypes};
-use futures::{FutureExt, TryFutureExt};
+use async_std::task;
 
 fn main() {
     let options = IpfsOptions::<TestTypes>::default();
     env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
 
-    tokio::runtime::current_thread::block_on_all(async move {
+    task::block_on(async move {
         // Start daemon and initialize repo
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        tokio::spawn(fut.unit_error().boxed().compat());
+        task::spawn(fut);
 
         // Create a Block
         let ipfs_path = ipfs.put_dag("block v0".into()).await.unwrap();
@@ -29,5 +29,5 @@ fn main() {
         println!("Resolved stage 2: {:?}", ipfs_path.to_string());
 
         ipfs.exit_daemon();
-    }.unit_error().boxed().compat()).unwrap();
+    });
 }
