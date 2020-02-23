@@ -6,13 +6,12 @@ use crate::repo::BlockStore;
 use crate::repo::{Column, DataStore};
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use async_std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
-use tokio_fs as fs;
+use async_std::fs;
+use async_std::prelude::*;
 use futures::stream::StreamExt;
-use futures::compat::Future01CompatExt;
-use futures::compat::Stream01CompatExt;
 
 #[derive(Clone, Debug)]
 pub struct FsBlockStore {
@@ -31,7 +30,7 @@ impl BlockStore for FsBlockStore {
 
     async fn init(&self) -> Result<(), Error> {
         let path = self.path.clone();
-        fs::create_dir_all(path).compat().await?;
+        fs::create_dir_all(path).await?;
         Ok(())
     }
 
@@ -39,8 +38,7 @@ impl BlockStore for FsBlockStore {
         let path = self.path.clone();
         let cids = self.cids.clone();
 
-        // not sure why this type needs to be specified
-        let mut stream = fs::read_dir(path).compat().await?.compat();
+        let mut stream = fs::read_dir(path).await?;
 
         fn append_cid(cids: &Arc<Mutex<HashSet<Cid>>>, path: PathBuf) {
             if path.extension() != Some(OsStr::new("data")) {
@@ -70,7 +68,7 @@ impl BlockStore for FsBlockStore {
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
         let path = block_path(self.path.clone(), cid);
         let cid = cid.to_owned();
-        let file = match fs::File::open(path).compat().await {
+        let mut file = match fs::File::open(path).await {
             Ok(file) => file,
             Err(err) => {
                 if err.kind() == std::io::ErrorKind::NotFound {
@@ -80,7 +78,8 @@ impl BlockStore for FsBlockStore {
                 }
             }
         };
-        let (_, data) = tokio::io::read_to_end(file, Vec::new()).compat().await?;
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).await?;
         let block = Block::new(data, cid);
         Ok(Some(block))
     }
@@ -88,9 +87,9 @@ impl BlockStore for FsBlockStore {
     async fn put(&self, block: Block) -> Result<Cid, Error> {
         let path = block_path(self.path.clone(), &block.cid());
         let cids = self.cids.clone();
-        let file = fs::File::create(path).compat().await?;
+        let mut file = fs::File::create(path).await?;
         let data = block.data();
-        tokio::io::write_all(file, &*data).compat().await?;
+        file.write_all(&*data).await?;
         cids.lock().unwrap().insert(block.cid().to_owned());
         Ok(block.cid().to_owned())
     }
@@ -100,7 +99,7 @@ impl BlockStore for FsBlockStore {
         let cid = cid.to_owned();
         let cids = self.cids.clone();
         if cids.lock().unwrap().remove(&cid) {
-            fs::remove_file(path).compat().await?;
+            fs::remove_file(path).await?;
         }
         Ok(())
     }
@@ -223,7 +222,7 @@ mod tests {
         let mut tmp = temp_dir();
         tmp.push("blockstore1");
         std::fs::remove_dir_all(tmp.clone()).ok();
-        let store = FsBlockStore::new(tmp.clone());
+        let store = FsBlockStore::new(tmp.clone().into());
 
         async_test(async move {
             let block = Block::from("1");
@@ -267,14 +266,14 @@ mod tests {
         async_test(async move {
             let block = Block::from("1");
 
-            let block_store = FsBlockStore::new(blockstore_path.clone());
+            let block_store = FsBlockStore::new(blockstore_path.clone().into());
             block_store.init().await.unwrap();
             block_store.open().await.unwrap();
 
             assert!(!block_store.contains(block.cid()).await.unwrap());
             block_store.put(block.clone()).await.unwrap();
 
-            let block_store = FsBlockStore::new(blockstore_path);
+            let block_store = FsBlockStore::new(blockstore_path.into());
             block_store.open().await.unwrap();
             assert!(block_store.contains(block.cid()).await.unwrap());
             assert_eq!(block_store.get(block.cid()).await.unwrap().unwrap(), block);
@@ -289,7 +288,7 @@ mod tests {
         let mut tmp = temp_dir();
         tmp.push("datastore1");
         std::fs::remove_dir_all(tmp.clone()).ok();
-        let store = RocksDataStore::new(tmp.clone());
+        let store = RocksDataStore::new(tmp.clone().into());
 
         async_test(async move {
             let col = Column::Ipns;

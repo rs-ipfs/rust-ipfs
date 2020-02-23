@@ -1,15 +1,15 @@
 use ipfs::{Block, UninitializedIpfs, IpfsOptions, TestTypes};
 use std::convert::TryInto;
-use futures::{FutureExt, TryFutureExt};
+use async_std::task;
 
 fn main() {
     let options = IpfsOptions::<TestTypes>::default();
     env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
 
-    tokio::runtime::current_thread::block_on_all(async move {
+    task::block_on(async move {
         // Start daemon and initialize repo
         let (mut ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        tokio::spawn(fut.unit_error().boxed().compat());
+        task::spawn(fut);
 
         // Create a Block
         ipfs.put_block(Block::from("block-provide")).await.unwrap();
@@ -27,5 +27,5 @@ fn main() {
         let file = ipfs.get(path).await.unwrap();
         let contents: String = file.into();
         println!("file contents: {:?}", contents);
-    }.unit_error().boxed().compat()).unwrap();
+    });
 }

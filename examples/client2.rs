@@ -1,16 +1,16 @@
 use std::str::FromStr;
 use ipfs::{UninitializedIpfs, IpfsOptions, IpfsPath, TestTypes};
 use futures::join;
-use futures::{FutureExt, TryFutureExt};
+use async_std::task;
 
 fn main() {
     let options = IpfsOptions::<TestTypes>::default();
     env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
     let path = IpfsPath::from_str("/ipfs/zdpuB1caPcm4QNXeegatVfLQ839Lmprd5zosXGwRUBJHwj66X").unwrap();
 
-    tokio::runtime::current_thread::block_on_all(async move {
+    task::block_on(async move {
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        tokio::spawn(fut.unit_error().boxed().compat());
+        task::spawn(fut);
 
         let f1 = ipfs.get_dag(path.sub_path("0").unwrap());
         let f2 = ipfs.get_dag(path.sub_path("1").unwrap());
@@ -19,5 +19,5 @@ fn main() {
         println!("Received block with contents: {:?}", res2.unwrap());
 
         ipfs.exit_daemon();
-    }.unit_error().boxed().compat()).unwrap();
+    });
 }

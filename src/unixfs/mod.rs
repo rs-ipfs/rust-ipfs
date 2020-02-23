@@ -4,8 +4,9 @@ use crate::path::IpfsPath;
 use crate::repo::RepoTypes;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::path::PathBuf;
-use futures::compat::Future01CompatExt;
+use async_std::path::PathBuf;
+use async_std::fs;
+use async_std::io::ReadExt;
 
 pub struct File {
     data: Vec<u8>,
@@ -13,8 +14,9 @@ pub struct File {
 
 impl File {
     pub async fn new(path: PathBuf) -> Result<Self, Error> {
-        let file = tokio::fs::File::open(path).compat().await?;
-        let (_, data) = tokio::io::read_to_end(file, Vec::new()).compat().await?;
+        let mut file = fs::File::open(path).await?;
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).await?;
         Ok(File {
             data
         })

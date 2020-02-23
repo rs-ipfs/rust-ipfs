@@ -1,14 +1,14 @@
 use ipfs::{UninitializedIpfs, IpfsOptions, Ipld, Types};
+use async_std::task;
 use futures::join;
-use futures::{FutureExt, TryFutureExt};
 
 fn main() {
     let options = IpfsOptions::<Types>::default();
     env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
 
-    tokio::runtime::current_thread::block_on_all(async move {
+    task::block_on(async move {
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        tokio::spawn(fut.unit_error().boxed().compat());
+        task::spawn(fut);
 
         let block1: Ipld = "block1".to_string().into();
         let block2: Ipld = "block2".to_string().into();
@@ -20,5 +20,5 @@ fn main() {
         ipfs.put_dag(root).await.unwrap();
 
         ipfs.exit_daemon();
-    }.unit_error().boxed().compat()).unwrap();
+    });
 }

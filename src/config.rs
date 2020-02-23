@@ -1,7 +1,7 @@
 use libp2p::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
 use libp2p::identity::{Keypair, PublicKey};
-use rand::{Rng, rngs::EntropyRng};
+use rand::{Rng, rngs::OsRng};
 use serde_derive::{Serialize, Deserialize};
 use std::fs;
 use std::path::Path;
@@ -175,7 +175,7 @@ impl Default for ConfigFile {
         //
         // and on the other hand:
         // https://github.com/libp2p/rust-libp2p/blob/eb7b7bd919b93e6acf00847c19d1a76c09016120/core/src/peer_id.rs#L62-L74
-        let private_key: [u8; 32] = EntropyRng::new().gen();
+        let private_key: [u8; 32] = OsRng.gen();
 
         let bootstrap = BOOTSTRAP_NODES.iter().map(|node| {
             node.parse().unwrap()
