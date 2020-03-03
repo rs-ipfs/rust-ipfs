@@ -91,8 +91,10 @@ impl Default for IpfsOptions<Types> {
                 ipfs_path
             })
             .into();
-        let xdg_dirs = xdg::BaseDirectories::with_prefix(XDG_APP_NAME).unwrap();
-        let path = xdg_dirs.place_config_file(CONFIG_FILE).unwrap();
+        let path = dirs::config_dir()
+            .unwrap()
+            .join(XDG_APP_NAME)
+            .join(CONFIG_FILE);
         let config = ConfigFile::new(path);
 
         IpfsOptions {
