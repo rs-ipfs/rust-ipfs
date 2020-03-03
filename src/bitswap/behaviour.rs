@@ -198,6 +198,8 @@ where
         // TODO: Remove cancelled blocks from `SendEvent`.
         debug!("");
     }
+
+    #[allow(clippy::type_complexity)]
     fn poll(&mut self, ctx: &mut Context, _: &mut impl PollParameters)
         -> Poll<NetworkBehaviourAction<<<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>
     {

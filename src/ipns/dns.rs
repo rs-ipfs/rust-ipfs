@@ -1,8 +1,8 @@
 use crate::error::Error;
 use crate::path::IpfsPath;
-use domain::core::{Dname, Question};
 use domain::core::iana::Rtype;
 use domain::core::rdata::Txt;
+use domain::core::{Dname, Question};
 use domain::resolv::stub::resolver::Query;
 use domain::resolv::{Resolver, StubResolver};
 use futures::compat::{Compat01As03, Future01CompatExt};

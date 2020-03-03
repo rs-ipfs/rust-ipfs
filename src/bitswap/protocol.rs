@@ -107,6 +107,7 @@ where
 {
     type Output = ();
     type Error = io::Error;
+    #[allow(clippy::type_complexity)]
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     #[inline]
