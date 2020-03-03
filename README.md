@@ -4,24 +4,24 @@
 </h1>
 
 [![Build Status](https://travis-ci.org/dvc94ch/rust-ipfs.svg?branch=master)](https://travis-ci.org/dvc94ch/rust-ipfs)
-[![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/ipfs-rust) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW) 
-
-Currently implements an altruistic bitswap strategy over mdns.
+[![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/ipfs-rust) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW)
 
 ## Getting started
 ```rust,no-run
-use ipfs::{UninitializedIpfs, IpfsOptions, Ipld, Types};
+use async_std::task;
 use futures::join;
-use futures::{FutureExt, TryFutureExt};
+use ipfs::{IpfsOptions, Ipld, Types, UninitializedIpfs};
 
 fn main() {
     let options = IpfsOptions::<Types>::default();
-    env_logger::Builder::new().parse_filters(&options.ipfs_log).init();
+    env_logger::Builder::new()
+        .parse_filters(&options.ipfs_log)
+        .init();
 
-    tokio::runtime::current_thread::block_on_all(async move {
+    task::block_on(async move {
         // Start daemon and initialize repo
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        tokio::spawn(fut.unit_error().boxed().compat());
+        task::spawn(fut);
 
         // Create a DAG
         let block1: Ipld = "block1".to_string().into();
@@ -43,11 +43,9 @@ fn main() {
 
         // Exit
         ipfs.exit_daemon();
-    }.unit_error().boxed().compat()).unwrap();
+    });
 }
 ```
-
-Note: `rust-ipfs` currently requires nightly, see `rust-toolchain` and `.travis.yml` for the tested version.
 
 ## License
 
