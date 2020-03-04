@@ -163,9 +163,7 @@ fn serve(
 
     let routes = routes.with(warp::log("rust-ipfs-http-v0"));
 
-    // turns out there is no chance to do graceful shutdown with ephemeral addresses, which is
-    // quite odd, but address should be read from a config file
-    warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 5099), async move {
+    warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 0), async move {
         shutdown_rx.next().await;
     })
 }
