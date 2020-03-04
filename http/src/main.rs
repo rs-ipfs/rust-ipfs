@@ -26,6 +26,8 @@ fn main() {
         std::env::set_var("RUST_LOG", "rust-ipfs-http=trace,rust-ipfs=trace");
     }
 
+    env_logger::init();
+
     let opts = Options::from_args();
 
     println!(
