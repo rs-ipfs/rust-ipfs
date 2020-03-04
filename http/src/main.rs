@@ -36,7 +36,7 @@ fn main() {
     println!("IPFS_PATH: {:?}", home);
 
     // TODO: sigterm should initiate graceful shutdown, second time should shutdown right now
-    // TODO: sigkill ... well surely it will stop the process right away
+    // NOTE: sigkill ... well surely it will stop the process right away
 
     let mut rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
 
@@ -71,6 +71,8 @@ fn serve(_home: PathBuf, _options: ()) -> (std::net::SocketAddr, impl std::futur
 
     let routes = routes.with(warp::log("rust-ipfs-http-v0"));
 
+    // turns out there is no chance to do graceful shutdown with ephemeral addresses, which is
+    // quite odd, but address should be read from a config file
     warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 5099), async move {
         shutdown_rx.next().await;
     })
