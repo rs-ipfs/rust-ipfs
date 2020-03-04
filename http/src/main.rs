@@ -149,9 +149,14 @@ fn serve(
 
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
 
+    // Set up routes
+    // /api
     let api = warp::path("api");
+
+    // /api/v0
     let v0 = api.and(warp::path("v0"));
 
+    // /api/v0/shutdown
     let shutdown = warp::post()
         .and(warp::path("shutdown"))
         .and(warp::any().map(move || shutdown_tx.clone()))
@@ -160,8 +165,34 @@ fn serve(
     // for some reason js-ipfsd-ctl does a POST here?
     let id = warp::path("id").and_then(id_query);
 
-    let routes = v0.and(shutdown.or(id));
+    // Same here. for some reason this is a post as well
+    let api = shutdown
+            .or(id)
 
+            // Placeholder paths
+            // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
+            .or(warp::path!("add").and_then(not_implemented))
+            .or(warp::path!("bitswap" / ..).and_then(not_implemented))
+            .or(warp::path!("block" / ..).and_then(not_implemented))
+            .or(warp::path!("bootstrap" / ..).and_then(not_implemented))
+            .or(warp::path!("config" / ..).and_then(not_implemented))
+            .or(warp::path!("dag" / ..).and_then(not_implemented))
+            .or(warp::path!("dht" / ..).and_then(not_implemented))
+            .or(warp::path!("get").and_then(not_implemented))
+            .or(warp::path!("key" / ..).and_then(not_implemented))
+            .or(warp::path!("name" / ..).and_then(not_implemented))
+            .or(warp::path!("object" / ..).and_then(not_implemented))
+            .or(warp::path!("pin" / ..).and_then(not_implemented))
+            .or(warp::path!("ping" / ..).and_then(not_implemented))
+            .or(warp::path!("pubsub" / ..).and_then(not_implemented))
+            .or(warp::path!("refs" / ..).and_then(not_implemented))
+            .or(warp::path!("repo" / ..).and_then(not_implemented))
+            .or(warp::path!("stats" / ..).and_then(not_implemented))
+            .or(warp::path!("swarm" / ..).and_then(not_implemented))
+            .or(warp::path!("version").and_then(not_implemented))
+            ;
+
+    let routes = v0.and(api);
     let routes = routes.with(warp::log("rust-ipfs-http-v0"));
 
     warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 0), async move {
@@ -176,6 +207,10 @@ async fn shutdown(
         Ok(_) => warp::http::StatusCode::OK,
         Err(_) => warp::http::StatusCode::NOT_IMPLEMENTED,
     })
+}
+
+async fn not_implemented() -> Result<impl warp::Reply, std::convert::Infallible> {
+    Ok(warp::http::StatusCode::NOT_IMPLEMENTED)
 }
 
 // NOTE: go-ipfs accepts an -f option for format (unsure if same with Accept: request header),
