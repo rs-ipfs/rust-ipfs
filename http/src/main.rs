@@ -1,7 +1,13 @@
-use std::path::PathBuf;
 use serde::Serialize;
+use std::path::PathBuf;
 
 fn main() {
+    if std::env::var_os("RUST_LOG").is_none() {
+        // FIXME: see if tracing could be used as the frontend for log macros
+        // FIXME: use log macros here as well
+        std::env::set_var("RUST_LOG", "rust-ipfs-http=trace,rust-ipfs=trace");
+    }
+
     print!(
         "Invoked with args: {:?}",
         std::env::args().collect::<Vec<_>>()
@@ -41,18 +47,38 @@ fn main() {
     let mut rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
 
     rt.block_on(async move {
+        let api_link_file = home.join("api");
         let (addr, server) = serve(home, ());
 
-        println!("API listening on /ipv4/{}/tcp/{}", addr.ip(), addr.port());
+        let api_multiaddr = format!("/ipv4/{}/tcp/{}", addr.ip(), addr.port());
+
+        // this file is looked for when js-ipfsd-ctl checks optimistically if the IPFS_PATH has a
+        // daemon running already. go-ipfs file does not contain newline at the end.
+        let wrote = tokio::fs::write(&api_link_file, &api_multiaddr)
+            .await
+            .is_ok();
+
+        println!("API listening on {}", api_multiaddr);
         println!("daemon is running");
 
-        server.await
+        server.await;
+
+        if wrote {
+            // FIXME: this should probably make sure the contents match what we wrote or do some
+            // locking on the repo, unsure how go-ipfs locks the fsstore
+            let _ = tokio::fs::File::create(&api_link_file)
+                .await
+                .map_err(|e| eprintln!("Failed to truncate {:?}: {}", api_link_file, e));
+        }
     });
 }
 
-fn serve(_home: PathBuf, _options: ()) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
-    use warp::Filter;
+fn serve(
+    _home: PathBuf,
+    _options: (),
+) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
     use tokio::stream::StreamExt;
+    use warp::Filter;
 
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
 
@@ -64,9 +90,7 @@ fn serve(_home: PathBuf, _options: ()) -> (std::net::SocketAddr, impl std::futur
         .and(warp::any().map(move || shutdown_tx.clone()))
         .and_then(shutdown);
 
-    let id = warp::get()
-        .and(warp::path("id"))
-        .and_then(id_query);
+    let id = warp::get().and(warp::path("id")).and_then(id_query);
 
     let routes = v0.and(shutdown.or(id));
 
@@ -79,7 +103,9 @@ fn serve(_home: PathBuf, _options: ()) -> (std::net::SocketAddr, impl std::futur
     })
 }
 
-async fn shutdown(mut tx: tokio::sync::mpsc::Sender<()>) -> Result<impl warp::Reply, std::convert::Infallible> {
+async fn shutdown(
+    mut tx: tokio::sync::mpsc::Sender<()>,
+) -> Result<impl warp::Reply, std::convert::Infallible> {
     Ok(match tx.send(()).await {
         Ok(_) => warp::http::StatusCode::OK,
         Err(_) => warp::http::StatusCode::NOT_IMPLEMENTED,
