@@ -44,6 +44,7 @@ fn main() {
         let (addr, server) = serve(home, ());
 
         println!("API listening on /ipv4/{}/tcp/{}", addr.ip(), addr.port());
+        println!("daemon is running");
 
         server.await
     });
