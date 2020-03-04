@@ -1,5 +1,23 @@
 use serde::Serialize;
 use std::path::PathBuf;
+use std::num::NonZeroU16;
+use structopt::StructOpt;
+
+#[derive(Debug, StructOpt)]
+enum Options {
+    /// Should initialize the repository (create directories and such). `js-ipfsd-ctl` calls this
+    /// with two arguments by default, `--bits 1024` and `--profile test`.
+    Init {
+        /// Generated key length
+        #[structopt(long)]
+        bits: NonZeroU16,
+        /// List of configuration profiles to apply
+        #[structopt(long, use_delimiter = true)]
+        profile: Vec<String>
+    },
+    /// Start the IPFS node in the foreground (not detaching from parent process).
+    Daemon,
+}
 
 fn main() {
     if std::env::var_os("RUST_LOG").is_none() {
@@ -8,11 +26,11 @@ fn main() {
         std::env::set_var("RUST_LOG", "rust-ipfs-http=trace,rust-ipfs=trace");
     }
 
-    print!(
-        "Invoked with args: {:?}",
-        std::env::args().collect::<Vec<_>>()
+    let opts = Options::from_args();
+
+    println!(
+        "Invoked with args: {:?}", opts
     );
-    println!();
 
     // go-ipfs seems to deduce like this
     let home = std::env::var_os("IPFS_PATH")
@@ -29,16 +47,62 @@ fn main() {
     // bit more.
 
     let home = match home {
-        // FIXME: doing the check here opens toctou, should be done when opening the repo, while that
-        // is equally bad.
-        Some(s) if s.is_dir() => s,
-        Some(s) => {
-            eprintln!("Error: No IPFS repo found on {:?}", s);
-            std::process::exit(1);
-        }
+        Some(path) => path,
         None => {
             eprintln!("IPFS_PATH and HOME unset");
             std::process::exit(1);
+        }
+    };
+
+    let config_path = home.join("config");
+
+    match opts {
+        Options::Init { bits, profile } => {
+            println!("initializing IPFS node at {:?}", home);
+
+            if config_path.is_file() {
+                eprintln!("Error: ipfs configuration file already exists!");
+                eprintln!("Reinitializing would override your keys.");
+                std::process::exit(1);
+            }
+
+            let bits = bits.get();
+
+            if bits < 1024 || bits > 16 * 1024 {
+                eprintln!("Error: --bits out of range [1024, 16384]: {}", bits);
+                eprintln!("This is a fake version of ipfs cli which does not support much");
+                std::process::exit(1);
+            }
+
+            if profile.len() != 1 || profile[0] != "test" {
+                eprintln!("Error: unsupported profile selection: {:?}", profile);
+                eprintln!("This is a fake version of ipfs cli which does not support much");
+                std::process::exit(1);
+            }
+
+            let result = std::fs::create_dir_all(&home)
+                .and_then(|_| std::fs::File::create(&config_path));
+
+            match result {
+                Ok(_) => {
+                    // go-ipfs prints here (in addition to earlier "initializing ..."):
+                    //
+                    // generating 2048-bit RSA keypair...done
+                    // peer identity: QmdNmxF88uyUzm8T7ps8LnCuZJzPnJvgUJxpKGqAMuxSQE
+                    std::process::exit(0);
+                },
+                Err(e) => {
+                    eprintln!("Error: failed to create repository path {:?}: {}", home, e);
+                    std::process::exit(1);
+                }
+            }
+        },
+        Options::Daemon => {
+            if !config_path.is_file() {
+                eprintln!("Error: no IPFS repo found in {:?}", home);
+                eprintln!("please run: 'ipfs init'");
+                std::process::exit(1);
+            }
         }
     };
 

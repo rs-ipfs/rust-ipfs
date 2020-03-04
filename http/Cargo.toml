@@ -12,3 +12,4 @@ tokio = { version = "0.2", features = ["full"] }
 warp = { version = "0.2" }
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
+structopt = "*"
