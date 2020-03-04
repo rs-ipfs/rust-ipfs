@@ -159,7 +159,8 @@ fn serve(
         .and(warp::any().map(move || shutdown_tx.clone()))
         .and_then(shutdown);
 
-    let id = warp::get().and(warp::path("id")).and_then(id_query);
+    // for some reason js-ipfsd-ctl does a POST here?
+    let id = warp::path("id").and_then(id_query);
 
     let routes = v0.and(shutdown.or(id));
 
@@ -188,10 +189,13 @@ async fn shutdown(
 //
 // https://docs.ipfs.io/reference/api/http/#api-v0-id
 async fn id_query() -> Result<impl warp::Reply, std::convert::Infallible> {
+    // the ids are from throwaway go-ipfs init -p test instance
     let response = IdResponse {
-        id: "fakeid",
-        public_key: "base64",
-        addresses: vec!["/ipv4/127.0.0.1/tcp/8002/ipfs/fakeid"],
+        id: "QmdNmxF88uyUzm8T7ps8LnCuZJzPnJvgUJxpKGqAMuxSQE",
+        public_key: "CAASpgIwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC+z3lZB1KQxNtahCLOQFFdsUrQ/XT3XLe/09sODTbGGp5mUjylR6hNQijCHFtYY7DcuAKPeyxNbdcOPmyC85gb1a1UB+nT3DiHPlM3AspnVFXDDv1u
+kZZ6Fgfs8amaWAWgx5KBRE49GjaG65+wVqtMwoALPa655bpsvaJX5JEeKe8hb8bLNup0O5Tpl3ThQ+ADXLJGmu/tWFI8SdE10xZY6hQG446B0/sL3f4HWqRbrlYrV8Ac2LyU3ZXynQ0yScqO4pXDDXoKZSI44xQNPuWQA9Y9IBWel/cbzTNjWMxapuyjoT9gmFRi52IFAl0RH9X85jFa6FYRkM+h81AiVjD/AgMB
+AAE=",
+        addresses: vec!["/ip4/127.0.0.1/tcp/8002/ipfs/QmdNmxF88uyUzm8T7ps8LnCuZJzPnJvgUJxpKGqAMuxSQE"],
         agent_version: "rust-ipfs/0.0.1",
         protocol_version: "ipfs/0.1.0",
     };
