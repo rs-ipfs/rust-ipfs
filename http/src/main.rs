@@ -119,7 +119,7 @@ fn main() {
         let api_link_file = home.join("api");
         let (addr, server) = serve(home, ());
 
-        let api_multiaddr = format!("/ipv4/{}/tcp/{}", addr.ip(), addr.port());
+        let api_multiaddr = format!("/ip4/{}/tcp/{}", addr.ip(), addr.port());
 
         // this file is looked for when js-ipfsd-ctl checks optimistically if the IPFS_PATH has a
         // daemon running already. go-ipfs file does not contain newline at the end.
