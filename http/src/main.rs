@@ -167,30 +167,28 @@ fn serve(
 
     // Same here. for some reason this is a post as well
     let api = shutdown
-            .or(id)
-
-            // Placeholder paths
-            // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
-            .or(warp::path!("add").and_then(not_implemented))
-            .or(warp::path!("bitswap" / ..).and_then(not_implemented))
-            .or(warp::path!("block" / ..).and_then(not_implemented))
-            .or(warp::path!("bootstrap" / ..).and_then(not_implemented))
-            .or(warp::path!("config" / ..).and_then(not_implemented))
-            .or(warp::path!("dag" / ..).and_then(not_implemented))
-            .or(warp::path!("dht" / ..).and_then(not_implemented))
-            .or(warp::path!("get").and_then(not_implemented))
-            .or(warp::path!("key" / ..).and_then(not_implemented))
-            .or(warp::path!("name" / ..).and_then(not_implemented))
-            .or(warp::path!("object" / ..).and_then(not_implemented))
-            .or(warp::path!("pin" / ..).and_then(not_implemented))
-            .or(warp::path!("ping" / ..).and_then(not_implemented))
-            .or(warp::path!("pubsub" / ..).and_then(not_implemented))
-            .or(warp::path!("refs" / ..).and_then(not_implemented))
-            .or(warp::path!("repo" / ..).and_then(not_implemented))
-            .or(warp::path!("stats" / ..).and_then(not_implemented))
-            .or(warp::path!("swarm" / ..).and_then(not_implemented))
-            .or(warp::path!("version").and_then(not_implemented))
-            ;
+        .or(id)
+        // Placeholder paths
+        // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
+        .or(warp::path!("add").and_then(not_implemented))
+        .or(warp::path!("bitswap" / ..).and_then(not_implemented))
+        .or(warp::path!("block" / ..).and_then(not_implemented))
+        .or(warp::path!("bootstrap" / ..).and_then(not_implemented))
+        .or(warp::path!("config" / ..).and_then(not_implemented))
+        .or(warp::path!("dag" / ..).and_then(not_implemented))
+        .or(warp::path!("dht" / ..).and_then(not_implemented))
+        .or(warp::path!("get").and_then(not_implemented))
+        .or(warp::path!("key" / ..).and_then(not_implemented))
+        .or(warp::path!("name" / ..).and_then(not_implemented))
+        .or(warp::path!("object" / ..).and_then(not_implemented))
+        .or(warp::path!("pin" / ..).and_then(not_implemented))
+        .or(warp::path!("ping" / ..).and_then(not_implemented))
+        .or(warp::path!("pubsub" / ..).and_then(not_implemented))
+        .or(warp::path!("refs" / ..).and_then(not_implemented))
+        .or(warp::path!("repo" / ..).and_then(not_implemented))
+        .or(warp::path!("stats" / ..).and_then(not_implemented))
+        .or(warp::path!("swarm" / ..).and_then(not_implemented))
+        .or(warp::path!("version").and_then(not_implemented));
 
     let routes = v0.and(api);
     let routes = routes.with(warp::log("rust-ipfs-http-v0"));
