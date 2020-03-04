@@ -25,6 +25,9 @@ fn main() {
             })
         });
 
+    // FIXME: need to process cmdline args here, but trying to understand js-ipfsd-ctl right now a
+    // bit more.
+
     let home = match home {
         // FIXME: doing the check here opens toctou, should be done when opening the repo, while that
         // is equally bad.
