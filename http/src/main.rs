@@ -1,6 +1,6 @@
 use serde::Serialize;
-use std::path::PathBuf;
 use std::num::NonZeroU16;
+use std::path::PathBuf;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -13,7 +13,7 @@ enum Options {
         bits: NonZeroU16,
         /// List of configuration profiles to apply
         #[structopt(long, use_delimiter = true)]
-        profile: Vec<String>
+        profile: Vec<String>,
     },
     /// Start the IPFS node in the foreground (not detaching from parent process).
     Daemon,
@@ -30,9 +30,7 @@ fn main() {
 
     let opts = Options::from_args();
 
-    println!(
-        "Invoked with args: {:?}", opts
-    );
+    println!("Invoked with args: {:?}", opts);
 
     // go-ipfs seems to deduce like this
     let home = std::env::var_os("IPFS_PATH")
@@ -82,8 +80,8 @@ fn main() {
                 std::process::exit(1);
             }
 
-            let result = std::fs::create_dir_all(&home)
-                .and_then(|_| std::fs::File::create(&config_path));
+            let result =
+                std::fs::create_dir_all(&home).and_then(|_| std::fs::File::create(&config_path));
 
             match result {
                 Ok(_) => {
@@ -92,13 +90,13 @@ fn main() {
                     // generating 2048-bit RSA keypair...done
                     // peer identity: QmdNmxF88uyUzm8T7ps8LnCuZJzPnJvgUJxpKGqAMuxSQE
                     std::process::exit(0);
-                },
+                }
                 Err(e) => {
                     eprintln!("Error: failed to create repository path {:?}: {}", home, e);
                     std::process::exit(1);
                 }
             }
-        },
+        }
         Options::Daemon => {
             if !config_path.is_file() {
                 eprintln!("Error: no IPFS repo found in {:?}", home);
