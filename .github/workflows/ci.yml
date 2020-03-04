@@ -2,6 +2,7 @@ on:
   push:
     branches: master
   pull_request:
+    branches: '*'
 
 name: Rust IPFS
 
