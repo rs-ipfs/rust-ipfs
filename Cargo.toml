@@ -7,6 +7,7 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = []
+nightly = []
 all = ["rocksdb"]
 
 [dependencies]
@@ -33,11 +34,11 @@ serde = "1.0.104"
 serde_derive = "1.0.104"
 serde_json = "1.0.48"
 
-[patch.crates-io]
-ctr = { git = "https://github.com/koivunej/stream-ciphers.git", branch = "ctr128-64to128" }
-
 [build-dependencies]
 prost-build = "0.6.1"
 
 [workspace]
 members = [ "http" ]
+
+[patch.crates-io]
+ctr = { git = "https://github.com/koivunej/stream-ciphers.git", branch = "ctr128-64to128" }

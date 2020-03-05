@@ -14,6 +14,7 @@ jobs:
         toolchain:
         - rust: stable
         #- rust: nightly
+
         platform:
         - target: x86_64-unknown-linux-gnu
           host: ubuntu-latest
@@ -109,3 +110,23 @@ jobs:
 
     - name: cargo clippy
       run: cargo clippy -- -D warnings
+
+  readme-doctest:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout sources
+      uses: actions/checkout@v1
+
+    - name: Cache cargo folder
+      uses: actions/cache@v1
+      with:
+        path: ~/.cargo
+        key: readme-doctest
+
+    - name: Install rust toolchain
+      uses: hecrj/setup-rust-action@v1
+      with:
+        rust-version: nightly
+
+    - name: cargo test --features nightly
+      run: cargo test --features nightly
