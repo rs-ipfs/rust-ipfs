@@ -5,6 +5,9 @@
 
 > The Interplanetary File System (IPFS), implemented in Rust
 
+[![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme) [![Build Status](https://travis-ci.org/dvc94ch/rust-ipfs.svg?branch=master)](https://travis-ci.org/dvc94ch/rust-ipfs) [![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/ipfs-rust) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW) 
+
+
 ## Description
 
 This repository contains the crates for the IPFS core implementation which includes a blockstore, libp2p integration, and HTTP API bindings. Our goal is to leverage both the unique properties of Rust to create powerful, performant software that works even in resource-constrained environments while maximizing interoperability with the other "flavors" of IPFS, namely JavaScript and Go.
@@ -25,8 +28,6 @@ IPFS is a global, versioned, peer-to-peer filesystem. It combines good ideas fro
 
 For more info see: https://docs.ipfs.io/introduction/overview/
 
-[![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme) [![Build Status](https://travis-ci.org/dvc94ch/rust-ipfs.svg?branch=master)](https://travis-ci.org/dvc94ch/rust-ipfs) [![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/ipfs-rust) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW) 
-
 ## Table of Contents
 
 - [Description](#description)
@@ -35,6 +36,10 @@ For more info see: https://docs.ipfs.io/introduction/overview/
     - [What is IPFS?](#what-is-ipfs)
 - [Install](#install)
 - [Getting Started](#getting-started)
+- [Roadmap](#roadmap)
+- [Maintainers](#maintainers)
+- [License](#license)
+- [Trademarks](#trademarks)
 
 
 ## Install
@@ -94,6 +99,50 @@ fn main() {
     });
 }
 ```
+
+More usage examples coming soon :+1:
+
+## Roadmap
+
+A large portion of this work is covered by an IPFS Devgrant from Protocol Labs. In the proposal, we discussed using implemented HTTP API endpoints as a metric to determine progress. _There are always opportunities for community members to contribute by helping out with endpoints not covered in the grant._
+
+### Devgrant Phase 1.0
+
+- Project Setup
+- Testing Setup
+    - Conformance testing
+    - Interop testing
+- HTTP API Scaffolding
+
+### Devgrant Phase 1.1
+
+- Blockstore implementation
+- /pubsub
+- /swarm
+- /version
+- /id
+
+### Devgrant Phase 1.2
+
+- Bitswap updates
+- /block
+- /dag
+- /refs
+- /bitswap
+
+### Work not covered by the grant
+
+- /object
+- /pin
+- /bootstrap
+- /dht
+- /name
+- /ping
+- /key
+- /config
+- /stats
+- /files (regular and mfs)
+- a few othrer miscellaneous endpoints as well not enumerated here
 
 ## Maintainers
 
