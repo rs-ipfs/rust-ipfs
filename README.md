@@ -5,14 +5,6 @@
 
 > The Interplanetary File System (IPFS), implemented in Rust
 
-## Table of Contents
-
-- [Description](#description)
-    - [Project Status](#project-status-pre-alpha)
-    - [You can help](#you-can-help)
-    - [What is IPFS?](#what-is-ipfs)
-- [Getting Started](#getting-started)
-
 ## Description
 
 This repository contains the crates for the IPFS core implementation which includes a blockstore, libp2p integration, and HTTP API bindings. Our goal is to leverage both the unique properties of Rust to create powerful, performant software that works even in resource-constrained environments while maximizing interoperability with the other "flavors" of IPFS, namely JavaScript and Go.
@@ -34,6 +26,33 @@ IPFS is a global, versioned, peer-to-peer filesystem. It combines good ideas fro
 For more info see: https://docs.ipfs.io/introduction/overview/
 
 [![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme) [![Build Status](https://travis-ci.org/dvc94ch/rust-ipfs.svg?branch=master)](https://travis-ci.org/dvc94ch/rust-ipfs) [![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/ipfs-rust) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW) 
+
+## Table of Contents
+
+- [Description](#description)
+    - [Project Status](#project-status---pre-alpha)
+    - [You can help](#you-can-help)
+    - [What is IPFS?](#what-is-ipfs)
+- [Install](#install)
+- [Getting Started](#getting-started)
+
+
+## Install
+
+The `rust-ipfs` binaries can be built from source. Our goal is to always be compatible with the **stable** release of Rust.
+
+```bash
+$ git clone https://github.com/ipfs-rust/rust-ipfs && cd rust-ipfs
+$ cargo build
+
+# To build the http bindings
+$ cd http
+$ cargo build
+```
+
+You will then find the binaries inside of the project root's `/target/debug` folder.
+
+_Note: binaries available via `cargo install` is coming soon._
 
 ## Getting started
 ```rust,no-run
@@ -75,6 +94,10 @@ fn main() {
     });
 }
 ```
+
+## Maintainers
+
+Rust IPFS is currently actively maintained by @dvc94ch, @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol) and [Equilibrium Labs](https://github.com/eqlabs).
 
 ## License
 
