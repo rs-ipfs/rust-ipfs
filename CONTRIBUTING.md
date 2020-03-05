@@ -11,7 +11,6 @@ Welcome, and thank you for your interest in contributing to Rust IPFS. Issues an
 
 1. Keep the build time small
 2. Aim for high (but not absolute) code coverage in testing
-3. Keep the dependency count low (use [`cargo-deps`](https://github.com/m-cat/cargo-deps))
 
 ## Target Build
 
