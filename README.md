@@ -14,7 +14,7 @@ This repository contains the crates for the IPFS core implementation which inclu
 
 ### Project Status - `Pre-Alpha`
 
-There's a lot of great work in here, and a lot more coming that isn't implemented yet. Recently, this project was awarded a dev grant from Protocol Labs, empowering us to raise our level of conformance. After the grant work is complete the project will achieve alpha stage.
+There's a lot of great work in here, and a lot more coming that isn't implemented yet. Recently, this project was awarded a [dev grant from Protocol Labs](https://github.com/ipfs/devgrants/tree/master/open-grants/ipfs-rust), empowering us to raise our level of conformance. After the grant work is complete the project will achieve alpha stage.
 
 ### You can help.
 
@@ -104,7 +104,7 @@ More usage examples coming soon :+1:
 
 ## Roadmap
 
-A large portion of this work is covered by an IPFS Devgrant from Protocol Labs. In the proposal, we discussed using implemented HTTP API endpoints as a metric to determine progress. _There are always opportunities for community members to contribute by helping out with endpoints not covered in the grant._
+A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs](https://github.com/ipfs/devgrants/tree/master/open-grants/ipfs-rust). In the proposal, we discussed using implemented HTTP API endpoints as a metric to determine progress. _There are always opportunities for community members to contribute by helping out with endpoints not covered in the grant._
 
 ### Devgrant Phase 1.0
 
@@ -146,7 +146,7 @@ A large portion of this work is covered by an IPFS Devgrant from Protocol Labs. 
 
 ## Maintainers
 
-Rust IPFS is currently actively maintained by @dvc94ch, @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol) and [Equilibrium Labs](https://github.com/eqlabs).
+Rust IPFS is currently actively maintained by @dvc94ch, @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol), [Equilibrium Labs](https://github.com/eqlabs), and [MRH.io](https://mrh.io).
 
 ## License
 
