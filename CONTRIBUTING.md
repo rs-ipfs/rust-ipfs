@@ -25,7 +25,7 @@ We welcome all forms of contribution. Please open issues and PRs for:
 - Suggesting Enhancements
 - Adding new tests
 - Adding new functionality
-- Documentation-only udpates
+- Documentation-only updates
 
 ## Style
 
