@@ -60,7 +60,7 @@ You will then find the binaries inside of the project root's `/target/debug` fol
 _Note: binaries available via `cargo install` is coming soon._
 
 ## Getting started
-```rust,no-run
+```rust,no_run
 use async_std::task;
 use futures::join;
 use ipfs::{IpfsOptions, Ipld, Types, UninitializedIpfs};
