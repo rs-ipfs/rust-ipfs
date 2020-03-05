@@ -19,8 +19,8 @@ There's a lot of great work in here, and a lot more coming that isn't implemente
 ### You can help.
 
 PRs and Issues accepted for any of the following. See [the contributing docs](./CONTRIBUTING.md) for more info.
-* Implement endpoints not covered by the devgrant proposal. 
-* There are a series of endpoints that are not covered by the grant and any work on getting those to conformance will be welcome.
+* Implement endpoints not covered by the devgrant proposal. See the [roadmap section](#roadmap) below
+* Back the project financially by reaching out or by becoming a backer on [OpenCollective](https://opencollective.com/ipfs-rust)
 
 ### What is IPFS?
 
