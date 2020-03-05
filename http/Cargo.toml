@@ -1,0 +1,14 @@
+[package]
+name = "rust-ipfs-http"
+version = "0.1.0"
+authors = ["Joonas Koivunen <joonas@equilibrium.co>"]
+edition = "2018"
+
+[dependencies]
+env_logger = "*"
+ipfs = { path = "../" }
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+structopt = "*"
+tokio = { version = "0.2", features = ["full"] }
+warp = { version = "0.2" }
