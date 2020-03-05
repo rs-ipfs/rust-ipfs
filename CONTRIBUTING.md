@@ -29,7 +29,7 @@ We welcome all forms of contribution. Please open issues and PRs for:
 
 ## Style
 
-- Git Commit Messages should lean towards Conventional Commits but will not be enforced
+- Git Commit Messages should lean towards [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) but will not be enforced
 - Rust code should conform to `rustfmt` and `clippy` before push, as the CI will catch errors there
 
 ## Security vuln disclosure - perhaps in SECURITY.md?
