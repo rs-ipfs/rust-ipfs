@@ -19,13 +19,13 @@ cid = { git = "https://github.com/multiformats/rust-cid", branch = "master" }
 dirs = "2.0.2"
 domain = { git = "https://github.com/nlnetlabs/domain", features = ["resolv"] }
 env_logger = "0.7.1"
-failure = "0.1.6"
+failure = "0.1.7"
 fnv = "1.0.6"
 futures = { version = "0.3.4", features = [ "compat", "io-compat", "async-await" ] }
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "1eff4b98237f50f8697af71fdd8362fe9e51d071" }
+libp2p = "0.16.2"
 log = "0.4.8"
-multibase = "0.7.0"
-multihash = "0.8.0"
+multibase = "0.8.0"
+multihash = "0.10.0"
 prost = "0.6.1"
 rand = "0.7.3"
 rocksdb = { version = "0.13.0", optional = true }
