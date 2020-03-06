@@ -28,19 +28,19 @@ jobs:
           host: windows-latest
           cross: false
 
-       # - target: armv7-linux-androideabi
-       #   host: ubuntu-latest
-       #   cross: true
-       # - target: aarch64-linux-android
-       #   host: ubuntu-latest
-       #   cross: true
+        - target: armv7-linux-androideabi
+          host: ubuntu-latest
+          cross: true
+        - target: aarch64-linux-android
+          host: ubuntu-latest
+          cross: true
 
-       # - target: armv7-apple-ios
-       #   host: macos-latest
-       #   cross: true
-       # - target: aarch64-apple-ios
-       #   host: macos-latest
-       #   cross: true
+        - target: armv7-apple-ios
+          host: macos-latest
+          cross: true
+        - target: aarch64-apple-ios
+          host: macos-latest
+          cross: true
 
        # - target: wasm32-unknown-unknown
        #   host: ubuntu-latest
@@ -80,8 +80,17 @@ jobs:
         rust-version: ${{ matrix.toolchain.rust }}
         targets: ${{ matrix.platform.target }}
 
+    - name: Install cargo-ndk
+      if: contains(matrix.platform.target, 'android')
+      run: cargo install cargo-ndk
+
     - name: Build
+      if: contains(matrix.platform.target, 'android') == false
       run: cargo build --all --target ${{ matrix.platform.target }}
+
+    - name: Build android
+      if: contains(matrix.platform.target, 'android')
+      run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --all
 
     - name: Rust tests
       if: matrix.platform.cross == false
