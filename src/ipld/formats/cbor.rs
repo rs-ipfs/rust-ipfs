@@ -4,12 +4,13 @@ use crate::ipld::Ipld;
 use cbor::{Cbor, Decoder, Encoder};
 pub use cbor::{CborBytes, CborError, CborTagEncode, ReadError};
 use cid::Prefix;
+use core::convert::TryFrom;
 use rustc_serialize::{Encodable, Encoder as RustcEncoder};
 
 pub(crate) const PREFIX: Prefix = Prefix {
     version: cid::Version::V1,
     codec: cid::Codec::DagCBOR,
-    mh_type: multihash::Hash::SHA2256,
+    mh_type: multihash::Code::Sha2_256,
     mh_len: 32,
 };
 
@@ -56,7 +57,7 @@ fn cbor_to_ipld(cbor: Cbor) -> Result<Ipld, Error> {
         Cbor::Tag(tag) => {
             if tag.tag == 42 {
                 if let Cbor::Bytes(bytes) = *tag.data {
-                    Ipld::Link(Cid::from(bytes.0)?.into())
+                    Ipld::Link(Cid::try_from(bytes.0)?.into())
                 } else {
                     println!("{:?}", *tag.data);
                     let err = ReadError::Other("Invalid CID.".into());

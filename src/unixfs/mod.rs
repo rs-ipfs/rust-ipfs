@@ -68,13 +68,14 @@ mod tests {
     use crate::block::Cid;
     use crate::repo::tests::create_mock_repo;
     use crate::tests::async_test;
+    use core::convert::TryFrom;
 
     #[test]
     fn test_file_cid() {
         let repo = create_mock_repo();
         let dag = IpldDag::new(repo);
         let file = File::from("\u{8}\u{2}\u{12}\u{12}Here is some data\n\u{18}\u{12}");
-        let cid = Cid::from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
+        let cid = Cid::try_from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
 
         async_test(async move {
             let path = file.put_unixfs_v1(&dag).await.unwrap();

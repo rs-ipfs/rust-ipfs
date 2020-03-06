@@ -3,8 +3,8 @@ use crate::error::{Error, TryError};
 use crate::ipld::Ipld;
 use crate::path::PathRoot;
 use cid::Prefix;
+use core::convert::{TryFrom, TryInto};
 use std::collections::HashMap;
-use std::convert::{TryFrom, TryInto};
 
 mod dag_pb {
     include!(concat!(env!("OUT_DIR"), "/dag_pb.rs"));
@@ -13,7 +13,7 @@ mod dag_pb {
 pub(crate) const PREFIX: Prefix = Prefix {
     version: cid::Version::V0,
     codec: cid::Codec::DagProtobuf,
-    mh_type: multihash::Hash::SHA2256,
+    mh_type: multihash::Code::Sha2_256,
     mh_len: 32,
 };
 
@@ -48,7 +48,7 @@ impl PbNode {
         let data = proto.data;
         let mut links = Vec::new();
         for link in proto.links {
-            let cid = Cid::from(link.hash)?.into();
+            let cid = Cid::try_from(link.hash)?.into();
             let name = link.name;
             let size = link.tsize;
             links.push(PbLink { cid, name, size });
@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn test_encode_decode() {
         //let pb_link = HashMap::<&str, Ipld>::new();
-        //pb_link.insert("Hash", Cid::from());
+        //pb_link.insert("Hash", Cid::try_from());
         //pb_link.insert("Tsize", 13.into());
 
         let links: Vec<Ipld> = vec![];

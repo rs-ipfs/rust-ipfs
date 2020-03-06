@@ -1,7 +1,7 @@
 use crate::block::Cid;
 use crate::error::{Error, TryError};
+use core::convert::{TryFrom, TryInto};
 use libp2p::PeerId;
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::str::FromStr;
 
@@ -24,8 +24,8 @@ impl FromStr for IpfsPath {
         let key = subpath.next();
 
         let root = match (empty, root_type, key) {
-            (Some(""), Some("ipfs"), Some(key)) => PathRoot::Ipld(Cid::from(key)?),
-            (Some(""), Some("ipld"), Some(key)) => PathRoot::Ipld(Cid::from(key)?),
+            (Some(""), Some("ipfs"), Some(key)) => PathRoot::Ipld(Cid::try_from(key)?),
+            (Some(""), Some("ipld"), Some(key)) => PathRoot::Ipld(Cid::try_from(key)?),
             (Some(""), Some("ipns"), Some(key)) => match PeerId::from_str(key).ok() {
                 Some(peer_id) => PathRoot::Ipns(peer_id),
                 None => PathRoot::Dns(key.to_string()),

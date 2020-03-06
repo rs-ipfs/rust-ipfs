@@ -8,6 +8,7 @@ use async_std::fs;
 use async_std::path::PathBuf;
 use async_std::prelude::*;
 use async_trait::async_trait;
+use core::convert::TryFrom;
 use futures::stream::StreamExt;
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -45,7 +46,7 @@ impl BlockStore for FsBlockStore {
                 return;
             }
             let cid_str = path.file_stem().unwrap();
-            let cid = Cid::from(cid_str.to_str().unwrap()).unwrap();
+            let cid = Cid::try_from(cid_str.to_str().unwrap()).unwrap();
             cids.lock().unwrap_or_else(|p| p.into_inner()).insert(cid);
         }
 

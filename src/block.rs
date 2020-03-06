@@ -42,7 +42,7 @@ impl From<&str> for Block {
         let prefix = cid::Prefix {
             version: cid::Version::V0,
             codec: cid::Codec::DagProtobuf,
-            mh_type: multihash::Hash::SHA2256,
+            mh_type: multihash::Code::Sha2_256,
             mh_len: 32,
         };
         let data = content.as_bytes().to_vec();
@@ -64,11 +64,11 @@ mod tests {
     #[test]
     fn test_raw_block_cid() {
         let content = "hello\n".as_bytes();
-        let cid = "zb2rhcc1wJn2GHDLT2YkmPq5b69cXc2xfRZZmyufbjFUfBkxr";
+        let cid = "bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am";
         let prefix = cid::Prefix {
             version: cid::Version::V1,
             codec: cid::Codec::Raw,
-            mh_type: multihash::Hash::SHA2256,
+            mh_type: multihash::Code::Sha2_256,
             mh_len: 32,
         };
         let computed_cid = cid::Cid::new_from_prefix(&prefix, &content).to_string();
@@ -82,7 +82,7 @@ mod tests {
         let prefix = cid::Prefix {
             version: cid::Version::V0,
             codec: cid::Codec::DagProtobuf,
-            mh_type: multihash::Hash::SHA2256,
+            mh_type: multihash::Code::Sha2_256,
             mh_len: 32,
         };
         let computed_cid = cid::Cid::new_from_prefix(&prefix, &content).to_string();

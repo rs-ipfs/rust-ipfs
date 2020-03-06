@@ -195,7 +195,7 @@ impl TryFrom<&[u8]> for Message<I> {
         let proto: bitswap_pb::Message = bitswap_pb::Message::decode(bytes)?;
         let mut message = Message::new();
         for entry in proto.wantlist.unwrap_or_default().entries {
-            let cid = Cid::from(entry.block)?;
+            let cid = Cid::try_from(entry.block)?;
             if entry.cancel {
                 message.cancel_block(&cid);
             } else {
