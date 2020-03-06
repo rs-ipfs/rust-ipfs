@@ -31,6 +31,6 @@ We welcome all forms of contribution. Please open issues and PRs for:
 - Git Commit Messages should lean towards [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) but will not be enforced
 - Rust code should conform to `rustfmt` and `clippy` before push, as the CI will catch errors there
 
-## Security vuln disclosure - perhaps in SECURITY.md?
+## Security
 
-If you have discovered a security vulnerability, please open and issue. We'd like to handle things as transparently as possible. If you don't feel like this is prudent, please visit us on one of the chat channels via the badges in the README. One of the core contributors will be able to talk to you about the disclosure.
+If you have discovered a security vulnerability, please open an issue. We'd like to handle things as transparently as possible. If you don't feel like this is prudent, please visit us on one of the chat channels via the badges in the README. One of the core contributors will be able to talk to you about the disclosure.
