@@ -1,5 +1,5 @@
-use crate::ipld::Ipld;
 use crate::path::SubPath;
+use libipld::ipld::Ipld;
 
 #[derive(Debug)]
 pub enum IpfsPathError {

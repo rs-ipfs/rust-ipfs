@@ -81,7 +81,7 @@ impl BlockStore for FsBlockStore {
         };
         let mut data = Vec::new();
         file.read_to_end(&mut data).await?;
-        let block = Block::new(data, cid);
+        let block = Block::new(data.into_boxed_slice(), cid);
         Ok(Some(block))
     }
 
