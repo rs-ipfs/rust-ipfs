@@ -1,11 +1,14 @@
+use crate::dag::IpldDag;
 use crate::error::Error;
-use crate::ipld::{formats::pb::PbNode, Ipld, IpldDag};
 use crate::path::IpfsPath;
 use crate::repo::RepoTypes;
 use async_std::fs;
 use async_std::io::ReadExt;
 use async_std::path::PathBuf;
-use std::collections::HashMap;
+use libipld::cid::{Cid, Codec};
+use libipld::ipld::Ipld;
+use libipld::pb::PbNode;
+use std::collections::BTreeMap;
 use std::convert::TryInto;
 
 pub struct File {
@@ -25,20 +28,16 @@ impl File {
         path: IpfsPath,
     ) -> Result<Self, Error> {
         let ipld = dag.get(path).await?;
-        let pb_node: PbNode = match ipld.try_into() {
-            Ok(pb_node) => pb_node,
-            Err(_) => bail!("invalid dag_pb node"),
-        };
+        let pb_node: PbNode = (&ipld).try_into()?;
         Ok(File { data: pb_node.data })
     }
 
-    pub async fn put_unixfs_v1<T: RepoTypes>(&self, dag: &IpldDag<T>) -> Result<IpfsPath, Error> {
+    pub async fn put_unixfs_v1<T: RepoTypes>(&self, dag: &IpldDag<T>) -> Result<Cid, Error> {
         let links: Vec<Ipld> = vec![];
-        let mut pb_node = HashMap::<&str, Ipld>::new();
-        pb_node.insert("Data", self.data.clone().into());
-        pb_node.insert("Links", links.into());
-        let ipld = pb_node.into();
-        dag.put(ipld, cid::Codec::DagProtobuf).await
+        let mut pb_node = BTreeMap::<String, Ipld>::new();
+        pb_node.insert("Data".to_string(), self.data.clone().into());
+        pb_node.insert("Links".to_string(), links.into());
+        dag.put(pb_node.into(), Codec::DagProtobuf).await
     }
 }
 
@@ -78,8 +77,8 @@ mod tests {
         let cid = Cid::try_from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
 
         async_test(async move {
-            let path = file.put_unixfs_v1(&dag).await.unwrap();
-            assert_eq!(cid.to_string(), path.root().cid().unwrap().to_string());
+            let cid2 = file.put_unixfs_v1(&dag).await.unwrap();
+            assert_eq!(cid.to_string(), cid2.to_string());
         });
     }
 }

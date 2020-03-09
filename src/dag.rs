@@ -1,8 +1,10 @@
+use crate::block::{Block, Cid};
 use crate::error::Error;
-use crate::ipld::Ipld;
-use crate::path::{IpfsPath, IpfsPathError, PathRoot, SubPath};
+use crate::path::{IpfsPath, IpfsPathError, SubPath};
 use crate::repo::{Repo, RepoTypes};
-use cid::Codec;
+use libipld::block::{decode_ipld, encode_ipld};
+use libipld::cid::{Codec, Version};
+use libipld::ipld::Ipld;
 
 #[derive(Clone)]
 pub struct IpldDag<Types: RepoTypes> {
@@ -14,11 +16,19 @@ impl<Types: RepoTypes> IpldDag<Types> {
         IpldDag { repo }
     }
 
-    pub async fn put(&self, data: Ipld, codec: Codec) -> Result<IpfsPath, Error> {
+    pub async fn put(&self, data: Ipld, codec: Codec) -> Result<Cid, Error> {
         let mut repo = self.repo.clone();
-        let block = data.to_block(codec)?;
+        let bytes = encode_ipld(&data, codec)?;
+        let hash = multihash::Sha2_256::digest(&bytes);
+        let version = if codec == Codec::DagProtobuf {
+            Version::V0
+        } else {
+            Version::V1
+        };
+        let cid = Cid::new(version, codec, hash)?;
+        let block = Block::new(bytes, cid);
         let cid = repo.put_block(block).await?;
-        Ok(IpfsPath::new(PathRoot::Ipld(cid)))
+        Ok(cid)
     }
 
     pub async fn get(&self, path: IpfsPath) -> Result<Ipld, Error> {
@@ -27,7 +37,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
             Some(cid) => cid,
             None => bail!("expected cid"),
         };
-        let mut ipld = Ipld::from(&repo.get_block(&cid).await?)?;
+        let mut ipld = decode_ipld(&cid, repo.get_block(&cid).await?.data())?;
         for sub_path in path.iter() {
             if !can_resolve(&ipld, sub_path) {
                 let path = sub_path.to_owned();
@@ -35,10 +45,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
             }
             ipld = resolve(ipld, sub_path);
             ipld = match ipld {
-                Ipld::Link(root) => match root.cid() {
-                    Some(cid) => Ipld::from(&repo.get_block(cid).await?)?,
-                    None => bail!("expected cid"),
-                },
+                Ipld::Link(cid) => decode_ipld(&cid, repo.get_block(&cid).await?.data())?,
                 ipld => ipld,
             };
         }
@@ -49,14 +56,14 @@ impl<Types: RepoTypes> IpldDag<Types> {
 fn can_resolve(ipld: &Ipld, sub_path: &SubPath) -> bool {
     match sub_path {
         SubPath::Key(key) => {
-            if let Ipld::Object(ref map) = ipld {
+            if let Ipld::Map(ref map) = ipld {
                 if map.contains_key(key) {
                     return true;
                 }
             }
         }
         SubPath::Index(index) => {
-            if let Ipld::Array(ref vec) = ipld {
+            if let Ipld::List(ref vec) = ipld {
                 if *index < vec.len() {
                     return true;
                 }
@@ -69,12 +76,12 @@ fn can_resolve(ipld: &Ipld, sub_path: &SubPath) -> bool {
 fn resolve(ipld: Ipld, sub_path: &SubPath) -> Ipld {
     match sub_path {
         SubPath::Key(key) => {
-            if let Ipld::Object(mut map) = ipld {
+            if let Ipld::Map(mut map) = ipld {
                 return map.remove(key).unwrap();
             }
         }
         SubPath::Index(index) => {
-            if let Ipld::Array(mut vec) = ipld {
+            if let Ipld::List(mut vec) = ipld {
                 return vec.swap_remove(*index);
             }
         }
@@ -90,17 +97,16 @@ mod tests {
     use super::*;
     use crate::repo::tests::create_mock_repo;
     use crate::tests::async_test;
-    use std::collections::HashMap;
+    use libipld::ipld;
 
     #[test]
     fn test_resolve_root_cid() {
         async_test(async {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
-            let data = Ipld::Array(vec![Ipld::U64(1), Ipld::U64(2), Ipld::U64(3)]);
-            let path = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
-
-            let res = dag.get(path).await.unwrap();
+            let data = ipld!([1, 2, 3]);
+            let cid = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
+            let res = dag.get(IpfsPath::from(cid)).await.unwrap();
             assert_eq!(res, data);
         });
     }
@@ -110,10 +116,13 @@ mod tests {
         async_test(async move {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
-            let data: Ipld = vec![1, 2, 3].into();
-            let path = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
-            let res = dag.get(path.sub_path("1").unwrap()).await.unwrap();
-            assert_eq!(res, Ipld::U64(2));
+            let data = ipld!([1, 2, 3]);
+            let cid = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
+            let res = dag
+                .get(IpfsPath::from(cid).sub_path("1").unwrap())
+                .await
+                .unwrap();
+            assert_eq!(res, ipld!(2));
         });
     }
 
@@ -122,14 +131,13 @@ mod tests {
         async_test(async move {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
-            let data = Ipld::Array(vec![
-                Ipld::U64(1),
-                Ipld::Array(vec![Ipld::U64(2)]),
-                Ipld::U64(3),
-            ]);
-            let path = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
-            let res = dag.get(path.sub_path("1/0").unwrap()).await.unwrap();
-            assert_eq!(res, Ipld::U64(2));
+            let data = ipld!([1, [2], 3,]);
+            let cid = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
+            let res = dag
+                .get(IpfsPath::from(cid).sub_path("1/0").unwrap())
+                .await
+                .unwrap();
+            assert_eq!(res, ipld!(2));
         });
     }
 
@@ -138,11 +146,15 @@ mod tests {
         async_test(async move {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
-            let mut data = HashMap::new();
-            data.insert("key", false);
-            let path = dag.put(data.into(), Codec::DagCBOR).await.unwrap();
-            let res = dag.get(path.sub_path("key").unwrap()).await.unwrap();
-            assert_eq!(res, Ipld::Bool(false));
+            let data = ipld!({
+                "key": false,
+            });
+            let cid = dag.put(data.into(), Codec::DagCBOR).await.unwrap();
+            let res = dag
+                .get(IpfsPath::from(cid).sub_path("key").unwrap())
+                .await
+                .unwrap();
+            assert_eq!(res, ipld!(false));
         });
     }
 
@@ -151,12 +163,15 @@ mod tests {
         async_test(async move {
             let repo = create_mock_repo();
             let dag = IpldDag::new(repo);
-            let data1 = vec![1].into();
-            let path1 = dag.put(data1, Codec::DagCBOR).await.unwrap();
-            let data2 = vec![path1.root().to_owned()].into();
-            let path = dag.put(data2, Codec::DagCBOR).await.unwrap();
-            let res = dag.get(path.sub_path("0/0").unwrap()).await.unwrap();
-            assert_eq!(res, Ipld::U64(1));
+            let data1 = ipld!([1]);
+            let cid1 = dag.put(data1, Codec::DagCBOR).await.unwrap();
+            let data2 = ipld!([cid1]);
+            let cid2 = dag.put(data2, Codec::DagCBOR).await.unwrap();
+            let res = dag
+                .get(IpfsPath::from(cid2).sub_path("0/0").unwrap())
+                .await
+                .unwrap();
+            assert_eq!(res, ipld!(1));
         });
     }
 }

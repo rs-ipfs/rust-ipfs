@@ -1,18 +1,18 @@
 //! Block
 pub use crate::error::Error;
 pub use crate::path::{IpfsPath, PathRoot};
-pub use cid::Cid;
+pub use libipld::cid::Cid;
 
 #[derive(Clone, Debug, PartialEq)]
 /// An immutable ipfs block.
 pub struct Block {
-    data: Vec<u8>,
+    data: Box<[u8]>,
     cid: Cid,
 }
 
 impl Block {
     /// Creates a new immutable ipfs block.
-    pub fn new(data: Vec<u8>, cid: Cid) -> Self {
+    pub fn new(data: Box<[u8]>, cid: Cid) -> Self {
         Block { data, cid }
     }
 
@@ -27,7 +27,7 @@ impl Block {
     }
 
     /// Returns the data of the block.
-    pub fn data(&self) -> &Vec<u8> {
+    pub fn data(&self) -> &[u8] {
         &self.data
     }
 
@@ -39,14 +39,9 @@ impl Block {
 
 impl From<&str> for Block {
     fn from(content: &str) -> Block {
-        let prefix = cid::Prefix {
-            version: cid::Version::V0,
-            codec: cid::Codec::DagProtobuf,
-            mh_type: multihash::Code::Sha2_256,
-            mh_len: 32,
-        };
-        let data = content.as_bytes().to_vec();
-        let cid = cid::Cid::new_from_prefix(&prefix, &data);
+        let data = content.as_bytes().to_vec().into_boxed_slice();
+        let hash = multihash::Sha2_256::digest(&data);
+        let cid = Cid::new_v0(hash).unwrap();
         Block::new(data, cid)
     }
 }
@@ -60,18 +55,14 @@ impl Into<String> for Block {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libipld::cid::Codec;
 
     #[test]
     fn test_raw_block_cid() {
-        let content = "hello\n".as_bytes();
+        let content = b"hello\n";
         let cid = "bafkreicysg23kiwv34eg2d7qweipxwosdo2py4ldv42nbauguluen5v6am";
-        let prefix = cid::Prefix {
-            version: cid::Version::V1,
-            codec: cid::Codec::Raw,
-            mh_type: multihash::Code::Sha2_256,
-            mh_len: 32,
-        };
-        let computed_cid = cid::Cid::new_from_prefix(&prefix, &content).to_string();
+        let hash = multihash::Sha2_256::digest(content);
+        let computed_cid = Cid::new_v1(Codec::Raw, hash).to_string();
         assert_eq!(cid, computed_cid);
     }
 
@@ -79,13 +70,8 @@ mod tests {
     fn test_dag_pb_block_cid() {
         let content = "hello\n".as_bytes();
         let cid = "QmUJPTFZnR2CPGAzmfdYPghgrFtYFB6pf1BqMvqfiPDam8";
-        let prefix = cid::Prefix {
-            version: cid::Version::V0,
-            codec: cid::Codec::DagProtobuf,
-            mh_type: multihash::Code::Sha2_256,
-            mh_len: 32,
-        };
-        let computed_cid = cid::Cid::new_from_prefix(&prefix, &content).to_string();
+        let hash = multihash::Sha2_256::digest(content);
+        let computed_cid = Cid::new_v0(hash).unwrap().to_string();
         assert_eq!(cid, computed_cid);
     }
 

@@ -1,6 +1,7 @@
 use async_std::task;
 use futures::join;
-use ipfs::{IpfsOptions, Ipld, Types, UninitializedIpfs};
+use ipfs::{IpfsOptions, Types, UninitializedIpfs};
+use libipld::ipld;
 
 fn main() {
     let options = IpfsOptions::<Types>::default();
@@ -12,13 +13,11 @@ fn main() {
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         task::spawn(fut);
 
-        let block1: Ipld = "block1".to_string().into();
-        let block2: Ipld = "block2".to_string().into();
-        let f1 = ipfs.put_dag(block1);
-        let f2 = ipfs.put_dag(block2);
+        let f1 = ipfs.put_dag(ipld!("block1"));
+        let f2 = ipfs.put_dag(ipld!("block2"));
         let (res1, res2) = join!(f1, f2);
 
-        let root: Ipld = vec![res1.unwrap(), res2.unwrap()].into();
+        let root = ipld!([res1.unwrap(), res2.unwrap()]);
         ipfs.put_dag(root).await.unwrap();
 
         ipfs.exit_daemon();

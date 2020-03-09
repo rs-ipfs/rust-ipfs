@@ -10,6 +10,8 @@ extern crate failure;
 extern crate log;
 use async_std::path::PathBuf;
 use futures::channel::mpsc::{channel, Receiver, Sender};
+use libipld::cid::Codec;
+pub use libipld::ipld::Ipld;
 pub use libp2p::PeerId;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -17,8 +19,8 @@ use std::marker::PhantomData;
 pub mod bitswap;
 pub mod block;
 mod config;
+mod dag;
 pub mod error;
-pub mod ipld;
 pub mod ipns;
 pub mod p2p;
 pub mod path;
@@ -27,9 +29,8 @@ pub mod unixfs;
 
 pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
+use self::dag::IpldDag;
 pub use self::error::Error;
-pub use self::ipld::Ipld;
-use self::ipld::IpldDag;
 use self::ipns::Ipns;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
@@ -228,8 +229,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Puts an ipld dag node into the ipfs repo.
-    pub async fn put_dag(&self, ipld: Ipld) -> Result<IpfsPath, Error> {
-        Ok(self.dag.put(ipld, cid::Codec::DagCBOR).await?)
+    pub async fn put_dag(&self, ipld: Ipld) -> Result<Cid, Error> {
+        Ok(self.dag.put(ipld, Codec::DagCBOR).await?)
     }
 
     /// Gets an ipld dag node from the ipfs repo.
@@ -238,7 +239,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Adds a file into the ipfs repo.
-    pub async fn add(&self, path: PathBuf) -> Result<IpfsPath, Error> {
+    pub async fn add(&self, path: PathBuf) -> Result<Cid, Error> {
         let dag = self.dag.clone();
         let file = File::new(path).await?;
         let path = file.put_unixfs_v1(&dag).await?;
@@ -338,6 +339,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 mod tests {
     use super::*;
     use async_std::task;
+    use libipld::ipld;
 
     /// Testing helper for std::future::Futures until we can upgrade tokio
     pub(crate) fn async_test<O, F>(future: F) -> O
@@ -379,7 +381,7 @@ mod tests {
             let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
             task::spawn(fut);
 
-            let data: Ipld = vec![-1, -2, -3].into();
+            let data = ipld!([-1, -2, -3]);
             let cid = ipfs.put_dag(data.clone()).await.unwrap();
             let new_data = ipfs.get_dag(cid.into()).await.unwrap();
             assert_eq!(data, new_data);

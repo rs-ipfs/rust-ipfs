@@ -5,7 +5,7 @@
 
 > The Interplanetary File System (IPFS), implemented in Rust
 
-[![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme) [![Build Status](https://travis-ci.org/dvc94ch/rust-ipfs.svg?branch=master)](https://travis-ci.org/dvc94ch/rust-ipfs) [![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/ipfs-rust) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW) 
+[![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme) [![Build Status](https://travis-ci.org/dvc94ch/rust-ipfs.svg?branch=master)](https://travis-ci.org/dvc94ch/rust-ipfs) [![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/ipfs-rust) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW)
 
 
 ## Description
@@ -63,7 +63,8 @@ _Note: binaries available via `cargo install` is coming soon._
 ```rust,no_run
 use async_std::task;
 use futures::join;
-use ipfs::{IpfsOptions, Ipld, Types, UninitializedIpfs};
+use ipfs::{IpfsOptions, IpfsPath, Ipld, Types, UninitializedIpfs};
+use libipld::ipld;
 
 fn main() {
     let options = IpfsOptions::<Types>::default();
@@ -77,13 +78,12 @@ fn main() {
         task::spawn(fut);
 
         // Create a DAG
-        let block1: Ipld = "block1".to_string().into();
-        let block2: Ipld = "block2".to_string().into();
-        let f1 = ipfs.put_dag(block1);
-        let f2 = ipfs.put_dag(block2);
+        let f1 = ipfs.put_dag(ipld!("block1"));
+        let f2 = ipfs.put_dag(ipld!("block2"));
         let (res1, res2) = join!(f1, f2);
-        let root: Ipld = vec![res1.unwrap(), res2.unwrap()].into();
-        let path = ipfs.put_dag(root).await.unwrap();
+        let root = ipld!([res1.unwrap(), res2.unwrap()]);
+        let cid = ipfs.put_dag(root).await.unwrap();
+        let path = IpfsPath::from(cid);
 
         // Query the DAG
         let path1 = path.sub_path("0").unwrap();

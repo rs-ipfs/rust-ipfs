@@ -14,7 +14,8 @@ fn main() {
         task::spawn(fut);
 
         // Create a Block
-        let ipfs_path = ipfs.put_dag("block v0".into()).await.unwrap();
+        let cid = ipfs.put_dag("block v0".into()).await.unwrap();
+        let ipfs_path = IpfsPath::from(cid);
         // Publish a Block
         let ipns_path = ipfs
             .publish_ipns(&PeerId::random(), &ipfs_path)
