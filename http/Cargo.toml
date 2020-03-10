@@ -3,6 +3,10 @@ name = "rust-ipfs-http"
 version = "0.1.0"
 authors = ["Joonas Koivunen <joonas@equilibrium.co>"]
 edition = "2018"
+build = "build.rs"
+
+[build-dependencies]
+vergen = "3.0.4"
 
 [dependencies]
 env_logger = "*"
