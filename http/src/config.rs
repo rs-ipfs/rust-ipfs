@@ -7,7 +7,7 @@ use std::path::Path;
 use thiserror::Error;
 
 /// Temporary module required to de/ser config files base64'd protobuf rsa private key format.
-/// Temporary until accepted into rust-libp2p.
+/// Temporary until the private key import/export can be PR'd into rust-libp2p.
 mod keys_proto {
     include!(concat!(env!("OUT_DIR"), "/keys_proto.rs"));
 }
@@ -31,6 +31,8 @@ pub enum InitializationError {
     ConfigWritingFailed(serde_json::Error),
 }
 
+/// Creates the IPFS_PATH directory structure and creates a new compatible configuration file with
+/// RSA key of length `bits`.
 pub fn initialize(
     ipfs_path: &Path,
     bits: NonZeroU16,
@@ -116,6 +118,7 @@ fn create(
     Ok(())
 }
 
+/// Things which can go wrong when loading a `go-ipfs` compatible configuration file.
 #[derive(Error, Debug)]
 pub enum LoadingError {
     #[error("failed to open the configuration file: {0}")]
@@ -126,10 +129,14 @@ pub enum LoadingError {
     PrivateKeyLoadingFailed(Box<dyn std::error::Error + 'static>),
     #[error("unsupported private key format: {0}")]
     UnsupportedPrivateKeyType(i32),
-    #[error("loaded PeerId {loaded:?} is not the same as in configuration file {stored:?}")]
+    #[error("loaded PeerId {loaded:?} is not the same as in configuration file {stored:?}, this is likely a bug in rust-ipfs-http")]
     PeerIdMismatch { loaded: String, stored: String },
 }
 
+/// Loads a `go-ipfs` compatible configuration file from the given file.
+///
+/// Returns only the [`ipfs::KeyPair`] or [`LoadingError`] but this should be extended to contain
+/// the bootstrap nodes at least later when we need to support those for testing purposes.
 pub fn load(config: File) -> Result<ipfs::Keypair, LoadingError> {
     use keys_proto::KeyType;
     use multibase::Base::Base64Pad;
@@ -175,6 +182,26 @@ pub fn load(config: File) -> Result<ipfs::Keypair, LoadingError> {
     Ok(kp)
 }
 
+/// Converts a PEM format to DER where PEM is a container for Base64 data with padding, starting on
+/// the first line with a magic 5 dashes, "BEGIN" and the end of line is a tag which is expected to
+/// be found in the end, in a separate line with magic 5 dashes, "END" and the tag. DER is the
+/// decoded representation of the Base64 data.
+///
+/// Between the start and end lines there might be some rules on how long lines the base64 encoded
+/// bytes are split to, but this function does not make any checks on that.
+///
+/// Returns the DER bytes (decoded base64) in the first tag delimited part (PEM files could have
+/// multiple) regardless of the tag contents, as long as they match.
+///
+/// ### Panics
+///
+/// * If the buffer is not valid utf-8 * If the buffer does not start with five dashes and "BEGIN"
+/// * If the buffer does not end with five dashes and "END", and the corresponding start tag
+///   * Garbage is allowed after this
+/// * If the base64 decoding fails for the middle part
+///
+/// This is used only to get `PKCS#8` from `openssl` crate to DER format expected by `rust-libp2p`
+/// and `ring`. The `PKCS#8` pem tag `PRIVATE KEY` is not validated.
 fn pem_to_der(bytes: &[u8]) -> Vec<u8> {
     use multibase::Base::Base64Pad;
 
