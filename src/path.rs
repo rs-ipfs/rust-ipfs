@@ -1,12 +1,11 @@
 use crate::error::{Error, TryError};
 use core::convert::{TryFrom, TryInto};
 use libipld::cid::Cid;
+use libipld::ipld::Ipld;
 use libp2p::PeerId;
 use std::fmt;
 use std::str::FromStr;
-
-pub mod error;
-pub use self::error::IpfsPathError;
+use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IpfsPath {
@@ -295,6 +294,16 @@ impl fmt::Display for SubPath {
             SubPath::Index(index) => write!(fmt, "{}", index),
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum IpfsPathError {
+    #[error("Invalid path {0:?}")]
+    InvalidPath(String),
+    #[error("Can't resolve {path:?}")]
+    ResolveError { ipld: Ipld, path: SubPath },
+    #[error("Expected ipld path but found ipns path.")]
+    ExpectedIpldPath,
 }
 
 #[cfg(test)]
