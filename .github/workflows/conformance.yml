@@ -1,0 +1,93 @@
+on:
+  push:
+    branches: master
+  pull_request:
+    branches: '*'
+
+name: IPFS Conformance
+
+jobs:
+  conformance-interface:
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+        - rust: stable
+        #- rust: nightly
+
+        platform:
+        - target: x86_64-unknown-linux-gnu
+          host: ubuntu-latest
+          cross: false
+
+        - target: x86_64-apple-darwin
+          host: macos-latest
+          cross: false
+
+#         - target: x86_64-pc-windows-msvc
+#           host: windows-latest
+#           cross: false
+
+#         - target: armv7-linux-androideabi
+#           host: ubuntu-latest
+#           cross: true
+
+#         - target: aarch64-linux-android
+#           host: ubuntu-latest
+#           cross: true
+
+#         - target: armv7-apple-ios
+#           host: macos-latest
+#           cross: true
+
+#         - target: aarch64-apple-ios
+#           host: macos-latest
+#           cross: true
+
+       # - target: wasm32-unknown-unknown
+       #   host: ubuntu-latest
+       #   cross: true
+    env:
+      RUST_BACKTRACE: 1
+      CARGO_INCREMENTAL: 0
+      LLVM_CONFIG_PATH: /usr/local/opt/llvm/bin/llvm-config
+      NDK_HOME: /usr/local/lib/android/sdk/ndk-bundle
+      VCPKGRS_DYNAMIC: 1
+
+    runs-on: ${{ matrix.platform.host }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Checkout tools repo
+        uses: actions/checkout@v2
+        with:
+          repository: ipfs-rust/ipfs-rust-conformance
+          path: conformance
+
+      - name: Cache cargo folder
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo
+          key: conformance-testing
+
+      - name: Install rust toolchain
+        uses: hecrj/setup-rust-action@v1
+        with:
+          rust-version: stable
+
+      - name: Build
+        if: matrix.platform.cross == false
+        run: cargo build --workspace
+
+      - name: npm install
+        run: npm install
+        working-directory: ./conformance
+
+      - name: Symlink executable
+        run: ln -s ../target/debug/ipfs-http ./http
+        working-directory: ./conformance
+
+      - name: Run Conformance Testing
+        run: IPFS_RUST_EXEC=$(pwd)/rust.sh npm test
+        working-directory: ./conformance
