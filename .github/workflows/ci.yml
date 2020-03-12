@@ -67,11 +67,11 @@ jobs:
 
     - name: Install dependencies ubuntu
       if: matrix.platform.host == 'ubuntu-latest'
-      run: sudo apt-get install llvm-dev
+      run: sudo apt-get install llvm-dev openssl-dev pkg-config
 
     - name: Install dependencies macos
       if: matrix.platform.host == 'macos-latest'
-      run: brew install llvm
+      run: brew install llvm openssl
 
     - name: Install dependencies windows
       if: matrix.platform.host == 'windows-latest'
