@@ -12,9 +12,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::task::{Context, Poll};
+use thiserror::Error;
 
-#[derive(Debug, Fail)]
-#[fail(display = "no dnslink entry")]
+#[derive(Debug, Error)]
+#[error("no dnslink entry")]
 pub struct DnsLinkError;
 
 pub struct DnsLinkFuture {
@@ -73,25 +74,20 @@ pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::async_test;
 
-    #[test]
+    #[async_std::test]
     #[ignore]
-    fn test_resolve1() {
-        async_test(async move {
-            let res = resolve("ipfs.io").await.unwrap().to_string();
-            assert_eq!(res, "/ipns/website.ipfs.io");
-        });
+    async fn test_resolve1() {
+        let res = resolve("ipfs.io").await.unwrap().to_string();
+        assert_eq!(res, "/ipns/website.ipfs.io");
     }
 
-    #[test]
+    #[async_std::test]
     #[ignore]
-    fn test_resolve2() {
-        async_test(async move {
-            let res = resolve("website.ipfs.io").await.unwrap().to_string();
-            // FIXME: perhaps this should just be a path to multihash? otherwise it'll
-            // break every time they update the site.
-            assert_eq!(res, "/ipfs/QmbV3st6TDZVocp4H2f4KE3tvLP1BEpeRHhZyFL9gD4Ut4");
-        });
+    async fn test_resolve2() {
+        let res = resolve("website.ipfs.io").await.unwrap().to_string();
+        // FIXME: perhaps this should just be a path to multihash? otherwise it'll
+        // break every time they update the site.
+        assert_eq!(res, "/ipfs/QmbV3st6TDZVocp4H2f4KE3tvLP1BEpeRHhZyFL9gD4Ut4");
     }
 }

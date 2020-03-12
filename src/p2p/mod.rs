@@ -1,11 +1,12 @@
 //! P2P handling for IPFS nodes.
-use crate::bitswap::Strategy;
 use crate::repo::{Repo, RepoTypes};
 use crate::IpfsOptions;
+use bitswap::Strategy;
+use core::marker::PhantomData;
 use libp2p::identity::Keypair;
 use libp2p::Swarm;
 use libp2p::{Multiaddr, PeerId};
-use std::marker::PhantomData;
+use std::sync::Arc;
 
 mod behaviour;
 mod transport;
@@ -13,7 +14,7 @@ mod transport;
 pub type TSwarm<SwarmTypes> = Swarm<behaviour::Behaviour<SwarmTypes>>;
 
 pub trait SwarmTypes: RepoTypes + Sized {
-    type TStrategy: Strategy<Self>;
+    type TStrategy: Strategy;
 }
 
 pub struct SwarmOptions<TSwarmTypes: SwarmTypes> {
@@ -40,7 +41,7 @@ impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<T
 /// Creates a new IPFS swarm.
 pub async fn create_swarm<TSwarmTypes: SwarmTypes>(
     options: SwarmOptions<TSwarmTypes>,
-    repo: Repo<TSwarmTypes>,
+    repo: Arc<Repo<TSwarmTypes>>,
 ) -> TSwarm<TSwarmTypes> {
     let peer_id = options.peer_id.clone();
 

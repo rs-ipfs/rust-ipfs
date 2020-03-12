@@ -5,20 +5,19 @@
 #![cfg_attr(feature = "nightly", doc(include = "../README.md"))]
 
 #[macro_use]
-extern crate failure;
-#[macro_use]
 extern crate log;
 use async_std::path::PathBuf;
-use futures::channel::mpsc::{channel, Receiver, Sender};
+pub use bitswap::Block;
+use crossbeam::{Receiver, Sender};
+pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
 pub use libp2p::{identity::Keypair, Multiaddr, PeerId};
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
-pub mod bitswap;
-pub mod block;
 mod config;
 mod dag;
 pub mod error;
@@ -28,7 +27,6 @@ pub mod path;
 pub mod repo;
 pub mod unixfs;
 
-pub use self::block::{Block, Cid};
 use self::config::ConfigFile;
 use self::dag::IpldDag;
 pub use self::error::Error;
@@ -49,7 +47,7 @@ static CONFIG_FILE: &str = "config.json";
 /// `IpfsTypes`.
 pub trait IpfsTypes: SwarmTypes + RepoTypes {}
 impl<T: RepoTypes> SwarmTypes for T {
-    type TStrategy = bitswap::strategy::AltruisticStrategy<Self>;
+    type TStrategy = bitswap::AltruisticStrategy;
 }
 impl<T: SwarmTypes + RepoTypes> IpfsTypes for T {}
 
@@ -174,7 +172,7 @@ impl Default for IpfsOptions<TestTypes> {
 /// for interacting with IPFS.
 #[derive(Clone, Debug)]
 pub struct Ipfs<Types: IpfsTypes> {
-    repo: Repo<Types>,
+    repo: Arc<Repo<Types>>,
     dag: IpldDag<Types>,
     ipns: Ipns<Types>,
     exit_events: Vec<Sender<IpfsEvent>>,
@@ -187,7 +185,7 @@ enum IpfsEvent {
 
 /// Configured Ipfs instace or value which can be only initialized.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
-    repo: Repo<Types>,
+    repo: Arc<Repo<Types>>,
     dag: IpldDag<Types>,
     ipns: Ipns<Types>,
     moved_on_init: Option<(Receiver<RepoEvent>, TSwarm<Types>)>,
@@ -225,7 +223,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         self.repo.init().await?;
         self.repo.init().await?;
 
-        let (sender, receiver) = channel::<IpfsEvent>(1);
+        let (sender, receiver) = crossbeam::bounded::<IpfsEvent>(1);
         self.exit_events.push(sender);
 
         let fut = IpfsFuture {
@@ -311,8 +309,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Exit daemon.
     pub fn exit_daemon(mut self) {
-        for mut s in self.exit_events.drain(..) {
-            let _ = s.try_send(IpfsEvent::Exit);
+        for s in self.exit_events.drain(..) {
+            let _ = s.send(IpfsEvent::Exit);
         }
     }
 }
@@ -336,28 +334,15 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
             // libp2p uses std::future ... I couldn't figure out way to wrap it as compat,
             // box it and fuse it to for it to be used with futures::select!
 
-            {
-                let pin = Pin::new(&mut self.exit_events);
-
-                if let Poll::Ready(Some(IpfsEvent::Exit)) = pin.poll_next(ctx) {
-                    return Poll::Ready(());
-                }
+            if let Ok(IpfsEvent::Exit) = self.exit_events.try_recv() {
+                return Poll::Ready(());
             }
 
-            {
-                loop {
-                    let pin = Pin::new(&mut self.repo_events);
-                    match pin.poll_next(ctx) {
-                        Poll::Ready(Some(RepoEvent::WantBlock(cid))) => self.swarm.want_block(cid),
-                        Poll::Ready(Some(RepoEvent::ProvideBlock(cid))) => {
-                            self.swarm.provide_block(cid)
-                        }
-                        Poll::Ready(Some(RepoEvent::UnprovideBlock(cid))) => {
-                            self.swarm.stop_providing_block(&cid)
-                        }
-                        Poll::Ready(None) => panic!("other side closed the repo_events?"),
-                        Poll::Pending => break,
-                    }
+            while let Ok(event) = self.repo_events.try_recv() {
+                match event {
+                    RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
+                    RepoEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
+                    RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
                 }
             }
 
@@ -382,53 +367,37 @@ mod tests {
     use super::*;
     use async_std::task;
     use libipld::ipld;
+    use multihash::Sha2_256;
 
-    /// Testing helper for std::future::Futures until we can upgrade tokio
-    pub(crate) fn async_test<O, F>(future: F) -> O
-    where
-        O: 'static + Send,
-        F: std::future::Future<Output = O> + 'static + Send,
-    {
-        let (tx, rx) = std::sync::mpsc::channel();
-        task::block_on(async move {
-            let tx = tx;
-            let awaited = future.await;
-            tx.send(awaited).unwrap();
-        });
-        rx.recv().unwrap()
+    #[async_std::test]
+    async fn test_put_and_get_block() {
+        let options = IpfsOptions::<TestTypes>::default();
+        let data = b"hello block\n".to_vec().into_boxed_slice();
+        let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
+        let block = Block::new(data, cid);
+        let ipfs = UninitializedIpfs::new(options).await;
+        let (mut ipfs, fut) = ipfs.start().await.unwrap();
+        task::spawn(fut);
+
+        let cid: Cid = ipfs.put_block(block.clone()).await.unwrap();
+        let new_block = ipfs.get_block(&cid).await.unwrap();
+        assert_eq!(block, new_block);
+
+        ipfs.exit_daemon();
     }
 
-    #[test]
-    fn test_put_and_get_block() {
-        async_test(async move {
-            let options = IpfsOptions::<TestTypes>::default();
-            let block = Block::from("hello block\n");
-            let ipfs = UninitializedIpfs::new(options).await;
-            let (mut ipfs, fut) = ipfs.start().await.unwrap();
-            task::spawn(fut);
-
-            let cid: Cid = ipfs.put_block(block.clone()).await.unwrap();
-            let new_block = ipfs.get_block(&cid).await.unwrap();
-            assert_eq!(block, new_block);
-
-            ipfs.exit_daemon();
-        });
-    }
-
-    #[test]
-    fn test_put_and_get_dag() {
+    #[async_std::test]
+    async fn test_put_and_get_dag() {
         let options = IpfsOptions::<TestTypes>::default();
 
-        async_test(async move {
-            let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-            task::spawn(fut);
+        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        task::spawn(fut);
 
-            let data = ipld!([-1, -2, -3]);
-            let cid = ipfs.put_dag(data.clone()).await.unwrap();
-            let new_data = ipfs.get_dag(cid.into()).await.unwrap();
-            assert_eq!(data, new_data);
+        let data = ipld!([-1, -2, -3]);
+        let cid = ipfs.put_dag(data.clone()).await.unwrap();
+        let new_data = ipfs.get_dag(cid.into()).await.unwrap();
+        assert_eq!(data, new_data);
 
-            ipfs.exit_daemon();
-        });
+        ipfs.exit_daemon();
     }
 }

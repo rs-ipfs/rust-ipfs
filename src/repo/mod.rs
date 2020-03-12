@@ -1,15 +1,16 @@
 //! IPFS repo
-use crate::block::{Block, Cid};
 use crate::error::Error;
 use crate::path::IpfsPath;
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
 use async_trait::async_trait;
+use bitswap::Block;
 use core::fmt::Debug;
-use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::SinkExt;
+use core::marker::PhantomData;
+use crossbeam::{Receiver, Sender};
+use libipld::cid::Cid;
 use libp2p::PeerId;
-use std::marker::PhantomData;
+use std::sync::Arc;
 
 pub mod fs;
 pub mod mem;
@@ -36,8 +37,9 @@ impl<TRepoTypes: RepoTypes> From<&IpfsOptions<TRepoTypes>> for RepoOptions<TRepo
 
 pub fn create_repo<TRepoTypes: RepoTypes>(
     options: RepoOptions<TRepoTypes>,
-) -> (Repo<TRepoTypes>, Receiver<RepoEvent>) {
-    Repo::new(options)
+) -> (Arc<Repo<TRepoTypes>>, Receiver<RepoEvent>) {
+    let (repo, ch) = Repo::new(options);
+    (Arc::new(repo), ch)
 }
 
 #[async_trait]
@@ -67,7 +69,7 @@ pub enum Column {
     Ipns,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
@@ -89,7 +91,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         datastore_path.push("datastore");
         let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
         let data_store = TRepoTypes::TDataStore::new(datastore_path);
-        let (sender, receiver) = channel::<RepoEvent>(1);
+        let (sender, receiver) = crossbeam::unbounded();
         (
             Repo {
                 block_store,
@@ -101,10 +103,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn init(&self) -> Result<(), Error> {
-        let block_store = self.block_store.clone();
-        let data_store = self.data_store.clone();
-        let f1 = block_store.init();
-        let f2 = data_store.init();
+        let f1 = self.block_store.init();
+        let f2 = self.data_store.init();
         let (r1, r2) = futures::future::join(f1, f2).await;
         if r1.is_err() {
             r1
@@ -114,10 +114,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn open(&self) -> Result<(), Error> {
-        let block_store = self.block_store.clone();
-        let data_store = self.data_store.clone();
-        let f1 = block_store.open();
-        let f2 = data_store.open();
+        let f1 = self.block_store.open();
+        let f2 = self.data_store.open();
         let (r1, r2) = futures::future::join(f1, f2).await;
         if r1.is_err() {
             r1
@@ -127,43 +125,40 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     /// Puts a block into the block store.
-    pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error> {
+    pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
         let cid = self.block_store.put(block).await?;
         // sending only fails if no one is listening anymore
         // and that is okay with us.
-        let _ = self.events.send(RepoEvent::ProvideBlock(cid.clone())).await;
+        self.events.send(RepoEvent::ProvideBlock(cid.clone())).ok();
         Ok(cid)
     }
 
     /// Retrives a block from the block store.
-    pub async fn get_block(&mut self, cid: &Cid) -> Result<Block, Error> {
-        loop {
-            if !self.block_store.contains(&cid).await? {
-                // sending only fails if no one is listening anymore
-                // and that is okay with us.
-                let _ = self.events.send(RepoEvent::WantBlock(cid.clone())).await;
-            }
-            match self.block_store.get(&cid.clone()).await? {
-                Some(block) => return Ok(block),
-                None => continue,
-            }
+    pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
+        if !self.block_store.contains(&cid).await? {
+            // sending only fails if no one is listening anymore
+            // and that is okay with us.
+            self.events.send(RepoEvent::WantBlock(cid.clone())).ok();
+        }
+        match self.block_store.get(&cid.clone()).await? {
+            Some(block) => return Ok(block),
+            None => panic!(),
         }
     }
 
     /// Remove block from the block store.
-    pub async fn remove_block(&mut self, cid: &Cid) -> Result<(), Error> {
+    pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error> {
         // sending only fails if no one is listening anymore
         // and that is okay with us.
-        let _ = self
-            .events
+        self.events
             .send(RepoEvent::UnprovideBlock(cid.to_owned()))
-            .await;
+            .ok();
         self.block_store.remove(cid).await?;
         Ok(())
     }
 
     /// Get an ipld path from the datastore.
-    pub async fn get_ipns(&mut self, ipns: &PeerId) -> Result<Option<IpfsPath>, Error> {
+    pub async fn get_ipns(&self, ipns: &PeerId) -> Result<Option<IpfsPath>, Error> {
         use std::str::FromStr;
 
         let data_store = self.data_store.clone();
@@ -194,10 +189,21 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 }
 
+#[async_trait]
+impl<T: RepoTypes> bitswap::BitswapStore for Repo<T> {
+    async fn get_block(&self, cid: &Cid) -> Result<Option<Block>, anyhow::Error> {
+        self.block_store.get(cid).await
+    }
+
+    async fn put_block(&self, block: Block) -> Result<(), anyhow::Error> {
+        self.block_store.put(block).await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::tests::async_test;
     use std::env::temp_dir;
 
     #[derive(Clone)]
@@ -208,22 +214,20 @@ pub(crate) mod tests {
         type TDataStore = mem::MemDataStore;
     }
 
-    pub fn create_mock_repo() -> Repo<Types> {
+    pub fn create_mock_repo() -> (Arc<Repo<Types>>, Receiver<RepoEvent>) {
         let mut tmp = temp_dir();
         tmp.push("rust-ipfs-repo");
         let options: RepoOptions<Types> = RepoOptions {
             _marker: PhantomData,
             path: tmp.into(),
         };
-        let (r, _) = Repo::new(options);
-        r
+        let (r, ch) = Repo::new(options);
+        (Arc::new(r), ch)
     }
 
-    #[test]
-    fn test_repo() {
-        let repo = create_mock_repo();
-        async_test(async move {
-            repo.init().await.unwrap();
-        });
+    #[async_std::test]
+    async fn test_repo() {
+        let (repo, _) = create_mock_repo();
+        repo.init().await.unwrap();
     }
 }

@@ -1,0 +1,21 @@
+[package]
+name = "bitswap"
+version = "0.1.0"
+authors = ["David Craven <david@craven.ch>"]
+edition = "2018"
+
+[build-dependencies]
+prost-build = "0.6.1"
+
+[dependencies]
+anyhow = "1.0.26"
+async-std = "1.5.0"
+async-trait = "0.1.24"
+fnv = "1.0.6"
+futures = "0.3.4"
+libipld = "0.1.0"
+libp2p-core = "0.16.0"
+libp2p-swarm = "0.16.1"
+log = "0.4.8"
+prost = "0.6.1"
+thiserror = "1.0.11"

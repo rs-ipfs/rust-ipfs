@@ -64,21 +64,17 @@ impl Into<String> for File {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::Cid;
     use crate::repo::tests::create_mock_repo;
-    use crate::tests::async_test;
     use core::convert::TryFrom;
 
-    #[test]
-    fn test_file_cid() {
-        let repo = create_mock_repo();
+    #[async_std::test]
+    async fn test_file_cid() {
+        let (repo, _) = create_mock_repo();
         let dag = IpldDag::new(repo);
         let file = File::from("\u{8}\u{2}\u{12}\u{12}Here is some data\n\u{18}\u{12}");
         let cid = Cid::try_from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
 
-        async_test(async move {
-            let cid2 = file.put_unixfs_v1(&dag).await.unwrap();
-            assert_eq!(cid.to_string(), cid2.to_string());
-        });
+        let cid2 = file.put_unixfs_v1(&dag).await.unwrap();
+        assert_eq!(cid.to_string(), cid2.to_string());
     }
 }
