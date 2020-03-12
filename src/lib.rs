@@ -9,10 +9,15 @@ extern crate log;
 use async_std::path::PathBuf;
 pub use bitswap::Block;
 use futures::channel::mpsc::{channel, Receiver, Sender};
+use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
+use futures::sink::SinkExt;
 pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
-pub use libp2p::{identity::Keypair, Multiaddr, PeerId};
+pub use libp2p::{
+    identity::{Keypair, PublicKey},
+    Multiaddr, PeerId,
+};
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -90,7 +95,37 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
             .field("ipfs_log", &self.ipfs_log)
             .field("ipfs_path", &self.ipfs_path)
             .field("bootstrap", &self.bootstrap)
+            .field("keypair", &DebuggableKeypair(&self.keypair))
             .finish()
+    }
+}
+
+use std::borrow::Borrow;
+
+#[derive(Clone)]
+struct DebuggableKeypair<I: Borrow<Keypair>>(I);
+
+impl<I: Borrow<Keypair>> fmt::Debug for DebuggableKeypair<I> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let kind = match self.borrow() {
+            Keypair::Ed25519(_) => "Ed25519",
+            Keypair::Rsa(_) => "Rsa",
+            Keypair::Secp256k1(_) => "Secp256k1",
+        };
+
+        write!(fmt, "Keypair::{}", kind)
+    }
+}
+
+impl<I: Borrow<Keypair>> Borrow<Keypair> for DebuggableKeypair<I> {
+    fn borrow(&self) -> &Keypair {
+        self.0.borrow()
+    }
+}
+
+impl<I: Borrow<Keypair>> DebuggableKeypair<I> {
+    fn get(&self) -> &Keypair {
+        self.borrow()
     }
 }
 
@@ -175,13 +210,16 @@ pub struct Ipfs<Types: IpfsTypes> {
     repo: Arc<Repo<Types>>,
     dag: IpldDag<Types>,
     ipns: Ipns<Types>,
+    keys: DebuggableKeypair<Keypair>,
     to_task: Sender<IpfsEvent>,
 }
 
 /// Events used internally to communicate with the swarm, which is executed in the the background
 /// task.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 enum IpfsEvent {
+    /// Request background task to return the listened and external addresses
+    GetAddresses(OneshotSender<Vec<Multiaddr>>),
     Exit,
 }
 
@@ -190,6 +228,7 @@ pub struct UninitializedIpfs<Types: IpfsTypes> {
     repo: Arc<Repo<Types>>,
     dag: IpldDag<Types>,
     ipns: Ipns<Types>,
+    keys: Keypair,
     moved_on_init: Option<(Receiver<RepoEvent>, TSwarm<Types>)>,
 }
 
@@ -197,6 +236,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// Configures a new UninitializedIpfs with from the given options.
     pub async fn new(options: IpfsOptions<Types>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
+        let keys = options.secio_key_pair().clone();
         let (repo, repo_events) = create_repo(repo_options);
         let swarm_options = SwarmOptions::<Types>::from(&options);
         let swarm = create_swarm(swarm_options, repo.clone()).await;
@@ -207,6 +247,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             repo,
             dag,
             ipns,
+            keys,
             moved_on_init: Some((repo_events, swarm)),
         }
     }
@@ -234,7 +275,11 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         };
 
         let UninitializedIpfs {
-            repo, dag, ipns, ..
+            repo,
+            dag,
+            ipns,
+            keys,
+            ..
         } = self;
 
         Ok((
@@ -242,6 +287,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
                 repo,
                 dag,
                 ipns,
+                keys: DebuggableKeypair(keys),
                 to_task,
             },
             fut,
@@ -304,9 +350,19 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(())
     }
 
+    pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::GetAddresses(tx))
+            .await?;
+        let addresses = rx.await?;
+        Ok((self.keys.get().public(), addresses))
+    }
+
     /// Exit daemon.
     pub async fn exit_daemon(mut self) {
-        use futures::sink::SinkExt;
         // ignoring the error because it'd mean that the background task would had already been
         // dropped
         let _ = self.to_task.send(IpfsEvent::Exit).await;
@@ -330,6 +386,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         use futures::Stream;
+        use libp2p::Swarm;
         loop {
             // FIXME: this can probably be rewritten as a async { loop { select! { ... } } } once
             // libp2p uses std::future ... I couldn't figure out way to wrap it as compat,
@@ -347,6 +404,13 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                 };
 
                 match inner {
+                    IpfsEvent::GetAddresses(ret) => {
+                        let mut addresses = Vec::new();
+                        addresses.extend(Swarm::listeners(&self.swarm).cloned());
+                        addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
+                        // ignore error, perhaps caller went away already
+                        let _ = ret.send(addresses);
+                    }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
                         return Poll::Ready(());

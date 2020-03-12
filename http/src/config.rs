@@ -65,6 +65,10 @@ fn create(
     }
 
     if profiles.len() != 1 || profiles[0] != "test" {
+        // profiles are expected to be (comma separated) "test" as there are no bootstrap peer
+        // handling yet. the conformance test cases seem to init `go-ipfs` in this profile where
+        // it does not have any bootstrap nodes, and multi node tests later call swarm apis to
+        // dial the nodes together.
         return Err(InitializationError::InvalidProfiles(profiles));
     }
 
