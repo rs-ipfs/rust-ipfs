@@ -25,9 +25,9 @@ pub struct SwarmOptions<TSwarmTypes: SwarmTypes> {
 
 impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<TSwarmTypes> {
     fn from(options: &IpfsOptions<TSwarmTypes>) -> Self {
-        let key_pair = options.secio_key_pair();
+        let key_pair = options.secio_key_pair().clone();
         let peer_id = key_pair.public().into_peer_id();
-        let bootstrap = options.bootstrap();
+        let bootstrap = options.bootstrap().to_vec();
         SwarmOptions {
             _marker: PhantomData,
             key_pair,
