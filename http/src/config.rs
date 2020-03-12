@@ -261,3 +261,29 @@ struct Identity {
     #[serde(rename = "PrivKey")]
     private_key: String,
 }
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn pem_to_der_helloworld() {
+        use super::pem_to_der;
+        let input = "-----BEGIN something anything-----
+aGVsbG8gd29ybGQ=
+-----END something anything-----
+
+garbage in the end is ignored";
+
+        assert_eq!(pem_to_der(input.as_bytes()), b"hello world");
+    }
+
+    #[test]
+    #[should_panic]
+    fn pem_to_der_tag_mismatch() {
+        use super::pem_to_der;
+        let input = "-----BEGIN something something-----
+aGVsbG8gd29ybGQ=
+-----END something foobar-----";
+
+        pem_to_der(input.as_bytes());
+    }
+}
