@@ -95,16 +95,22 @@ jobs:
       run: cargo install cargo-ndk
 
     - name: Build
-      if: contains(matrix.platform.target, 'android') == false
-      run: cargo build --all --target ${{ matrix.platform.target }}
+      if: matrix.platform.cross == false
+      run: cargo build --workspace --target ${{ matrix.platform.target }}
 
     - name: Build android
       if: contains(matrix.platform.target, 'android')
-      run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --all
+      run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --workspace --exclude http
+      # exclude http on android because openssl
+
+    - name: Build other cross compilations
+      if: contains(matrix.platform.target, 'android') == false && matrix.platform.cross == true
+      run: cargo build --workspace --exclude http
+      # exclude http on other cross compilation targets because openssl
 
     - name: Rust tests
       if: matrix.platform.cross == false
-      run: cargo test --all
+      run: cargo test --workspace
 
   lint-rust:
     runs-on: ubuntu-latest
