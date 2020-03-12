@@ -12,7 +12,7 @@ use async_std::path::PathBuf;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
-pub use libp2p::PeerId;
+pub use libp2p::{Multiaddr, PeerId, identity::Keypair};
 use std::future::Future;
 use std::marker::PhantomData;
 
