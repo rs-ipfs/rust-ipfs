@@ -5,6 +5,7 @@ use crate::path::IpfsPath;
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
 use async_trait::async_trait;
+use core::fmt::Debug;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::SinkExt;
 use libp2p::PeerId;
@@ -40,7 +41,7 @@ pub fn create_repo<TRepoTypes: RepoTypes>(
 }
 
 #[async_trait]
-pub trait BlockStore: Clone + Send + Sync + Unpin + 'static {
+pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -51,7 +52,7 @@ pub trait BlockStore: Clone + Send + Sync + Unpin + 'static {
 }
 
 #[async_trait]
-pub trait DataStore: Clone + Send + Sync + Unpin + 'static {
+pub trait DataStore: Debug + Clone + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;

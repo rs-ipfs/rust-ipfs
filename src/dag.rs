@@ -6,7 +6,7 @@ use libipld::block::{decode_ipld, encode_ipld};
 use libipld::cid::{Codec, Version};
 use libipld::ipld::Ipld;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IpldDag<Types: RepoTypes> {
     repo: Repo<Types>,
 }

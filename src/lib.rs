@@ -54,7 +54,7 @@ impl<T: RepoTypes> SwarmTypes for T {
 impl<T: SwarmTypes + RepoTypes> IpfsTypes for T {}
 
 /// Default IPFS types.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
@@ -65,7 +65,7 @@ impl RepoTypes for Types {
 }
 
 /// Testing IPFS types
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TestTypes;
 impl RepoTypes for TestTypes {
     type TBlockStore = repo::mem::MemBlockStore;
@@ -172,6 +172,7 @@ impl Default for IpfsOptions<TestTypes> {
 
 /// Ipfs struct creates a new IPFS node and is the main entry point
 /// for interacting with IPFS.
+#[derive(Clone, Debug)]
 pub struct Ipfs<Types: IpfsTypes> {
     repo: Repo<Types>,
     dag: IpldDag<Types>,
@@ -179,6 +180,7 @@ pub struct Ipfs<Types: IpfsTypes> {
     exit_events: Vec<Sender<IpfsEvent>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum IpfsEvent {
     Exit,
 }
