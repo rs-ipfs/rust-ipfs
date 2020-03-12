@@ -74,7 +74,7 @@ fn main() {
             match result {
                 Ok(_) => {
 
-                    std::fs::File::open(home.join("config"))
+                    let kp = std::fs::File::open(config_path)
                         .map_err(config::LoadingError::ConfigurationFileOpening)
                         .and_then(config::load)
                         .unwrap();
@@ -82,7 +82,8 @@ fn main() {
                     // go-ipfs prints here (in addition to earlier "initializing ..."):
                     //
                     // generating {}-bit RSA keypair...done
-                    // peer identity: QmdNmxF88uyUzm8T7ps8LnCuZJzPnJvgUJxpKGqAMuxSQE
+
+                    println!("peer identity: {}", kp.public().into_peer_id());
                     std::process::exit(0);
                 }
                 Err(config::InitializationError::DirectoryCreationFailed(e)) => {
