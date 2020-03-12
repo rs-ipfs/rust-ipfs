@@ -72,7 +72,8 @@ fn create(config: File, bits: NonZeroU16, profiles: Vec<String>) -> Result<(), I
 
     let peer_id = kp.public().into_peer_id().to_string();
 
-    println!("Peer id: {}", peer_id);
+    // TODO: this part could be PR'd to rust-libp2p as they already have some public key
+    // import/export but probably not if ring does not support these required conversions.
 
     let pkcs1 = pk.private_key_to_der()
         .map_err(|e| InitializationError::KeyGeneration(Box::new(e)))?;
