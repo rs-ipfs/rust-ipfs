@@ -28,7 +28,7 @@ impl<Types: RepoTypes> Ipns<Types> {
             PathRoot::Ipld(_) => Ok(path),
             PathRoot::Ipns(peer_id) => match self.repo.get_ipns(peer_id).await? {
                 Some(path) => Ok(path),
-                None => return Err(anyhow::anyhow!("unimplemented")),
+                None => Err(anyhow::anyhow!("unimplemented")),
             },
             PathRoot::Dns(domain) => Ok(dns::resolve(domain).await?),
         }
