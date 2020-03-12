@@ -2,7 +2,9 @@
 
 This PR ______, so that ____.
 
-Additionally, updates should conform closely as possible to the [Definition of Done](https://github.com/ipfs/devgrants/tree/master/open-grants/ipfs-rust#definition-of-done) defined in the devgrant proposal. This includes:
+### Checklist
+
+<!-- Additionally, updates should conform closely as possible to the [Definition of Done](https://github.com/ipfs/devgrants/tree/master/open-grants/ipfs-rust#definition-of-done) defined in the devgrant proposal. This includes: -->
 
 - [ ] There is a working Rust implementation of the command’s functionality
 - [ ] Code is “linted” i.e. code formatting via rustfmt and language idioms via clippy
