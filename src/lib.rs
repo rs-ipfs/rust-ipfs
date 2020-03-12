@@ -13,6 +13,7 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
 pub use libp2p::{identity::Keypair, Multiaddr, PeerId};
+use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
 
@@ -84,8 +85,6 @@ pub struct IpfsOptions<Types: IpfsTypes> {
     /// Nodes dialed during startup
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
 }
-
-use std::fmt;
 
 impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
