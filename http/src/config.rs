@@ -160,7 +160,7 @@ pub fn load(config: File) -> Result<ipfs::Keypair, LoadingError> {
             ipfs::Keypair::rsa_from_pkcs8(&mut pkcs8)
                 .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?
         }
-        keytype => return Err(LoadingError::UnsupportedPrivateKeyType(private_key.r#type)),
+        _keytype => return Err(LoadingError::UnsupportedPrivateKeyType(private_key.r#type)),
     };
 
     let peer_id = kp.public().into_peer_id().to_string();
