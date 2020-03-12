@@ -3,6 +3,7 @@ use crate::error::Error;
 use crate::path::{IpfsPath, PathRoot};
 use crate::repo::{Repo, RepoTypes};
 use libp2p::PeerId;
+use std::sync::Arc;
 
 mod dns;
 mod entry;
@@ -12,23 +13,22 @@ mod ipns_pb {
 
 #[derive(Clone, Debug)]
 pub struct Ipns<Types: RepoTypes> {
-    repo: Repo<Types>,
+    repo: Arc<Repo<Types>>,
 }
 
 impl<Types: RepoTypes> Ipns<Types> {
-    pub fn new(repo: Repo<Types>) -> Self {
+    pub fn new(repo: Arc<Repo<Types>>) -> Self {
         Ipns { repo }
     }
 
     /// Resolves a ipns path to an ipld path.
     pub async fn resolve(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        let mut repo = self.repo.clone();
         let path = path.to_owned();
         match path.root() {
             PathRoot::Ipld(_) => Ok(path),
-            PathRoot::Ipns(peer_id) => match repo.get_ipns(peer_id).await? {
+            PathRoot::Ipns(peer_id) => match self.repo.get_ipns(peer_id).await? {
                 Some(path) => Ok(path),
-                None => bail!("unimplemented"),
+                None => return Err(anyhow::anyhow!("unimplemented")),
             },
             PathRoot::Dns(domain) => Ok(dns::resolve(domain).await?),
         }

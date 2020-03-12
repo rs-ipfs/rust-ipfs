@@ -1,11 +1,11 @@
-use crate::bitswap::bitswap_pb;
-use crate::block::{Block, Cid};
-use crate::error::Error;
-use libipld::cid::Prefix;
+use crate::bitswap_pb;
+use crate::block::Block;
+use crate::error::BitswapError;
+use core::convert::TryFrom;
+use core::marker::PhantomData;
+use libipld::cid::{Cid, Prefix};
 use prost::Message as ProstMessage;
 use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::marker::PhantomData;
 
 pub type Priority = i32;
 
@@ -109,7 +109,7 @@ impl<T> Message<T> {
     }
 
     /// Returns the list of blocks.
-    pub fn blocks(&self) -> &Vec<Block> {
+    pub fn blocks(&self) -> &[Block] {
         &self.blocks
     }
 
@@ -119,7 +119,7 @@ impl<T> Message<T> {
     }
 
     /// Returns the list of cancelled blocks.
-    pub fn cancel(&self) -> &Vec<Cid> {
+    pub fn cancel(&self) -> &[Cid] {
         &self.cancel
     }
 
@@ -191,7 +191,7 @@ impl Message<O> {
 }
 
 impl TryFrom<&[u8]> for Message<I> {
-    type Error = Error;
+    type Error = BitswapError;
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         let proto: bitswap_pb::Message = bitswap_pb::Message::decode(bytes)?;
         let mut message = Message::new();
@@ -206,7 +206,10 @@ impl TryFrom<&[u8]> for Message<I> {
         for payload in proto.payload {
             let prefix = Prefix::new_from_bytes(&payload.prefix)?;
             let cid = Cid::new_from_prefix(&prefix, &payload.data);
-            let block = Block::new(payload.data.to_vec().into_boxed_slice(), cid);
+            let block = Block {
+                cid,
+                data: payload.data.to_vec().into_boxed_slice(),
+            };
             message.add_block(block);
         }
         Ok(message)
@@ -215,7 +218,7 @@ impl TryFrom<&[u8]> for Message<I> {
 
 impl Message<I> {
     /// Creates a `Message` from bytes that were received from a substream.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, BitswapError> {
         Self::try_from(bytes)
     }
 }

@@ -1,12 +1,21 @@
-use crate::bitswap::Priority;
-use crate::block::{Block, Cid};
-use crate::repo::{Repo, RepoTypes};
+use crate::block::Block;
+use crate::ledger::Priority;
 use async_std::task;
-use libp2p::PeerId;
+use async_trait::async_trait;
+use libipld::cid::Cid;
+use libp2p_core::PeerId;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 
-pub trait Strategy<TRepoTypes: RepoTypes>: Send + Unpin {
-    fn new(repo: Repo<TRepoTypes>) -> Self;
+#[async_trait]
+pub trait BitswapStore: Send + Sync {
+    async fn get_block(&self, cid: &Cid) -> Result<Option<Block>, anyhow::Error>;
+
+    async fn put_block(&self, block: Block) -> Result<(), anyhow::Error>;
+}
+
+pub trait Strategy: Send + Unpin + 'static {
+    fn new(store: Arc<dyn BitswapStore>) -> Self;
     fn process_want(&self, source: PeerId, cid: Cid, priority: Priority);
     fn process_block(&self, source: PeerId, block: Block);
     fn poll(&self) -> Option<StrategyEvent>;
@@ -17,15 +26,15 @@ pub enum StrategyEvent {
     Send { peer_id: PeerId, block: Block },
 }
 
-pub struct AltruisticStrategy<TRepoTypes: RepoTypes> {
-    repo: Repo<TRepoTypes>,
+pub struct AltruisticStrategy {
+    store: Arc<dyn BitswapStore>,
     events: (Sender<StrategyEvent>, Receiver<StrategyEvent>),
 }
 
-impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTypes> {
-    fn new(repo: Repo<TRepoTypes>) -> Self {
+impl Strategy for AltruisticStrategy {
+    fn new(store: Arc<dyn BitswapStore>) -> Self {
         AltruisticStrategy {
-            repo,
+            store,
             events: channel::<StrategyEvent>(),
         }
     }
@@ -38,21 +47,21 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
             priority
         );
         let events = self.events.0.clone();
-        let mut repo = self.repo.clone();
+        let store = self.store.clone();
 
         task::spawn(async move {
-            let res = repo.get_block(&cid).await;
-
-            let block = if let Err(e) = res {
-                warn!(
-                    "Peer {} wanted block {} but we failed: {}",
-                    source.to_base58(),
-                    cid,
-                    e
-                );
-                return;
-            } else {
-                res.unwrap()
+            let block = match store.get_block(&cid).await {
+                Ok(None) => return,
+                Ok(Some(block)) => block,
+                Err(err) => {
+                    warn!(
+                        "Peer {} wanted block {} but we failed: {}",
+                        source.to_base58(),
+                        cid,
+                        err,
+                    );
+                    return;
+                }
             };
 
             let req = StrategyEvent::Send {
@@ -72,15 +81,14 @@ impl<TRepoTypes: RepoTypes> Strategy<TRepoTypes> for AltruisticStrategy<TRepoTyp
     }
 
     fn process_block(&self, source: PeerId, block: Block) {
-        use futures::FutureExt;
         let cid = block.cid().to_string();
         info!("Received block {} from peer {}", cid, source.to_base58());
 
-        let mut repo = self.repo.clone();
+        let store = self.store.clone();
 
         task::spawn(async move {
-            let future = repo.put_block(block).boxed();
-            if let Err(e) = future.await {
+            let res = store.put_block(block).await;
+            if let Err(e) = res {
                 debug!(
                     "Got block {} from peer {} but failed to store it: {}",
                     cid,

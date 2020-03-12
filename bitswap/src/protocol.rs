@@ -1,15 +1,16 @@
+use crate::error::BitswapError;
 /// Reperesents a prototype for an upgrade to handle the bitswap protocol.
 ///
 /// The protocol works the following way:
 ///
 /// - TODO
-use crate::bitswap::ledger::{Message, I, O};
-use crate::error::Error;
-use futures::future::Future;
+use crate::ledger::{Message, I, O};
+use core::future::Future;
+use core::iter;
+use core::pin::Pin;
 use futures::io::{AsyncRead, AsyncWrite};
-use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
-use std::pin::Pin;
-use std::{io, iter};
+use libp2p_core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
+use std::io;
 
 // Undocumented, but according to JS we our messages have a max size of 512*1024
 // https://github.com/ipfs/js-ipfs-bitswap/blob/d8f80408aadab94c962f6b88f343eb9f39fa0fcc/src/decision-engine/index.js#L16
@@ -33,7 +34,7 @@ where
     TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
     type Output = Message<I>;
-    type Error = Error;
+    type Error = BitswapError;
     #[allow(clippy::type_complexity)]
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
@@ -46,48 +47,6 @@ where
             debug!("inbound message: {:?}", message);
             Ok(message)
         })
-    }
-}
-
-#[derive(Debug)]
-pub enum BitswapError {
-    ReadError(upgrade::ReadOneError),
-    ProtobufError(prost::DecodeError),
-}
-
-impl From<upgrade::ReadOneError> for BitswapError {
-    #[inline]
-    fn from(err: upgrade::ReadOneError) -> Self {
-        BitswapError::ReadError(err)
-    }
-}
-
-impl From<prost::DecodeError> for BitswapError {
-    #[inline]
-    fn from(err: prost::DecodeError) -> Self {
-        BitswapError::ProtobufError(err)
-    }
-}
-
-impl std::fmt::Display for BitswapError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match *self {
-            BitswapError::ReadError(ref err) => {
-                write!(f, "Error while reading from socket: {}", err)
-            }
-            BitswapError::ProtobufError(ref err) => {
-                write!(f, "Error while decoding protobuf: {}", err)
-            }
-        }
-    }
-}
-
-impl std::error::Error for BitswapError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match *self {
-            BitswapError::ReadError(ref err) => Some(err),
-            BitswapError::ProtobufError(ref err) => Some(err),
-        }
     }
 }
 

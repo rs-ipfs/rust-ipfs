@@ -1,9 +1,10 @@
 //! Volatile memory backed repo
-use crate::block::{Block, Cid};
 use crate::error::Error;
 use crate::repo::{BlockStore, Column, DataStore};
 use async_std::path::PathBuf;
 use async_trait::async_trait;
+use bitswap::Block;
+use libipld::cid::Cid;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -112,75 +113,74 @@ impl DataStore for MemDataStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::async_test;
+    use bitswap::Block;
+    use libipld::cid::{Cid, Codec};
+    use multihash::Sha2_256;
     use std::env::temp_dir;
 
-    #[test]
-    fn test_mem_blockstore() {
+    #[async_std::test]
+    async fn test_mem_blockstore() {
         let tmp = temp_dir();
         let store = MemBlockStore::new(tmp.into());
-        async_test(async move {
-            let block = Block::from("1");
-            let cid = block.cid();
+        let data = b"1".to_vec().into_boxed_slice();
+        let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
+        let block = Block::new(data, cid.clone());
 
-            assert_eq!(store.init().await.unwrap(), ());
-            assert_eq!(store.open().await.unwrap(), ());
+        assert_eq!(store.init().await.unwrap(), ());
+        assert_eq!(store.open().await.unwrap(), ());
 
-            let contains = store.contains(cid);
-            assert_eq!(contains.await.unwrap(), false);
-            let get = store.get(cid);
-            assert_eq!(get.await.unwrap(), None);
-            let remove = store.remove(cid);
-            assert_eq!(remove.await.unwrap(), ());
+        let contains = store.contains(&cid);
+        assert_eq!(contains.await.unwrap(), false);
+        let get = store.get(&cid);
+        assert_eq!(get.await.unwrap(), None);
+        let remove = store.remove(&cid);
+        assert_eq!(remove.await.unwrap(), ());
 
-            let put = store.put(block.clone());
-            assert_eq!(put.await.unwrap(), cid.to_owned());
-            let contains = store.contains(cid);
-            assert_eq!(contains.await.unwrap(), true);
-            let get = store.get(cid);
-            assert_eq!(get.await.unwrap(), Some(block.clone()));
+        let put = store.put(block.clone());
+        assert_eq!(put.await.unwrap(), cid.to_owned());
+        let contains = store.contains(&cid);
+        assert_eq!(contains.await.unwrap(), true);
+        let get = store.get(&cid);
+        assert_eq!(get.await.unwrap(), Some(block.clone()));
 
-            let remove = store.remove(cid);
-            assert_eq!(remove.await.unwrap(), ());
-            let contains = store.contains(cid);
-            assert_eq!(contains.await.unwrap(), false);
-            let get = store.get(cid);
-            assert_eq!(get.await.unwrap(), None);
-        });
+        let remove = store.remove(&cid);
+        assert_eq!(remove.await.unwrap(), ());
+        let contains = store.contains(&cid);
+        assert_eq!(contains.await.unwrap(), false);
+        let get = store.get(&cid);
+        assert_eq!(get.await.unwrap(), None);
     }
 
-    #[test]
-    fn test_mem_datastore() {
+    #[async_std::test]
+    async fn test_mem_datastore() {
         let tmp = temp_dir();
         let store = MemDataStore::new(tmp.into());
-        async_test(async move {
-            let col = Column::Ipns;
-            let key = [1, 2, 3, 4];
-            let value = [5, 6, 7, 8];
+        let col = Column::Ipns;
+        let key = [1, 2, 3, 4];
+        let value = [5, 6, 7, 8];
 
-            assert_eq!(store.init().await.unwrap(), ());
-            assert_eq!(store.open().await.unwrap(), ());
+        assert_eq!(store.init().await.unwrap(), ());
+        assert_eq!(store.open().await.unwrap(), ());
 
-            let contains = store.contains(col, &key);
-            assert_eq!(contains.await.unwrap(), false);
-            let get = store.get(col, &key);
-            assert_eq!(get.await.unwrap(), None);
-            let remove = store.remove(col, &key);
-            assert_eq!(remove.await.unwrap(), ());
+        let contains = store.contains(col, &key);
+        assert_eq!(contains.await.unwrap(), false);
+        let get = store.get(col, &key);
+        assert_eq!(get.await.unwrap(), None);
+        let remove = store.remove(col, &key);
+        assert_eq!(remove.await.unwrap(), ());
 
-            let put = store.put(col, &key, &value);
-            assert_eq!(put.await.unwrap(), ());
-            let contains = store.contains(col, &key);
-            assert_eq!(contains.await.unwrap(), true);
-            let get = store.get(col, &key);
-            assert_eq!(get.await.unwrap(), Some(value.to_vec()));
+        let put = store.put(col, &key, &value);
+        assert_eq!(put.await.unwrap(), ());
+        let contains = store.contains(col, &key);
+        assert_eq!(contains.await.unwrap(), true);
+        let get = store.get(col, &key);
+        assert_eq!(get.await.unwrap(), Some(value.to_vec()));
 
-            let remove = store.remove(col, &key);
-            assert_eq!(remove.await.unwrap(), ());
-            let contains = store.contains(col, &key);
-            assert_eq!(contains.await.unwrap(), false);
-            let get = store.get(col, &key);
-            assert_eq!(get.await.unwrap(), None);
-        });
+        let remove = store.remove(col, &key);
+        assert_eq!(remove.await.unwrap(), ());
+        let contains = store.contains(col, &key);
+        assert_eq!(contains.await.unwrap(), false);
+        let get = store.get(col, &key);
+        assert_eq!(get.await.unwrap(), None);
     }
 }

@@ -1,3 +1,3 @@
-pub use failure::Error;
+pub use anyhow::Error;
 
 pub struct TryError;

@@ -5,22 +5,21 @@
 //!
 //! The `Bitswap` struct implements the `NetworkBehaviour` trait. When used, it
 //! will allow providing and reciving IPFS blocks.
-use crate::bitswap::ledger::{Ledger, Message, Priority, I, O};
-use crate::bitswap::protocol::BitswapConfig;
-use crate::bitswap::strategy::{Strategy, StrategyEvent};
-use crate::block::{Block, Cid};
-use crate::p2p::SwarmTypes;
+use crate::block::Block;
+use crate::ledger::{Ledger, Message, Priority, I, O};
+use crate::protocol::BitswapConfig;
+use crate::strategy::{Strategy, StrategyEvent};
 use fnv::FnvHashSet;
 use futures::task::Context;
 use futures::task::Poll;
-use libp2p::core::ConnectedPoint;
-use libp2p::swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
-use libp2p::{Multiaddr, PeerId};
+use libipld::cid::Cid;
+use libp2p_core::{ConnectedPoint, Multiaddr, PeerId};
+use libp2p_swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
+use libp2p_swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
 use std::collections::{HashMap, VecDeque};
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
-pub struct Bitswap<TSwarmTypes: SwarmTypes> {
+pub struct Bitswap<TStrategy> {
     /// Queue of events to report to the user.
     events: VecDeque<NetworkBehaviourAction<Message<O>, ()>>,
     /// List of peers to send messages to.
@@ -30,12 +29,12 @@ pub struct Bitswap<TSwarmTypes: SwarmTypes> {
     /// Wanted blocks
     wanted_blocks: HashMap<Cid, Priority>,
     /// Strategy
-    strategy: TSwarmTypes::TStrategy,
+    strategy: TStrategy,
 }
 
-impl<TSwarmTypes: SwarmTypes> Bitswap<TSwarmTypes> {
+impl<TStrategy> Bitswap<TStrategy> {
     /// Creates a `Bitswap`.
-    pub fn new(strategy: TSwarmTypes::TStrategy) -> Self {
+    pub fn new(strategy: TStrategy) -> Self {
         debug!("bitswap: new");
         Bitswap {
             events: VecDeque::new(),
@@ -130,10 +129,7 @@ impl<TSwarmTypes: SwarmTypes> Bitswap<TSwarmTypes> {
     }
 }
 
-impl<TSwarmTypes> NetworkBehaviour for Bitswap<TSwarmTypes>
-where
-    TSwarmTypes: SwarmTypes,
-{
+impl<TStrategy: Strategy> NetworkBehaviour for Bitswap<TStrategy> {
     type ProtocolsHandler = OneShotHandler<BitswapConfig, Message<O>, InnerMessage>;
     type OutEvent = ();
 
