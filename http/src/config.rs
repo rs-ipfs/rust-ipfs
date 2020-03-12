@@ -139,37 +139,12 @@ pub enum LoadingError {
 /// Returns only the [`ipfs::KeyPair`] or [`LoadingError`] but this should be extended to contain
 /// the bootstrap nodes at least later when we need to support those for testing purposes.
 pub fn load(config: File) -> Result<ipfs::Keypair, LoadingError> {
-    use keys_proto::KeyType;
-    use multibase::Base::Base64Pad;
-    use prost::Message;
     use std::io::BufReader;
 
     let CompatibleConfigFile { identity } = serde_json::from_reader(BufReader::new(config))
         .map_err(LoadingError::ConfigurationFileFormat)?;
 
-    let bytes = Base64Pad
-        .decode(identity.private_key)
-        .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
-
-    let private_key = keys_proto::PrivateKey::decode(bytes.as_slice())
-        .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
-
-    let kp = match KeyType::from_i32(private_key.r#type) {
-        Some(KeyType::Rsa) => {
-            let pk = openssl::rsa::Rsa::private_key_from_der(&private_key.data)
-                .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
-
-            let pkcs8 = openssl::pkey::PKey::from_rsa(pk)
-                .and_then(|pk| pk.private_key_to_pem_pkcs8())
-                .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
-
-            let mut pkcs8 = pem_to_der(&pkcs8);
-
-            ipfs::Keypair::rsa_from_pkcs8(&mut pkcs8)
-                .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?
-        }
-        _keytype => return Err(LoadingError::UnsupportedPrivateKeyType(private_key.r#type)),
-    };
+    let kp = identity.load_keypair()?;
 
     let peer_id = kp.public().into_peer_id().to_string();
 
@@ -262,6 +237,38 @@ struct Identity {
     private_key: String,
 }
 
+impl Identity {
+    fn load_keypair(&self) -> Result<ipfs::Keypair, LoadingError> {
+        use keys_proto::KeyType;
+        use multibase::Base::Base64Pad;
+        use prost::Message;
+
+        let bytes = Base64Pad
+            .decode(&self.private_key)
+            .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
+
+        let private_key = keys_proto::PrivateKey::decode(bytes.as_slice())
+            .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
+
+        Ok(match KeyType::from_i32(private_key.r#type) {
+            Some(KeyType::Rsa) => {
+                let pk = openssl::rsa::Rsa::private_key_from_der(&private_key.data)
+                    .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
+
+                let pkcs8 = openssl::pkey::PKey::from_rsa(pk)
+                    .and_then(|pk| pk.private_key_to_pem_pkcs8())
+                    .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
+
+                let mut pkcs8 = pem_to_der(&pkcs8);
+
+                ipfs::Keypair::rsa_from_pkcs8(&mut pkcs8)
+                    .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?
+            }
+            _keytype => return Err(LoadingError::UnsupportedPrivateKeyType(private_key.r#type)),
+        })
+    }
+}
+
 #[cfg(test)]
 mod test {
     #[test]
@@ -285,5 +292,25 @@ aGVsbG8gd29ybGQ=
 -----END something foobar-----";
 
         pem_to_der(input.as_bytes());
+    }
+
+    #[test]
+    fn read_private_key_from_goipfs() {
+        use super::Identity;
+
+        // generated with go-ipfs 0.4.23, init --bits 2048
+        let input = Identity {
+            peer_id: String::from("QmVNXj4TENKBjaUmQQzYMawDXu5LcEEzLyf4K6Ds3WgcF3"),
+            private_key: String::from("CAASqQkwggSlAgEAAoIBAQDVwj2MoXUccztSbZarmjQusB+7dZw1ZDycnGlOtLTjsc/Fl7keESwQB+nSXvt3DjV+ftTmK3nPODNVY2c+nooyX3k9svQogSmHxfQIwHkKe11VmrMNTdsYwfswcDq4PgNWrGX8/vUBtfvVb0qzgevBXwc4C9+SDIhRtjiHRNSexc2vFx59tQv03VTfj3sbxdBTwWN+ReeCTyf+7nE3Mg7NdHQ78mysMDFT3w1HDwZ+qt4dpyH5mZRm0anNWQUBtQue7IwzUsHzVCUzm+NeYXJf/miSNw2CCQUfA245+H6zu1F0SJFvTVTKCEmZ7D2ZkseRG73Srm0rdD1jajLiBhUtAgMBAAECggEBALy/mHOuOefWRGKDjBCYyE0Vjd+MeVOX4AF2B3LNFBEeeFWEpJxNE3hQVIJDBo7ZCBlbSwi3CQcWHBXhAVCE04ipTzhQ5VFCw/Y0sEhuFDNSPVcSk9pCjh1tZC0gXGlFsNL+xcvBIXzSQb30WKTrKs6D567wpQikclacrYucFpbee5/wE6GdE9mtrXK69vP5vgAtLQmg0TZljDI78agPwbEUlTVoVxA1JCcroWBfVjuY/xPjBcHUO+8fKsh2P5vqsiwcvbd8Pc4BwqJsct1LbE4sFvHjUvj6XQR3bS38z7XsaqWV9y65s/xgNQdw5zpt+wlRwNjN6+7djPKYRrSZO6ECgYEA6Fdv54Z4Yk7JRwjWSe2aWR3Mz/4o7UM2ILhMhb6DxEpiXfcErbPTqdFdnAuZ3Yp8cEyR2TZB4PYEAxh9zmS+akO1CqG9XaD6ZX76pvM/5p+Kpd6M/wbDNtYFY7tTuLX7J7IXA6vsUaMF4nZxsEp0EvF1wXB29ZiRp4oan7C/FYUCgYEA64ZlbjYb7LSfFGyJl/VaH5ka2Y1L9XWApgY+YphV6e2gCT7kaOKjxve0t0quYQMnpPJKw9MWPSNh2TE9XjJJcpR/EgkEX9/rBMg8VScqyxtItS/voUrW79qCwrHhRR5iY77a9rAZwVkl0EDyIx+cq7ebyK0OCz6891//FBWdnYkCgYBhfxeBU0c/EYqa2VV6zk7fqIainSe1cGfNUSkjUm/etcwTXC3FalmewDGE4sVdVtijEy58tKzuZq4GUoewTUwuMV1OKdLZ8ExCvQcXeanN8BLxSbNm7QKMB0FZuWkHcK4E2VGZA9L16u/0OPm6HXQZ4uMkGjqBEtXENUq4yiVVNQKBgQCzshydU+dGWCCvYogwSl/yj8vuhGGZ64a2JTlf3D5gdo6Nv1BhvdmbKs7UscQN/Gw46yuj8N+c0ewL3AeoYNGs/CNfTUXrKFqVkXiGt5Vs1WpJ40L/WqxW3+64QSNQqvgChlFlucJMxImXNJYJukq8sR/IolB+v+VJEBL77eoNkQKBgQCFQYL064rQZqEBc1dWy2Cucf5eWH5VFBHxCPC5Y6orxpmljYuduAIO0+InoVC+KEAkRPjHU3gFGdBvlDif3x2a8eFsZl//RCd9QdpTToynhl+WNKqQH87kfjsBoFW1L5QYLTbKK558QUp9yR6siKW0viXDbOvB7lK8WaDdYX8lcA=="),
+        };
+
+        let peer_id = input
+            .load_keypair()
+            .unwrap()
+            .public()
+            .into_peer_id()
+            .to_string();
+
+        assert_eq!(peer_id, input.peer_id);
     }
 }
