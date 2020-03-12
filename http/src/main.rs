@@ -1,4 +1,3 @@
-use serde::Serialize;
 use std::num::NonZeroU16;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -59,7 +58,7 @@ fn main() {
 
     let config_path = home.join("config");
 
-    match opts {
+    let keypair = match opts {
         Options::Init { bits, profile } => {
             println!("initializing IPFS node at {:?}", home);
 
@@ -118,6 +117,11 @@ fn main() {
                 eprintln!("please run: 'ipfs init'");
                 std::process::exit(1);
             }
+
+            std::fs::File::open(config_path)
+                .map_err(config::LoadingError::ConfigurationFileOpening)
+                .and_then(config::load)
+                .unwrap()
         }
     };
 
@@ -129,8 +133,22 @@ fn main() {
     let mut rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
 
     rt.block_on(async move {
+
+        let opts: IpfsOptions<ipfs::TestTypes> = IpfsOptions::new(
+            home.clone().into(),
+            keypair,
+            Vec::new());
+
+        let (ipfs, task) = UninitializedIpfs::new(opts)
+            .await
+            .start()
+            .await
+            .expect("Initialization failed");
+
+        tokio::spawn(task);
+
         let api_link_file = home.join("api");
-        let (addr, server) = serve(home, ());
+        let (addr, server) = serve(&ipfs);
 
         let api_multiaddr = format!("/ip4/{}/tcp/{}", addr.ip(), addr.port());
 
@@ -152,12 +170,13 @@ fn main() {
                 .await
                 .map_err(|e| eprintln!("Failed to truncate {:?}: {}", api_link_file, e));
         }
+
+        ipfs.exit_daemon().await;
     });
 }
 
-fn serve(
-    _home: PathBuf,
-    _options: (),
+fn serve<Types: IpfsTypes>(
+    ipfs: &Ipfs<Types>,
 ) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
     use tokio::stream::StreamExt;
     use warp::Filter;
@@ -179,7 +198,10 @@ fn serve(
 
     // the http libraries seem to prefer POST method
     let api = shutdown
-        .or(warp::path("id").and(with_ipfs(&ipfs)).and_then(id_query))
+        .or(warp::path!("id")
+            .and(with_ipfs(ipfs))
+            .and(warp::query::<v0::id::Query>())
+            .and_then(v0::id::identity))
         // Placeholder paths
         // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
         .or(warp::path!("add").and_then(not_implemented))
@@ -237,43 +259,11 @@ async fn not_implemented() -> Result<impl warp::Reply, std::convert::Infallible>
     Ok(warp::http::StatusCode::NOT_IMPLEMENTED)
 }
 
-// NOTE: go-ipfs accepts an -f option for format (unsure if same with Accept: request header),
-// unsure on what values -f takes, since `go-ipfs` seems to just print the value back? With plain http
-// requests the `f` or `format` is ignored. Perhaps it's a cli functionality. This should return a
-// json body, which does get pretty formatted by the cli.
-//
-// FIXME: Reference has argument `arg: PeerId` which does get processed.
-//
-// https://docs.ipfs.io/reference/api/http/#api-v0-id
-async fn id_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-) -> Result<impl warp::Reply, std::convert::Infallible> {
-    // the ids are from throwaway go-ipfs init -p test instance
-    let response = IdResponse {
-        id: "QmdNmxF88uyUzm8T7ps8LnCuZJzPnJvgUJxpKGqAMuxSQE",
-        public_key: "CAASpgIwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC+z3lZB1KQxNtahCLOQFFdsUrQ/XT3XLe/09sODTbGGp5mUjylR6hNQijCHFtYY7DcuAKPeyxNbdcOPmyC85gb1a1UB+nT3DiHPlM3AspnVFXDDv1u
-kZZ6Fgfs8amaWAWgx5KBRE49GjaG65+wVqtMwoALPa655bpsvaJX5JEeKe8hb8bLNup0O5Tpl3ThQ+ADXLJGmu/tWFI8SdE10xZY6hQG446B0/sL3f4HWqRbrlYrV8Ac2LyU3ZXynQ0yScqO4pXDDXoKZSI44xQNPuWQA9Y9IBWel/cbzTNjWMxapuyjoT9gmFRi52IFAl0RH9X85jFa6FYRkM+h81AiVjD/AgMB
-AAE=",
-        addresses: vec!["/ip4/127.0.0.1/tcp/8002/ipfs/QmdNmxF88uyUzm8T7ps8LnCuZJzPnJvgUJxpKGqAMuxSQE"],
-        agent_version: "rust-ipfs/0.0.1",
-        protocol_version: "ipfs/0.1.0",
-    };
-
-    Ok(warp::reply::json(&response))
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "PascalCase")]
-struct IdResponse {
-    // PeerId
-    #[serde(rename = "ID")]
-    id: &'static str,
-    // looks like Base64
-    public_key: &'static str,
-    // Multiaddrs
-    addresses: Vec<&'static str>,
-    // Multiaddr alike <agent_name>/<version>, like rust-ipfs/0.0.1
-    agent_version: &'static str,
-    // Multiaddr alike ipfs/0.1.0 ... not sure if there are plans to bump this anytime soon
-    protocol_version: &'static str,
+/// Clones the handle to the filters
+fn with_ipfs<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl warp::Filter<Extract = (Ipfs<T>,), Error = std::convert::Infallible> + Clone {
+    use warp::Filter;
+    let ipfs = ipfs.clone();
+    warp::any().map(move || ipfs.clone())
 }
