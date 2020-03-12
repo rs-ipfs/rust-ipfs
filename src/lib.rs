@@ -107,12 +107,12 @@ impl<Types: IpfsTypes> IpfsOptions<Types> {
         }
     }
 
-    fn secio_key_pair(&self) -> libp2p::identity::Keypair {
-        self.keypair.clone()
+    fn secio_key_pair(&self) -> &Keypair {
+        &self.keypair
     }
 
-    fn bootstrap(&self) -> Vec<(Multiaddr, PeerId)> {
-        self.bootstrap.clone()
+    fn bootstrap(&self) -> &[(Multiaddr, PeerId)] {
+        &self.bootstrap
     }
 }
 
