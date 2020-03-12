@@ -6,4 +6,6 @@ fn main() {
     // https://docs.rs/vergen/3.0.4/vergen/struct.ConstantsFlags.html#associatedconstant.REBUILD_ON_HEAD_CHANGE
     vergen::generate_cargo_keys(vergen::ConstantsFlags::all())
         .expect("Unable to generate the cargo keys!");
+
+    prost_build::compile_protos(&["src/keys.proto"], &["src"]).unwrap();
 }

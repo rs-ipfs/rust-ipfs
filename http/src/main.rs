@@ -3,7 +3,7 @@ use std::num::NonZeroU16;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use rust_ipfs_http::v0;
+use rust_ipfs_http::{v0, config};
 
 #[derive(Debug, StructOpt)]
 enum Options {
@@ -68,33 +68,46 @@ fn main() {
                 std::process::exit(1);
             }
 
-            let bits = bits.get();
 
-            if bits < 1024 || bits > 16 * 1024 {
-                eprintln!("Error: --bits out of range [1024, 16384]: {}", bits);
-                eprintln!("This is a fake version of ipfs cli which does not support much");
-                std::process::exit(1);
-            }
-
-            if profile.len() != 1 || profile[0] != "test" {
-                eprintln!("Error: unsupported profile selection: {:?}", profile);
-                eprintln!("This is a fake version of ipfs cli which does not support much");
-                std::process::exit(1);
-            }
-
-            let result =
-                std::fs::create_dir_all(&home).and_then(|_| std::fs::File::create(&config_path));
+            let result = config::initialize(&home, bits, profile);
 
             match result {
                 Ok(_) => {
+
+                    std::fs::File::open(home.join("config"))
+                        .map_err(config::LoadingError::ConfigurationFileOpening)
+                        .and_then(config::load)
+                        .unwrap();
+
                     // go-ipfs prints here (in addition to earlier "initializing ..."):
                     //
-                    // generating 2048-bit RSA keypair...done
+                    // generating {}-bit RSA keypair...done
                     // peer identity: QmdNmxF88uyUzm8T7ps8LnCuZJzPnJvgUJxpKGqAMuxSQE
                     std::process::exit(0);
                 }
-                Err(e) => {
+                Err(config::InitializationError::DirectoryCreationFailed(e)) => {
                     eprintln!("Error: failed to create repository path {:?}: {}", home, e);
+                    std::process::exit(1);
+                },
+                Err(config::InitializationError::ConfigCreationFailed(_)) => {
+                    // this can be any number of errors like permission denied but these are the
+                    // strings from go-ipfs
+                    eprintln!("Error: ipfs configuration file already exists!");
+                    eprintln!("Reinitializing would override your keys.");
+                    std::process::exit(1);
+                },
+                Err(config::InitializationError::InvalidRsaKeyLength(bits)) => {
+                    eprintln!("Error: --bits out of range [1024, 16384]: {}", bits);
+                    eprintln!("This is a fake version of ipfs cli which does not support much");
+                    std::process::exit(1);
+                }
+                Err(config::InitializationError::InvalidProfiles(profiles)) => {
+                    eprintln!("Error: unsupported profile selection: {:?}", profiles);
+                    eprintln!("This is a fake version of ipfs cli which does not support much");
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }
             }
