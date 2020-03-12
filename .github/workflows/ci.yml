@@ -52,6 +52,7 @@ jobs:
       CARGO_INCREMENTAL: 0
       LLVM_CONFIG_PATH: /usr/local/opt/llvm/bin/llvm-config
       NDK_HOME: /usr/local/lib/android/sdk/ndk-bundle
+      VCPKGRS_DYNAMIC: 1
 
     runs-on: ${{ matrix.platform.host }}
     steps:
