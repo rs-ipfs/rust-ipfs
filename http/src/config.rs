@@ -43,7 +43,7 @@ pub fn initialize(ipfs_path: &Path, bits: NonZeroU16, profiles: Vec<String>) -> 
 
 fn create(config: File, bits: NonZeroU16, profiles: Vec<String>) -> Result<(), InitializationError> {
     use prost::Message;
-    use multibase::Base::{Base64, Base64Pad};
+    use multibase::Base::Base64Pad;
     use std::io::BufWriter;
 
     let bits = bits.get();
@@ -89,7 +89,7 @@ fn create(config: File, bits: NonZeroU16, profiles: Vec<String>) -> Result<(), I
         buf
     };
 
-    let private_key = Base64.encode(&private_key);
+    let private_key = Base64Pad.encode(&private_key);
 
     let config_contents = CompatibleConfigFile {
         identity: Identity {
@@ -111,46 +111,55 @@ pub enum LoadingError {
     #[error("failed to read the configuration file: {0}")]
     ConfigurationFileFormat(serde_json::Error),
     #[error("failed to load the private key: {0}")]
-    PrivateKeyLoadingFailed(Box<std::error::Error + 'static>),
+    PrivateKeyLoadingFailed(Box<dyn std::error::Error + 'static>),
     #[error("unsupported private key format: {0}")]
     UnsupportedPrivateKeyType(i32),
+    #[error("loaded PeerId {loaded:?} is not the same as in configuration file {stored:?}")]
+    PeerIdMismatch {
+        loaded: String,
+        stored: String,
+    }
 }
 
 pub fn load(config: File) -> Result<ipfs::Keypair, LoadingError> {
     use prost::Message;
-    use multibase::Base::{Base64, Base64Pad};
+    use multibase::Base::Base64Pad;
     use std::io::BufReader;
     use keys_proto::KeyType;
 
     let CompatibleConfigFile { identity } = serde_json::from_reader(BufReader::new(config))
         .map_err(LoadingError::ConfigurationFileFormat)?;
 
-    let pk = {
-        let bytes = Base64.decode(identity.private_key)
-            .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
+    let bytes = Base64Pad.decode(identity.private_key)
+        .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
 
-        let private_key = keys_proto::PrivateKey::decode(bytes.as_slice())
-            .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
+    let private_key = keys_proto::PrivateKey::decode(bytes.as_slice())
+        .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
 
-        match KeyType::from_i32(private_key.r#type) {
-            Some(KeyType::Rsa) => {
-                let pk = openssl::rsa::Rsa::private_key_from_der(&private_key.data)
-                    .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
+    let kp = match KeyType::from_i32(private_key.r#type) {
+        Some(KeyType::Rsa) => {
+            let pk = openssl::rsa::Rsa::private_key_from_der(&private_key.data)
+                .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
 
-                let pkcs8 = openssl::pkey::PKey::from_rsa(pk)
-                    .and_then(|pk| pk.private_key_to_pem_pkcs8())
-                    .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
+            let pkcs8 = openssl::pkey::PKey::from_rsa(pk)
+                .and_then(|pk| pk.private_key_to_pem_pkcs8())
+                .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
 
-                let mut pkcs8 = pem_to_der(&pkcs8);
+            let mut pkcs8 = pem_to_der(&pkcs8);
 
-                let kp = ipfs::Keypair::rsa_from_pkcs8(&mut pkcs8)
-                    .expect("Failed to turn pkcs#8 into libp2p::identity::Keypair");
-
-                return Ok(kp);
-            },
-            keytype => return Err(LoadingError::UnsupportedPrivateKeyType(private_key.r#type)),
-        }
+            ipfs::Keypair::rsa_from_pkcs8(&mut pkcs8)
+                .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?
+        },
+        keytype => return Err(LoadingError::UnsupportedPrivateKeyType(private_key.r#type)),
     };
+
+    let peer_id = kp.public().into_peer_id().to_string();
+
+    if peer_id != identity.peer_id {
+        return Err(LoadingError::PeerIdMismatch { loaded: peer_id, stored: identity.peer_id });
+    }
+
+    Ok(kp)
 }
 
 fn pem_to_der(bytes: &[u8]) -> Vec<u8> {
@@ -198,6 +207,8 @@ struct CompatibleConfigFile {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct Identity {
+    #[serde(rename = "PeerID")]
     peer_id: String,
+    #[serde(rename = "PrivKey")]
     private_key: String,
 }
