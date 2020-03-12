@@ -72,15 +72,49 @@ impl RepoTypes for TestTypes {
 }
 
 /// Ipfs options
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct IpfsOptions<Types: IpfsTypes> {
     _marker: PhantomData<Types>,
     /// The ipfs log level that should be passed to env_logger.
     pub ipfs_log: String,
     /// The path of the ipfs repo.
     pub ipfs_path: PathBuf,
-    /// The ipfs config.
-    pub config: ConfigFile,
+    /// The keypair used with libp2p.
+    pub keypair: libp2p::identity::Keypair,
+    /// Nodes dialed during startup
+    pub bootstrap: Vec<(Multiaddr, PeerId)>,
+}
+
+use std::fmt;
+
+impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("IpfsOptions")
+            .field("ipfs_log", &self.ipfs_log)
+            .field("ipfs_path", &self.ipfs_path)
+            .field("bootstrap", &self.bootstrap)
+            .finish()
+    }
+}
+
+impl<Types: IpfsTypes> IpfsOptions<Types> {
+    pub fn new(ipfs_path: PathBuf, keypair: Keypair, bootstrap: Vec<(Multiaddr, PeerId)>) -> Self {
+        Self {
+            _marker: PhantomData,
+            ipfs_log: String::from("trace"),
+            ipfs_path,
+            keypair,
+            bootstrap
+        }
+    }
+
+    fn secio_key_pair(&self) -> libp2p::identity::Keypair {
+        self.keypair.clone()
+    }
+
+    fn bootstrap(&self) -> Vec<(Multiaddr, PeerId)> {
+        self.bootstrap.clone()
+    }
 }
 
 impl Default for IpfsOptions<Types> {
@@ -100,12 +134,15 @@ impl Default for IpfsOptions<Types> {
             .join(XDG_APP_NAME)
             .join(CONFIG_FILE);
         let config = ConfigFile::new(path);
+        let keypair = config.secio_key_pair();
+        let bootstrap = config.bootstrap();
 
         IpfsOptions {
             _marker: PhantomData,
             ipfs_log,
             ipfs_path,
-            config,
+            keypair,
+            bootstrap,
         }
     }
 }
@@ -121,11 +158,15 @@ impl Default for IpfsOptions<TestTypes> {
         let config = std::env::var("IPFS_TEST_CONFIG")
             .map(ConfigFile::new)
             .unwrap_or_default();
+        let keypair = config.secio_key_pair();
+        let bootstrap = config.bootstrap();
+
         IpfsOptions {
             _marker: PhantomData,
             ipfs_log,
             ipfs_path,
-            config,
+            keypair,
+            bootstrap,
         }
     }
 }
