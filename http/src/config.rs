@@ -59,7 +59,8 @@ fn create(
 
     let bits = bits.get();
 
-    if bits < 1024 || bits > 16 * 1024 {
+    if bits < 2048 || bits > 16 * 1024 {
+        // ring will not accept a less than 2048 key
         return Err(InitializationError::InvalidRsaKeyLength(bits));
     }
 
