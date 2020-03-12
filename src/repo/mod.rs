@@ -6,11 +6,15 @@ use async_std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use core::fmt::Debug;
+use core::future::Future;
 use core::marker::PhantomData;
+use core::pin::Pin;
+use core::task::{Context, Poll, Waker};
 use crossbeam::{Receiver, Sender};
 use libipld::cid::Cid;
 use libp2p::PeerId;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 pub mod fs;
 pub mod mem;
@@ -74,6 +78,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
+    subscriptions: Mutex<HashMap<Cid, Arc<Mutex<Subscription>>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -97,6 +102,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 block_store,
                 data_store,
                 events: sender,
+                subscriptions: Default::default(),
             },
             receiver,
         )
@@ -126,7 +132,10 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Puts a block into the block store.
     pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
-        let cid = self.block_store.put(block).await?;
+        let cid = self.block_store.put(block.clone()).await?;
+        if let Some(subscription) = self.subscriptions.lock().unwrap().remove(&cid) {
+            subscription.lock().unwrap().wake(block);
+        }
         // sending only fails if no one is listening anymore
         // and that is okay with us.
         self.events.send(RepoEvent::ProvideBlock(cid.clone())).ok();
@@ -135,15 +144,20 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Retrives a block from the block store.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
-        if !self.block_store.contains(&cid).await? {
+        let subscription = if let Some(block) = self.block_store.get(&cid.clone()).await? {
+            Arc::new(Mutex::new(Subscription::ready(block)))
+        } else {
             // sending only fails if no one is listening anymore
             // and that is okay with us.
             self.events.send(RepoEvent::WantBlock(cid.clone())).ok();
-        }
-        match self.block_store.get(&cid.clone()).await? {
-            Some(block) => return Ok(block),
-            None => panic!(),
-        }
+            self.subscriptions
+                .lock()
+                .unwrap()
+                .entry(cid.clone())
+                .or_default()
+                .clone()
+        };
+        Ok(BlockFuture { subscription }.await)
     }
 
     /// Remove block from the block store.
@@ -196,8 +210,56 @@ impl<T: RepoTypes> bitswap::BitswapStore for Repo<T> {
     }
 
     async fn put_block(&self, block: Block) -> Result<(), anyhow::Error> {
-        self.block_store.put(block).await?;
+        self.put_block(block).await?;
         Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+struct Subscription {
+    block: Option<Block>,
+    wakers: Vec<Waker>,
+}
+
+impl Subscription {
+    pub fn ready(block: Block) -> Self {
+        Self {
+            block: Some(block),
+            wakers: vec![],
+        }
+    }
+
+    pub fn add_waker(&mut self, waker: Waker) {
+        self.wakers.push(waker);
+    }
+
+    pub fn result(&self) -> Option<Block> {
+        self.block.clone()
+    }
+
+    pub fn wake(&mut self, block: Block) {
+        self.block = Some(block);
+        for waker in self.wakers.drain(..) {
+            waker.wake();
+        }
+    }
+}
+
+pub struct BlockFuture {
+    subscription: Arc<Mutex<Subscription>>,
+}
+
+impl Future for BlockFuture {
+    type Output = Block;
+
+    fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
+        let mut subscription = self.subscription.lock().unwrap();
+        if let Some(result) = subscription.result() {
+            Poll::Ready(result)
+        } else {
+            subscription.add_waker(context.waker().clone());
+            Poll::Pending
+        }
     }
 }
 
