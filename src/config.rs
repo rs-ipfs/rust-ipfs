@@ -65,7 +65,7 @@ impl fmt::Debug for KeyMaterial {
                 } else {
                     write!(fmt, "Rsa(not loaded: {:?})", filename)
                 }
-            },
+            }
         }
     }
 }
@@ -84,7 +84,7 @@ impl KeyMaterial {
                 .map(|kp| Keypair::Ed25519(kp.as_ref().clone())),
             KeyMaterial::RsaPkcs8File { ref keypair, .. } => {
                 keypair.as_ref().map(|kp| Keypair::Rsa(kp.as_ref().clone()))
-            },
+            }
         }
         .expect("KeyMaterial needs to be loaded before accessing the keypair")
     }
@@ -111,7 +111,7 @@ impl KeyMaterial {
                 let kp = libp2p::identity::rsa::Keypair::from_pkcs8(&mut bytes)
                     .map_err(KeyMaterialLoadingFailure::RsaDecoding)?;
                 *keypair = Some(Box::new(kp));
-            },
+            }
             _ => { /* all set */ }
         }
 

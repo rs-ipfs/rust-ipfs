@@ -3,7 +3,7 @@ use std::num::NonZeroU16;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use rust_ipfs_http::{v0, config};
+use rust_ipfs_http::{config, v0};
 
 #[derive(Debug, StructOpt)]
 enum Options {
@@ -68,12 +68,10 @@ fn main() {
                 std::process::exit(1);
             }
 
-
             let result = config::initialize(&home, bits, profile);
 
             match result {
                 Ok(_) => {
-
                     let kp = std::fs::File::open(config_path)
                         .map_err(config::LoadingError::ConfigurationFileOpening)
                         .and_then(config::load)
@@ -89,14 +87,14 @@ fn main() {
                 Err(config::InitializationError::DirectoryCreationFailed(e)) => {
                     eprintln!("Error: failed to create repository path {:?}: {}", home, e);
                     std::process::exit(1);
-                },
+                }
                 Err(config::InitializationError::ConfigCreationFailed(_)) => {
                     // this can be any number of errors like permission denied but these are the
                     // strings from go-ipfs
                     eprintln!("Error: ipfs configuration file already exists!");
                     eprintln!("Reinitializing would override your keys.");
                     std::process::exit(1);
-                },
+                }
                 Err(config::InitializationError::InvalidRsaKeyLength(bits)) => {
                     eprintln!("Error: --bits out of range [1024, 16384]: {}", bits);
                     eprintln!("This is a fake version of ipfs cli which does not support much");

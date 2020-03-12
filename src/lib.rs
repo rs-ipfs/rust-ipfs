@@ -12,7 +12,7 @@ use async_std::path::PathBuf;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
-pub use libp2p::{Multiaddr, PeerId, identity::Keypair};
+pub use libp2p::{identity::Keypair, Multiaddr, PeerId};
 use std::future::Future;
 use std::marker::PhantomData;
 
@@ -104,7 +104,7 @@ impl<Types: IpfsTypes> IpfsOptions<Types> {
             ipfs_log: String::from("trace"),
             ipfs_path,
             keypair,
-            bootstrap
+            bootstrap,
         }
     }
 

@@ -1,10 +1,10 @@
 //! go-ipfs compatible configuration file handling or at least setup.
 
-use std::fs::{self, File};
-use std::path::Path;
-use std::num::NonZeroU16;
-use thiserror::Error;
 use serde::{Deserialize, Serialize};
+use std::fs::{self, File};
+use std::num::NonZeroU16;
+use std::path::Path;
+use thiserror::Error;
 
 /// Temporary module required to de/ser config files base64'd protobuf rsa private key format.
 /// Temporary until accepted into rust-libp2p.
@@ -31,19 +31,28 @@ pub enum InitializationError {
     ConfigWritingFailed(serde_json::Error),
 }
 
-pub fn initialize(ipfs_path: &Path, bits: NonZeroU16, profiles: Vec<String>) -> Result<(), InitializationError> {
-
+pub fn initialize(
+    ipfs_path: &Path,
+    bits: NonZeroU16,
+    profiles: Vec<String>,
+) -> Result<(), InitializationError> {
     let config_path = ipfs_path.join("config");
 
     fs::create_dir_all(&ipfs_path)
         .map_err(InitializationError::DirectoryCreationFailed)
-        .and_then(|_| fs::File::create(&config_path).map_err(InitializationError::ConfigCreationFailed))
+        .and_then(|_| {
+            fs::File::create(&config_path).map_err(InitializationError::ConfigCreationFailed)
+        })
         .and_then(|config_file| create(config_file, bits, profiles))
 }
 
-fn create(config: File, bits: NonZeroU16, profiles: Vec<String>) -> Result<(), InitializationError> {
-    use prost::Message;
+fn create(
+    config: File,
+    bits: NonZeroU16,
+    profiles: Vec<String>,
+) -> Result<(), InitializationError> {
     use multibase::Base::Base64Pad;
+    use prost::Message;
     use std::io::BufWriter;
 
     let bits = bits.get();
@@ -75,7 +84,8 @@ fn create(config: File, bits: NonZeroU16, profiles: Vec<String>) -> Result<(), I
     // TODO: this part could be PR'd to rust-libp2p as they already have some public key
     // import/export but probably not if ring does not support these required conversions.
 
-    let pkcs1 = pk.private_key_to_der()
+    let pkcs1 = pk
+        .private_key_to_der()
         .map_err(|e| InitializationError::KeyGeneration(Box::new(e)))?;
 
     let key_desc = keys_proto::PrivateKey {
@@ -85,7 +95,8 @@ fn create(config: File, bits: NonZeroU16, profiles: Vec<String>) -> Result<(), I
 
     let private_key = {
         let mut buf = Vec::with_capacity(key_desc.encoded_len());
-        key_desc.encode(&mut buf)
+        key_desc
+            .encode(&mut buf)
             .map_err(InitializationError::PrivateKeyEncodingFailed)?;
         buf
     };
@@ -96,7 +107,7 @@ fn create(config: File, bits: NonZeroU16, profiles: Vec<String>) -> Result<(), I
         identity: Identity {
             peer_id,
             private_key,
-        }
+        },
     };
 
     serde_json::to_writer_pretty(BufWriter::new(config), &config_contents)
@@ -116,22 +127,20 @@ pub enum LoadingError {
     #[error("unsupported private key format: {0}")]
     UnsupportedPrivateKeyType(i32),
     #[error("loaded PeerId {loaded:?} is not the same as in configuration file {stored:?}")]
-    PeerIdMismatch {
-        loaded: String,
-        stored: String,
-    }
+    PeerIdMismatch { loaded: String, stored: String },
 }
 
 pub fn load(config: File) -> Result<ipfs::Keypair, LoadingError> {
-    use prost::Message;
-    use multibase::Base::Base64Pad;
-    use std::io::BufReader;
     use keys_proto::KeyType;
+    use multibase::Base::Base64Pad;
+    use prost::Message;
+    use std::io::BufReader;
 
     let CompatibleConfigFile { identity } = serde_json::from_reader(BufReader::new(config))
         .map_err(LoadingError::ConfigurationFileFormat)?;
 
-    let bytes = Base64Pad.decode(identity.private_key)
+    let bytes = Base64Pad
+        .decode(identity.private_key)
         .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?;
 
     let private_key = keys_proto::PrivateKey::decode(bytes.as_slice())
@@ -150,14 +159,17 @@ pub fn load(config: File) -> Result<ipfs::Keypair, LoadingError> {
 
             ipfs::Keypair::rsa_from_pkcs8(&mut pkcs8)
                 .map_err(|e| LoadingError::PrivateKeyLoadingFailed(Box::new(e)))?
-        },
+        }
         keytype => return Err(LoadingError::UnsupportedPrivateKeyType(private_key.r#type)),
     };
 
     let peer_id = kp.public().into_peer_id().to_string();
 
     if peer_id != identity.peer_id {
-        return Err(LoadingError::PeerIdMismatch { loaded: peer_id, stored: identity.peer_id });
+        return Err(LoadingError::PeerIdMismatch {
+            loaded: peer_id,
+            stored: identity.peer_id,
+        });
     }
 
     Ok(kp)
@@ -178,7 +190,11 @@ fn pem_to_der(bytes: &[u8]) -> Vec<u8> {
 
     for line in pem.lines() {
         if begin_tag.is_none() {
-            assert!(line.starts_with("-----BEGIN"), "Unexpected first line in PEM: {}", line);
+            assert!(
+                line.starts_with("-----BEGIN"),
+                "Unexpected first line in PEM: {}",
+                line
+            );
             begin_tag = Some(&line[(5 + 5)..]);
             continue;
         }
@@ -193,9 +209,13 @@ fn pem_to_der(bytes: &[u8]) -> Vec<u8> {
 
         base64_encoded.push_str(line);
     }
-    assert!(found_end_tag, "Failed to parse PEM, failed to find the end tag");
+    assert!(
+        found_end_tag,
+        "Failed to parse PEM, failed to find the end tag"
+    );
 
-    Base64Pad.decode(base64_encoded)
+    Base64Pad
+        .decode(base64_encoded)
         .expect("PEM should contain Base64Pad")
 }
 
