@@ -2,11 +2,11 @@
 use crate::error::Error;
 use crate::repo::{BlockStore, Column, DataStore};
 use async_std::path::PathBuf;
+use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use bitswap::Block;
 use libipld::cid::Cid;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
 pub struct MemBlockStore {
@@ -30,7 +30,7 @@ impl BlockStore for MemBlockStore {
     }
 
     async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
-        let contains = self.blocks.lock().unwrap().contains_key(cid);
+        let contains = self.blocks.lock().await.contains_key(cid);
         Ok(contains)
     }
 
@@ -38,7 +38,7 @@ impl BlockStore for MemBlockStore {
         let block = self
             .blocks
             .lock()
-            .unwrap()
+            .await
             .get(cid)
             .map(|block| block.to_owned());
         Ok(block)
@@ -46,12 +46,12 @@ impl BlockStore for MemBlockStore {
 
     async fn put(&self, block: Block) -> Result<Cid, Error> {
         let cid = block.cid().to_owned();
-        self.blocks.lock().unwrap().insert(cid.clone(), block);
+        self.blocks.lock().await.insert(cid.clone(), block);
         Ok(cid)
     }
 
     async fn remove(&self, cid: &Cid) -> Result<(), Error> {
-        self.blocks.lock().unwrap().remove(cid);
+        self.blocks.lock().await.remove(cid);
         Ok(())
     }
 }
@@ -81,7 +81,7 @@ impl DataStore for MemDataStore {
         let map = match col {
             Column::Ipns => &self.ipns,
         };
-        let contains = map.lock().unwrap().contains_key(key);
+        let contains = map.lock().await.contains_key(key);
         Ok(contains)
     }
 
@@ -89,7 +89,7 @@ impl DataStore for MemDataStore {
         let map = match col {
             Column::Ipns => &self.ipns,
         };
-        let value = map.lock().unwrap().get(key).map(|value| value.to_owned());
+        let value = map.lock().await.get(key).map(|value| value.to_owned());
         Ok(value)
     }
 
@@ -97,7 +97,7 @@ impl DataStore for MemDataStore {
         let map = match col {
             Column::Ipns => &self.ipns,
         };
-        map.lock().unwrap().insert(key.to_owned(), value.to_owned());
+        map.lock().await.insert(key.to_owned(), value.to_owned());
         Ok(())
     }
 
@@ -105,7 +105,7 @@ impl DataStore for MemDataStore {
         let map = match col {
             Column::Ipns => &self.ipns,
         };
-        map.lock().unwrap().remove(key);
+        map.lock().await.remove(key);
         Ok(())
     }
 }

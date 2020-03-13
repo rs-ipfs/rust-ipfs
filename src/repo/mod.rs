@@ -3,6 +3,7 @@ use crate::error::Error;
 use crate::path::IpfsPath;
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
+use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use bitswap::Block;
 use core::fmt::Debug;
@@ -14,7 +15,6 @@ use crossbeam::{Receiver, Sender};
 use libipld::cid::Cid;
 use libp2p::PeerId;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 pub mod fs;
 pub mod mem;
@@ -133,8 +133,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     /// Puts a block into the block store.
     pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
         let cid = self.block_store.put(block.clone()).await?;
-        if let Some(subscription) = self.subscriptions.lock().unwrap().remove(&cid) {
-            subscription.lock().unwrap().wake(block);
+        if let Some(subscription) = self.subscriptions.lock().await.remove(&cid) {
+            subscription.lock().await.wake(block);
         }
         // sending only fails if no one is listening anymore
         // and that is okay with us.
@@ -152,7 +152,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             self.events.send(RepoEvent::WantBlock(cid.clone())).ok();
             self.subscriptions
                 .lock()
-                .unwrap()
+                .await
                 .entry(cid.clone())
                 .or_default()
                 .clone()
@@ -253,12 +253,18 @@ impl Future for BlockFuture {
     type Output = Block;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
-        let mut subscription = self.subscription.lock().unwrap();
-        if let Some(result) = subscription.result() {
-            Poll::Ready(result)
-        } else {
-            subscription.add_waker(context.waker().clone());
-            Poll::Pending
+        let future = self.subscription.lock();
+        futures::pin_mut!(future);
+        match future.poll(context) {
+            Poll::Ready(mut subscription) => {
+                if let Some(result) = subscription.result() {
+                    Poll::Ready(result)
+                } else {
+                    subscription.add_waker(context.waker().clone());
+                    Poll::Pending
+                }
+            }
+            Poll::Pending => Poll::Pending,
         }
     }
 }
