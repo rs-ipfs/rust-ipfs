@@ -8,7 +8,7 @@
 extern crate log;
 use async_std::path::PathBuf;
 pub use bitswap::Block;
-use crossbeam::{Receiver, Sender};
+use futures::channel::mpsc::{channel, Receiver, Sender};
 pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
@@ -175,9 +175,11 @@ pub struct Ipfs<Types: IpfsTypes> {
     repo: Arc<Repo<Types>>,
     dag: IpldDag<Types>,
     ipns: Ipns<Types>,
-    exit_events: Vec<Sender<IpfsEvent>>,
+    to_task: Sender<IpfsEvent>,
 }
 
+/// Events used internally to communicate with the swarm, which is executed in the the background
+/// task.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum IpfsEvent {
     Exit,
@@ -189,7 +191,6 @@ pub struct UninitializedIpfs<Types: IpfsTypes> {
     dag: IpldDag<Types>,
     ipns: Ipns<Types>,
     moved_on_init: Option<(Receiver<RepoEvent>, TSwarm<Types>)>,
-    exit_events: Vec<Sender<IpfsEvent>>,
 }
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
@@ -207,7 +208,6 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             dag,
             ipns,
             moved_on_init: Some((repo_events, swarm)),
-            exit_events: Vec::default(),
         }
     }
 
@@ -215,6 +215,8 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     pub async fn start(
         mut self,
     ) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
+        use futures::stream::StreamExt;
+
         let (repo_events, swarm) = self
             .moved_on_init
             .take()
@@ -223,21 +225,16 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         self.repo.init().await?;
         self.repo.init().await?;
 
-        let (sender, receiver) = crossbeam::bounded::<IpfsEvent>(1);
-        self.exit_events.push(sender);
+        let (to_task, receiver) = channel::<IpfsEvent>(1);
 
         let fut = IpfsFuture {
-            repo_events,
-            exit_events: receiver,
+            repo_events: repo_events.fuse(),
+            from_facade: receiver.fuse(),
             swarm,
         };
 
         let UninitializedIpfs {
-            repo,
-            dag,
-            ipns,
-            exit_events,
-            ..
+            repo, dag, ipns, ..
         } = self;
 
         Ok((
@@ -245,7 +242,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
                 repo,
                 dag,
                 ipns,
-                exit_events,
+                to_task,
             },
             fut,
         ))
@@ -308,17 +305,21 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Exit daemon.
-    pub fn exit_daemon(mut self) {
-        for s in self.exit_events.drain(..) {
-            let _ = s.send(IpfsEvent::Exit);
-        }
+    pub async fn exit_daemon(mut self) {
+        use futures::sink::SinkExt;
+        // ignoring the error because it'd mean that the background task would had already been
+        // dropped
+        let _ = self.to_task.send(IpfsEvent::Exit).await;
     }
 }
 
+use futures::stream::Fuse;
+
+// The receivers are Fuse'd so that we don't have to manage state on them being exhausted.
 pub struct IpfsFuture<Types: SwarmTypes> {
     swarm: TSwarm<Types>,
-    repo_events: Receiver<RepoEvent>,
-    exit_events: Receiver<IpfsEvent>,
+    repo_events: Fuse<Receiver<RepoEvent>>,
+    from_facade: Fuse<Receiver<IpfsEvent>>,
 }
 
 use std::pin::Pin;
@@ -334,12 +335,31 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
             // libp2p uses std::future ... I couldn't figure out way to wrap it as compat,
             // box it and fuse it to for it to be used with futures::select!
 
-            if let Ok(IpfsEvent::Exit) = self.exit_events.try_recv() {
-                return Poll::Ready(());
+            // temporary pinning of the receivers should be safe as we are pinning through the
+            // already pinned self. with the receivers we can also safely ignore exhaustion
+            // as those are fused.
+            loop {
+                let inner = match Pin::new(&mut self.from_facade).poll_next(ctx) {
+                    Poll::Ready(Some(evt)) => evt,
+                    // doing teardown also after the `Ipfs` has been dropped
+                    Poll::Ready(None) => IpfsEvent::Exit,
+                    Poll::Pending => break,
+                };
+
+                match inner {
+                    IpfsEvent::Exit => {
+                        // FIXME: we could do a proper teardown
+                        return Poll::Ready(());
+                    }
+                }
             }
 
-            while let Ok(event) = self.repo_events.try_recv() {
-                match event {
+            loop {
+                let inner = match Pin::new(&mut self.repo_events).poll_next(ctx) {
+                    Poll::Ready(Some(evt)) => evt,
+                    Poll::Ready(None) | Poll::Pending => break,
+                };
+                match inner {
                     RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
                     RepoEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
                     RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
@@ -351,6 +371,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                 match poll {
                     Poll::Ready(Some(_)) => {}
                     Poll::Ready(None) => {
+                        // this should never happen with libp2p swarm
                         return Poll::Ready(());
                     }
                     Poll::Pending => {
@@ -383,7 +404,7 @@ mod tests {
         let new_block = ipfs.get_block(&cid).await.unwrap();
         assert_eq!(block, new_block);
 
-        ipfs.exit_daemon();
+        ipfs.exit_daemon().await;
     }
 
     #[async_std::test]
@@ -398,6 +419,6 @@ mod tests {
         let new_data = ipfs.get_dag(cid.into()).await.unwrap();
         assert_eq!(data, new_data);
 
-        ipfs.exit_daemon();
+        ipfs.exit_daemon().await;
     }
 }
