@@ -11,7 +11,8 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
-use crossbeam::{Receiver, Sender};
+use futures::channel::mpsc::{channel, Receiver, Sender};
+use futures::sink::SinkExt;
 use libipld::cid::Cid;
 use libp2p::PeerId;
 use std::collections::HashMap;
@@ -96,7 +97,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         datastore_path.push("datastore");
         let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
         let data_store = TRepoTypes::TDataStore::new(datastore_path);
-        let (sender, receiver) = crossbeam::unbounded();
+        let (sender, receiver) = channel(1);
         (
             Repo {
                 block_store,
@@ -136,9 +137,15 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         if let Some(subscription) = self.subscriptions.lock().await.remove(&cid) {
             subscription.lock().await.wake(block);
         }
-        // sending only fails if no one is listening anymore
-        // and that is okay with us.
-        self.events.send(RepoEvent::ProvideBlock(cid.clone())).ok();
+        // sending only fails if the background task has exited
+        // TODO: not sure if this cloning of the sender is ok, this will probably be unbounded
+        // memory usage, but it requires &mut for some reason (for example tokios sender does not
+        // need one)
+        let _ = self
+            .events
+            .clone()
+            .send(RepoEvent::ProvideBlock(cid.clone()))
+            .await;
         Ok(cid)
     }
 
@@ -147,9 +154,12 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let subscription = if let Some(block) = self.block_store.get(&cid.clone()).await? {
             Arc::new(Mutex::new(Subscription::ready(block)))
         } else {
-            // sending only fails if no one is listening anymore
-            // and that is okay with us.
-            self.events.send(RepoEvent::WantBlock(cid.clone())).ok();
+            // sending only fails if the background task has exited
+            let _ = self
+                .events
+                .clone()
+                .send(RepoEvent::WantBlock(cid.clone()))
+                .await;
             self.subscriptions
                 .lock()
                 .await
@@ -162,11 +172,12 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Remove block from the block store.
     pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error> {
-        // sending only fails if no one is listening anymore
-        // and that is okay with us.
-        self.events
+        // sending only fails if the background task has exited
+        let _ = self
+            .events
+            .clone()
             .send(RepoEvent::UnprovideBlock(cid.to_owned()))
-            .ok();
+            .await;
         self.block_store.remove(cid).await?;
         Ok(())
     }

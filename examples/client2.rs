@@ -21,6 +21,6 @@ fn main() {
         println!("Received block with contents: {:?}", res1.unwrap());
         println!("Received block with contents: {:?}", res2.unwrap());
 
-        ipfs.exit_daemon();
+        ipfs.exit_daemon().await;
     });
 }

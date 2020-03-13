@@ -37,5 +37,7 @@ fn main() {
         let file = ipfs.get(path).await.unwrap();
         let contents: String = file.into();
         println!("file contents: {:?}", contents);
+
+        ipfs.exit_daemon().await;
     });
 }

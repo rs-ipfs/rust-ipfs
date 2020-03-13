@@ -3,6 +3,7 @@ use std::num::NonZeroU16;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
+use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
 use rust_ipfs_http::{config, v0};
 
 #[derive(Debug, StructOpt)]
@@ -176,12 +177,9 @@ fn serve(
         .and(warp::any().map(move || shutdown_tx.clone()))
         .and_then(shutdown);
 
-    // for some reason js-ipfsd-ctl does a POST here?
-    let id = warp::path("id").and_then(id_query);
-
-    // Same here. for some reason this is a post as well
+    // the http libraries seem to prefer POST method
     let api = shutdown
-        .or(id)
+        .or(warp::path("id").and(with_ipfs(&ipfs)).and_then(id_query))
         // Placeholder paths
         // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
         .or(warp::path!("add").and_then(not_implemented))
@@ -247,7 +245,9 @@ async fn not_implemented() -> Result<impl warp::Reply, std::convert::Infallible>
 // FIXME: Reference has argument `arg: PeerId` which does get processed.
 //
 // https://docs.ipfs.io/reference/api/http/#api-v0-id
-async fn id_query() -> Result<impl warp::Reply, std::convert::Infallible> {
+async fn id_query<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+) -> Result<impl warp::Reply, std::convert::Infallible> {
     // the ids are from throwaway go-ipfs init -p test instance
     let response = IdResponse {
         id: "QmdNmxF88uyUzm8T7ps8LnCuZJzPnJvgUJxpKGqAMuxSQE",

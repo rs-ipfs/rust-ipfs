@@ -34,6 +34,6 @@ fn main() {
         let ipfs_path = ipfs.resolve_ipns(&ipfs_path).await.unwrap();
         println!("Resolved stage 2: {:?}", ipfs_path.to_string());
 
-        ipfs.exit_daemon();
+        ipfs.exit_daemon().await;
     });
 }

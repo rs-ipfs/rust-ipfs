@@ -20,6 +20,6 @@ fn main() {
         let root = ipld!([res1.unwrap(), res2.unwrap()]);
         ipfs.put_dag(root).await.unwrap();
 
-        ipfs.exit_daemon();
+        ipfs.exit_daemon().await;
     });
 }
