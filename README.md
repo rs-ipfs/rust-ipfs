@@ -48,11 +48,7 @@ The `rust-ipfs` binaries can be built from source. Our goal is to always be comp
 
 ```bash
 $ git clone https://github.com/ipfs-rust/rust-ipfs && cd rust-ipfs
-$ cargo build
-
-# To build the http bindings
-$ cd http
-$ cargo build
+$ cargo build --workspace
 ```
 
 You will then find the binaries inside of the project root's `/target/debug` folder.
