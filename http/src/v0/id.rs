@@ -14,7 +14,7 @@ pub fn identity<T: IpfsTypes>(
 }
 
 fn optional_peer_id(
-) -> impl Filter<Extract = (Option<PeerId>,), Error = warp::Rejection> + Clone + Copy {
+) -> impl Filter<Extract = (Option<PeerId>,), Error = warp::Rejection> + Copy {
     query::<Query>().and_then(|mut q: Query| async move {
         q.arg
             .take()
