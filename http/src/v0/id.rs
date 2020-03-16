@@ -1,17 +1,14 @@
-use super::{MessageKind, with_ipfs, NotImplemented, InvalidPeerId, StringError, recover_as_message_response};
+use super::{MessageKind, with_ipfs, NotImplemented, InvalidPeerId, StringError};
 use ipfs::{Ipfs, IpfsTypes, PeerId};
 use serde::{Deserialize, Serialize};
 use warp::{Filter, query};
 use std::str::FromStr;
-use std::convert::Infallible;
 
-pub async fn identity<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl Filter<Extract = impl warp::Reply, Error = Infallible> + Clone
-{
+pub fn identity<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("id")
         .and(with_ipfs(ipfs))
         .and(optional_peer_id())
         .and_then(identity_query)
-        .recover(recover_as_message_response)
 }
 
 fn optional_peer_id() -> impl Filter<Extract = (Option<PeerId>,), Error = warp::Rejection> + Clone + Copy {
@@ -30,7 +27,7 @@ fn optional_peer_id() -> impl Filter<Extract = (Option<PeerId>,), Error = warp::
 // FIXME: Reference has argument `arg: PeerId` which does get processed.
 //
 // https://docs.ipfs.io/reference/api/http/#api-v0-id
-pub async fn identity_query<T: IpfsTypes>(
+async fn identity_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     peer: Option<PeerId>,
 ) -> Result<impl warp::Reply, warp::reject::Rejection> {

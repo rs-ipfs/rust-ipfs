@@ -91,18 +91,14 @@ impl From<ipfs::Error> for StringError {
 }
 
 /// Common rejection handling strategy for ipfs http api compatible error responses
-pub(crate) async fn recover_as_message_response(err: warp::reject::Rejection) -> Result<impl warp::Reply, Infallible> {
+pub async fn recover_as_message_response(err: warp::reject::Rejection) -> Result<impl warp::Reply, Infallible> {
     use warp::http::StatusCode;
-    use warp::reject::InvalidQuery;
+    use warp::reject::{InvalidQuery, MethodNotAllowed};
 
     let resp: Box<dyn warp::Reply>;
     let status;
 
-    if err.is_not_found() {
-        // go-ipfs sends back a "404 Not Found" with body "404 page not found"
-        resp = Box::new("404 page not found");
-        status = StatusCode::NOT_FOUND;
-    } else if let Some(_) = err.find::<NotImplemented>() {
+    if let Some(_) = err.find::<NotImplemented>() {
         resp = Box::new(MessageKind::Error.with_code(0).with_message("Not implemented").to_json_reply());
         status = StatusCode::NOT_IMPLEMENTED;
     } else if let Some(e) = err.find::<InvalidQuery>() {
@@ -112,9 +108,15 @@ pub(crate) async fn recover_as_message_response(err: warp::reject::Rejection) ->
     } else if let Some(StringError(msg)) = err.find::<StringError>() {
         resp = Box::new(MessageKind::Error.with_code(0).with_message(msg.to_owned()).to_json_reply());
         status = StatusCode::INTERNAL_SERVER_ERROR;
-    } else if let Some(e) = err.find::<InvalidPeerId>() {
+    } else if let Some(_) = err.find::<InvalidPeerId>() {
         resp = Box::new(MessageKind::Error.with_code(0).with_message("invalid peer id").to_json_reply());
         status = StatusCode::BAD_REQUEST;
+    } else if err.is_not_found() || matches!(err.find::<MethodNotAllowed>(), Some(_)) {
+        // strangely  this here needs to match last, since the methodnotallowed can come after
+        // InvalidQuery as well.
+        // go-ipfs sends back a "404 Not Found" with body "404 page not found"
+        resp = Box::new("404 page not found");
+        status = StatusCode::NOT_FOUND;
     } else {
         // FIXME: use log
         eprintln!("unhandled rejection: {:?}", err);
