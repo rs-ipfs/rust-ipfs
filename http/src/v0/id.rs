@@ -1,19 +1,24 @@
-use super::{MessageKind, with_ipfs, NotImplemented, InvalidPeerId, StringError};
+use super::{with_ipfs, InvalidPeerId, MessageKind, NotImplemented, StringError};
 use ipfs::{Ipfs, IpfsTypes, PeerId};
 use serde::{Deserialize, Serialize};
-use warp::{Filter, query};
 use std::str::FromStr;
+use warp::{query, Filter};
 
-pub fn identity<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+pub fn identity<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("id")
         .and(with_ipfs(ipfs))
         .and(optional_peer_id())
         .and_then(identity_query)
 }
 
-fn optional_peer_id() -> impl Filter<Extract = (Option<PeerId>,), Error = warp::Rejection> + Clone + Copy {
+fn optional_peer_id(
+) -> impl Filter<Extract = (Option<PeerId>,), Error = warp::Rejection> + Clone + Copy {
     query::<Query>().and_then(|mut q: Query| async move {
-        q.arg.take().map(|arg| PeerId::from_str(&arg))
+        q.arg
+            .take()
+            .map(|arg| PeerId::from_str(&arg))
             .map_or(Ok(None), |parsed| parsed.map(Some))
             .map_err(|_| warp::reject::custom(InvalidPeerId))
     })
