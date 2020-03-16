@@ -5,7 +5,7 @@ use structopt::StructOpt;
 use warp::query;
 
 use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
-use rust_ipfs_http::{config, v0};
+use rust_ipfs_http::{config, v0::{self, with_ipfs}};
 
 #[derive(Debug, StructOpt)]
 enum Options {
@@ -256,13 +256,4 @@ async fn shutdown(
 
 async fn not_implemented() -> Result<impl warp::Reply, std::convert::Infallible> {
     Ok(warp::http::StatusCode::NOT_IMPLEMENTED)
-}
-
-/// Clones the handle to the filters
-fn with_ipfs<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl warp::Filter<Extract = (Ipfs<T>,), Error = std::convert::Infallible> + Clone {
-    use warp::Filter;
-    let ipfs = ipfs.clone();
-    warp::any().map(move || ipfs.clone())
 }
