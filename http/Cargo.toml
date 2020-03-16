@@ -1,5 +1,5 @@
 [package]
-name = "rust-ipfs-http"
+name = "ipfs-http"
 version = "0.1.0"
 authors = ["Joonas Koivunen <joonas@equilibrium.co>"]
 edition = "2018"

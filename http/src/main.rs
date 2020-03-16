@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 
 use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
-use rust_ipfs_http::{config, v0};
+use ipfs_http::{config, v0};
 
 #[derive(Debug, StructOpt)]
 enum Options {
