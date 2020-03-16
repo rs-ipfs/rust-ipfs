@@ -191,7 +191,7 @@ fn serve<Types: IpfsTypes>(
 
     // /api/v0/shutdown
     let shutdown = warp::post()
-        .and(warp::path("shutdown"))
+        .and(warp::path!("shutdown"))
         .and(warp::any().map(move || shutdown_tx.clone()))
         .and_then(shutdown);
 
