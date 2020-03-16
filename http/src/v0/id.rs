@@ -24,12 +24,7 @@ fn optional_peer_id(
     })
 }
 
-// NOTE: go-ipfs accepts an -f option for format (unsure if same with Accept: request header),
-// unsure on what values -f takes, since `go-ipfs` seems to just print the value back? With plain http
-// requests the `f` or `format` is ignored. Perhaps it's a cli functionality. This should return a
-// json body, which does get pretty formatted by the cli.
-//
-// FIXME: Reference has argument `arg: PeerId` which does get processed.
+// FIXME: /api/v0/id has argument `arg: PeerId` which is not implemented.
 //
 // https://docs.ipfs.io/reference/api/http/#api-v0-id
 async fn identity_query<T: IpfsTypes>(
