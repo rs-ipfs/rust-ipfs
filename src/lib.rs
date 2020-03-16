@@ -11,6 +11,7 @@ pub use bitswap::Block;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use futures::sink::SinkExt;
+use futures::stream::Fuse;
 pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
@@ -18,10 +19,14 @@ pub use libp2p::{
     identity::{Keypair, PublicKey},
     Multiaddr, PeerId,
 };
+
+use std::borrow::Borrow;
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 mod config;
 mod dag;
@@ -84,13 +89,15 @@ pub struct IpfsOptions<Types: IpfsTypes> {
     /// The path of the ipfs repo.
     pub ipfs_path: PathBuf,
     /// The keypair used with libp2p.
-    pub keypair: libp2p::identity::Keypair,
+    pub keypair: Keypair,
     /// Nodes dialed during startup
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
 }
 
 impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // needed since libp2p::identity::Keypair does not have a Debug impl, and the IpfsOptions
+        // is a struct with all public fields, so don't enforce users to use this wrapper.
         fmt.debug_struct("IpfsOptions")
             .field("ipfs_log", &self.ipfs_log)
             .field("ipfs_path", &self.ipfs_path)
@@ -100,14 +107,14 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
     }
 }
 
-use std::borrow::Borrow;
-
+/// Workaround for libp2p::identity::Keypair missing a Debug impl, works with references and owned
+/// keypairs.
 #[derive(Clone)]
 struct DebuggableKeypair<I: Borrow<Keypair>>(I);
 
 impl<I: Borrow<Keypair>> fmt::Debug for DebuggableKeypair<I> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let kind = match self.borrow() {
+        let kind = match self.get_ref() {
             Keypair::Ed25519(_) => "Ed25519",
             Keypair::Rsa(_) => "Rsa",
             Keypair::Secp256k1(_) => "Secp256k1",
@@ -117,15 +124,9 @@ impl<I: Borrow<Keypair>> fmt::Debug for DebuggableKeypair<I> {
     }
 }
 
-impl<I: Borrow<Keypair>> Borrow<Keypair> for DebuggableKeypair<I> {
-    fn borrow(&self) -> &Keypair {
-        self.0.borrow()
-    }
-}
-
 impl<I: Borrow<Keypair>> DebuggableKeypair<I> {
-    fn get(&self) -> &Keypair {
-        self.borrow()
+    fn get_ref(&self) -> &Keypair {
+        self.0.borrow()
     }
 }
 
@@ -252,7 +253,8 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         }
     }
 
-    /// Initialize the ipfs node.
+    /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
+    /// future should be spawned on a executor as soon as possible.
     pub async fn start(
         mut self,
     ) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
@@ -261,7 +263,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let (repo_events, swarm) = self
             .moved_on_init
             .take()
-            .expect("Cant see how this should happen");
+            .expect("start cannot be called twice");
 
         self.repo.init().await?;
         self.repo.init().await?;
@@ -358,7 +360,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .send(IpfsEvent::GetAddresses(tx))
             .await?;
         let addresses = rx.await?;
-        Ok((self.keys.get().public(), addresses))
+        Ok((self.keys.get_ref().public(), addresses))
     }
 
     /// Exit daemon.
@@ -369,17 +371,13 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 }
 
-use futures::stream::Fuse;
-
+/// Background task of `Ipfs` created when calling `UninitializedIpfs::start`.
 // The receivers are Fuse'd so that we don't have to manage state on them being exhausted.
-pub struct IpfsFuture<Types: SwarmTypes> {
+struct IpfsFuture<Types: SwarmTypes> {
     swarm: TSwarm<Types>,
     repo_events: Fuse<Receiver<RepoEvent>>,
     from_facade: Fuse<Receiver<IpfsEvent>>,
 }
-
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
     type Output = ();
@@ -388,10 +386,6 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
         use futures::Stream;
         use libp2p::Swarm;
         loop {
-            // FIXME: this can probably be rewritten as a async { loop { select! { ... } } } once
-            // libp2p uses std::future ... I couldn't figure out way to wrap it as compat,
-            // box it and fuse it to for it to be used with futures::select!
-
             // temporary pinning of the receivers should be safe as we are pinning through the
             // already pinned self. with the receivers we can also safely ignore exhaustion
             // as those are fused.
