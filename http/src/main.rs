@@ -5,7 +5,7 @@ use structopt::StructOpt;
 use warp::query;
 
 use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
-use rust_ipfs_http::{config, v0::{self, with_ipfs}};
+use rust_ipfs_http::{config, v0};
 
 #[derive(Debug, StructOpt)]
 enum Options {
@@ -234,7 +234,7 @@ fn serve<Types: IpfsTypes>(
             .and(query::<v0::version::Query>())
             .and_then(v0::version::version));
 
-    let routes = v0.and(api);
+    let routes = v0.and(api.recover(v0::recover_as_message_response));
     let routes = routes.with(warp::log("rust-ipfs-http-v0"));
 
     warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 0), async move {
