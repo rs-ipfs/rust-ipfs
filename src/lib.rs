@@ -405,6 +405,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 
                 match inner {
                     IpfsEvent::GetAddresses(ret) => {
+                        // perhaps this could be moved under `IpfsEvent` or free functions?
                         let mut addresses = Vec::new();
                         addresses.extend(Swarm::listeners(&self.swarm).cloned());
                         addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
@@ -418,12 +419,10 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                 }
             }
 
-            loop {
-                let inner = match Pin::new(&mut self.repo_events).poll_next(ctx) {
-                    Poll::Ready(Some(evt)) => evt,
-                    Poll::Ready(None) | Poll::Pending => break,
-                };
-                match inner {
+            // Poll::Ready(None) and Poll::Pending can be used to break out of the loop, clippy
+            // wants this to be written with a `while let`.
+            while let Poll::Ready(Some(evt)) = Pin::new(&mut self.repo_events).poll_next(ctx) {
+                match evt {
                     RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
                     RepoEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
                     RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
