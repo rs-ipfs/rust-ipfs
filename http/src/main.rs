@@ -2,8 +2,6 @@ use std::num::NonZeroU16;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use warp::query;
-
 use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
 use rust_ipfs_http::{config, v0};
 
@@ -177,80 +175,15 @@ fn main() {
 fn serve<Types: IpfsTypes>(
     ipfs: &Ipfs<Types>,
 ) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
+
     use tokio::stream::StreamExt;
     use warp::Filter;
-
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
 
-    // Set up routes
-    // /api
-    let api = warp::path("api");
-
-    // /api/v0
-    let v0 = api.and(warp::path("v0"));
-
-    // /api/v0/shutdown
-    let shutdown = warp::post()
-        .and(warp::path!("shutdown"))
-        .and(warp::any().map(move || shutdown_tx.clone()))
-        .and_then(shutdown);
-
-    // the http libraries seem to prefer POST method
-    let api = shutdown
-        .or(v0::id::identity(ipfs))
-        // Placeholder paths
-        // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
-        .or(warp::path!("add").and_then(not_implemented))
-        .or(warp::path!("bitswap" / ..).and_then(not_implemented))
-        .or(warp::path!("block" / ..).and_then(not_implemented))
-        .or(warp::path!("bootstrap" / ..).and_then(not_implemented))
-        .or(warp::path!("config" / ..).and_then(not_implemented))
-        .or(warp::path!("dag" / ..).and_then(not_implemented))
-        .or(warp::path!("dht" / ..).and_then(not_implemented))
-        .or(warp::path!("get").and_then(not_implemented))
-        .or(warp::path!("key" / ..).and_then(not_implemented))
-        .or(warp::path!("name" / ..).and_then(not_implemented))
-        .or(warp::path!("object" / ..).and_then(not_implemented))
-        .or(warp::path!("pin" / ..).and_then(not_implemented))
-        .or(warp::path!("ping" / ..).and_then(not_implemented))
-        .or(warp::path!("pubsub" / ..).and_then(not_implemented))
-        .or(warp::path!("refs" / ..).and_then(not_implemented))
-        .or(warp::path!("repo" / ..).and_then(not_implemented))
-        .or(warp::path!("stats" / ..).and_then(not_implemented))
-        .or(warp::path!("swarm" / "connect")
-            .and(query::<v0::swarm::ConnectQuery>())
-            .and_then(v0::swarm::connect))
-        .or(warp::path!("swarm" / "peers")
-            .and(query::<v0::swarm::PeersQuery>())
-            .and_then(v0::swarm::peers))
-        .or(warp::path!("swarm" / "addrs").and_then(v0::swarm::addrs))
-        .or(warp::path!("swarm" / "addrs" / "local")
-            .and(query::<v0::swarm::AddrsLocalQuery>())
-            .and_then(v0::swarm::addrs_local))
-        .or(warp::path!("swarm" / "disconnect")
-            .and(query::<v0::swarm::DisconnectQuery>())
-            .and_then(v0::swarm::disconnect))
-        .or(warp::path!("version")
-            .and(query::<v0::version::Query>())
-            .and_then(v0::version::version));
-
-    let routes = v0.and(api.recover(v0::recover_as_message_response));
+    let routes = v0::routes(ipfs, shutdown_tx);
     let routes = routes.with(warp::log("rust-ipfs-http-v0"));
 
     warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 0), async move {
         shutdown_rx.next().await;
     })
-}
-
-async fn shutdown(
-    mut tx: tokio::sync::mpsc::Sender<()>,
-) -> Result<impl warp::Reply, std::convert::Infallible> {
-    Ok(match tx.send(()).await {
-        Ok(_) => warp::http::StatusCode::OK,
-        Err(_) => warp::http::StatusCode::NOT_IMPLEMENTED,
-    })
-}
-
-async fn not_implemented() -> Result<impl warp::Reply, std::convert::Infallible> {
-    Ok(warp::http::StatusCode::NOT_IMPLEMENTED)
 }
