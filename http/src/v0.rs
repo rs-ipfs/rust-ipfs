@@ -1,7 +1,7 @@
+use ipfs::{Ipfs, IpfsTypes};
 use serde::Serialize;
 use std::borrow::Cow;
 use std::convert::Infallible;
-use ipfs::{Ipfs, IpfsTypes};
 
 pub mod id;
 pub mod swarm;
@@ -91,7 +91,9 @@ impl From<ipfs::Error> for StringError {
 }
 
 /// Common rejection handling strategy for ipfs http api compatible error responses
-pub async fn recover_as_message_response(err: warp::reject::Rejection) -> Result<impl warp::Reply, Infallible> {
+pub async fn recover_as_message_response(
+    err: warp::reject::Rejection,
+) -> Result<impl warp::Reply, Infallible> {
     use warp::http::StatusCode;
     use warp::reject::{InvalidQuery, MethodNotAllowed};
 
@@ -99,17 +101,37 @@ pub async fn recover_as_message_response(err: warp::reject::Rejection) -> Result
     let status;
 
     if let Some(_) = err.find::<NotImplemented>() {
-        resp = Box::new(MessageKind::Error.with_code(0).with_message("Not implemented").to_json_reply());
+        resp = Box::new(
+            MessageKind::Error
+                .with_code(0)
+                .with_message("Not implemented")
+                .to_json_reply(),
+        );
         status = StatusCode::NOT_IMPLEMENTED;
     } else if let Some(e) = err.find::<InvalidQuery>() {
         // invalidquery contains box<std::error::Error + Sync + Static>
-        resp = Box::new(MessageKind::Error.with_code(0).with_message(e.to_string()).to_json_reply());
+        resp = Box::new(
+            MessageKind::Error
+                .with_code(0)
+                .with_message(e.to_string())
+                .to_json_reply(),
+        );
         status = StatusCode::BAD_REQUEST;
     } else if let Some(StringError(msg)) = err.find::<StringError>() {
-        resp = Box::new(MessageKind::Error.with_code(0).with_message(msg.to_owned()).to_json_reply());
+        resp = Box::new(
+            MessageKind::Error
+                .with_code(0)
+                .with_message(msg.to_owned())
+                .to_json_reply(),
+        );
         status = StatusCode::INTERNAL_SERVER_ERROR;
     } else if let Some(_) = err.find::<InvalidPeerId>() {
-        resp = Box::new(MessageKind::Error.with_code(0).with_message("invalid peer id").to_json_reply());
+        resp = Box::new(
+            MessageKind::Error
+                .with_code(0)
+                .with_message("invalid peer id")
+                .to_json_reply(),
+        );
         status = StatusCode::BAD_REQUEST;
     } else if err.is_not_found() || matches!(err.find::<MethodNotAllowed>(), Some(_)) {
         // strangely  this here needs to match last, since the methodnotallowed can come after
@@ -120,7 +142,12 @@ pub async fn recover_as_message_response(err: warp::reject::Rejection) -> Result
     } else {
         // FIXME: use log
         eprintln!("unhandled rejection: {:?}", err);
-        resp = Box::new(MessageKind::Error.with_code(0).with_message("UNHANDLED REJECTION").to_json_reply());
+        resp = Box::new(
+            MessageKind::Error
+                .with_code(0)
+                .with_message("UNHANDLED REJECTION")
+                .to_json_reply(),
+        );
         status = StatusCode::INTERNAL_SERVER_ERROR;
     }
 
