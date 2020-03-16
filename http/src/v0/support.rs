@@ -2,6 +2,7 @@ use ipfs::{Ipfs, IpfsTypes};
 use serde::Serialize;
 use std::borrow::Cow;
 use std::convert::Infallible;
+use log::warn;
 
 /// The common responses apparently returned by the go-ipfs HTTP api on errors.
 /// See also: https://github.com/ferristseng/rust-ipfs-api/blob/master/ipfs-api/src/response/error.rs
@@ -138,7 +139,7 @@ pub async fn recover_as_message_response(
         status = StatusCode::NOT_FOUND;
     } else {
         // FIXME: use log
-        eprintln!("unhandled rejection: {:?}", err);
+        warn!("unhandled rejection: {:?}", err);
         resp = Box::new(
             MessageKind::Error
                 .with_code(0)
