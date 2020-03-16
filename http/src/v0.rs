@@ -6,6 +6,7 @@ pub mod swarm;
 pub mod version;
 
 /// The common responses apparently returned by the go-ipfs HTTP api on errors.
+/// See also: https://github.com/ferristseng/rust-ipfs-api/blob/master/ipfs-api/src/response/error.rs
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct MessageResponse {
@@ -20,6 +21,7 @@ impl MessageResponse {
     }
 }
 
+/// The `MessageResponse` has this field, unsure if it can be anything other than "error".
 #[derive(Debug, Clone, Serialize)]
 pub enum MessageKind {
     Error,
@@ -32,6 +34,8 @@ impl MessageKind {
     }
 }
 
+/// Combining `MessageKind` and `code` using `MessageKind::with_code` returns a
+/// `MessageResponseBuilder` which will only need a message to become `MessageResponse`.
 #[derive(Debug, Clone)]
 pub struct MessageResponseBuilder(MessageKind, usize);
 
