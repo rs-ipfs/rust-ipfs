@@ -2,6 +2,8 @@ use std::num::NonZeroU16;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
+use warp::query;
+
 use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
 use rust_ipfs_http::{config, v0};
 
@@ -133,11 +135,8 @@ fn main() {
     let mut rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
 
     rt.block_on(async move {
-
-        let opts: IpfsOptions<ipfs::TestTypes> = IpfsOptions::new(
-            home.clone().into(),
-            keypair,
-            Vec::new());
+        let opts: IpfsOptions<ipfs::TestTypes> =
+            IpfsOptions::new(home.clone().into(), keypair, Vec::new());
 
         let (ipfs, task) = UninitializedIpfs::new(opts)
             .await
@@ -200,7 +199,7 @@ fn serve<Types: IpfsTypes>(
     let api = shutdown
         .or(warp::path!("id")
             .and(with_ipfs(ipfs))
-            .and(warp::query::<v0::id::Query>())
+            .and(query::<v0::id::Query>())
             .and_then(v0::id::identity))
         // Placeholder paths
         // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
@@ -222,20 +221,20 @@ fn serve<Types: IpfsTypes>(
         .or(warp::path!("repo" / ..).and_then(not_implemented))
         .or(warp::path!("stats" / ..).and_then(not_implemented))
         .or(warp::path!("swarm" / "connect")
-            .and(warp::query::<v0::swarm::ConnectQuery>())
+            .and(query::<v0::swarm::ConnectQuery>())
             .and_then(v0::swarm::connect))
         .or(warp::path!("swarm" / "peers")
-            .and(warp::query::<v0::swarm::PeersQuery>())
+            .and(query::<v0::swarm::PeersQuery>())
             .and_then(v0::swarm::peers))
         .or(warp::path!("swarm" / "addrs").and_then(v0::swarm::addrs))
         .or(warp::path!("swarm" / "addrs" / "local")
-            .and(warp::query::<v0::swarm::AddrsLocalQuery>())
+            .and(query::<v0::swarm::AddrsLocalQuery>())
             .and_then(v0::swarm::addrs_local))
         .or(warp::path!("swarm" / "disconnect")
-            .and(warp::query::<v0::swarm::DisconnectQuery>())
+            .and(query::<v0::swarm::DisconnectQuery>())
             .and_then(v0::swarm::disconnect))
         .or(warp::path!("version")
-            .and(warp::query::<v0::version::Query>())
+            .and(query::<v0::version::Query>())
             .and_then(v0::version::version));
 
     let routes = v0.and(api);
