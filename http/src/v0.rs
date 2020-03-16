@@ -65,9 +65,7 @@ where
                 .and_then(version::version)),
     );
 
-    let routes = api.recover(recover_as_message_response);
-
-    routes
+    api.recover(recover_as_message_response)
 }
 
 pub async fn handle_shutdown(
