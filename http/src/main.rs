@@ -175,7 +175,6 @@ fn main() {
 fn serve<Types: IpfsTypes>(
     ipfs: &Ipfs<Types>,
 ) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
-
     use tokio::stream::StreamExt;
     use warp::Filter;
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);

@@ -1,8 +1,8 @@
 use ipfs::{Ipfs, IpfsTypes};
+use log::warn;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::convert::Infallible;
-use log::warn;
 
 /// The common responses apparently returned by the go-ipfs HTTP api on errors.
 /// See also: https://github.com/ferristseng/rust-ipfs-api/blob/master/ipfs-api/src/response/error.rs
