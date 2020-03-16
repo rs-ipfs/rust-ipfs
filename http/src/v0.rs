@@ -81,52 +81,54 @@ async fn not_implemented() -> Result<impl warp::Reply, std::convert::Infallible>
     Ok(warp::http::StatusCode::NOT_IMPLEMENTED)
 }
 
-/// Creates routes for tests, the ipfs will not work as no background task is being spawned.
 #[cfg(test)]
-async fn non_functioning_routes(
-) -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
-    use ipfs::{IpfsOptions, TestTypes, UninitializedIpfs};
-    let options = IpfsOptions::<TestTypes>::default();
+mod tests {
+    use std::convert::Infallible;
 
-    let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-    drop(fut);
-    let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
-    drop(shutdown_rx);
+    /// Creates routes for tests, the ipfs will not work as no background task is being spawned.
+    async fn testing_routes(
+    ) -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
+        use super::routes;
+        use ipfs::{IpfsOptions, TestTypes, UninitializedIpfs};
 
-    routes(&ipfs, shutdown_tx)
-}
+        let options = IpfsOptions::<TestTypes>::default();
 
-#[tokio::test]
-async fn not_found() {
-    let routes = non_functioning_routes().await;
-    let resp = warp::test::request()
-        .method("GET")
-        .path("/api/v0/id_foobar")
-        .reply(&routes)
-        .await;
+        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        drop(fut);
+        let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
+        drop(shutdown_rx);
 
-    assert_eq!(resp.status(), 404);
-    // from go-ipfs
-    assert_eq!(resp.body(), "404 page not found");
+        routes(&ipfs, shutdown_tx)
+    }
 
-    println!("{:?}", resp);
-}
+    #[tokio::test]
+    async fn not_found_as_plaintext() {
+        let routes = testing_routes().await;
+        let resp = warp::test::request()
+            .method("GET")
+            .path("/api/v0/id_foobar")
+            .reply(&routes)
+            .await;
 
-#[tokio::test]
-async fn invalid_peer_id() {
-    let routes = non_functioning_routes().await;
-    let resp = warp::test::request()
-        .method("GET")
-        .path("/api/v0/id?arg=foobar")
-        .reply(&routes)
-        .await;
+        assert_eq!(resp.status(), 404);
+        // from go-ipfs
+        assert_eq!(resp.body(), "404 page not found");
+    }
 
-    assert_eq!(resp.status(), 400);
-    // from go-ipfs
-    assert_eq!(
-        resp.body(),
-        r#"{"Message":"invalid peer id","Code":0,"Type":"error"}"#
-    );
+    #[tokio::test]
+    async fn invalid_peer_id_as_messageresponse() {
+        let routes = testing_routes().await;
+        let resp = warp::test::request()
+            .method("GET")
+            .path("/api/v0/id?arg=foobar")
+            .reply(&routes)
+            .await;
 
-    println!("{:?}", resp);
+        assert_eq!(resp.status(), 400);
+        // from go-ipfs
+        assert_eq!(
+            resp.body(),
+            r#"{"Message":"invalid peer id","Code":0,"Type":"error"}"#
+        );
+    }
 }
