@@ -60,3 +60,67 @@ pub fn with_ipfs<T: IpfsTypes>(
     let ipfs = ipfs.clone();
     warp::any().map(move || ipfs.clone())
 }
+
+/// Marker for `warp` specific rejections when something is unimplemented
+#[derive(Debug)]
+pub(crate) struct NotImplemented;
+impl warp::reject::Reject for NotImplemented {}
+impl Into<warp::reject::Rejection> for NotImplemented {
+    fn into(self) -> warp::reject::Rejection {
+        warp::reject::custom(self)
+    }
+}
+
+/// PeerId parsing error, details from `libp2p::identity::ParseError` are lost.
+#[derive(Debug)]
+pub(crate) struct InvalidPeerId;
+impl warp::reject::Reject for InvalidPeerId {}
+
+/// Default placeholder for ipfs::Error but once we get more typed errors we could start making
+/// them more readable, if needed.
+#[derive(Debug)]
+pub(crate) struct StringError(Cow<'static, str>);
+impl warp::reject::Reject for StringError {}
+
+// FIXME: it's a bit questionable to keep this but in the beginning it might help us glide in the
+// right direction.
+impl From<ipfs::Error> for StringError {
+    fn from(e: ipfs::Error) -> Self {
+        Self(format!("{}", e).into())
+    }
+}
+
+/// Common rejection handling strategy for ipfs http api compatible error responses
+pub(crate) async fn recover_as_message_response(err: warp::reject::Rejection) -> Result<impl warp::Reply, Infallible> {
+    use warp::http::StatusCode;
+    use warp::reject::InvalidQuery;
+
+    let resp: Box<dyn warp::Reply>;
+    let status;
+
+    if err.is_not_found() {
+        // go-ipfs sends back a "404 Not Found" with body "404 page not found"
+        resp = Box::new("404 page not found");
+        status = StatusCode::NOT_FOUND;
+    } else if let Some(_) = err.find::<NotImplemented>() {
+        resp = Box::new(MessageKind::Error.with_code(0).with_message("Not implemented").to_json_reply());
+        status = StatusCode::NOT_IMPLEMENTED;
+    } else if let Some(e) = err.find::<InvalidQuery>() {
+        // invalidquery contains box<std::error::Error + Sync + Static>
+        resp = Box::new(MessageKind::Error.with_code(0).with_message(e.to_string()).to_json_reply());
+        status = StatusCode::BAD_REQUEST;
+    } else if let Some(StringError(msg)) = err.find::<StringError>() {
+        resp = Box::new(MessageKind::Error.with_code(0).with_message(msg.to_owned()).to_json_reply());
+        status = StatusCode::INTERNAL_SERVER_ERROR;
+    } else if let Some(e) = err.find::<InvalidPeerId>() {
+        resp = Box::new(MessageKind::Error.with_code(0).with_message("invalid peer id").to_json_reply());
+        status = StatusCode::BAD_REQUEST;
+    } else {
+        // FIXME: use log
+        eprintln!("unhandled rejection: {:?}", err);
+        resp = Box::new(MessageKind::Error.with_code(0).with_message("UNHANDLED REJECTION").to_json_reply());
+        status = StatusCode::INTERNAL_SERVER_ERROR;
+    }
+
+    Ok(warp::reply::with_status(resp, status))
+}
