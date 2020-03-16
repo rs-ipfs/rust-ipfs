@@ -1,4 +1,4 @@
-use super::{with_ipfs, InvalidPeerId, MessageKind, NotImplemented, StringError};
+use super::{with_ipfs, InvalidPeerId, NotImplemented, StringError};
 use ipfs::{Ipfs, IpfsTypes, PeerId};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -38,7 +38,7 @@ async fn identity_query<T: IpfsTypes>(
 ) -> Result<impl warp::Reply, warp::reject::Rejection> {
     use multibase::Base::Base64Pad;
 
-    if let Some(peer_id) = peer {
+    if peer.is_some() {
         // TODO: this reply has Id, no public key, addresses and no versions. "no" as in empty
         // string
         return Err(warp::reject::custom(NotImplemented));
