@@ -27,42 +27,42 @@ where
 
     let api = mount.and(
         shutdown
-        .or(id::identity(ipfs))
-        // Placeholder paths
-        // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
-        .or(warp::path!("add").and_then(not_implemented))
-        .or(warp::path!("bitswap" / ..).and_then(not_implemented))
-        .or(warp::path!("block" / ..).and_then(not_implemented))
-        .or(warp::path!("bootstrap" / ..).and_then(not_implemented))
-        .or(warp::path!("config" / ..).and_then(not_implemented))
-        .or(warp::path!("dag" / ..).and_then(not_implemented))
-        .or(warp::path!("dht" / ..).and_then(not_implemented))
-        .or(warp::path!("get").and_then(not_implemented))
-        .or(warp::path!("key" / ..).and_then(not_implemented))
-        .or(warp::path!("name" / ..).and_then(not_implemented))
-        .or(warp::path!("object" / ..).and_then(not_implemented))
-        .or(warp::path!("pin" / ..).and_then(not_implemented))
-        .or(warp::path!("ping" / ..).and_then(not_implemented))
-        .or(warp::path!("pubsub" / ..).and_then(not_implemented))
-        .or(warp::path!("refs" / ..).and_then(not_implemented))
-        .or(warp::path!("repo" / ..).and_then(not_implemented))
-        .or(warp::path!("stats" / ..).and_then(not_implemented))
-        .or(warp::path!("swarm" / "connect")
-            .and(query::<swarm::ConnectQuery>())
-            .and_then(swarm::connect))
-        .or(warp::path!("swarm" / "peers")
-            .and(query::<swarm::PeersQuery>())
-            .and_then(swarm::peers))
-        .or(warp::path!("swarm" / "addrs").and_then(swarm::addrs))
-        .or(warp::path!("swarm" / "addrs" / "local")
-            .and(query::<swarm::AddrsLocalQuery>())
-            .and_then(swarm::addrs_local))
-        .or(warp::path!("swarm" / "disconnect")
-            .and(query::<swarm::DisconnectQuery>())
-            .and_then(swarm::disconnect))
-        .or(warp::path!("version")
-            .and(query::<version::Query>())
-            .and_then(version::version))
+            .or(id::identity(ipfs))
+            // Placeholder paths
+            // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
+            .or(warp::path!("add").and_then(not_implemented))
+            .or(warp::path!("bitswap" / ..).and_then(not_implemented))
+            .or(warp::path!("block" / ..).and_then(not_implemented))
+            .or(warp::path!("bootstrap" / ..).and_then(not_implemented))
+            .or(warp::path!("config" / ..).and_then(not_implemented))
+            .or(warp::path!("dag" / ..).and_then(not_implemented))
+            .or(warp::path!("dht" / ..).and_then(not_implemented))
+            .or(warp::path!("get").and_then(not_implemented))
+            .or(warp::path!("key" / ..).and_then(not_implemented))
+            .or(warp::path!("name" / ..).and_then(not_implemented))
+            .or(warp::path!("object" / ..).and_then(not_implemented))
+            .or(warp::path!("pin" / ..).and_then(not_implemented))
+            .or(warp::path!("ping" / ..).and_then(not_implemented))
+            .or(warp::path!("pubsub" / ..).and_then(not_implemented))
+            .or(warp::path!("refs" / ..).and_then(not_implemented))
+            .or(warp::path!("repo" / ..).and_then(not_implemented))
+            .or(warp::path!("stats" / ..).and_then(not_implemented))
+            .or(warp::path!("swarm" / "connect")
+                .and(query::<swarm::ConnectQuery>())
+                .and_then(swarm::connect))
+            .or(warp::path!("swarm" / "peers")
+                .and(query::<swarm::PeersQuery>())
+                .and_then(swarm::peers))
+            .or(warp::path!("swarm" / "addrs").and_then(swarm::addrs))
+            .or(warp::path!("swarm" / "addrs" / "local")
+                .and(query::<swarm::AddrsLocalQuery>())
+                .and_then(swarm::addrs_local))
+            .or(warp::path!("swarm" / "disconnect")
+                .and(query::<swarm::DisconnectQuery>())
+                .and_then(swarm::disconnect))
+            .or(warp::path!("version")
+                .and(query::<version::Query>())
+                .and_then(version::version)),
     );
 
     let routes = api.recover(recover_as_message_response);
@@ -85,7 +85,8 @@ async fn not_implemented() -> Result<impl warp::Reply, std::convert::Infallible>
 
 /// Creates routes for tests, the ipfs will not work as no background task is being spawned.
 #[cfg(test)]
-async fn non_functioning_routes() -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
+async fn non_functioning_routes(
+) -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
     use ipfs::{IpfsOptions, TestTypes, UninitializedIpfs};
     let options = IpfsOptions::<TestTypes>::default();
 
@@ -124,7 +125,10 @@ async fn invalid_peer_id() {
 
     assert_eq!(resp.status(), 400);
     // from go-ipfs
-    assert_eq!(resp.body(), r#"{"Message":"invalid peer id","Code":0,"Type":"error"}"#);
+    assert_eq!(
+        resp.body(),
+        r#"{"Message":"invalid peer id","Code":0,"Type":"error"}"#
+    );
 
     println!("{:?}", resp);
 }
