@@ -1,6 +1,26 @@
-use super::MessageKind;
+use super::{MessageKind, with_ipfs, NotImplemented, InvalidPeerId, StringError, recover_as_message_response};
 use ipfs::{Ipfs, IpfsTypes, PeerId};
 use serde::{Deserialize, Serialize};
+use warp::{Filter, query};
+use std::str::FromStr;
+use std::convert::Infallible;
+
+pub async fn identity<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl Filter<Extract = impl warp::Reply, Error = Infallible> + Clone
+{
+    warp::path!("id")
+        .and(with_ipfs(ipfs))
+        .and(optional_peer_id())
+        .and_then(identity_query)
+        .recover(recover_as_message_response)
+}
+
+fn optional_peer_id() -> impl Filter<Extract = (Option<PeerId>,), Error = warp::Rejection> + Clone + Copy {
+    query::<Query>().and_then(|mut q: Query| async move {
+        q.arg.take().map(|arg| PeerId::from_str(&arg))
+            .map_or(Ok(None), |parsed| parsed.map(Some))
+            .map_err(|_| warp::reject::custom(InvalidPeerId))
+    })
+}
 
 // NOTE: go-ipfs accepts an -f option for format (unsure if same with Accept: request header),
 // unsure on what values -f takes, since `go-ipfs` seems to just print the value back? With plain http
@@ -10,30 +30,16 @@ use serde::{Deserialize, Serialize};
 // FIXME: Reference has argument `arg: PeerId` which does get processed.
 //
 // https://docs.ipfs.io/reference/api/http/#api-v0-id
-pub async fn identity<T: IpfsTypes>(
+pub async fn identity_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    query: Query,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+    peer: Option<PeerId>,
+) -> Result<impl warp::Reply, warp::reject::Rejection> {
     use multibase::Base::Base64Pad;
-    use std::str::FromStr;
 
-    if let Some(peer_id) = query.arg {
-        match PeerId::from_str(&peer_id) {
-            Ok(_) => {
-                // FIXME: probably find this peer, if a match, use identify protocol
-                return Ok(Box::new(warp::http::StatusCode::NOT_IMPLEMENTED));
-            }
-            Err(_) => {
-                // FIXME: we need to customize the query deserialization error
-                return Ok(Box::new(warp::reply::with_status(
-                    MessageKind::Error
-                        .with_code(0)
-                        .with_message("invalid peer id")
-                        .to_json_reply(),
-                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                )));
-            }
-        }
+    if let Some(peer_id) = peer {
+        // TODO: this reply has Id, no public key, addresses and no versions. "no" as in empty
+        // string
+        return Err(warp::reject::custom(NotImplemented));
     }
 
     match ipfs.identity().await {
@@ -51,15 +57,9 @@ pub async fn identity<T: IpfsTypes>(
 
             // TODO: investigate how this could be avoided, perhaps by making the ipfs::Error a
             // Reject
-            Ok(Box::new(warp::reply::json(&response)))
+            Ok(warp::reply::json(&response))
         }
-        Err(e) => Ok(Box::new(warp::reply::with_status(
-            MessageKind::Error
-                .with_code(0)
-                .with_message(e.to_string())
-                .to_json_reply(),
-            warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-        ))),
+        Err(e) => Err(warp::reject::custom(StringError::from(e))),
     }
 }
 

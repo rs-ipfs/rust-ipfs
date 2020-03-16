@@ -197,10 +197,7 @@ fn serve<Types: IpfsTypes>(
 
     // the http libraries seem to prefer POST method
     let api = shutdown
-        .or(warp::path!("id")
-            .and(with_ipfs(ipfs))
-            .and(query::<v0::id::Query>())
-            .and_then(v0::id::identity))
+        .or(v0::id::identity(ipfs))
         // Placeholder paths
         // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
         .or(warp::path!("add").and_then(not_implemented))
