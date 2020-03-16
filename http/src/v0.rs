@@ -100,7 +100,7 @@ pub async fn recover_as_message_response(
     let resp: Box<dyn warp::Reply>;
     let status;
 
-    if let Some(_) = err.find::<NotImplemented>() {
+    if err.find::<NotImplemented>().is_some() {
         resp = Box::new(
             MessageKind::Error
                 .with_code(0)
@@ -125,7 +125,7 @@ pub async fn recover_as_message_response(
                 .to_json_reply(),
         );
         status = StatusCode::INTERNAL_SERVER_ERROR;
-    } else if let Some(_) = err.find::<InvalidPeerId>() {
+    } else if err.find::<InvalidPeerId>().is_some() {
         resp = Box::new(
             MessageKind::Error
                 .with_code(0)
@@ -133,7 +133,7 @@ pub async fn recover_as_message_response(
                 .to_json_reply(),
         );
         status = StatusCode::BAD_REQUEST;
-    } else if err.is_not_found() || matches!(err.find::<MethodNotAllowed>(), Some(_)) {
+    } else if err.is_not_found() || err.find::<MethodNotAllowed>().is_some() {
         // strangely  this here needs to match last, since the methodnotallowed can come after
         // InvalidQuery as well.
         // go-ipfs sends back a "404 Not Found" with body "404 page not found"
