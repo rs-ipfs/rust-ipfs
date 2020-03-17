@@ -12,7 +12,7 @@ pub struct ConnectResponse {
     strings: Vec<String>,
 }
 
-pub async fn connect(query: ConnectQuery) -> Result<impl warp::Reply, std::convert::Infallible> {
+pub async fn connect(_query: ConnectQuery) -> Result<impl warp::Reply, std::convert::Infallible> {
     let response = ConnectResponse { strings: vec![] };
     Ok(warp::reply::json(&response))
 }
@@ -48,7 +48,7 @@ pub struct Stream {
     protocol: String,
 }
 
-pub async fn peers(query: PeersQuery) -> Result<impl warp::Reply, std::convert::Infallible> {
+pub async fn peers(_query: PeersQuery) -> Result<impl warp::Reply, std::convert::Infallible> {
     let response = PeersResponse { peers: vec![] };
     Ok(warp::reply::json(&response))
 }
@@ -78,7 +78,7 @@ pub struct AddrsLocalResponse {
 }
 
 pub async fn addrs_local(
-    query: AddrsLocalQuery,
+    _query: AddrsLocalQuery,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
     let response = AddrsLocalResponse { strings: vec![] };
     Ok(warp::reply::json(&response))
@@ -96,7 +96,7 @@ pub struct DisconnectResponse {
 }
 
 pub async fn disconnect(
-    query: DisconnectQuery,
+    _query: DisconnectQuery,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
     let response = DisconnectResponse { strings: vec![] };
     Ok(warp::reply::json(&response))
