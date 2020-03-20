@@ -1,5 +1,6 @@
 use super::{with_ipfs, InvalidPeerId, NotImplemented, StringError};
 use ipfs::{Ipfs, IpfsTypes, PeerId};
+use parity_multiaddr::{Multiaddr, Protocol};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use warp::{query, Filter};
@@ -39,22 +40,36 @@ async fn identity_query<T: IpfsTypes>(
 
     match ipfs.identity().await {
         Ok((public_key, addresses)) => {
-            let id = public_key.clone().into_peer_id().to_string();
+            let peer_id = public_key.clone().into_peer_id();
+            let id = peer_id.to_string();
             let public_key = Base64Pad.encode(public_key.into_protobuf_encoding());
+
+            // append /p2p/peer_id if missing (as of libp2p 0.16 it should be missing) to remain
+            // compatible with go-ipfs output. go-ipfs though uses /ipfs/peer_id but that is
+            // supposed to be changing in the near future.
+            let addresses = addresses.into_iter().map(|addr| append_p2p(addr, &peer_id)).map(|addr| addr.to_string()).collect();
 
             let response = Response {
                 id,
                 public_key,
-                addresses: addresses.into_iter().map(|addr| addr.to_string()).collect(),
+                addresses,
                 agent_version: "rust-ipfs/0.1.0",
                 protocol_version: "ipfs/0.1.0",
             };
 
-            // TODO: investigate how this could be avoided, perhaps by making the ipfs::Error a
-            // Reject
             Ok(warp::reply::json(&response))
         }
         Err(e) => Err(warp::reject::custom(StringError::from(e))),
+    }
+}
+
+fn append_p2p(mut addr: Multiaddr, peer_id: &PeerId) -> Multiaddr {
+    match addr.iter().find(|protocol| matches!(protocol, Protocol::P2p(_))) {
+        Some(Protocol::P2p(_)) => addr,
+        _ => {
+            addr.push(Protocol::P2p(peer_id.clone().into()));
+            addr
+        }
     }
 }
 
