@@ -22,7 +22,7 @@ pub struct Disconnector {
 impl Disconnector {
     pub fn disconnect<T: NetworkBehaviour>(self, swarm: &mut Swarm<T>) {
         Swarm::ban_peer_id(swarm, self.peer_id.clone());
-        Swarm::unban_peer_id(swarm, self.peer_id.clone());
+        Swarm::unban_peer_id(swarm, self.peer_id);
     }
 }
 
@@ -144,6 +144,7 @@ impl NetworkBehaviour for SwarmApi {
             .finish_subscription(addr, Err(format!("{}", error)));
     }
 
+    #[allow(clippy::type_complexity)]
     fn poll(&mut self, _ctx: &mut Context, _: &mut impl PollParameters) -> Poll<NetworkBehaviourAction<<<
 Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>{
         log::trace!("poll");

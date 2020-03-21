@@ -151,6 +151,7 @@ impl ConfigFile {
     }
 
     pub fn store_at<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
+        fs::create_dir_all(path.as_ref().parent().unwrap())?;
         let string = serde_json::to_string_pretty(self).unwrap();
         fs::write(path, string)
     }
