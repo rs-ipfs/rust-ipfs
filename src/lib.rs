@@ -162,7 +162,7 @@ impl<T: IpfsTypes> Default for IpfsOptions<T> {
             .unwrap()
             .join("rust-ipfs")
             .join("config.json");
-        let config = ConfigFile::new(config_path);
+        let config = ConfigFile::new(config_path).unwrap();
         let keypair = config.secio_key_pair();
         let bootstrap = config.bootstrap();
 
