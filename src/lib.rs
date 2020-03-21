@@ -88,6 +88,8 @@ pub struct IpfsOptions<Types: IpfsTypes> {
     pub keypair: Keypair,
     /// Nodes dialed during startup.
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
+    /// Enables mdns for peer discovery when true.
+    pub mdns: bool,
 }
 
 impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
@@ -98,6 +100,7 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
             .field("ipfs_path", &self.ipfs_path)
             .field("bootstrap", &self.bootstrap)
             .field("keypair", &DebuggableKeypair(&self.keypair))
+            .field("mdns", &self.mdns)
             .finish()
     }
 }
@@ -126,21 +129,19 @@ impl<I: Borrow<Keypair>> DebuggableKeypair<I> {
 }
 
 impl<Types: IpfsTypes> IpfsOptions<Types> {
-    pub fn new(ipfs_path: PathBuf, keypair: Keypair, bootstrap: Vec<(Multiaddr, PeerId)>) -> Self {
+    pub fn new(
+        ipfs_path: PathBuf,
+        keypair: Keypair,
+        bootstrap: Vec<(Multiaddr, PeerId)>,
+        mdns: bool,
+    ) -> Self {
         Self {
             _marker: PhantomData,
             ipfs_path,
             keypair,
             bootstrap,
+            mdns,
         }
-    }
-
-    fn secio_key_pair(&self) -> &Keypair {
-        &self.keypair
-    }
-
-    fn bootstrap(&self) -> &[(Multiaddr, PeerId)] {
-        &self.bootstrap
     }
 }
 
@@ -170,6 +171,7 @@ impl<T: IpfsTypes> Default for IpfsOptions<T> {
             ipfs_path,
             keypair,
             bootstrap,
+            mdns: true,
         }
     }
 }
@@ -219,7 +221,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// Configures a new UninitializedIpfs with from the given options.
     pub async fn new(options: IpfsOptions<Types>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
-        let keys = options.secio_key_pair().clone();
+        let keys = options.keypair.clone();
         let (repo, repo_events) = create_repo(repo_options);
         let swarm_options = SwarmOptions::<Types>::from(&options);
         let swarm = create_swarm(swarm_options, repo.clone()).await;
