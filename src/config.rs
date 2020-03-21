@@ -5,6 +5,7 @@ use rand::{rngs::OsRng, Rng};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use thiserror::Error;
 
 const BOOTSTRAP_NODES: &[&str] = &[
     "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
@@ -70,10 +71,14 @@ impl fmt::Debug for KeyMaterial {
     }
 }
 
-#[derive(Debug)]
-enum KeyMaterialLoadingFailure {
-    Io(std::io::Error),
-    RsaDecoding(libp2p::identity::error::DecodingError),
+#[derive(Debug, Error)]
+pub enum KeyMaterialLoadingFailure {
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    RsaDecoding(#[from] libp2p::identity::error::DecodingError),
+    #[error("{0}")]
+    Config(#[from] serde_json::error::Error),
 }
 
 impl KeyMaterial {
@@ -125,16 +130,16 @@ impl KeyMaterial {
 }
 
 impl ConfigFile {
-    pub fn new<P: AsRef<Path>>(path: P) -> Self {
-        fs::read_to_string(&path)
-            .map(|content| Self::parse(&content))
-            .map(|parsed| parsed.into_loaded().unwrap())
-            .unwrap_or_else(|_| {
-                let config = ConfigFile::default();
-                config.store_at(path).unwrap();
-
-                config.into_loaded().unwrap()
-            })
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, KeyMaterialLoadingFailure> {
+        if path.as_ref().exists() {
+            let content = fs::read_to_string(&path)?;
+            let config = Self::parse(&content)?;
+            config.into_loaded()
+        } else {
+            let config = ConfigFile::default();
+            config.store_at(path)?;
+            config.into_loaded()
+        }
     }
 
     fn load(&mut self) -> Result<(), KeyMaterialLoadingFailure> {
@@ -146,8 +151,8 @@ impl ConfigFile {
         Ok(self)
     }
 
-    fn parse(s: &str) -> Self {
-        serde_json::from_str(s).unwrap()
+    fn parse(s: &str) -> Result<Self, KeyMaterialLoadingFailure> {
+        Ok(serde_json::from_str(s)?)
     }
 
     pub fn store_at<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
@@ -209,7 +214,7 @@ mod tests {
     fn supports_older_v1_and_ed25519_v2() {
         let input = r#"{"private_key":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"bootstrap":[]}"#;
 
-        let actual = ConfigFile::parse(input);
+        let actual = ConfigFile::parse(input).unwrap();
 
         let roundtrip = serde_json::to_string(&actual).unwrap();
 
@@ -220,7 +225,7 @@ mod tests {
     fn supports_v2() {
         let input = r#"{"rsa_pkcs8_filename":"foobar.pk8","bootstrap":[]}"#;
 
-        let actual = ConfigFile::parse(input);
+        let actual = ConfigFile::parse(input).unwrap();
 
         let roundtrip = serde_json::to_string(&actual).unwrap();
 
