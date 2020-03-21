@@ -11,6 +11,7 @@ use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::{Kademlia, KademliaEvent};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
+use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
 use std::sync::Arc;
@@ -18,7 +19,7 @@ use std::sync::Arc;
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
 pub struct Behaviour<TSwarmTypes: SwarmTypes> {
-    mdns: Mdns,
+    mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
     bitswap: Bitswap<TSwarmTypes::TStrategy>,
     ping: Ping,
@@ -45,10 +46,8 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behavi
             }
             MdnsEvent::Expired(list) => {
                 for (peer, _) in list {
-                    if !self.mdns.has_node(&peer) {
-                        log::trace!("mdns: Expired peer {}", peer.to_base58());
-                        self.remove_peer(&peer);
-                    }
+                    log::trace!("mdns: Expired peer {}", peer.to_base58());
+                    self.remove_peer(&peer);
                 }
             }
         }
@@ -154,10 +153,14 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
     pub async fn new(options: SwarmOptions<TSwarmTypes>, repo: Arc<Repo<TSwarmTypes>>) -> Self {
         info!("Local peer id: {}", options.peer_id.to_base58());
 
-        let mdns = Mdns::new().expect("Failed to create mDNS service");
+        let mdns = if options.mdns {
+            Some(Mdns::new().expect("Failed to create mDNS service"))
+        } else {
+            None
+        }
+        .into();
 
-        let store = libp2p::kad::record::store::MemoryStore::new(options.peer_id.to_owned());
-
+        let store = MemoryStore::new(options.peer_id.to_owned());
         let mut kademlia = Kademlia::new(options.peer_id.to_owned(), store);
         for (addr, peer_id) in &options.bootstrap {
             kademlia.add_address(peer_id, addr.to_owned());
@@ -169,7 +172,7 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
         let identify = Identify::new(
             "/ipfs/0.1.0".into(),
             "rust-ipfs".into(),
-            options.key_pair.public(),
+            options.keypair.public(),
         );
         let floodsub = Floodsub::new(options.peer_id);
         let swarm = SwarmApi::new();
