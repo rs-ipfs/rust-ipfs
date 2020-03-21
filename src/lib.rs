@@ -6,7 +6,10 @@
 
 #[macro_use]
 extern crate log;
+
+use anyhow::format_err;
 use async_std::path::PathBuf;
+use async_std::task;
 pub use bitswap::Block;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
@@ -15,10 +18,8 @@ use futures::stream::Fuse;
 pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
-pub use libp2p::{
-    identity::{Keypair, PublicKey},
-    Multiaddr, PeerId,
-};
+pub use libp2p::core::{ConnectedPoint, Multiaddr, PeerId, PublicKey};
+pub use libp2p::identity::Keypair;
 
 use std::borrow::Borrow;
 use std::fmt;
@@ -35,12 +36,14 @@ pub mod ipns;
 pub mod p2p;
 pub mod path;
 pub mod repo;
+mod subscription;
 pub mod unixfs;
 
 use self::config::ConfigFile;
 use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
+pub use self::p2p::Connection;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
@@ -182,10 +185,22 @@ pub struct Ipfs<Types: IpfsTypes> {
     to_task: Sender<IpfsEvent>,
 }
 
+type Channel<T> = OneshotSender<Result<T, Error>>;
+
 /// Events used internally to communicate with the swarm, which is executed in the the background
 /// task.
 #[derive(Debug)]
 enum IpfsEvent {
+    /// Connect
+    Connect(Multiaddr, Channel<()>),
+    /// Addresses
+    Addresses(Channel<Vec<(PeerId, Vec<Multiaddr>)>>),
+    /// Local addresses
+    Listeners(Channel<Vec<Multiaddr>>),
+    /// Connections
+    Connections(Channel<Vec<Connection>>),
+    /// Disconnect
+    Disconnect(Multiaddr, Channel<()>),
     /// Request background task to return the listened and external addresses
     GetAddresses(OneshotSender<Vec<Multiaddr>>),
     Exit,
@@ -319,6 +334,45 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(())
     }
 
+    pub async fn connect(&self, addr: Multiaddr) -> Result<(), Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task
+            .clone()
+            .send(IpfsEvent::Connect(addr, tx))
+            .await?;
+        rx.await?
+    }
+
+    pub async fn addrs(&self) -> Result<Vec<(PeerId, Vec<Multiaddr>)>, Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task.clone().send(IpfsEvent::Addresses(tx)).await?;
+        rx.await?
+    }
+
+    pub async fn addrs_local(&self) -> Result<Vec<Multiaddr>, Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task.clone().send(IpfsEvent::Listeners(tx)).await?;
+        rx.await?
+    }
+
+    pub async fn peers(&self) -> Result<Vec<Connection>, Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task
+            .clone()
+            .send(IpfsEvent::Connections(tx))
+            .await?;
+        rx.await?
+    }
+
+    pub async fn disconnect(&self, addr: Multiaddr) -> Result<(), Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task
+            .clone()
+            .send(IpfsEvent::Disconnect(addr, tx))
+            .await?;
+        rx.await?
+    }
+
     pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), Error> {
         let (tx, rx) = oneshot_channel();
 
@@ -365,6 +419,31 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                 };
 
                 match inner {
+                    IpfsEvent::Connect(addr, ret) => {
+                        let fut = self.swarm.connect(addr);
+                        task::spawn(async move {
+                            let res = fut.await.map_err(|err| format_err!("{}", err));
+                            ret.send(res).ok();
+                        });
+                    }
+                    IpfsEvent::Addresses(ret) => {
+                        let addrs = self.swarm.addrs();
+                        ret.send(Ok(addrs)).ok();
+                    }
+                    IpfsEvent::Listeners(ret) => {
+                        let listeners = Swarm::listeners(&self.swarm).cloned().collect();
+                        ret.send(Ok(listeners)).ok();
+                    }
+                    IpfsEvent::Connections(ret) => {
+                        let connections = self.swarm.connections();
+                        ret.send(Ok(connections)).ok();
+                    }
+                    IpfsEvent::Disconnect(addr, ret) => {
+                        if let Some(disconnector) = self.swarm.disconnect(addr) {
+                            disconnector.disconnect(&mut self.swarm);
+                        }
+                        ret.send(Ok(())).ok();
+                    }
                     IpfsEvent::GetAddresses(ret) => {
                         // perhaps this could be moved under `IpfsEvent` or free functions?
                         let mut addresses = Vec::new();

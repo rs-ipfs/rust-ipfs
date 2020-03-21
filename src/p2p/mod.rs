@@ -9,7 +9,10 @@ use libp2p::{Multiaddr, PeerId};
 use std::sync::Arc;
 
 mod behaviour;
+mod swarm;
 mod transport;
+
+pub use swarm::Connection;
 
 pub type TSwarm<SwarmTypes> = Swarm<behaviour::Behaviour<SwarmTypes>>;
 
