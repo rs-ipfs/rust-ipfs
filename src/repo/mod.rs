@@ -181,27 +181,14 @@ impl<T: IpfsTypes> bitswap::BitswapStore for Repo<T> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::options::TestTypes;
     use futures::channel::mpsc::{channel, Receiver};
-    use std::env::temp_dir;
     use std::sync::Arc;
 
-    #[derive(Clone)]
-    pub struct Types;
-
-    impl IpfsTypes for Types {
-        type TBlockStore = mem::MemBlockStore;
-        type TDataStore = mem::MemDataStore;
-    }
-
-    pub fn create_mock_repo() -> (Arc<Repo<Types>>, Receiver<IpfsEvent>) {
-        let mut tmp = temp_dir();
-        tmp.push("rust-ipfs-repo");
-        let options: RepoOptions<Types> = RepoOptions {
-            _marker: PhantomData,
-            path: tmp.into(),
-        };
+    pub fn create_mock_repo() -> (Arc<Repo<TestTypes>>, Receiver<IpfsEvent>) {
+        let options = IpfsOptions::inmemory_with_generated_keys(false);
         let (tx, rx) = channel(1);
-        let repo = Arc::new(Repo::new(options, tx));
+        let repo = Arc::new(Repo::<TestTypes>::new(&options, tx));
         (repo, rx)
     }
 

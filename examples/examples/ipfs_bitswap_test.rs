@@ -6,11 +6,15 @@ use std::convert::TryInto;
 
 fn main() {
     env_logger::init();
-    let options = IpfsOptions::<TestTypes>::default();
+    let options = IpfsOptions::inmemory_with_generated_keys(true);
 
     task::block_on(async move {
         // Start daemon and initialize repo
-        let (mut ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        let (mut ipfs, fut) = UninitializedIpfs::<TestTypes>::new(options)
+            .await
+            .start()
+            .await
+            .unwrap();
         task::spawn(fut);
 
         // Create a Block

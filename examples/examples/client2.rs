@@ -5,12 +5,16 @@ use std::str::FromStr;
 
 fn main() {
     env_logger::init();
-    let options = IpfsOptions::<TestTypes>::default();
+    let options = IpfsOptions::inmemory_with_generated_keys(true);
     let path =
         IpfsPath::from_str("/ipfs/zdpuB1caPcm4QNXeegatVfLQ839Lmprd5zosXGwRUBJHwj66X").unwrap();
 
     task::block_on(async move {
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::<TestTypes>::new(options)
+            .await
+            .start()
+            .await
+            .unwrap();
         task::spawn(fut);
 
         let f1 = ipfs.get_dag(path.sub_path("0").unwrap());

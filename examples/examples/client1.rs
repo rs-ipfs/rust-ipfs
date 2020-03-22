@@ -5,10 +5,14 @@ use libipld::ipld;
 
 fn main() {
     env_logger::init();
-    let options = IpfsOptions::<Types>::default();
+    let options = IpfsOptions::from_env().unwrap();
 
     task::block_on(async move {
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::<Types>::new(options)
+            .await
+            .start()
+            .await
+            .unwrap();
         task::spawn(fut);
 
         let f1 = ipfs.put_dag(ipld!("block1"));

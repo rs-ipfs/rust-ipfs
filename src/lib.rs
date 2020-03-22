@@ -65,7 +65,7 @@ type Channel<T> = OneshotSender<Result<T, Error>>;
 /// Events used internally to communicate with the swarm, which is executed in the the background
 /// task.
 #[derive(Debug)]
-pub(crate) enum IpfsEvent {
+pub enum IpfsEvent {
     /// Connect
     Connect(
         Multiaddr,
@@ -375,11 +375,11 @@ mod tests {
 
     #[async_std::test]
     async fn test_put_and_get_block() {
-        let options = IpfsOptions::<TestTypes>::default();
+        let options = IpfsOptions::inmemory_with_generated_keys(true);
         let data = b"hello block\n".to_vec().into_boxed_slice();
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
         let block = Block::new(data, cid);
-        let ipfs = UninitializedIpfs::new(options).await;
+        let ipfs = UninitializedIpfs::<TestTypes>::new(options).await;
         let (mut ipfs, fut) = ipfs.start().await.unwrap();
         task::spawn(fut);
 
@@ -392,9 +392,13 @@ mod tests {
 
     #[async_std::test]
     async fn test_put_and_get_dag() {
-        let options = IpfsOptions::<TestTypes>::default();
+        let options = IpfsOptions::inmemory_with_generated_keys(true);
 
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::<TestTypes>::new(options)
+            .await
+            .start()
+            .await
+            .unwrap();
         task::spawn(fut);
 
         let data = ipld!([-1, -2, -3]);

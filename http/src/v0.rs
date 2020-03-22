@@ -85,7 +85,11 @@ mod tests {
 
         let options = IpfsOptions::inmemory_with_generated_keys(false);
 
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::<ipfs::TestTypes>::new(options)
+            .await
+            .start()
+            .await
+            .unwrap();
         drop(fut);
         let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
         drop(shutdown_rx);

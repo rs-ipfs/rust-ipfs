@@ -12,7 +12,7 @@ fn connect_two_nodes() {
 
     let node_a = task::spawn(async move {
         let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(mdns);
-        let (ipfs, fut) = ipfs::UninitializedIpfs::new(opts)
+        let (ipfs, fut) = ipfs::UninitializedIpfs::<ipfs::TestTypes>::new(opts)
             .await
             .start()
             .await
@@ -34,7 +34,7 @@ fn connect_two_nodes() {
         println!("got back from the other node: {:?}", other_addrs);
 
         let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(mdns);
-        let (ipfs, fut) = ipfs::UninitializedIpfs::new(opts)
+        let (ipfs, fut) = ipfs::UninitializedIpfs::<ipfs::TestTypes>::new(opts)
             .await
             .start()
             .await

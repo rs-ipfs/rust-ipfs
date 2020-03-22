@@ -4,11 +4,15 @@ use std::str::FromStr;
 
 fn main() {
     env_logger::init();
-    let options = IpfsOptions::<TestTypes>::default();
+    let options = IpfsOptions::inmemory_with_generated_keys(true);
 
     task::block_on(async move {
         // Start daemon and initialize repo
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::<TestTypes>::new(options)
+            .await
+            .start()
+            .await
+            .unwrap();
         task::spawn(fut);
 
         // Create a Block
