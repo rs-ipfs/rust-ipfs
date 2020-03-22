@@ -72,7 +72,7 @@ impl SwarmApi {
     }
 
     pub fn connect(&mut self, address: Multiaddr) -> SubscriptionFuture<Result<(), String>> {
-        log::trace!("connect {}", address.to_string());
+        log::trace!("starting to connect to {}", address);
         self.push_action(NetworkBehaviourAction::DialAddress {
             address: address.clone(),
         });
@@ -88,7 +88,7 @@ impl SwarmApi {
     }
 
     pub fn disconnect(&mut self, address: Multiaddr) -> Option<Disconnector> {
-        log::trace!("disconnect {}", address.to_string());
+        log::trace!("disconnect {}", address);
         self.connections.remove(&address);
         let peer_id = self
             .connections
