@@ -23,7 +23,7 @@ fn connect_two_nodes() {
     task::block_on(async move {
         let (other_pk, other_addrs, other_ipfs, other_jh) = rx.await.unwrap();
 
-        log::debug!("got back from the other node: {:?}", other_addrs);
+        println!("got back from the other node: {:?}", other_addrs);
         assert!(!other_addrs.is_empty());
 
         let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(mdns);
@@ -35,7 +35,7 @@ fn connect_two_nodes() {
         let mut connected = None;
 
         for addr in other_addrs {
-            log::debug!("trying {}", addr);
+            println!("trying {}", addr);
             match ipfs.connect(addr.clone()).await {
                 Ok(_) => {
                     connected = Some(addr);
