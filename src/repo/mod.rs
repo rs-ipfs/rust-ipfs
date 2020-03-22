@@ -1,21 +1,18 @@
 //! IPFS repo
 use crate::error::Error;
 use crate::path::IpfsPath;
+use crate::subscription::SubscriptionRegistry;
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
 use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use bitswap::Block;
 use core::fmt::Debug;
-use core::future::Future;
 use core::marker::PhantomData;
-use core::pin::Pin;
-use core::task::{Context, Poll, Waker};
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::sink::SinkExt;
 use libipld::cid::Cid;
-use libp2p::PeerId;
-use std::collections::HashMap;
+use libp2p::core::PeerId;
 
 pub mod fs;
 pub mod mem;
@@ -79,7 +76,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
-    subscriptions: Mutex<HashMap<Cid, Arc<Mutex<Subscription>>>>,
+    subscriptions: Mutex<SubscriptionRegistry<Cid, Block>>,
 }
 
 #[derive(Clone, Debug)]
@@ -134,50 +131,49 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     /// Puts a block into the block store.
     pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
         let cid = self.block_store.put(block.clone()).await?;
-        if let Some(subscription) = self.subscriptions.lock().await.remove(&cid) {
-            subscription.lock().await.wake(block);
-        }
-        // sending only fails if the background task has exited
-        // TODO: not sure if this cloning of the sender is ok, this will probably be unbounded
-        // memory usage, but it requires &mut for some reason (for example tokios sender does not
-        // need one)
-        let _ = self
-            .events
+        self.subscriptions
+            .lock()
+            .await
+            .finish_subscription(&cid, block);
+        // sending only fails if no one is listening anymore
+        // and that is okay with us.
+        self.events
             .clone()
             .send(RepoEvent::ProvideBlock(cid.clone()))
-            .await;
+            .await
+            .ok();
         Ok(cid)
     }
 
     /// Retrives a block from the block store.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
-        let subscription = if let Some(block) = self.block_store.get(&cid.clone()).await? {
-            Arc::new(Mutex::new(Subscription::ready(block)))
+        if let Some(block) = self.block_store.get(&cid).await? {
+            Ok(block)
         } else {
-            // sending only fails if the background task has exited
-            let _ = self
-                .events
-                .clone()
-                .send(RepoEvent::WantBlock(cid.clone()))
-                .await;
-            self.subscriptions
+            let subscription = self
+                .subscriptions
                 .lock()
                 .await
-                .entry(cid.clone())
-                .or_default()
+                .create_subscription(cid.clone());
+            // sending only fails if no one is listening anymore
+            // and that is okay with us.
+            self.events
                 .clone()
-        };
-        Ok(BlockFuture { subscription }.await)
+                .send(RepoEvent::WantBlock(cid.clone()))
+                .await
+                .ok();
+            Ok(subscription.await)
+        }
     }
 
     /// Remove block from the block store.
     pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error> {
         // sending only fails if the background task has exited
-        let _ = self
-            .events
+        self.events
             .clone()
             .send(RepoEvent::UnprovideBlock(cid.to_owned()))
-            .await;
+            .await
+            .ok();
         self.block_store.remove(cid).await?;
         Ok(())
     }
@@ -223,60 +219,6 @@ impl<T: RepoTypes> bitswap::BitswapStore for Repo<T> {
     async fn put_block(&self, block: Block) -> Result<(), anyhow::Error> {
         self.put_block(block).await?;
         Ok(())
-    }
-}
-
-#[derive(Debug, Default)]
-struct Subscription {
-    block: Option<Block>,
-    wakers: Vec<Waker>,
-}
-
-impl Subscription {
-    pub fn ready(block: Block) -> Self {
-        Self {
-            block: Some(block),
-            wakers: vec![],
-        }
-    }
-
-    pub fn add_waker(&mut self, waker: Waker) {
-        self.wakers.push(waker);
-    }
-
-    pub fn result(&self) -> Option<Block> {
-        self.block.clone()
-    }
-
-    pub fn wake(&mut self, block: Block) {
-        self.block = Some(block);
-        for waker in self.wakers.drain(..) {
-            waker.wake();
-        }
-    }
-}
-
-pub struct BlockFuture {
-    subscription: Arc<Mutex<Subscription>>,
-}
-
-impl Future for BlockFuture {
-    type Output = Block;
-
-    fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
-        let future = self.subscription.lock();
-        futures::pin_mut!(future);
-        match future.poll(context) {
-            Poll::Ready(mut subscription) => {
-                if let Some(result) = subscription.result() {
-                    Poll::Ready(result)
-                } else {
-                    subscription.add_waker(context.waker().clone());
-                    Poll::Pending
-                }
-            }
-            Poll::Pending => Poll::Pending,
-        }
     }
 }
 

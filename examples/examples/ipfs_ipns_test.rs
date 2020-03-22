@@ -3,10 +3,8 @@ use ipfs::{IpfsOptions, IpfsPath, PeerId, TestTypes, UninitializedIpfs};
 use std::str::FromStr;
 
 fn main() {
+    env_logger::init();
     let options = IpfsOptions::<TestTypes>::default();
-    env_logger::Builder::new()
-        .parse_filters(&options.ipfs_log)
-        .init();
 
     task::block_on(async move {
         // Start daemon and initialize repo

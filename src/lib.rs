@@ -6,7 +6,10 @@
 
 #[macro_use]
 extern crate log;
+
+use anyhow::format_err;
 use async_std::path::PathBuf;
+use async_std::task;
 pub use bitswap::Block;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
@@ -15,10 +18,8 @@ use futures::stream::Fuse;
 pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
-pub use libp2p::{
-    identity::{Keypair, PublicKey},
-    Multiaddr, PeerId,
-};
+pub use libp2p::core::{ConnectedPoint, Multiaddr, PeerId, PublicKey};
+pub use libp2p::identity::Keypair;
 
 use std::borrow::Borrow;
 use std::fmt;
@@ -35,23 +36,20 @@ pub mod ipns;
 pub mod p2p;
 pub mod path;
 pub mod repo;
+mod subscription;
 pub mod unixfs;
 
 use self::config::ConfigFile;
 use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
+pub use self::p2p::Connection;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
 use self::unixfs::File;
-
-static IPFS_LOG: &str = "info";
-static IPFS_PATH: &str = ".rust-ipfs";
-static XDG_APP_NAME: &str = "rust-ipfs";
-static CONFIG_FILE: &str = "config.json";
 
 /// All types can be changed at compile time by implementing
 /// `IpfsTypes`.
@@ -84,14 +82,14 @@ impl RepoTypes for TestTypes {
 #[derive(Clone)]
 pub struct IpfsOptions<Types: IpfsTypes> {
     _marker: PhantomData<Types>,
-    /// The ipfs log level that should be passed to env_logger.
-    pub ipfs_log: String,
     /// The path of the ipfs repo.
     pub ipfs_path: PathBuf,
     /// The keypair used with libp2p.
     pub keypair: Keypair,
-    /// Nodes dialed during startup
+    /// Nodes dialed during startup.
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
+    /// Enables mdns for peer discovery when true.
+    pub mdns: bool,
 }
 
 impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
@@ -99,10 +97,10 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
         // needed since libp2p::identity::Keypair does not have a Debug impl, and the IpfsOptions
         // is a struct with all public fields, so don't enforce users to use this wrapper.
         fmt.debug_struct("IpfsOptions")
-            .field("ipfs_log", &self.ipfs_log)
             .field("ipfs_path", &self.ipfs_path)
             .field("bootstrap", &self.bootstrap)
             .field("keypair", &DebuggableKeypair(&self.keypair))
+            .field("mdns", &self.mdns)
             .finish()
     }
 }
@@ -131,75 +129,49 @@ impl<I: Borrow<Keypair>> DebuggableKeypair<I> {
 }
 
 impl<Types: IpfsTypes> IpfsOptions<Types> {
-    pub fn new(ipfs_path: PathBuf, keypair: Keypair, bootstrap: Vec<(Multiaddr, PeerId)>) -> Self {
+    pub fn new(
+        ipfs_path: PathBuf,
+        keypair: Keypair,
+        bootstrap: Vec<(Multiaddr, PeerId)>,
+        mdns: bool,
+    ) -> Self {
         Self {
             _marker: PhantomData,
-            ipfs_log: String::from("trace"),
             ipfs_path,
             keypair,
             bootstrap,
+            mdns,
         }
-    }
-
-    fn secio_key_pair(&self) -> &Keypair {
-        &self.keypair
-    }
-
-    fn bootstrap(&self) -> &[(Multiaddr, PeerId)] {
-        &self.bootstrap
     }
 }
 
-impl Default for IpfsOptions<Types> {
+impl<T: IpfsTypes> Default for IpfsOptions<T> {
     /// Create `IpfsOptions` from environment.
     fn default() -> Self {
-        let ipfs_log = std::env::var("IPFS_LOG").unwrap_or_else(|_| IPFS_LOG.into());
-        let ipfs_path = std::env::var("IPFS_PATH")
-            .unwrap_or_else(|_| {
-                let mut ipfs_path = std::env::var("HOME").unwrap_or_else(|_| "".into());
-                ipfs_path.push_str("/");
-                ipfs_path.push_str(IPFS_PATH);
-                ipfs_path
-            })
-            .into();
-        let path = dirs::config_dir()
+        let ipfs_path = if let Ok(path) = std::env::var("IPFS_PATH") {
+            PathBuf::from(path)
+        } else {
+            let root = if let Some(home) = dirs::home_dir() {
+                home
+            } else {
+                std::env::current_dir().unwrap()
+            };
+            root.join(".rust-ipfs").into()
+        };
+        let config_path = dirs::config_dir()
             .unwrap()
-            .join(XDG_APP_NAME)
-            .join(CONFIG_FILE);
-        let config = ConfigFile::new(path);
+            .join("rust-ipfs")
+            .join("config.json");
+        let config = ConfigFile::new(config_path).unwrap();
         let keypair = config.secio_key_pair();
         let bootstrap = config.bootstrap();
 
         IpfsOptions {
             _marker: PhantomData,
-            ipfs_log,
             ipfs_path,
             keypair,
             bootstrap,
-        }
-    }
-}
-
-impl Default for IpfsOptions<TestTypes> {
-    /// Creates `IpfsOptions` for testing without reading or writing to the
-    /// file system.
-    fn default() -> Self {
-        let ipfs_log = std::env::var("IPFS_LOG").unwrap_or_else(|_| IPFS_LOG.into());
-        let ipfs_path = std::env::var("IPFS_PATH")
-            .unwrap_or_else(|_| IPFS_PATH.into())
-            .into();
-        let config = std::env::var("IPFS_TEST_CONFIG")
-            .map(ConfigFile::new)
-            .unwrap_or_default();
-        let keypair = config.secio_key_pair();
-        let bootstrap = config.bootstrap();
-
-        IpfsOptions {
-            _marker: PhantomData,
-            ipfs_log,
-            ipfs_path,
-            keypair,
-            bootstrap,
+            mdns: true,
         }
     }
 }
@@ -215,10 +187,22 @@ pub struct Ipfs<Types: IpfsTypes> {
     to_task: Sender<IpfsEvent>,
 }
 
+type Channel<T> = OneshotSender<Result<T, Error>>;
+
 /// Events used internally to communicate with the swarm, which is executed in the the background
 /// task.
 #[derive(Debug)]
 enum IpfsEvent {
+    /// Connect
+    Connect(Multiaddr, Channel<()>),
+    /// Addresses
+    Addresses(Channel<Vec<(PeerId, Vec<Multiaddr>)>>),
+    /// Local addresses
+    Listeners(Channel<Vec<Multiaddr>>),
+    /// Connections
+    Connections(Channel<Vec<Connection>>),
+    /// Disconnect
+    Disconnect(Multiaddr, Channel<()>),
     /// Request background task to return the listened and external addresses
     GetAddresses(OneshotSender<Vec<Multiaddr>>),
     Exit,
@@ -237,7 +221,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// Configures a new UninitializedIpfs with from the given options.
     pub async fn new(options: IpfsOptions<Types>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
-        let keys = options.secio_key_pair().clone();
+        let keys = options.keypair.clone();
         let (repo, repo_events) = create_repo(repo_options);
         let swarm_options = SwarmOptions::<Types>::from(&options);
         let swarm = create_swarm(swarm_options, repo.clone()).await;
@@ -352,6 +336,45 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(())
     }
 
+    pub async fn connect(&self, addr: Multiaddr) -> Result<(), Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task
+            .clone()
+            .send(IpfsEvent::Connect(addr, tx))
+            .await?;
+        rx.await?
+    }
+
+    pub async fn addrs(&self) -> Result<Vec<(PeerId, Vec<Multiaddr>)>, Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task.clone().send(IpfsEvent::Addresses(tx)).await?;
+        rx.await?
+    }
+
+    pub async fn addrs_local(&self) -> Result<Vec<Multiaddr>, Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task.clone().send(IpfsEvent::Listeners(tx)).await?;
+        rx.await?
+    }
+
+    pub async fn peers(&self) -> Result<Vec<Connection>, Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task
+            .clone()
+            .send(IpfsEvent::Connections(tx))
+            .await?;
+        rx.await?
+    }
+
+    pub async fn disconnect(&self, addr: Multiaddr) -> Result<(), Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task
+            .clone()
+            .send(IpfsEvent::Disconnect(addr, tx))
+            .await?;
+        rx.await?
+    }
+
     pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), Error> {
         let (tx, rx) = oneshot_channel();
 
@@ -398,6 +421,31 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                 };
 
                 match inner {
+                    IpfsEvent::Connect(addr, ret) => {
+                        let fut = self.swarm.connect(addr);
+                        task::spawn(async move {
+                            let res = fut.await.map_err(|err| format_err!("{}", err));
+                            ret.send(res).ok();
+                        });
+                    }
+                    IpfsEvent::Addresses(ret) => {
+                        let addrs = self.swarm.addrs();
+                        ret.send(Ok(addrs)).ok();
+                    }
+                    IpfsEvent::Listeners(ret) => {
+                        let listeners = Swarm::listeners(&self.swarm).cloned().collect();
+                        ret.send(Ok(listeners)).ok();
+                    }
+                    IpfsEvent::Connections(ret) => {
+                        let connections = self.swarm.connections();
+                        ret.send(Ok(connections)).ok();
+                    }
+                    IpfsEvent::Disconnect(addr, ret) => {
+                        if let Some(disconnector) = self.swarm.disconnect(addr) {
+                            disconnector.disconnect(&mut self.swarm);
+                        }
+                        ret.send(Ok(())).ok();
+                    }
                     IpfsEvent::GetAddresses(ret) => {
                         // perhaps this could be moved under `IpfsEvent` or free functions?
                         let mut addresses = Vec::new();
