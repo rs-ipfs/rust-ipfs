@@ -108,7 +108,12 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
 impl IpfsOptions<TestTypes> {
     /// Creates an inmemory store backed node for tests
     pub fn inmemory_with_generated_keys(mdns: bool) -> Self {
-        Self::new(std::env::temp_dir().into(), Keypair::generate_ed25519(), vec![], mdns)
+        Self::new(
+            std::env::temp_dir().into(),
+            Keypair::generate_ed25519(),
+            vec![],
+            mdns,
+        )
     }
 }
 
@@ -414,7 +419,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         use futures::Stream;
-        use libp2p::{Swarm, swarm::SwarmEvent};
+        use libp2p::{swarm::SwarmEvent, Swarm};
 
         // begin by polling the swarm so that initially it'll first have chance to bind listeners
         // and such. TODO: this no longer needs to be a swarm event but perhaps we should
@@ -429,12 +434,16 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                 }
             };
             match inner {
-                SwarmEvent::Behaviour(()) => {},
-                SwarmEvent::Connected(_peer_id) => {},
-                SwarmEvent::Disconnected(_peer_id) => {},
-                SwarmEvent::NewListenAddr(_addr) => {},
-                SwarmEvent::ExpiredListenAddr(_addr) => {},
-                SwarmEvent::UnreachableAddr { peer_id: _peer_id, address: _address, error: _error } => {},
+                SwarmEvent::Behaviour(()) => {}
+                SwarmEvent::Connected(_peer_id) => {}
+                SwarmEvent::Disconnected(_peer_id) => {}
+                SwarmEvent::NewListenAddr(_addr) => {}
+                SwarmEvent::ExpiredListenAddr(_addr) => {}
+                SwarmEvent::UnreachableAddr {
+                    peer_id: _peer_id,
+                    address: _address,
+                    error: _error,
+                } => {}
                 SwarmEvent::StartConnect(_peer_id) => {}
             }
         }

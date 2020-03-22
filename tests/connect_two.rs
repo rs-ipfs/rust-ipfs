@@ -12,11 +12,18 @@ fn connect_two_nodes() {
 
     let node_a = task::spawn(async move {
         let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(mdns);
-        let (ipfs, fut) = ipfs::UninitializedIpfs::new(opts).await.start().await.unwrap();
+        let (ipfs, fut) = ipfs::UninitializedIpfs::new(opts)
+            .await
+            .start()
+            .await
+            .unwrap();
 
         let jh = task::spawn(fut);
 
-        let (pk, addrs) = ipfs.identity().await.expect("failed to read identity() on node_a");
+        let (pk, addrs) = ipfs
+            .identity()
+            .await
+            .expect("failed to read identity() on node_a");
         assert!(!addrs.is_empty());
         tx.send((pk, addrs, ipfs, jh)).unwrap();
     });
@@ -27,7 +34,11 @@ fn connect_two_nodes() {
         println!("got back from the other node: {:?}", other_addrs);
 
         let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(mdns);
-        let (ipfs, fut) = ipfs::UninitializedIpfs::new(opts).await.start().await.unwrap();
+        let (ipfs, fut) = ipfs::UninitializedIpfs::new(opts)
+            .await
+            .start()
+            .await
+            .unwrap();
         let jh = task::spawn(fut);
 
         let _other_peerid = other_pk.into_peer_id();
@@ -40,7 +51,7 @@ fn connect_two_nodes() {
                 Ok(_) => {
                     connected = Some(addr);
                     break;
-                },
+                }
                 Err(e) => {
                     println!("Failed connecting to {}: {}", addr, e);
                 }
@@ -58,4 +69,3 @@ fn connect_two_nodes() {
         jh.await;
     });
 }
-

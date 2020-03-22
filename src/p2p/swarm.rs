@@ -6,8 +6,8 @@ use libp2p::swarm::protocols_handler::{
 };
 use libp2p::swarm::{self, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::time::Duration;
 use std::task::Waker;
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct Connection {
@@ -40,7 +40,6 @@ pub struct SwarmApi {
     /// The waker of the last polled task, if any.
     waker: Option<Waker>,
 }
-
 
 impl SwarmApi {
     pub fn new() -> Self {
@@ -159,7 +158,11 @@ impl NetworkBehaviour for SwarmApi {
             .finish_subscription(addr, Err(format!("{}", error)));
     }
 
-    fn poll(&mut self, ctx: &mut Context, _: &mut impl PollParameters) -> Poll<NetworkBehaviourAction>{
+    fn poll(
+        &mut self,
+        ctx: &mut Context,
+        _: &mut impl PollParameters,
+    ) -> Poll<NetworkBehaviourAction> {
         // store the poller so that we can wake the task on next push_action
         self.waker = Some(ctx.waker().clone());
         if let Some(event) = self.events.pop_front() {
