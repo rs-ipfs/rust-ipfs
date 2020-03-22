@@ -45,6 +45,11 @@ impl BitswapMessage {
         Self::default()
     }
 
+    /// Is message empty.
+    pub fn is_empty(&self) -> bool {
+        self.want.is_empty() && self.cancel.is_empty() && self.blocks.is_empty()
+    }
+
     /// Returns the list of blocks.
     pub fn blocks(&self) -> &[Block] {
         &self.blocks
@@ -147,6 +152,12 @@ impl TryFrom<&[u8]> for BitswapMessage {
             message.add_block(block);
         }
         Ok(message)
+    }
+}
+
+impl From<()> for BitswapMessage {
+    fn from(_: ()) -> Self {
+        Self::new()
     }
 }
 

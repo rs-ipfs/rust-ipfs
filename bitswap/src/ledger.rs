@@ -36,7 +36,10 @@ impl Ledger {
         self.message.cancel_block(cid);
     }
 
-    pub fn send(&mut self) -> BitswapMessage {
+    pub fn send(&mut self) -> Option<BitswapMessage> {
+        if self.message.is_empty() {
+            return None;
+        }
         self.sent_blocks += self.message.blocks().len();
         for cid in self.message.cancel() {
             self.sent_want_list.remove(cid);
@@ -44,7 +47,7 @@ impl Ledger {
         for (cid, priority) in self.message.want() {
             self.sent_want_list.insert(cid.clone(), *priority);
         }
-        core::mem::replace(&mut self.message, BitswapMessage::new())
+        Some(core::mem::replace(&mut self.message, BitswapMessage::new()))
     }
 
     pub fn receive(&mut self, message: &BitswapMessage) {
