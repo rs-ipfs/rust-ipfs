@@ -9,7 +9,6 @@ extern crate log;
 
 use anyhow::format_err;
 use async_std::path::PathBuf;
-use async_std::task;
 pub use bitswap::Block;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
@@ -49,6 +48,7 @@ use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
+use self::subscription::SubscriptionFuture;
 use self::unixfs::File;
 
 /// All types can be changed at compile time by implementing
@@ -206,7 +206,10 @@ type Channel<T> = OneshotSender<Result<T, Error>>;
 #[derive(Debug)]
 enum IpfsEvent {
     /// Connect
-    Connect(Multiaddr, Channel<()>),
+    Connect(
+        Multiaddr,
+        OneshotSender<SubscriptionFuture<Result<(), String>>>,
+    ),
     /// Addresses
     Addresses(Channel<Vec<(PeerId, Vec<Multiaddr>)>>),
     /// Local addresses
@@ -354,7 +357,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .clone()
             .send(IpfsEvent::Connect(addr, tx))
             .await?;
-        rx.await?
+        let subscription = rx.await?;
+        subscription.await.map_err(|e| format_err!("{}", e))
     }
 
     pub async fn addrs(&self) -> Result<Vec<(PeerId, Vec<Multiaddr>)>, Error> {
@@ -461,11 +465,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 
             match inner {
                 IpfsEvent::Connect(addr, ret) => {
-                    let fut = self.swarm.connect(addr);
-                    task::spawn(async move {
-                        let res = fut.await.map_err(|err| format_err!("{}", err));
-                        ret.send(res).ok();
-                    });
+                    ret.send(self.swarm.connect(addr)).ok();
                 }
                 IpfsEvent::Addresses(ret) => {
                     let addrs = self.swarm.addrs();
