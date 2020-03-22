@@ -4,6 +4,7 @@ use core::fmt::Debug;
 use core::hash::Hash;
 use core::pin::Pin;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
@@ -89,6 +90,16 @@ impl<TResult: Clone> Future for SubscriptionFuture<TResult> {
             subscription.add_waker(context.waker().clone());
             Poll::Pending
         }
+    }
+}
+
+impl<TResult> fmt::Debug for SubscriptionFuture<TResult> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            fmt,
+            "SubscriptionFuture<{}>",
+            std::any::type_name::<TResult>()
+        )
     }
 }
 
