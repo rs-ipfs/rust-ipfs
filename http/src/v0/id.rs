@@ -47,7 +47,11 @@ async fn identity_query<T: IpfsTypes>(
             // append /p2p/peer_id if missing (as of libp2p 0.16 it should be missing) to remain
             // compatible with go-ipfs output. go-ipfs though uses /ipfs/peer_id but that is
             // supposed to be changing in the near future.
-            let addresses = addresses.into_iter().map(|addr| append_p2p(addr, &peer_id)).map(|addr| addr.to_string()).collect();
+            let addresses = addresses
+                .into_iter()
+                .map(|addr| append_p2p(addr, &peer_id))
+                .map(|addr| addr.to_string())
+                .collect();
 
             let response = Response {
                 id,
@@ -64,7 +68,10 @@ async fn identity_query<T: IpfsTypes>(
 }
 
 fn append_p2p(mut addr: Multiaddr, peer_id: &PeerId) -> Multiaddr {
-    match addr.iter().find(|protocol| matches!(protocol, Protocol::P2p(_))) {
+    match addr
+        .iter()
+        .find(|protocol| matches!(protocol, Protocol::P2p(_)))
+    {
         Some(Protocol::P2p(_)) => addr,
         _ => {
             addr.push(Protocol::P2p(peer_id.clone().into()));
