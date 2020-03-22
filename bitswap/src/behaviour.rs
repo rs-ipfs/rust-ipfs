@@ -198,10 +198,99 @@ impl NetworkBehaviour for Bitswap {
         }
         for (peer_id, ledger) in &mut self.connected_peers {
             if let Some(message) = ledger.send() {
-                return Poll::Ready(NetworkBehaviourAction::SendEvent { peer_id: peer_id.clone(), event: message });
+                return Poll::Ready(NetworkBehaviourAction::SendEvent {
+                    peer_id: peer_id.clone(),
+                    event: message,
+                });
             }
         }
         self.waker = Some(ctx.waker().clone());
         Poll::Pending
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block::tests::create_block;
+    use futures::prelude::*;
+    use futures::channel::mpsc;
+    use libp2p::core::muxing::StreamMuxerBox;
+    use libp2p::core::transport::boxed::Boxed;
+    use libp2p::core::transport::upgrade::Version;
+    use libp2p::identity::Keypair;
+    use libp2p::secio::SecioConfig;
+    use libp2p::tcp::TcpConfig;
+    use libp2p::yamux::Config as YamuxConfig;
+    use libp2p::{PeerId, Swarm, Transport};
+    use std::io::{Error, ErrorKind};
+    use std::time::Duration;
+
+    fn mk_transport() -> (PeerId, Boxed<(PeerId, StreamMuxerBox), Error>) {
+        let key = Keypair::generate_ed25519();
+        let peer_id = key.public().into_peer_id();
+        let transport = TcpConfig::new()
+            .nodelay(true)
+            .upgrade(Version::V1)
+            .authenticate(SecioConfig::new(key))
+            .multiplex(YamuxConfig::default())
+            .timeout(Duration::from_secs(20))
+            .map(|(peer_id, muxer), _| (peer_id, StreamMuxerBox::new(muxer)))
+            .map_err(|err| Error::new(ErrorKind::Other, err))
+            .boxed();
+        (peer_id, transport)
+    }
+
+    #[async_std::test]
+    async fn test_bitswap_behaviour() {
+        env_logger::init();
+
+        let (peer1_id, trans) = mk_transport();
+        let mut swarm1 = Swarm::new(trans, Bitswap::new(), peer1_id.clone());
+
+        let (peer2_id, trans) = mk_transport();
+        let mut swarm2 = Swarm::new(trans, Bitswap::new(), peer2_id.clone());
+
+        let (mut tx, mut rx) = mpsc::channel::<Multiaddr>(1);
+        Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
+
+        let block = create_block(b"hello world");
+        let cid = block.cid().clone();
+
+        let peer1 = async move {
+            while let Some(_) = swarm1.next().now_or_never() {}
+
+            for l in Swarm::listeners(&swarm1) {
+                tx.send(l.clone()).await.unwrap();
+            }
+
+            loop {
+                match swarm1.next().await {
+                    BitswapEvent::ReceivedWant(peer_id, cid, _) => {
+                        if &cid == block.cid() {
+                            swarm1.send_block(&peer_id, block.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        let peer2 = async move {
+            Swarm::dial_addr(&mut swarm2, rx.next().await.unwrap()).unwrap();
+            swarm2.want_block(cid, 1000);
+
+            loop {
+                match swarm2.next().await {
+                    BitswapEvent::ReceivedBlock(_, block) => {
+                        return block
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        let block = future::select(Box::pin(peer1), Box::pin(peer2)).await.factor_first().0;
+        assert_eq!(block.data(), b"hello world");
     }
 }
