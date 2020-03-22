@@ -1,6 +1,7 @@
 use crate::error::Error;
+use crate::options::IpfsTypes;
 use crate::path::{IpfsPath, IpfsPathError, SubPath};
-use crate::repo::{Repo, RepoTypes};
+use crate::repo::Repo;
 use bitswap::Block;
 use libipld::block::{decode_ipld, encode_ipld};
 use libipld::cid::{Cid, Codec, Version};
@@ -8,12 +9,12 @@ use libipld::ipld::Ipld;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
-pub struct IpldDag<Types: RepoTypes> {
-    repo: Arc<Repo<Types>>,
+pub struct IpldDag<T: IpfsTypes> {
+    repo: Arc<Repo<T>>,
 }
 
-impl<Types: RepoTypes> IpldDag<Types> {
-    pub fn new(repo: Arc<Repo<Types>>) -> Self {
+impl<T: IpfsTypes> IpldDag<T> {
+    pub fn new(repo: Arc<Repo<T>>) -> Self {
         IpldDag { repo }
     }
 

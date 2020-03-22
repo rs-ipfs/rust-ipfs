@@ -20,173 +20,34 @@ pub use libipld::ipld::Ipld;
 pub use libp2p::core::{ConnectedPoint, Multiaddr, PeerId, PublicKey};
 pub use libp2p::identity::Keypair;
 
-use std::borrow::Borrow;
-use std::fmt;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
 mod config;
 mod dag;
-pub mod error;
-pub mod ipns;
-pub mod p2p;
-pub mod path;
-pub mod repo;
+mod error;
+mod ipns;
+mod options;
+mod p2p;
+mod path;
+mod repo;
 mod subscription;
-pub mod unixfs;
+mod unixfs;
 
-use self::config::ConfigFile;
+pub use crate::options::{IpfsOptions, IpfsTypes, TestTypes, Types};
+
 use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
+use self::options::DebuggableKeypair;
 pub use self::p2p::Connection;
-pub use self::p2p::SwarmTypes;
-use self::p2p::{create_swarm, SwarmOptions, TSwarm};
+use self::p2p::{create_swarm, TSwarm};
 pub use self::path::IpfsPath;
-pub use self::repo::RepoTypes;
-use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
+use self::repo::Repo;
 use self::subscription::SubscriptionFuture;
 use self::unixfs::File;
-
-/// All types can be changed at compile time by implementing
-/// `IpfsTypes`.
-pub trait IpfsTypes: SwarmTypes + RepoTypes {}
-impl<T: RepoTypes> SwarmTypes for T {
-    type TStrategy = bitswap::AltruisticStrategy;
-}
-impl<T: SwarmTypes + RepoTypes> IpfsTypes for T {}
-
-/// Default IPFS types.
-#[derive(Clone, Debug)]
-pub struct Types;
-impl RepoTypes for Types {
-    type TBlockStore = repo::fs::FsBlockStore;
-    #[cfg(feature = "rocksdb")]
-    type TDataStore = repo::fs::RocksDataStore;
-    #[cfg(not(feature = "rocksdb"))]
-    type TDataStore = repo::mem::MemDataStore;
-}
-
-/// Testing IPFS types
-#[derive(Clone, Debug)]
-pub struct TestTypes;
-impl RepoTypes for TestTypes {
-    type TBlockStore = repo::mem::MemBlockStore;
-    type TDataStore = repo::mem::MemDataStore;
-}
-
-/// Ipfs options
-#[derive(Clone)]
-pub struct IpfsOptions<Types: IpfsTypes> {
-    _marker: PhantomData<Types>,
-    /// The path of the ipfs repo.
-    pub ipfs_path: PathBuf,
-    /// The keypair used with libp2p.
-    pub keypair: Keypair,
-    /// Nodes dialed during startup.
-    pub bootstrap: Vec<(Multiaddr, PeerId)>,
-    /// Enables mdns for peer discovery when true.
-    pub mdns: bool,
-}
-
-impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // needed since libp2p::identity::Keypair does not have a Debug impl, and the IpfsOptions
-        // is a struct with all public fields, so don't enforce users to use this wrapper.
-        fmt.debug_struct("IpfsOptions")
-            .field("ipfs_path", &self.ipfs_path)
-            .field("bootstrap", &self.bootstrap)
-            .field("keypair", &DebuggableKeypair(&self.keypair))
-            .field("mdns", &self.mdns)
-            .finish()
-    }
-}
-
-impl IpfsOptions<TestTypes> {
-    /// Creates an inmemory store backed node for tests
-    pub fn inmemory_with_generated_keys(mdns: bool) -> Self {
-        Self::new(
-            std::env::temp_dir().into(),
-            Keypair::generate_ed25519(),
-            vec![],
-            mdns,
-        )
-    }
-}
-
-/// Workaround for libp2p::identity::Keypair missing a Debug impl, works with references and owned
-/// keypairs.
-#[derive(Clone)]
-struct DebuggableKeypair<I: Borrow<Keypair>>(I);
-
-impl<I: Borrow<Keypair>> fmt::Debug for DebuggableKeypair<I> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let kind = match self.get_ref() {
-            Keypair::Ed25519(_) => "Ed25519",
-            Keypair::Rsa(_) => "Rsa",
-            Keypair::Secp256k1(_) => "Secp256k1",
-        };
-
-        write!(fmt, "Keypair::{}", kind)
-    }
-}
-
-impl<I: Borrow<Keypair>> DebuggableKeypair<I> {
-    fn get_ref(&self) -> &Keypair {
-        self.0.borrow()
-    }
-}
-
-impl<Types: IpfsTypes> IpfsOptions<Types> {
-    pub fn new(
-        ipfs_path: PathBuf,
-        keypair: Keypair,
-        bootstrap: Vec<(Multiaddr, PeerId)>,
-        mdns: bool,
-    ) -> Self {
-        Self {
-            _marker: PhantomData,
-            ipfs_path,
-            keypair,
-            bootstrap,
-            mdns,
-        }
-    }
-}
-
-impl<T: IpfsTypes> Default for IpfsOptions<T> {
-    /// Create `IpfsOptions` from environment.
-    fn default() -> Self {
-        let ipfs_path = if let Ok(path) = std::env::var("IPFS_PATH") {
-            PathBuf::from(path)
-        } else {
-            let root = if let Some(home) = dirs::home_dir() {
-                home
-            } else {
-                std::env::current_dir().unwrap()
-            };
-            root.join(".rust-ipfs").into()
-        };
-        let config_path = dirs::config_dir()
-            .unwrap()
-            .join("rust-ipfs")
-            .join("config.json");
-        let config = ConfigFile::new(config_path).unwrap();
-        let keypair = config.secio_key_pair();
-        let bootstrap = config.bootstrap();
-
-        IpfsOptions {
-            _marker: PhantomData,
-            ipfs_path,
-            keypair,
-            bootstrap,
-            mdns: true,
-        }
-    }
-}
 
 /// Ipfs struct creates a new IPFS node and is the main entry point
 /// for interacting with IPFS.
@@ -204,7 +65,7 @@ type Channel<T> = OneshotSender<Result<T, Error>>;
 /// Events used internally to communicate with the swarm, which is executed in the the background
 /// task.
 #[derive(Debug)]
-enum IpfsEvent {
+pub(crate) enum IpfsEvent {
     /// Connect
     Connect(
         Multiaddr,
@@ -220,26 +81,28 @@ enum IpfsEvent {
     Disconnect(Multiaddr, Channel<()>),
     /// Request background task to return the listened and external addresses
     GetAddresses(OneshotSender<Vec<Multiaddr>>),
+    WantBlock(Cid),
+    ProvideBlock(Cid),
+    UnprovideBlock(Cid),
     Exit,
 }
 
 /// Configured Ipfs instace or value which can be only initialized.
-pub struct UninitializedIpfs<Types: IpfsTypes> {
-    repo: Arc<Repo<Types>>,
-    dag: IpldDag<Types>,
-    ipns: Ipns<Types>,
+pub struct UninitializedIpfs<T: IpfsTypes> {
+    repo: Arc<Repo<T>>,
+    dag: IpldDag<T>,
+    ipns: Ipns<T>,
     keys: Keypair,
-    moved_on_init: Option<(Receiver<RepoEvent>, TSwarm<Types>)>,
+    moved_on_init: Option<(Sender<IpfsEvent>, Receiver<IpfsEvent>, TSwarm<T>)>,
 }
 
-impl<Types: IpfsTypes> UninitializedIpfs<Types> {
+impl<T: IpfsTypes> UninitializedIpfs<T> {
     /// Configures a new UninitializedIpfs with from the given options.
-    pub async fn new(options: IpfsOptions<Types>) -> Self {
-        let repo_options = RepoOptions::<Types>::from(&options);
+    pub async fn new(options: IpfsOptions) -> Self {
         let keys = options.keypair.clone();
-        let (repo, repo_events) = create_repo(repo_options);
-        let swarm_options = SwarmOptions::<Types>::from(&options);
-        let swarm = create_swarm(swarm_options, repo.clone()).await;
+        let (tx, rx) = channel::<IpfsEvent>(1);
+        let repo = Arc::new(Repo::new(&options, tx.clone()));
+        let swarm = create_swarm(&options, repo.clone()).await;
         let dag = IpldDag::new(repo.clone());
         let ipns = Ipns::new(repo.clone());
 
@@ -248,7 +111,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             dag,
             ipns,
             keys,
-            moved_on_init: Some((repo_events, swarm)),
+            moved_on_init: Some((tx, rx, swarm)),
         }
     }
 
@@ -256,10 +119,10 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// future should be spawned on a executor as soon as possible.
     pub async fn start(
         mut self,
-    ) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
+    ) -> Result<(Ipfs<T>, impl std::future::Future<Output = ()>), Error> {
         use futures::stream::StreamExt;
 
-        let (repo_events, swarm) = self
+        let (tx, rx, swarm) = self
             .moved_on_init
             .take()
             .expect("start cannot be called twice");
@@ -267,11 +130,8 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         self.repo.init().await?;
         self.repo.init().await?;
 
-        let (to_task, receiver) = channel::<IpfsEvent>(1);
-
         let fut = IpfsFuture {
-            repo_events: repo_events.fuse(),
-            from_facade: receiver.fuse(),
+            from_facade: rx.fuse(),
             swarm,
         };
 
@@ -289,14 +149,14 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
                 dag,
                 ipns,
                 keys: DebuggableKeypair(keys),
-                to_task,
+                to_task: tx,
             },
             fut,
         ))
     }
 }
 
-impl<Types: IpfsTypes> Ipfs<Types> {
+impl<T: IpfsTypes> Ipfs<T> {
     /// Puts a block into the ipfs repo.
     pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error> {
         Ok(self.repo.put_block(block).await?)
@@ -399,7 +259,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .send(IpfsEvent::GetAddresses(tx))
             .await?;
         let addresses = rx.await?;
-        Ok((self.keys.get_ref().public(), addresses))
+        Ok((self.keys.as_ref().public(), addresses))
     }
 
     /// Exit daemon.
@@ -412,13 +272,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
 /// Background task of `Ipfs` created when calling `UninitializedIpfs::start`.
 // The receivers are Fuse'd so that we don't have to manage state on them being exhausted.
-struct IpfsFuture<Types: SwarmTypes> {
-    swarm: TSwarm<Types>,
-    repo_events: Fuse<Receiver<RepoEvent>>,
+struct IpfsFuture<T: IpfsTypes> {
+    swarm: TSwarm<T>,
     from_facade: Fuse<Receiver<IpfsEvent>>,
 }
 
-impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
+impl<T: IpfsTypes> Future for IpfsFuture<T> {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
@@ -485,6 +344,9 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     }
                     ret.send(Ok(())).ok();
                 }
+                IpfsEvent::WantBlock(cid) => self.swarm.want_block(cid),
+                IpfsEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
+                IpfsEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
                 IpfsEvent::GetAddresses(ret) => {
                     // perhaps this could be moved under `IpfsEvent` or free functions?
                     let mut addresses = Vec::new();
@@ -497,16 +359,6 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     // FIXME: we could do a proper teardown
                     return Poll::Ready(());
                 }
-            }
-        }
-
-        // Poll::Ready(None) and Poll::Pending can be used to break out of the loop, clippy
-        // wants this to be written with a `while let`.
-        while let Poll::Ready(Some(evt)) = Pin::new(&mut self.repo_events).poll_next(ctx) {
-            match evt {
-                RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
-                RepoEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
-                RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
             }
         }
 

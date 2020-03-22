@@ -1,15 +1,14 @@
 //! IPFS repo
-use crate::daemon::IpfsEvent;
 use crate::error::Error;
+use crate::options::{IpfsOptions, IpfsTypes};
 use crate::path::IpfsPath;
 use crate::subscription::SubscriptionRegistry;
-use crate::IpfsOptions;
+use crate::IpfsEvent;
 use async_std::path::PathBuf;
 use async_std::sync::Mutex;
 use async_trait::async_trait;
 use bitswap::Block;
 use core::fmt::Debug;
-use core::marker::PhantomData;
 use futures::channel::mpsc::Sender;
 use futures::sink::SinkExt;
 use libipld::cid::Cid;
@@ -17,26 +16,6 @@ use libp2p::core::PeerId;
 
 pub mod fs;
 pub mod mem;
-
-pub trait RepoTypes: Clone + Send + Sync + 'static {
-    type TBlockStore: BlockStore;
-    type TDataStore: DataStore;
-}
-
-#[derive(Clone, Debug)]
-pub struct RepoOptions<TRepoTypes: RepoTypes> {
-    _marker: PhantomData<TRepoTypes>,
-    path: PathBuf,
-}
-
-impl<TRepoTypes: RepoTypes> From<&IpfsOptions<TRepoTypes>> for RepoOptions<TRepoTypes> {
-    fn from(options: &IpfsOptions<TRepoTypes>) -> Self {
-        RepoOptions {
-            _marker: PhantomData,
-            path: options.ipfs_path.clone(),
-        }
-    }
-}
 
 #[async_trait]
 pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
@@ -66,21 +45,19 @@ pub enum Column {
 }
 
 #[derive(Debug)]
-pub struct Repo<TRepoTypes: RepoTypes> {
-    block_store: TRepoTypes::TBlockStore,
-    data_store: TRepoTypes::TDataStore,
+pub struct Repo<T: IpfsTypes> {
+    block_store: T::TBlockStore,
+    data_store: T::TDataStore,
     sender: Sender<IpfsEvent>,
     subscriptions: Mutex<SubscriptionRegistry<Cid, Block>>,
 }
 
-impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
-    pub fn new(options: RepoOptions<TRepoTypes>, sender: Sender<IpfsEvent>) -> Self {
-        let mut blockstore_path = options.path.clone();
-        let mut datastore_path = options.path;
-        blockstore_path.push("blockstore");
-        datastore_path.push("datastore");
-        let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
-        let data_store = TRepoTypes::TDataStore::new(datastore_path);
+impl<T: IpfsTypes> Repo<T> {
+    pub fn new(options: &IpfsOptions, sender: Sender<IpfsEvent>) -> Self {
+        let blockstore_path = options.ipfs_path.join("blockstore");
+        let datastore_path = options.ipfs_path.join("datastore");
+        let block_store = T::TBlockStore::new(blockstore_path);
+        let data_store = T::TDataStore::new(datastore_path);
         Repo {
             block_store,
             data_store,
@@ -190,7 +167,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 }
 
 #[async_trait]
-impl<T: RepoTypes> bitswap::BitswapStore for Repo<T> {
+impl<T: IpfsTypes> bitswap::BitswapStore for Repo<T> {
     async fn get_block(&self, cid: &Cid) -> Result<Option<Block>, anyhow::Error> {
         self.block_store.get(cid).await
     }
@@ -211,7 +188,7 @@ pub(crate) mod tests {
     #[derive(Clone)]
     pub struct Types;
 
-    impl RepoTypes for Types {
+    impl IpfsTypes for Types {
         type TBlockStore = mem::MemBlockStore;
         type TDataStore = mem::MemDataStore;
     }

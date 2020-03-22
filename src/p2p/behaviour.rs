@@ -1,5 +1,5 @@
 use super::swarm::{Connection, Disconnector, SwarmApi};
-use crate::p2p::{SwarmOptions, SwarmTypes};
+use crate::options::{IpfsOptions, IpfsTypes};
 use crate::repo::Repo;
 use crate::subscription::SubscriptionFuture;
 use bitswap::{Bitswap, Strategy};
@@ -18,24 +18,24 @@ use std::sync::Arc;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
-pub struct Behaviour<TSwarmTypes: SwarmTypes> {
+pub struct Behaviour<T: IpfsTypes> {
     mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
-    bitswap: Bitswap<TSwarmTypes::TStrategy>,
+    bitswap: Bitswap<T::TStrategy>,
     ping: Ping,
     identify: Identify,
     floodsub: Floodsub,
     swarm: SwarmApi,
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<()> for Behaviour<TSwarmTypes> {
+impl<T: IpfsTypes> NetworkBehaviourEventProcess<()> for Behaviour<T> {
     fn inject_event(&mut self, _event: ()) {}
 }
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<void::Void> for Behaviour<TSwarmTypes> {
+impl<T: IpfsTypes> NetworkBehaviourEventProcess<void::Void> for Behaviour<T> {
     fn inject_event(&mut self, _event: void::Void) {}
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<TSwarmTypes> {
+impl<T: IpfsTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<T> {
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
             MdnsEvent::Discovered(list) => {
@@ -54,9 +54,7 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behavi
     }
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<KademliaEvent>
-    for Behaviour<TSwarmTypes>
-{
+impl<T: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour<T> {
     fn inject_event(&mut self, event: KademliaEvent) {
         use libp2p::kad::{GetProvidersError, GetProvidersOk};
 
@@ -94,7 +92,7 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<KademliaEvent>
     }
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<TSwarmTypes> {
+impl<T: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<T> {
     fn inject_event(&mut self, event: PingEvent) {
         use libp2p::ping::handler::{PingFailure, PingSuccess};
         match event {
@@ -132,26 +130,22 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<PingEvent> for Behavi
     }
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<IdentifyEvent>
-    for Behaviour<TSwarmTypes>
-{
+impl<T: IpfsTypes> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<T> {
     fn inject_event(&mut self, event: IdentifyEvent) {
         log::trace!("identify: {:?}", event);
     }
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<FloodsubEvent>
-    for Behaviour<TSwarmTypes>
-{
+impl<T: IpfsTypes> NetworkBehaviourEventProcess<FloodsubEvent> for Behaviour<T> {
     fn inject_event(&mut self, event: FloodsubEvent) {
         log::trace!("floodsub: {:?}", event);
     }
 }
 
-impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
+impl<T: IpfsTypes> Behaviour<T> {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
-    pub async fn new(options: SwarmOptions<TSwarmTypes>, repo: Arc<Repo<TSwarmTypes>>) -> Self {
-        info!("Local peer id: {}", options.peer_id.to_base58());
+    pub async fn new(options: &IpfsOptions, repo: Arc<Repo<T>>) -> Self {
+        info!("Local peer id: {}", options.peer_id().to_base58());
 
         let mdns = if options.mdns {
             Some(Mdns::new().expect("Failed to create mDNS service"))
@@ -160,13 +154,13 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
         }
         .into();
 
-        let store = MemoryStore::new(options.peer_id.to_owned());
-        let mut kademlia = Kademlia::new(options.peer_id.to_owned(), store);
+        let store = MemoryStore::new(options.peer_id());
+        let mut kademlia = Kademlia::new(options.peer_id(), store);
         for (addr, peer_id) in &options.bootstrap {
             kademlia.add_address(peer_id, addr.to_owned());
         }
 
-        let strategy = TSwarmTypes::TStrategy::new(repo);
+        let strategy = T::TStrategy::new(repo);
         let bitswap = Bitswap::new(strategy);
         let ping = Ping::default();
         let identify = Identify::new(
@@ -174,7 +168,7 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
             "rust-ipfs".into(),
             options.keypair.public(),
         );
-        let floodsub = Floodsub::new(options.peer_id);
+        let floodsub = Floodsub::new(options.peer_id());
         let swarm = SwarmApi::new();
 
         Behaviour {
@@ -240,12 +234,4 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
         //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
         //self.kademlia.remove_providing(&hash);
     }
-}
-
-/// Create a IPFS behaviour with the IPFS bootstrap nodes.
-pub async fn build_behaviour<TSwarmTypes: SwarmTypes>(
-    options: SwarmOptions<TSwarmTypes>,
-    repo: Arc<Repo<TSwarmTypes>>,
-) -> Behaviour<TSwarmTypes> {
-    Behaviour::new(options, repo).await
 }

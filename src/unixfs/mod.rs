@@ -1,7 +1,7 @@
 use crate::dag::IpldDag;
 use crate::error::Error;
+use crate::options::IpfsTypes;
 use crate::path::IpfsPath;
-use crate::repo::RepoTypes;
 use async_std::fs;
 use async_std::io::ReadExt;
 use async_std::path::PathBuf;
@@ -23,7 +23,7 @@ impl File {
         Ok(File { data })
     }
 
-    pub async fn get_unixfs_v1<T: RepoTypes>(
+    pub async fn get_unixfs_v1<T: IpfsTypes>(
         dag: &IpldDag<T>,
         path: IpfsPath,
     ) -> Result<Self, Error> {
@@ -32,7 +32,7 @@ impl File {
         Ok(File { data: pb_node.data })
     }
 
-    pub async fn put_unixfs_v1<T: RepoTypes>(&self, dag: &IpldDag<T>) -> Result<Cid, Error> {
+    pub async fn put_unixfs_v1<T: IpfsTypes>(&self, dag: &IpldDag<T>) -> Result<Cid, Error> {
         let links: Vec<Ipld> = vec![];
         let mut pb_node = BTreeMap::<String, Ipld>::new();
         pb_node.insert("Data".to_string(), self.data.clone().into());

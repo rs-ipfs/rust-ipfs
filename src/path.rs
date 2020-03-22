@@ -302,8 +302,6 @@ pub enum IpfsPathError {
     InvalidPath(String),
     #[error("Can't resolve {path:?}")]
     ResolveError { ipld: Ipld, path: SubPath },
-    #[error("Expected ipld path but found ipns path.")]
-    ExpectedIpldPath,
 }
 
 #[cfg(test)]

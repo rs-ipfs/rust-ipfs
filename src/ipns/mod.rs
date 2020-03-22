@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 use crate::error::Error;
+use crate::options::IpfsTypes;
 use crate::path::{IpfsPath, PathRoot};
-use crate::repo::{Repo, RepoTypes};
+use crate::repo::Repo;
 use libp2p::PeerId;
 use std::sync::Arc;
 
@@ -12,12 +13,12 @@ mod ipns_pb {
 }
 
 #[derive(Clone, Debug)]
-pub struct Ipns<Types: RepoTypes> {
-    repo: Arc<Repo<Types>>,
+pub struct Ipns<T: IpfsTypes> {
+    repo: Arc<Repo<T>>,
 }
 
-impl<Types: RepoTypes> Ipns<Types> {
-    pub fn new(repo: Arc<Repo<Types>>) -> Self {
+impl<T: IpfsTypes> Ipns<T> {
+    pub fn new(repo: Arc<Repo<T>>) -> Self {
         Ipns { repo }
     }
 
