@@ -81,9 +81,9 @@ mod tests {
     async fn testing_routes(
     ) -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
         use super::routes;
-        use ipfs::{IpfsOptions, TestTypes, UninitializedIpfs};
+        use ipfs::{IpfsOptions, UninitializedIpfs};
 
-        let options = IpfsOptions::<TestTypes>::default();
+        let options = IpfsOptions::inmemory_with_generated_keys(false);
 
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         drop(fut);
