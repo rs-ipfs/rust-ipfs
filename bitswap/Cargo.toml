@@ -9,7 +9,7 @@ prost-build = "0.6.1"
 
 [dependencies]
 anyhow = "1.0.26"
-async-std = "1.5.0"
+async-std = { version = "1.5.0", features = ["attributes"] }
 async-trait = "0.1.24"
 fnv = "1.0.6"
 futures = "0.3.4"

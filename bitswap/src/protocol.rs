@@ -4,7 +4,7 @@ use crate::error::BitswapError;
 /// The protocol works the following way:
 ///
 /// - TODO
-use crate::ledger::{Message, I, O};
+use crate::message::BitswapMessage;
 use core::future::Future;
 use core::iter;
 use core::pin::Pin;
@@ -24,7 +24,6 @@ impl UpgradeInfo for BitswapConfig {
     type InfoIter = iter::Once<Self::Info>;
 
     fn protocol_info(&self) -> Self::InfoIter {
-        // b"/ipfs/bitswap", b"/ipfs/bitswap/1.0.0"
         iter::once(b"/ipfs/bitswap/1.1.0")
     }
 }
@@ -33,7 +32,7 @@ impl<TSocket> InboundUpgrade<TSocket> for BitswapConfig
 where
     TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
-    type Output = Message<I>;
+    type Output = BitswapMessage;
     type Error = BitswapError;
     #[allow(clippy::type_complexity)]
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
@@ -41,26 +40,25 @@ where
     #[inline]
     fn upgrade_inbound(self, mut socket: TSocket, info: Self::Info) -> Self::Future {
         Box::pin(async move {
-            debug!("upgrade_inbound: {}", std::str::from_utf8(info).unwrap());
+            log::debug!("upgrade_inbound: {}", std::str::from_utf8(info).unwrap());
             let packet = upgrade::read_one(&mut socket, MAX_BUF_SIZE).await?;
-            let message = Message::from_bytes(&packet)?;
-            debug!("inbound message: {:?}", message);
+            let message = BitswapMessage::from_bytes(&packet)?;
+            log::debug!("inbound message: {:?}", message);
             Ok(message)
         })
     }
 }
 
-impl UpgradeInfo for Message<O> {
+impl UpgradeInfo for BitswapMessage {
     type Info = &'static [u8];
     type InfoIter = iter::Once<Self::Info>;
 
     fn protocol_info(&self) -> Self::InfoIter {
-        // b"/ipfs/bitswap", b"/ipfs/bitswap/1.0.0"
         iter::once(b"/ipfs/bitswap/1.1.0")
     }
 }
 
-impl<TSocket> OutboundUpgrade<TSocket> for Message<O>
+impl<TSocket> OutboundUpgrade<TSocket> for BitswapMessage
 where
     TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
@@ -72,7 +70,7 @@ where
     #[inline]
     fn upgrade_outbound(self, mut socket: TSocket, info: Self::Info) -> Self::Future {
         Box::pin(async move {
-            debug!("upgrade_outbound: {}", std::str::from_utf8(info).unwrap());
+            log::debug!("upgrade_outbound: {}", std::str::from_utf8(info).unwrap());
             let bytes = self.to_bytes();
             upgrade::write_one(&mut socket, bytes).await?;
             Ok(())
@@ -82,40 +80,30 @@ where
 
 #[cfg(test)]
 mod tests {
-    /*
-    use futures::prelude::*;
-    use libp2p::core::upgrade;
     use super::*;
-    use tokio::net::{TcpListener, TcpStream};
+    use async_std::net::{TcpListener, TcpStream};
+    use futures::prelude::*;
+    use libp2p_core::upgrade;
 
-    // TODO: rewrite tests with the MemoryTransport
-    // TODO: figure out why it doesn't exit
-    #[test]
-    #[ignore]
-    fn test_upgrade() {
-        // yeah this probably did not work before
-        let listener = TcpListener::bind(&"127.0.0.1:0".parse().unwrap()).unwrap();
+    #[async_std::test]
+    async fn test_upgrade() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let listener_addr = listener.local_addr().unwrap();
 
-        let _server = listener
-            .incoming()
-            .into_future()
-            .map_err(|(e, _)| e)
-            .and_then(|(c, _)| {
-                println!("upgrading server");
-                upgrade::apply_inbound(c.unwrap(), BitswapConfig::default())
-                    .map_err(|_| panic!())
-            })
-            .map(|_| ());
+        let server = async move {
+            let incoming = listener.incoming().into_future().await.0.unwrap().unwrap();
+            upgrade::apply_inbound(incoming, BitswapConfig::default())
+                .await
+                .unwrap();
+        };
 
-        let _client = TcpStream::connect(&listener_addr)
-            .and_then(|c| {
-                println!("upgrading client");
-                upgrade::apply_outbound(c, Message::new())
-                    .map_err(|_| panic!())
-            });
+        let client = async move {
+            let stream = TcpStream::connect(&listener_addr).await.unwrap();
+            upgrade::apply_outbound(stream, BitswapMessage::new(), upgrade::Version::V1)
+                .await
+                .unwrap();
+        };
 
-        //tokio::run(server.select(client).map(|_| ()).map_err(|_| panic!()));
+        future::select(Box::pin(server), Box::pin(client)).await;
     }
-    */
 }
