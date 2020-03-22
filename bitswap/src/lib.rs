@@ -2,19 +2,16 @@
 #[macro_use]
 extern crate log;
 
-mod behaviour;
+//mod behaviour;
 mod block;
 mod error;
-mod ledger;
-mod protocol;
-mod strategy;
+//mod ledger;
+mod message;
+//mod protocol;
+//mod strategy;
 
-pub use self::behaviour::Bitswap;
-pub use self::block::Block;
-pub use self::error::BitswapError;
-pub use self::ledger::Priority;
-pub use self::strategy::{AltruisticStrategy, BitswapStore, Strategy};
-
-mod bitswap_pb {
-    include!(concat!(env!("OUT_DIR"), "/bitswap_pb.rs"));
-}
+//pub use crate::behaviour::Bitswap;
+pub use crate::block::Block;
+pub use crate::error::BitswapError;
+//pub use crate::ledger::Priority;
+//pub use crate::strategy::{AltruisticStrategy, BitswapStore, Strategy};
