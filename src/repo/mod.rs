@@ -1,15 +1,16 @@
 //! IPFS repo
+use crate::daemon::IpfsEvent;
 use crate::error::Error;
 use crate::path::IpfsPath;
 use crate::subscription::SubscriptionRegistry;
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
-use async_std::sync::{Arc, Mutex};
+use async_std::sync::Mutex;
 use async_trait::async_trait;
 use bitswap::Block;
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use futures::channel::mpsc::{channel, Receiver, Sender};
+use futures::channel::mpsc::Sender;
 use futures::sink::SinkExt;
 use libipld::cid::Cid;
 use libp2p::core::PeerId;
@@ -35,13 +36,6 @@ impl<TRepoTypes: RepoTypes> From<&IpfsOptions<TRepoTypes>> for RepoOptions<TRepo
             path: options.ipfs_path.clone(),
         }
     }
-}
-
-pub fn create_repo<TRepoTypes: RepoTypes>(
-    options: RepoOptions<TRepoTypes>,
-) -> (Arc<Repo<TRepoTypes>>, Receiver<RepoEvent>) {
-    let (repo, ch) = Repo::new(options);
-    (Arc::new(repo), ch)
 }
 
 #[async_trait]
@@ -75,57 +69,42 @@ pub enum Column {
 pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
-    events: Sender<RepoEvent>,
+    sender: Sender<IpfsEvent>,
     subscriptions: Mutex<SubscriptionRegistry<Cid, Block>>,
 }
 
-#[derive(Clone, Debug)]
-pub enum RepoEvent {
-    WantBlock(Cid),
-    ProvideBlock(Cid),
-    UnprovideBlock(Cid),
-}
-
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
-    pub fn new(options: RepoOptions<TRepoTypes>) -> (Self, Receiver<RepoEvent>) {
+    pub fn new(options: RepoOptions<TRepoTypes>, sender: Sender<IpfsEvent>) -> Self {
         let mut blockstore_path = options.path.clone();
         let mut datastore_path = options.path;
         blockstore_path.push("blockstore");
         datastore_path.push("datastore");
         let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
         let data_store = TRepoTypes::TDataStore::new(datastore_path);
-        let (sender, receiver) = channel(1);
-        (
-            Repo {
-                block_store,
-                data_store,
-                events: sender,
-                subscriptions: Default::default(),
-            },
-            receiver,
-        )
+        Repo {
+            block_store,
+            data_store,
+            sender,
+            subscriptions: Default::default(),
+        }
     }
 
     pub async fn init(&self) -> Result<(), Error> {
         let f1 = self.block_store.init();
         let f2 = self.data_store.init();
         let (r1, r2) = futures::future::join(f1, f2).await;
-        if r1.is_err() {
-            r1
-        } else {
-            r2
-        }
+        r1?;
+        r2?;
+        Ok(())
     }
 
     pub async fn open(&self) -> Result<(), Error> {
         let f1 = self.block_store.open();
         let f2 = self.data_store.open();
         let (r1, r2) = futures::future::join(f1, f2).await;
-        if r1.is_err() {
-            r1
-        } else {
-            r2
-        }
+        r1?;
+        r2?;
+        Ok(())
     }
 
     /// Puts a block into the block store.
@@ -137,9 +116,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             .finish_subscription(&cid, block);
         // sending only fails if no one is listening anymore
         // and that is okay with us.
-        self.events
+        self.sender
             .clone()
-            .send(RepoEvent::ProvideBlock(cid.clone()))
+            .send(IpfsEvent::ProvideBlock(cid.clone()))
             .await
             .ok();
         Ok(cid)
@@ -147,7 +126,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Retrives a block from the block store.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
-        if let Some(block) = self.block_store.get(&cid).await? {
+        if let Some(block) = self.block_store.get(cid).await? {
             Ok(block)
         } else {
             let subscription = self
@@ -157,9 +136,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 .create_subscription(cid.clone());
             // sending only fails if no one is listening anymore
             // and that is okay with us.
-            self.events
+            self.sender
                 .clone()
-                .send(RepoEvent::WantBlock(cid.clone()))
+                .send(IpfsEvent::WantBlock(cid.clone()))
                 .await
                 .ok();
             Ok(subscription.await)
@@ -169,9 +148,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     /// Remove block from the block store.
     pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error> {
         // sending only fails if the background task has exited
-        self.events
+        self.sender
             .clone()
-            .send(RepoEvent::UnprovideBlock(cid.to_owned()))
+            .send(IpfsEvent::UnprovideBlock(cid.clone()))
             .await
             .ok();
         self.block_store.remove(cid).await?;
@@ -225,7 +204,9 @@ impl<T: RepoTypes> bitswap::BitswapStore for Repo<T> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use futures::channel::mpsc::{channel, Receiver};
     use std::env::temp_dir;
+    use std::sync::Arc;
 
     #[derive(Clone)]
     pub struct Types;
@@ -235,15 +216,16 @@ pub(crate) mod tests {
         type TDataStore = mem::MemDataStore;
     }
 
-    pub fn create_mock_repo() -> (Arc<Repo<Types>>, Receiver<RepoEvent>) {
+    pub fn create_mock_repo() -> (Arc<Repo<Types>>, Receiver<IpfsEvent>) {
         let mut tmp = temp_dir();
         tmp.push("rust-ipfs-repo");
         let options: RepoOptions<Types> = RepoOptions {
             _marker: PhantomData,
             path: tmp.into(),
         };
-        let (r, ch) = Repo::new(options);
-        (Arc::new(r), ch)
+        let (tx, rx) = channel(1);
+        let repo = Arc::new(Repo::new(options, tx));
+        (repo, rx)
     }
 
     #[async_std::test]
