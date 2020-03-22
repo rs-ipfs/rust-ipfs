@@ -4,8 +4,9 @@ use libp2p::core::{ConnectedPoint, Multiaddr, PeerId};
 use libp2p::swarm::protocols_handler::{
     DummyProtocolsHandler, IntoProtocolsHandler, ProtocolsHandler,
 };
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, Swarm};
+use libp2p::swarm::{self, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::task::Waker;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
@@ -26,13 +27,18 @@ impl Disconnector {
     }
 }
 
+// Currently this is swarm::NetworkBehaviourAction<Void, Void>
+type NetworkBehaviourAction = swarm::NetworkBehaviourAction<<<<SwarmApi as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, <SwarmApi as NetworkBehaviour>::OutEvent>;
+
 #[derive(Debug, Default)]
 pub struct SwarmApi {
-    events: VecDeque<NetworkBehaviourAction<void::Void, void::Void>>,
+    events: VecDeque<NetworkBehaviourAction>,
     peers: HashSet<PeerId>,
     connect_registry: SubscriptionRegistry<Multiaddr, Result<(), String>>,
     connections: HashMap<Multiaddr, Connection>,
     connected_peers: HashMap<PeerId, Multiaddr>,
+    /// The waker of the last polled task, if any.
+    waker: Option<Waker>,
 }
 
 impl SwarmApi {
@@ -65,15 +71,23 @@ impl SwarmApi {
     }
 
     pub fn connect(&mut self, address: Multiaddr) -> SubscriptionFuture<Result<(), String>> {
-        log::trace!("connect {}", address.to_string());
-        self.events.push_back(NetworkBehaviourAction::DialAddress {
+        log::trace!("starting to connect to {}", address);
+        self.push_action(NetworkBehaviourAction::DialAddress {
             address: address.clone(),
         });
         self.connect_registry.create_subscription(address)
     }
 
+    fn push_action(&mut self, action: NetworkBehaviourAction) {
+        self.events.push_back(action);
+
+        if let Some(waker) = self.waker.as_ref() {
+            waker.wake_by_ref();
+        }
+    }
+
     pub fn disconnect(&mut self, address: Multiaddr) -> Option<Disconnector> {
-        log::trace!("disconnect {}", address.to_string());
+        log::trace!("disconnect {}", address);
         self.connections.remove(&address);
         let peer_id = self
             .connections
@@ -144,10 +158,13 @@ impl NetworkBehaviour for SwarmApi {
             .finish_subscription(addr, Err(format!("{}", error)));
     }
 
-    #[allow(clippy::type_complexity)]
-    fn poll(&mut self, _ctx: &mut Context, _: &mut impl PollParameters) -> Poll<NetworkBehaviourAction<<<
-Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>{
-        log::trace!("poll");
+    fn poll(
+        &mut self,
+        ctx: &mut Context,
+        _: &mut impl PollParameters,
+    ) -> Poll<NetworkBehaviourAction> {
+        // store the poller so that we can wake the task on next push_action
+        self.waker = Some(ctx.waker().clone());
         if let Some(event) = self.events.pop_front() {
             Poll::Ready(event)
         } else {
