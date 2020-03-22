@@ -3,7 +3,7 @@ use crate::error::BitswapError;
 use core::convert::TryFrom;
 use libipld::cid::{Cid, Prefix};
 use prost::Message;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 mod bitswap_pb {
     include!(concat!(env!("OUT_DIR"), "/bitswap_pb.rs"));
@@ -15,10 +15,10 @@ pub type Priority = i32;
 /// A bitswap message.
 #[derive(Clone, Default, Eq, PartialEq)]
 pub struct BitswapMessage {
-    /// List of wanted blocks.
+    /// Wanted blocks.
     want: HashMap<Cid, Priority>,
-    /// List of blocks to cancel.
-    cancel: Vec<Cid>,
+    /// Blocks to cancel.
+    cancel: HashSet<Cid>,
     /// Wheather it is the full list of wanted blocks.
     full: bool,
     /// List of blocks to send.
@@ -51,13 +51,13 @@ impl BitswapMessage {
     }
 
     /// Returns the list of wanted blocks.
-    pub fn want(&self) -> &HashMap<Cid, Priority> {
-        &self.want
+    pub fn want(&self) -> impl Iterator<Item = (&Cid, &Priority)> {
+        self.want.iter()
     }
 
     /// Returns the list of cancelled blocks.
-    pub fn cancel(&self) -> &[Cid] {
-        &self.cancel
+    pub fn cancel(&self) -> impl Iterator<Item = &Cid> {
+        self.cancel.iter()
     }
 
     /// Adds a `Block` to the message.
@@ -72,18 +72,17 @@ impl BitswapMessage {
 
     /// Adds a block to the want list.
     pub fn want_block(&mut self, cid: &Cid, priority: Priority) {
-        self.want.insert(cid.to_owned(), priority);
+        self.cancel.remove(cid);
+        self.want.insert(cid.clone(), priority);
     }
 
     /// Adds a block to the cancel list.
     pub fn cancel_block(&mut self, cid: &Cid) {
-        self.cancel.push(cid.to_owned());
-    }
-
-    /// Removes the block from the want list.
-    #[allow(unused)]
-    pub fn remove_want_block(&mut self, cid: &Cid) {
-        self.want.remove(cid);
+        if self.want.contains_key(cid) {
+            self.want.remove(cid);
+        } else {
+            self.cancel.insert(cid.clone());
+        }
     }
 
     /// Turns this `Message` into a message that can be sent to a substream.
@@ -154,14 +153,7 @@ impl TryFrom<&[u8]> for BitswapMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libipld::cid::Codec;
-    use multihash::Sha2_256;
-
-    fn create_block(bytes: &[u8]) -> Block {
-        let digest = Sha2_256::digest(bytes);
-        let cid = Cid::new_v1(Codec::Raw, digest);
-        Block::new(bytes.to_vec().into_boxed_slice(), cid)
-    }
+    use crate::block::tests::create_block;
 
     #[test]
     fn test_empty_message_to_from_bytes() {
