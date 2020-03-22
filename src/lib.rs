@@ -105,6 +105,13 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
     }
 }
 
+impl IpfsOptions<TestTypes> {
+    /// Creates an inmemory store backed node for tests
+    pub fn inmemory_with_generated_keys(mdns: bool) -> Self {
+        Self::new(std::env::temp_dir().into(), Keypair::generate_ed25519(), vec![], mdns)
+    }
+}
+
 /// Workaround for libp2p::identity::Keypair missing a Debug impl, works with references and owned
 /// keypairs.
 #[derive(Clone)]
