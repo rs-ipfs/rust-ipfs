@@ -9,7 +9,10 @@ use libp2p::{Multiaddr, PeerId};
 use std::sync::Arc;
 
 mod behaviour;
+mod swarm;
 mod transport;
+
+pub use swarm::Connection;
 
 pub type TSwarm<SwarmTypes> = Swarm<behaviour::Behaviour<SwarmTypes>>;
 
@@ -19,21 +22,24 @@ pub trait SwarmTypes: RepoTypes + Sized {
 
 pub struct SwarmOptions<TSwarmTypes: SwarmTypes> {
     _marker: PhantomData<TSwarmTypes>,
-    pub key_pair: Keypair,
+    pub keypair: Keypair,
     pub peer_id: PeerId,
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
+    pub mdns: bool,
 }
 
 impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<TSwarmTypes> {
     fn from(options: &IpfsOptions<TSwarmTypes>) -> Self {
-        let key_pair = options.secio_key_pair().clone();
-        let peer_id = key_pair.public().into_peer_id();
-        let bootstrap = options.bootstrap().to_vec();
+        let keypair = options.keypair.clone();
+        let peer_id = keypair.public().into_peer_id();
+        let bootstrap = options.bootstrap.clone();
+        let mdns = options.mdns;
         SwarmOptions {
             _marker: PhantomData,
-            key_pair,
+            keypair,
             peer_id,
             bootstrap,
+            mdns,
         }
     }
 }
@@ -46,7 +52,7 @@ pub async fn create_swarm<TSwarmTypes: SwarmTypes>(
     let peer_id = options.peer_id.clone();
 
     // Set up an encrypted TCP transport over the Mplex protocol.
-    let transport = transport::build_transport(&options);
+    let transport = transport::build_transport(options.keypair.clone());
 
     // Create a Kademlia behaviour
     let behaviour = behaviour::build_behaviour(options, repo).await;

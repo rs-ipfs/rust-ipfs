@@ -6,6 +6,8 @@
 
 #[macro_use]
 extern crate log;
+
+use anyhow::format_err;
 use async_std::path::PathBuf;
 pub use bitswap::Block;
 use futures::channel::mpsc::{channel, Receiver, Sender};
@@ -15,10 +17,8 @@ use futures::stream::Fuse;
 pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
-pub use libp2p::{
-    identity::{Keypair, PublicKey},
-    Multiaddr, PeerId,
-};
+pub use libp2p::core::{ConnectedPoint, Multiaddr, PeerId, PublicKey};
+pub use libp2p::identity::Keypair;
 
 use std::borrow::Borrow;
 use std::fmt;
@@ -35,23 +35,21 @@ pub mod ipns;
 pub mod p2p;
 pub mod path;
 pub mod repo;
+mod subscription;
 pub mod unixfs;
 
 use self::config::ConfigFile;
 use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
+pub use self::p2p::Connection;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
+use self::subscription::SubscriptionFuture;
 use self::unixfs::File;
-
-static IPFS_LOG: &str = "info";
-static IPFS_PATH: &str = ".rust-ipfs";
-static XDG_APP_NAME: &str = "rust-ipfs";
-static CONFIG_FILE: &str = "config.json";
 
 /// All types can be changed at compile time by implementing
 /// `IpfsTypes`.
@@ -84,14 +82,14 @@ impl RepoTypes for TestTypes {
 #[derive(Clone)]
 pub struct IpfsOptions<Types: IpfsTypes> {
     _marker: PhantomData<Types>,
-    /// The ipfs log level that should be passed to env_logger.
-    pub ipfs_log: String,
     /// The path of the ipfs repo.
     pub ipfs_path: PathBuf,
     /// The keypair used with libp2p.
     pub keypair: Keypair,
-    /// Nodes dialed during startup
+    /// Nodes dialed during startup.
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
+    /// Enables mdns for peer discovery when true.
+    pub mdns: bool,
 }
 
 impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
@@ -99,11 +97,23 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
         // needed since libp2p::identity::Keypair does not have a Debug impl, and the IpfsOptions
         // is a struct with all public fields, so don't enforce users to use this wrapper.
         fmt.debug_struct("IpfsOptions")
-            .field("ipfs_log", &self.ipfs_log)
             .field("ipfs_path", &self.ipfs_path)
             .field("bootstrap", &self.bootstrap)
             .field("keypair", &DebuggableKeypair(&self.keypair))
+            .field("mdns", &self.mdns)
             .finish()
+    }
+}
+
+impl IpfsOptions<TestTypes> {
+    /// Creates an inmemory store backed node for tests
+    pub fn inmemory_with_generated_keys(mdns: bool) -> Self {
+        Self::new(
+            std::env::temp_dir().into(),
+            Keypair::generate_ed25519(),
+            vec![],
+            mdns,
+        )
     }
 }
 
@@ -131,75 +141,49 @@ impl<I: Borrow<Keypair>> DebuggableKeypair<I> {
 }
 
 impl<Types: IpfsTypes> IpfsOptions<Types> {
-    pub fn new(ipfs_path: PathBuf, keypair: Keypair, bootstrap: Vec<(Multiaddr, PeerId)>) -> Self {
+    pub fn new(
+        ipfs_path: PathBuf,
+        keypair: Keypair,
+        bootstrap: Vec<(Multiaddr, PeerId)>,
+        mdns: bool,
+    ) -> Self {
         Self {
             _marker: PhantomData,
-            ipfs_log: String::from("trace"),
             ipfs_path,
             keypair,
             bootstrap,
+            mdns,
         }
-    }
-
-    fn secio_key_pair(&self) -> &Keypair {
-        &self.keypair
-    }
-
-    fn bootstrap(&self) -> &[(Multiaddr, PeerId)] {
-        &self.bootstrap
     }
 }
 
-impl Default for IpfsOptions<Types> {
+impl<T: IpfsTypes> Default for IpfsOptions<T> {
     /// Create `IpfsOptions` from environment.
     fn default() -> Self {
-        let ipfs_log = std::env::var("IPFS_LOG").unwrap_or_else(|_| IPFS_LOG.into());
-        let ipfs_path = std::env::var("IPFS_PATH")
-            .unwrap_or_else(|_| {
-                let mut ipfs_path = std::env::var("HOME").unwrap_or_else(|_| "".into());
-                ipfs_path.push_str("/");
-                ipfs_path.push_str(IPFS_PATH);
-                ipfs_path
-            })
-            .into();
-        let path = dirs::config_dir()
+        let ipfs_path = if let Ok(path) = std::env::var("IPFS_PATH") {
+            PathBuf::from(path)
+        } else {
+            let root = if let Some(home) = dirs::home_dir() {
+                home
+            } else {
+                std::env::current_dir().unwrap()
+            };
+            root.join(".rust-ipfs").into()
+        };
+        let config_path = dirs::config_dir()
             .unwrap()
-            .join(XDG_APP_NAME)
-            .join(CONFIG_FILE);
-        let config = ConfigFile::new(path);
+            .join("rust-ipfs")
+            .join("config.json");
+        let config = ConfigFile::new(config_path).unwrap();
         let keypair = config.secio_key_pair();
         let bootstrap = config.bootstrap();
 
         IpfsOptions {
             _marker: PhantomData,
-            ipfs_log,
             ipfs_path,
             keypair,
             bootstrap,
-        }
-    }
-}
-
-impl Default for IpfsOptions<TestTypes> {
-    /// Creates `IpfsOptions` for testing without reading or writing to the
-    /// file system.
-    fn default() -> Self {
-        let ipfs_log = std::env::var("IPFS_LOG").unwrap_or_else(|_| IPFS_LOG.into());
-        let ipfs_path = std::env::var("IPFS_PATH")
-            .unwrap_or_else(|_| IPFS_PATH.into())
-            .into();
-        let config = std::env::var("IPFS_TEST_CONFIG")
-            .map(ConfigFile::new)
-            .unwrap_or_default();
-        let keypair = config.secio_key_pair();
-        let bootstrap = config.bootstrap();
-
-        IpfsOptions {
-            _marker: PhantomData,
-            ipfs_log,
-            ipfs_path,
-            keypair,
-            bootstrap,
+            mdns: true,
         }
     }
 }
@@ -215,10 +199,25 @@ pub struct Ipfs<Types: IpfsTypes> {
     to_task: Sender<IpfsEvent>,
 }
 
+type Channel<T> = OneshotSender<Result<T, Error>>;
+
 /// Events used internally to communicate with the swarm, which is executed in the the background
 /// task.
 #[derive(Debug)]
 enum IpfsEvent {
+    /// Connect
+    Connect(
+        Multiaddr,
+        OneshotSender<SubscriptionFuture<Result<(), String>>>,
+    ),
+    /// Addresses
+    Addresses(Channel<Vec<(PeerId, Vec<Multiaddr>)>>),
+    /// Local addresses
+    Listeners(Channel<Vec<Multiaddr>>),
+    /// Connections
+    Connections(Channel<Vec<Connection>>),
+    /// Disconnect
+    Disconnect(Multiaddr, Channel<()>),
     /// Request background task to return the listened and external addresses
     GetAddresses(OneshotSender<Vec<Multiaddr>>),
     Exit,
@@ -237,7 +236,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// Configures a new UninitializedIpfs with from the given options.
     pub async fn new(options: IpfsOptions<Types>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
-        let keys = options.secio_key_pair().clone();
+        let keys = options.keypair.clone();
         let (repo, repo_events) = create_repo(repo_options);
         let swarm_options = SwarmOptions::<Types>::from(&options);
         let swarm = create_swarm(swarm_options, repo.clone()).await;
@@ -352,6 +351,46 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(())
     }
 
+    pub async fn connect(&self, addr: Multiaddr) -> Result<(), Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task
+            .clone()
+            .send(IpfsEvent::Connect(addr, tx))
+            .await?;
+        let subscription = rx.await?;
+        subscription.await.map_err(|e| format_err!("{}", e))
+    }
+
+    pub async fn addrs(&self) -> Result<Vec<(PeerId, Vec<Multiaddr>)>, Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task.clone().send(IpfsEvent::Addresses(tx)).await?;
+        rx.await?
+    }
+
+    pub async fn addrs_local(&self) -> Result<Vec<Multiaddr>, Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task.clone().send(IpfsEvent::Listeners(tx)).await?;
+        rx.await?
+    }
+
+    pub async fn peers(&self) -> Result<Vec<Connection>, Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task
+            .clone()
+            .send(IpfsEvent::Connections(tx))
+            .await?;
+        rx.await?
+    }
+
+    pub async fn disconnect(&self, addr: Multiaddr) -> Result<(), Error> {
+        let (tx, rx) = oneshot_channel();
+        self.to_task
+            .clone()
+            .send(IpfsEvent::Disconnect(addr, tx))
+            .await?;
+        rx.await?
+    }
+
     pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), Error> {
         let (tx, rx) = oneshot_channel();
 
@@ -384,59 +423,94 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         use futures::Stream;
-        use libp2p::Swarm;
+        use libp2p::{swarm::SwarmEvent, Swarm};
+
+        // begin by polling the swarm so that initially it'll first have chance to bind listeners
+        // and such. TODO: this no longer needs to be a swarm event but perhaps we should
+        // consolidate logging of these events here, if necessary?
         loop {
-            // temporary pinning of the receivers should be safe as we are pinning through the
-            // already pinned self. with the receivers we can also safely ignore exhaustion
-            // as those are fused.
-            loop {
-                let inner = match Pin::new(&mut self.from_facade).poll_next(ctx) {
-                    Poll::Ready(Some(evt)) => evt,
-                    // doing teardown also after the `Ipfs` has been dropped
-                    Poll::Ready(None) => IpfsEvent::Exit,
+            let inner = {
+                let next = self.swarm.next_event();
+                futures::pin_mut!(next);
+                match next.poll(ctx) {
+                    Poll::Ready(inner) => inner,
                     Poll::Pending => break,
-                };
-
-                match inner {
-                    IpfsEvent::GetAddresses(ret) => {
-                        // perhaps this could be moved under `IpfsEvent` or free functions?
-                        let mut addresses = Vec::new();
-                        addresses.extend(Swarm::listeners(&self.swarm).cloned());
-                        addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
-                        // ignore error, perhaps caller went away already
-                        let _ = ret.send(addresses);
-                    }
-                    IpfsEvent::Exit => {
-                        // FIXME: we could do a proper teardown
-                        return Poll::Ready(());
-                    }
                 }
+            };
+            match inner {
+                SwarmEvent::Behaviour(()) => {}
+                SwarmEvent::Connected(_peer_id) => {}
+                SwarmEvent::Disconnected(_peer_id) => {}
+                SwarmEvent::NewListenAddr(_addr) => {}
+                SwarmEvent::ExpiredListenAddr(_addr) => {}
+                SwarmEvent::UnreachableAddr {
+                    peer_id: _peer_id,
+                    address: _address,
+                    error: _error,
+                } => {}
+                SwarmEvent::StartConnect(_peer_id) => {}
             }
+        }
 
-            // Poll::Ready(None) and Poll::Pending can be used to break out of the loop, clippy
-            // wants this to be written with a `while let`.
-            while let Poll::Ready(Some(evt)) = Pin::new(&mut self.repo_events).poll_next(ctx) {
-                match evt {
-                    RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
-                    RepoEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
-                    RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
+        // temporary pinning of the receivers should be safe as we are pinning through the
+        // already pinned self. with the receivers we can also safely ignore exhaustion
+        // as those are fused.
+        loop {
+            let inner = match Pin::new(&mut self.from_facade).poll_next(ctx) {
+                Poll::Ready(Some(evt)) => evt,
+                // doing teardown also after the `Ipfs` has been dropped
+                Poll::Ready(None) => IpfsEvent::Exit,
+                Poll::Pending => break,
+            };
+
+            match inner {
+                IpfsEvent::Connect(addr, ret) => {
+                    ret.send(self.swarm.connect(addr)).ok();
                 }
-            }
-
-            {
-                let poll = Pin::new(&mut self.swarm).poll_next(ctx);
-                match poll {
-                    Poll::Ready(Some(_)) => {}
-                    Poll::Ready(None) => {
-                        // this should never happen with libp2p swarm
-                        return Poll::Ready(());
+                IpfsEvent::Addresses(ret) => {
+                    let addrs = self.swarm.addrs();
+                    ret.send(Ok(addrs)).ok();
+                }
+                IpfsEvent::Listeners(ret) => {
+                    let listeners = Swarm::listeners(&self.swarm).cloned().collect();
+                    ret.send(Ok(listeners)).ok();
+                }
+                IpfsEvent::Connections(ret) => {
+                    let connections = self.swarm.connections();
+                    ret.send(Ok(connections)).ok();
+                }
+                IpfsEvent::Disconnect(addr, ret) => {
+                    if let Some(disconnector) = self.swarm.disconnect(addr) {
+                        disconnector.disconnect(&mut self.swarm);
                     }
-                    Poll::Pending => {
-                        return Poll::Pending;
-                    }
+                    ret.send(Ok(())).ok();
+                }
+                IpfsEvent::GetAddresses(ret) => {
+                    // perhaps this could be moved under `IpfsEvent` or free functions?
+                    let mut addresses = Vec::new();
+                    addresses.extend(Swarm::listeners(&self.swarm).cloned());
+                    addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
+                    // ignore error, perhaps caller went away already
+                    let _ = ret.send(addresses);
+                }
+                IpfsEvent::Exit => {
+                    // FIXME: we could do a proper teardown
+                    return Poll::Ready(());
                 }
             }
         }
+
+        // Poll::Ready(None) and Poll::Pending can be used to break out of the loop, clippy
+        // wants this to be written with a `while let`.
+        while let Poll::Ready(Some(evt)) = Pin::new(&mut self.repo_events).poll_next(ctx) {
+            match evt {
+                RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
+                RepoEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
+                RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
+            }
+        }
+
+        Poll::Pending
     }
 }
 

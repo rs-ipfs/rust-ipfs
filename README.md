@@ -63,10 +63,8 @@ use ipfs::{IpfsOptions, IpfsPath, Ipld, Types, UninitializedIpfs};
 use libipld::ipld;
 
 fn main() {
+    env_logger::init();
     let options = IpfsOptions::<Types>::default();
-    env_logger::Builder::new()
-        .parse_filters(&options.ipfs_log)
-        .init();
 
     task::block_on(async move {
         // Start daemon and initialize repo

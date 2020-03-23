@@ -25,7 +25,7 @@ fn main() {
     if std::env::var_os("RUST_LOG").is_none() {
         // FIXME: see if tracing could be used as the frontend for log macros
         // FIXME: use log macros here as well
-        std::env::set_var("RUST_LOG", "rust-ipfs-http=trace,rust-ipfs=trace");
+        std::env::set_var("RUST_LOG", "ipfs-http=trace,ipfs=trace");
     }
 
     env_logger::init();
@@ -134,7 +134,7 @@ fn main() {
 
     rt.block_on(async move {
         let opts: IpfsOptions<ipfs::TestTypes> =
-            IpfsOptions::new(home.clone().into(), keypair, Vec::new());
+            IpfsOptions::new(home.clone().into(), keypair, Vec::new(), false);
 
         let (ipfs, task) = UninitializedIpfs::new(opts)
             .await
