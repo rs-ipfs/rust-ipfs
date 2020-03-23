@@ -37,11 +37,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
             None => return Err(anyhow::anyhow!("expected cid")),
         };
         let mut ipld = decode_ipld(&cid, self.repo.get_block(&cid).await?.data())?;
-        for sub_path in path.iter() {
-            
-        }
-
-
+        for sub_path in path.iter() {}
 
         todo!()
     }
