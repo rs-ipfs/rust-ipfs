@@ -50,6 +50,7 @@ pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
 use self::subscription::SubscriptionFuture;
 use self::unixfs::File;
+pub use self::p2p::PubsubMessage;
 
 /// All types can be changed at compile time by implementing
 /// `IpfsTypes`.
@@ -220,6 +221,11 @@ enum IpfsEvent {
     Disconnect(Multiaddr, Channel<()>),
     /// Request background task to return the listened and external addresses
     GetAddresses(OneshotSender<Vec<Multiaddr>>),
+    PubsubSubscribe(String, OneshotSender<Option<futures::channel::mpsc::UnboundedReceiver<Arc<PubsubMessage>>>>),
+    PubsubUnsubscribe(String, OneshotSender<bool>),
+    PubsubPublish(String, Vec<u8>, OneshotSender<()>),
+    PubsubPeers(Option<String>, OneshotSender<Vec<PeerId>>),
+    PubsubSubscribed(OneshotSender<Vec<String>>),
     Exit,
 }
 
@@ -402,6 +408,67 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok((self.keys.get_ref().public(), addresses))
     }
 
+    /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
+    /// Unsubscription can happen automatically after dropping the receiver and failing to send a
+    /// message over using it's corresponding sender.
+    pub async fn pubsub_subscribe(&self, topic: &str) -> Result<impl futures::stream::Stream<Item = Arc<PubsubMessage>>, Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::PubsubSubscribe(topic.into(), tx))
+            .await?;
+
+        rx.await?.ok_or_else(|| format_err!("already subscribed to {:?}", topic))
+    }
+
+    /// Publishes to the topic which may have been subscribed to earlier
+    pub async fn pubsub_publish(&self, topic: &str, data: &[u8]) -> Result<(), Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::PubsubPublish(topic.into(), data.to_vec(), tx))
+            .await?;
+
+        Ok(rx.await?)
+    }
+
+    /// Returns true if unsubscription was successful
+    pub async fn pubsub_unsubscribe(&self, topic: &str) -> Result<bool, Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::PubsubUnsubscribe(topic.into(), tx))
+            .await?;
+
+        Ok(rx.await?)
+    }
+
+    /// Returns all known pubsub peers with the optional topic filter
+    pub async fn pubsub_peers(&self, topic: Option<&str>) -> Result<Vec<PeerId>, Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::PubsubPeers(topic.map(String::from), tx))
+            .await?;
+
+        Ok(rx.await?)
+    }
+
+    pub async fn pubsub_subscribed(&self) -> Result<Vec<String>, Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::PubsubSubscribed(tx))
+            .await?;
+
+        Ok(rx.await?)
+    }
+
     /// Exit daemon.
     pub async fn exit_daemon(mut self) {
         // ignoring the error because it'd mean that the background task would had already been
@@ -493,6 +560,25 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     // ignore error, perhaps caller went away already
                     let _ = ret.send(addresses);
                 }
+                IpfsEvent::PubsubSubscribe(topic, ret) => {
+                    let _ = ret.send(self.swarm.as_mut().subscribe(topic));
+                }
+                IpfsEvent::PubsubUnsubscribe(topic, ret) => {
+                    let _ = ret.send(self.swarm.as_mut().unsubscribe(topic));
+                }
+                IpfsEvent::PubsubPublish(topic, data, ret) => {
+                    let _ = ret.send(self.swarm.as_mut().publish(topic, data));
+                }
+                IpfsEvent::PubsubPeers(Some(topic), ret) => {
+                    let topic = libp2p::floodsub::Topic::new(topic);
+                    let _ = ret.send(self.swarm.as_mut().subscribed_peers(&topic));
+                }
+                IpfsEvent::PubsubPeers(None, ret) => {
+                    let _ = ret.send(self.swarm.as_mut().known_peers());
+                }
+                IpfsEvent::PubsubSubscribed(ret) => {
+                    let _ = ret.send(self.swarm.as_mut().subscribed_topics());
+                }
                 IpfsEvent::Exit => {
                     // FIXME: we could do a proper teardown
                     return Poll::Ready(());
@@ -511,6 +597,50 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
         }
 
         Poll::Pending
+    }
+}
+
+#[doc(hidden)]
+pub use node::Node;
+
+mod node {
+    use super::{Ipfs, TestTypes, IpfsOptions, UninitializedIpfs};
+
+    /// Node encapsulates everything to setup a testing instance so that things become easier.
+    pub struct Node {
+        ipfs: Ipfs<TestTypes>,
+        background_task: async_std::task::JoinHandle<()>,
+    }
+
+    impl Node {
+        pub async fn new(mdns: bool) -> Self {
+            let opts = IpfsOptions::inmemory_with_generated_keys(mdns);
+            let (ipfs, fut) = UninitializedIpfs::new(opts)
+                .await
+                .start()
+                .await
+                .expect("Inmemory instance must succeed start");
+
+            let jh = async_std::task::spawn(fut);
+
+            Node {
+                ipfs,
+                background_task: jh,
+            }
+        }
+
+        pub async fn shutdown(self) {
+            self.ipfs.exit_daemon().await;
+            self.background_task.await;
+        }
+    }
+
+    impl std::ops::Deref for Node {
+        type Target = Ipfs<TestTypes>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.ipfs
+        }
     }
 }
 

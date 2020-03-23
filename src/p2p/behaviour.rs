@@ -1,11 +1,11 @@
 use super::swarm::{Connection, Disconnector, SwarmApi};
+use super::pubsub::Pubsub;
 use crate::p2p::{SwarmOptions, SwarmTypes};
 use crate::repo::Repo;
 use crate::subscription::SubscriptionFuture;
 use bitswap::{Bitswap, Strategy};
 use libipld::cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
-use libp2p::floodsub::{Floodsub, FloodsubEvent};
 use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::{Kademlia, KademliaEvent};
@@ -24,7 +24,7 @@ pub struct Behaviour<TSwarmTypes: SwarmTypes> {
     bitswap: Bitswap<TSwarmTypes::TStrategy>,
     ping: Ping,
     identify: Identify,
-    floodsub: Floodsub,
+    pubsub: Pubsub,
     swarm: SwarmApi,
 }
 
@@ -140,14 +140,6 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<IdentifyEvent>
     }
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<FloodsubEvent>
-    for Behaviour<TSwarmTypes>
-{
-    fn inject_event(&mut self, event: FloodsubEvent) {
-        log::trace!("floodsub: {:?}", event);
-    }
-}
-
 impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
     pub async fn new(options: SwarmOptions<TSwarmTypes>, repo: Arc<Repo<TSwarmTypes>>) -> Self {
@@ -174,7 +166,7 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
             "rust-ipfs".into(),
             options.keypair.public(),
         );
-        let floodsub = Floodsub::new(options.peer_id);
+        let pubsub = Pubsub::new(options.peer_id);
         let swarm = SwarmApi::new();
 
         Behaviour {
@@ -183,20 +175,20 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
             bitswap,
             ping,
             identify,
-            floodsub,
+            pubsub,
             swarm,
         }
     }
 
     pub fn add_peer(&mut self, peer: PeerId) {
         self.swarm.add_peer(peer.clone());
-        self.floodsub.add_node_to_partial_view(peer);
+        self.pubsub.add_node_to_partial_view(peer);
         // TODO self.bitswap.add_node_to_partial_view(peer);
     }
 
     pub fn remove_peer(&mut self, peer: &PeerId) {
         self.swarm.remove_peer(&peer);
-        self.floodsub.remove_node_from_partial_view(&peer);
+        self.pubsub.remove_node_from_partial_view(&peer);
         // TODO self.bitswap.remove_peer(&peer);
     }
 
@@ -239,6 +231,12 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
         info!("Finished providing block {}", cid.to_string());
         //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
         //self.kademlia.remove_providing(&hash);
+    }
+}
+
+impl<T: SwarmTypes> std::convert::AsMut<Pubsub> for Behaviour<T> {
+    fn as_mut(&mut self) -> &mut Pubsub {
+        &mut self.pubsub
     }
 }
 
