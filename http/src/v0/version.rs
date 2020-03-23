@@ -17,6 +17,8 @@ pub struct Response {
     version: &'static str,
     commit: &'static str,
     // repo is here for go-ipfs and js-ipfs but we do not have full repo at the moment
+    // empty string is accepted by the tests
+    repo: &'static str,
 }
 
 // https://docs-beta.ipfs.io/reference/http/api/#api-v0-version
@@ -26,6 +28,7 @@ pub async fn version(_query: Query) -> Result<impl warp::Reply, std::convert::In
     let response = Response {
         version: env!("CARGO_PKG_VERSION"), // TODO: move over to rust-ipfs not to worry about syncing version numbers?
         commit: env!("VERGEN_SHA_SHORT"),
+        repo: "",
     };
 
     Ok(warp::reply::json(&response))

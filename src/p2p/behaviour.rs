@@ -1,27 +1,38 @@
+use super::swarm::{Connection, Disconnector, SwarmApi};
 use crate::p2p::{SwarmOptions, SwarmTypes};
 use crate::repo::Repo;
+use crate::subscription::SubscriptionFuture;
 use bitswap::{Bitswap, Strategy};
 use libipld::cid::Cid;
+use libp2p::core::{Multiaddr, PeerId};
 use libp2p::floodsub::{Floodsub, FloodsubEvent};
 use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::{Kademlia, KademliaEvent};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
-use libp2p::swarm::NetworkBehaviourEventProcess;
+use libp2p::swarm::toggle::Toggle;
+use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
-use libp2p::PeerId;
 use std::sync::Arc;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
 pub struct Behaviour<TSwarmTypes: SwarmTypes> {
-    mdns: Mdns,
+    mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
     bitswap: Bitswap<TSwarmTypes::TStrategy>,
     ping: Ping,
     identify: Identify,
     floodsub: Floodsub,
+    swarm: SwarmApi,
+}
+
+impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<()> for Behaviour<TSwarmTypes> {
+    fn inject_event(&mut self, _event: ()) {}
+}
+impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<void::Void> for Behaviour<TSwarmTypes> {
+    fn inject_event(&mut self, _event: void::Void) {}
 }
 
 impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<TSwarmTypes> {
@@ -29,17 +40,14 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behavi
         match event {
             MdnsEvent::Discovered(list) => {
                 for (peer, _) in list {
-                    debug!("mdns: Discovered peer {}", peer.to_base58());
-                    self.bitswap.connect(peer.clone());
-                    self.floodsub.add_node_to_partial_view(peer);
+                    log::trace!("mdns: Discovered peer {}", peer.to_base58());
+                    self.add_peer(peer);
                 }
             }
             MdnsEvent::Expired(list) => {
                 for (peer, _) in list {
-                    if !self.mdns.has_node(&peer) {
-                        debug!("mdns: Expired peer {}", peer.to_base58());
-                        self.floodsub.remove_node_from_partial_view(&peer);
-                    }
+                    log::trace!("mdns: Expired peer {}", peer.to_base58());
+                    self.remove_peer(&peer);
                 }
             }
         }
@@ -54,18 +62,9 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<KademliaEvent>
 
         match event {
             KademliaEvent::Discovered { peer_id, ty, .. } => {
-                debug!("kad: Discovered peer {} {:?}", peer_id.to_base58(), ty);
+                log::trace!("kad: Discovered peer {} {:?}", peer_id.to_base58(), ty);
+                self.add_peer(peer_id);
             }
-            // FIXME: unsure what this has been superceded with... perhaps with GetRecordResult?
-            /*
-            KademliaEvent::FindNodeResult { key, closer_peers } => {
-                if closer_peers.is_empty() {
-                    info!("kad: Could not find closer peer to {}", key.to_base58());
-                }
-                for peer in closer_peers {
-                    info!("kad: Found closer peer {} to {}", peer.to_base58(), key.to_base58());
-                }
-            }*/
             KademliaEvent::GetProvidersResult(Ok(GetProvidersOk {
                 key,
                 providers,
@@ -88,15 +87,11 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<KademliaEvent>
                 let cid = PeerId::from_bytes(key.to_vec()).unwrap().to_base58();
                 warn!("kad: timed out get providers query for {}", cid);
             }
-            x => {
-                debug!("kad ignored event {:?}", x);
+            event => {
+                log::trace!("kad: {:?}", event);
             }
         }
     }
-}
-
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<()> for Behaviour<TSwarmTypes> {
-    fn inject_event(&mut self, _event: ()) {}
 }
 
 impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<TSwarmTypes> {
@@ -107,29 +102,31 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<PingEvent> for Behavi
                 peer,
                 result: Result::Ok(PingSuccess::Ping { rtt }),
             } => {
-                debug!(
+                log::trace!(
                     "ping: rtt to {} is {} ms",
                     peer.to_base58(),
                     rtt.as_millis()
                 );
+                self.swarm.set_rtt(&peer, rtt);
             }
             PingEvent {
                 peer,
                 result: Result::Ok(PingSuccess::Pong),
             } => {
-                debug!("ping: pong from {}", peer.to_base58());
+                log::trace!("ping: pong from {}", peer.to_base58());
             }
             PingEvent {
                 peer,
                 result: Result::Err(PingFailure::Timeout),
             } => {
-                warn!("ping: timeout to {}", peer.to_base58());
+                log::trace!("ping: timeout to {}", peer.to_base58());
+                self.remove_peer(&peer);
             }
             PingEvent {
                 peer,
                 result: Result::Err(PingFailure::Other { error }),
             } => {
-                error!("ping: failure with {}: {}", peer.to_base58(), error);
+                log::error!("ping: failure with {}: {}", peer.to_base58(), error);
             }
         }
     }
@@ -139,7 +136,7 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<IdentifyEvent>
     for Behaviour<TSwarmTypes>
 {
     fn inject_event(&mut self, event: IdentifyEvent) {
-        debug!("identify: {:?}", event);
+        log::trace!("identify: {:?}", event);
     }
 }
 
@@ -147,7 +144,7 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<FloodsubEvent>
     for Behaviour<TSwarmTypes>
 {
     fn inject_event(&mut self, event: FloodsubEvent) {
-        debug!("floodsub: {:?}", event);
+        log::trace!("floodsub: {:?}", event);
     }
 }
 
@@ -156,10 +153,14 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
     pub async fn new(options: SwarmOptions<TSwarmTypes>, repo: Arc<Repo<TSwarmTypes>>) -> Self {
         info!("Local peer id: {}", options.peer_id.to_base58());
 
-        let mdns = Mdns::new().expect("Failed to create mDNS service");
+        let mdns = if options.mdns {
+            Some(Mdns::new().expect("Failed to create mDNS service"))
+        } else {
+            None
+        }
+        .into();
 
-        let store = libp2p::kad::record::store::MemoryStore::new(options.peer_id.to_owned());
-
+        let store = MemoryStore::new(options.peer_id.to_owned());
         let mut kademlia = Kademlia::new(options.peer_id.to_owned(), store);
         for (addr, peer_id) in &options.bootstrap {
             kademlia.add_address(peer_id, addr.to_owned());
@@ -171,9 +172,10 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
         let identify = Identify::new(
             "/ipfs/0.1.0".into(),
             "rust-ipfs".into(),
-            options.key_pair.public(),
+            options.keypair.public(),
         );
         let floodsub = Floodsub::new(options.peer_id);
+        let swarm = SwarmApi::new();
 
         Behaviour {
             mdns,
@@ -182,7 +184,42 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
             ping,
             identify,
             floodsub,
+            swarm,
         }
+    }
+
+    pub fn add_peer(&mut self, peer: PeerId) {
+        self.swarm.add_peer(peer.clone());
+        self.floodsub.add_node_to_partial_view(peer);
+        // TODO self.bitswap.add_node_to_partial_view(peer);
+    }
+
+    pub fn remove_peer(&mut self, peer: &PeerId) {
+        self.swarm.remove_peer(&peer);
+        self.floodsub.remove_node_from_partial_view(&peer);
+        // TODO self.bitswap.remove_peer(&peer);
+    }
+
+    pub fn addrs(&mut self) -> Vec<(PeerId, Vec<Multiaddr>)> {
+        let peers = self.swarm.peers().cloned().collect::<Vec<_>>();
+        let mut addrs = Vec::with_capacity(peers.len());
+        for peer_id in peers.into_iter() {
+            let peer_addrs = self.addresses_of_peer(&peer_id);
+            addrs.push((peer_id, peer_addrs));
+        }
+        addrs
+    }
+
+    pub fn connections(&self) -> Vec<Connection> {
+        self.swarm.connections().cloned().collect()
+    }
+
+    pub fn connect(&mut self, addr: Multiaddr) -> SubscriptionFuture<Result<(), String>> {
+        self.swarm.connect(addr)
+    }
+
+    pub fn disconnect(&mut self, addr: Multiaddr) -> Option<Disconnector> {
+        self.swarm.disconnect(addr)
     }
 
     pub fn want_block(&mut self, cid: Cid) {
