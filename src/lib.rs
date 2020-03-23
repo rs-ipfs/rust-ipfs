@@ -411,7 +411,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
     /// Unsubscription can happen automatically after dropping the receiver and failing to send a
     /// message over using it's corresponding sender.
-    pub async fn pubsub_subscribe(&self, topic: &str) -> Result<impl futures::stream::Stream<Item = Arc<PubsubMessage>>, Error> {
+    pub async fn pubsub_subscribe(&self, topic: &str) -> Result<impl futures::stream::Stream<Item = Arc<PubsubMessage>> + fmt::Debug, Error> {
         let (tx, rx) = oneshot_channel();
 
         self.to_task

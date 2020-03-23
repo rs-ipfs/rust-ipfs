@@ -173,6 +173,7 @@ impl NetworkBehaviour for Pubsub {
                                 // receiver has dropped
                                 let (topic, _) = oe.remove_entry();
                                 assert!(self.floodsub.unsubscribe(topic.clone()), "Closed sender didnt allow unsubscribing {:?}", topic);
+                                log::debug!("unsubscribed via SendError from {:?}", topic);
                                 buffer = Some(se.into_inner());
                             }
                         }
