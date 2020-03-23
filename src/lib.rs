@@ -613,7 +613,7 @@ pub use node::Node;
 mod node {
     use super::{Ipfs, IpfsOptions, TestTypes, UninitializedIpfs};
 
-    /// Node encapsulates everything to setup a testing instance so that things become easier.
+    /// Node encapsulates everything to setup a testing instance so that multi-node tests become easier.
     pub struct Node {
         ipfs: Ipfs<TestTypes>,
         background_task: async_std::task::JoinHandle<()>,

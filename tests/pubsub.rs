@@ -1,4 +1,5 @@
 use async_std::future::{pending, timeout};
+use futures::stream::StreamExt;
 use ipfs::{Node, PeerId};
 use std::time::Duration;
 
@@ -14,7 +15,6 @@ async fn subscribe_only_once() {
 
 #[async_std::test]
 async fn resubscribe_after_unsubscribe() {
-    use futures::stream::StreamExt;
     let a = Node::new(MDNS).await;
 
     let mut stream = a.pubsub_subscribe("topic").await.unwrap();
@@ -27,21 +27,15 @@ async fn resubscribe_after_unsubscribe() {
 
 #[async_std::test]
 async fn unsubscribe_via_drop() {
-    env_logger::init();
     let a = Node::new(MDNS).await;
 
-    // drop it right away
-    drop(a.pubsub_subscribe("shared").await.unwrap());
+    let msgs = a.pubsub_subscribe("topic").await.unwrap();
+    assert_eq!(a.pubsub_subscribed().await.unwrap(), &["topic"]);
+
+    drop(msgs);
 
     let empty: &[&str] = &[];
     assert_eq!(a.pubsub_subscribed().await.unwrap(), empty);
-}
-
-#[async_std::test]
-async fn list_subscriptions() {
-    let a = Node::new(MDNS).await;
-    let _stream = a.pubsub_subscribe("topic").await.unwrap();
-    assert_eq!(a.pubsub_subscribed().await.unwrap(), &["topic"]);
 }
 
 #[async_std::test]
@@ -52,8 +46,6 @@ async fn can_publish_without_subscribing() {
 
 #[async_std::test]
 async fn publish_between_two_nodes() {
-    // env_logger::init();
-    use futures::stream::StreamExt;
     let ((a, a_id), (b, b_id)) = two_connected_nodes().await;
 
     let topic = "shared";
@@ -112,9 +104,8 @@ async fn publish_between_two_nodes() {
 }
 
 async fn two_connected_nodes() -> ((Node, PeerId), (Node, PeerId)) {
-    let mdns = false;
-    let a = Node::new(mdns).await;
-    let b = Node::new(mdns).await;
+    let a = Node::new(MDNS).await;
+    let b = Node::new(MDNS).await;
 
     let (a_pk, _) = a.identity().await.unwrap();
     let a_id = a_pk.into_peer_id();
