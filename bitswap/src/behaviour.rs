@@ -213,8 +213,8 @@ impl NetworkBehaviour for Bitswap {
 mod tests {
     use super::*;
     use crate::block::tests::create_block;
-    use futures::prelude::*;
     use futures::channel::mpsc;
+    use futures::prelude::*;
     use libp2p::core::muxing::StreamMuxerBox;
     use libp2p::core::transport::boxed::Boxed;
     use libp2p::core::transport::upgrade::Version;
@@ -282,15 +282,16 @@ mod tests {
 
             loop {
                 match swarm2.next().await {
-                    BitswapEvent::ReceivedBlock(_, block) => {
-                        return block
-                    }
+                    BitswapEvent::ReceivedBlock(_, block) => return block,
                     _ => {}
                 }
             }
         };
 
-        let block = future::select(Box::pin(peer1), Box::pin(peer2)).await.factor_first().0;
+        let block = future::select(Box::pin(peer1), Box::pin(peer2))
+            .await
+            .factor_first()
+            .0;
         assert_eq!(block.data(), b"hello world");
     }
 }
