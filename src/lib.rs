@@ -397,6 +397,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         rx.await?
     }
 
+    /// Returns the local node public key and the listened and externally visible addresses.
+    ///
+    /// Public key can be converted to [`PeerId`].
     pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), Error> {
         let (tx, rx) = oneshot_channel();
 
