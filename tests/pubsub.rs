@@ -1,5 +1,5 @@
 use async_std::future::{pending, timeout};
-use ipfs::Node;
+use ipfs::{Node, PeerId};
 use std::time::Duration;
 
 // Disable mdns for these tests not to connect to any local go-ipfs node
@@ -54,18 +54,7 @@ async fn can_publish_without_subscribing() {
 async fn publish_between_two_nodes() {
     // env_logger::init();
     use futures::stream::StreamExt;
-    let a = Node::new(MDNS).await;
-    let b = Node::new(MDNS).await;
-
-    let (a_pk, _) = a.identity().await.unwrap();
-    let a_id = a_pk.into_peer_id();
-
-    let (b_pk, mut addrs) = b.identity().await.unwrap();
-    let b_id = b_pk.into_peer_id();
-
-    a.connect(addrs.pop().expect("b must have address to connect to"))
-        .await
-        .unwrap();
+    let ((a, a_id), (b, b_id)) = two_connected_nodes().await;
 
     let topic = "shared";
 
@@ -105,4 +94,37 @@ async fn publish_between_two_nodes() {
     assert_eq!(recvd.source, b_id);
     assert_eq!(recvd.data, b"barfoo");
     assert_eq!(recvd.topics, &[topic]);
+
+    drop(b_msgs);
+
+    let mut disappeared = false;
+    for _ in 0..100usize {
+        if !a.pubsub_peers(Some(topic)).await.unwrap().contains(&b_id) {
+            disappeared = true;
+            break;
+        }
+        timeout(Duration::from_millis(100), pending::<()>())
+            .await
+            .unwrap_err();
+    }
+
+    assert!(disappeared, "timed out before a saw b's unsubscription");
+}
+
+async fn two_connected_nodes() -> ((Node, PeerId), (Node, PeerId)) {
+    let mdns = false;
+    let a = Node::new(mdns).await;
+    let b = Node::new(mdns).await;
+
+    let (a_pk, _) = a.identity().await.unwrap();
+    let a_id = a_pk.into_peer_id();
+
+    let (b_pk, mut addrs) = b.identity().await.unwrap();
+    let b_id = b_pk.into_peer_id();
+
+    a.connect(addrs.pop().expect("b must have address to connect to"))
+        .await
+        .unwrap();
+
+    ((a, a_id), (b, b_id))
 }

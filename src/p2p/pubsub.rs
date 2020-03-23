@@ -306,7 +306,12 @@ impl NetworkBehaviour for Pubsub {
                 match self.peers.entry(peer_id) {
                     Entry::Occupied(mut oe) => {
                         let topics = oe.get_mut();
-                        topics.retain(|t| t != &topic);
+                        if let Some(pos) = topics.iter().position(|t| t == &topic) {
+                            topics.swap_remove(pos);
+                        }
+                        if topics.is_empty() {
+                            oe.remove();
+                        }
                     }
                     _ => {}
                 }
