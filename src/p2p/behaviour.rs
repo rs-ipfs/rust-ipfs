@@ -1,5 +1,5 @@
-use super::swarm::{Connection, Disconnector, SwarmApi};
 use super::pubsub::Pubsub;
+use super::swarm::{Connection, Disconnector, SwarmApi};
 use crate::p2p::{SwarmOptions, SwarmTypes};
 use crate::repo::Repo;
 use crate::subscription::SubscriptionFuture;

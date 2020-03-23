@@ -2,13 +2,13 @@ use futures::channel::mpsc as channel;
 use futures::stream::Stream;
 
 use std::collections::HashMap;
+use std::fmt;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::pin::Pin;
-use std::fmt;
 
-use libp2p::floodsub::{Floodsub, Topic, FloodsubMessage, FloodsubEvent};
 use libp2p::core::{ConnectedPoint, Multiaddr, PeerId};
+use libp2p::floodsub::{Floodsub, FloodsubEvent, FloodsubMessage, Topic};
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
 
 /// Currently a thin wrapper around Floodsub, perhaps supporting both Gossipsub and Floodsub later.
@@ -18,7 +18,10 @@ pub struct Pubsub {
     streams: HashMap<Topic, channel::UnboundedSender<Arc<PubsubMessage>>>,
     peers: HashMap<PeerId, Vec<Topic>>,
     floodsub: Floodsub,
-    unsubscriptions: (channel::UnboundedSender<String>, channel::UnboundedReceiver<String>),
+    unsubscriptions: (
+        channel::UnboundedSender<String>,
+        channel::UnboundedReceiver<String>,
+    ),
 }
 
 /// Adaptation hopefully supporting somehow both Floodsub and Gossipsub Messages in the future
@@ -34,7 +37,14 @@ pub struct PubsubMessage {
 }
 
 impl From<FloodsubMessage> for PubsubMessage {
-    fn from(FloodsubMessage { source, data, sequence_number, topics }: FloodsubMessage) -> Self {
+    fn from(
+        FloodsubMessage {
+            source,
+            data,
+            sequence_number,
+            topics,
+        }: FloodsubMessage,
+    ) -> Self {
         PubsubMessage {
             source,
             data,
@@ -57,7 +67,12 @@ impl<T> Drop for UnsubscribeOnDrop<T> {
 
 impl<T> fmt::Debug for UnsubscribeOnDrop<T> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "UnsubscribeOnDrop<{}>({:?})", std::any::type_name::<T>(), self.1)
+        write!(
+            fmt,
+            "UnsubscribeOnDrop<{}>({:?})",
+            std::any::type_name::<T>(),
+            self.1
+        )
     }
 }
 
@@ -98,12 +113,17 @@ impl Pubsub {
                 // there are probably some invariants which need to hold for the topic...
                 assert!(
                     self.floodsub.subscribe(ve.key().clone()),
-                    "subscribing to a unsubscribed topic should have succeeded");
+                    "subscribing to a unsubscribed topic should have succeeded"
+                );
 
                 let name = ve.key().id().to_string();
                 ve.insert(tx);
-                Some(UnsubscribeOnDrop(self.unsubscriptions.0.clone(), Some(name), rx))
-            },
+                Some(UnsubscribeOnDrop(
+                    self.unsubscriptions.0.clone(),
+                    Some(name),
+                    rx,
+                ))
+            }
             Entry::Occupied(_) => None,
         }
     }
@@ -113,7 +133,10 @@ impl Pubsub {
     pub fn unsubscribe(&mut self, topic: impl Into<String>) -> bool {
         let topic = Topic::new(topic);
         if self.streams.remove(&topic).is_some() {
-            assert!(self.floodsub.unsubscribe(topic), "sender removed but unsubscription failed");
+            assert!(
+                self.floodsub.unsubscribe(topic),
+                "sender removed but unsubscription failed"
+            );
             true
         } else {
             false
@@ -132,13 +155,26 @@ impl Pubsub {
 
     /// Returns the peers known to subscribe to the given topic
     pub fn subscribed_peers(&self, topic: &Topic) -> Vec<PeerId> {
-        self.peers.iter().filter_map(|(k, v)| if v.contains(topic) { Some(k.clone()) } else { None }).collect()
+        self.peers
+            .iter()
+            .filter_map(|(k, v)| {
+                if v.contains(topic) {
+                    Some(k.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Returns the list of currently subscribed topics. This can contain topics for which stream
     /// has been dropped but no messages have yet been received on the topics after the drop.
     pub fn subscribed_topics(&self) -> Vec<String> {
-        self.streams.keys().map(Topic::id).map(String::from).collect()
+        self.streams
+            .keys()
+            .map(Topic::id)
+            .map(String::from)
+            .collect()
     }
 
     /// See [`Floodsub::add_node_from_partial_view`]
@@ -154,7 +190,8 @@ impl Pubsub {
 
 type PubsubNetworkBehaviourAction = NetworkBehaviourAction<
     <<Pubsub as NetworkBehaviour>::ProtocolsHandler as ProtocolsHandler>::InEvent,
-    <Pubsub as NetworkBehaviour>::OutEvent>;
+    <Pubsub as NetworkBehaviour>::OutEvent,
+>;
 
 impl NetworkBehaviour for Pubsub {
     type ProtocolsHandler = <Floodsub as NetworkBehaviour>::ProtocolsHandler;
@@ -176,7 +213,11 @@ impl NetworkBehaviour for Pubsub {
         self.floodsub.inject_disconnected(peer_id, cp)
     }
 
-    fn inject_node_event(&mut self, peer_id: PeerId, event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent) {
+    fn inject_node_event(
+        &mut self,
+        peer_id: PeerId,
+        event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+    ) {
         self.floodsub.inject_node_event(peer_id, event)
     }
 
@@ -186,7 +227,8 @@ impl NetworkBehaviour for Pubsub {
         addr: &Multiaddr,
         error: &dyn std::error::Error,
     ) {
-        self.floodsub.inject_addr_reach_failure(peer_id, addr, error)
+        self.floodsub
+            .inject_addr_reach_failure(peer_id, addr, error)
     }
 
     fn poll(
@@ -194,8 +236,8 @@ impl NetworkBehaviour for Pubsub {
         ctx: &mut Context,
         poll: &mut impl PollParameters,
     ) -> Poll<PubsubNetworkBehaviourAction> {
-        use std::collections::hash_map::Entry;
         use futures::stream::StreamExt;
+        use std::collections::hash_map::Entry;
 
         loop {
             match self.unsubscriptions.1.poll_next_unpin(ctx) {
@@ -203,7 +245,10 @@ impl NetworkBehaviour for Pubsub {
                     let topic = Topic::new(dropped);
                     if self.streams.remove(&topic).is_some() {
                         log::debug!("unsubscribing via drop from {:?}", topic.id());
-                        assert!(self.floodsub.unsubscribe(topic), "Failed to unsubscribe a dropped subscription");
+                        assert!(
+                            self.floodsub.unsubscribe(topic),
+                            "Failed to unsubscribe a dropped subscription"
+                        );
                     } else {
                         // subscription dropped via unsubscribe call, TODO: not sure if the
                         // unsubscribe functionality is needed if this drop works
@@ -228,7 +273,11 @@ impl NetworkBehaviour for Pubsub {
                                 // receiver has dropped
                                 let (topic, _) = oe.remove_entry();
                                 log::debug!("unsubscribing via SendError from {:?}", topic.id());
-                                assert!(self.floodsub.unsubscribe(topic.clone()), "Closed sender didnt allow unsubscribing {:?}", topic);
+                                assert!(
+                                    self.floodsub.unsubscribe(topic.clone()),
+                                    "Closed sender didnt allow unsubscribing {:?}",
+                                    topic
+                                );
                                 buffer = Some(se.into_inner());
                             }
                         }
@@ -236,34 +285,46 @@ impl NetworkBehaviour for Pubsub {
                             panic!(
                                 "we received a message to a topic we havent subscribed to {:?},
                                 streams are probably out of sync. Please report this as a bug.",
-                                ve.key());
+                                ve.key()
+                            );
                         }
                     }
                 }
                 Poll::Pending
-            },
+            }
             NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Subscribed { peer_id, topic }) => {
                 let topics = self.peers.entry(peer_id).or_insert_with(Vec::new);
                 if topics.iter().find(|&t| t == &topic).is_none() {
                     topics.push(topic);
                 }
                 Poll::Pending
-            },
-            NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Unsubscribed { peer_id, topic }) => {
+            }
+            NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Unsubscribed {
+                peer_id,
+                topic,
+            }) => {
                 match self.peers.entry(peer_id) {
                     Entry::Occupied(mut oe) => {
                         let topics = oe.get_mut();
                         topics.retain(|t| t != &topic);
                     }
-                    _ => {},
+                    _ => {}
                 }
 
                 Poll::Pending
-            },
-            NetworkBehaviourAction::DialAddress { address } => Poll::Ready(NetworkBehaviourAction::DialAddress { address }),
-            NetworkBehaviourAction::DialPeer { peer_id } => Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id }),
-            NetworkBehaviourAction::SendEvent { peer_id, event } => Poll::Ready(NetworkBehaviourAction::SendEvent { peer_id, event }),
-            NetworkBehaviourAction::ReportObservedAddr { address } => Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address }),
+            }
+            NetworkBehaviourAction::DialAddress { address } => {
+                Poll::Ready(NetworkBehaviourAction::DialAddress { address })
+            }
+            NetworkBehaviourAction::DialPeer { peer_id } => {
+                Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id })
+            }
+            NetworkBehaviourAction::SendEvent { peer_id, event } => {
+                Poll::Ready(NetworkBehaviourAction::SendEvent { peer_id, event })
+            }
+            NetworkBehaviourAction::ReportObservedAddr { address } => {
+                Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address })
+            }
         }
     }
 }

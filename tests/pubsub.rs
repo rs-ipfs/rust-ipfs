@@ -1,6 +1,6 @@
+use async_std::future::{pending, timeout};
 use ipfs::Node;
 use std::time::Duration;
-use async_std::future::{timeout, pending};
 
 // Disable mdns for these tests not to connect to any local go-ipfs node
 const MDNS: bool = false;
@@ -63,7 +63,9 @@ async fn publish_between_two_nodes() {
     let (b_pk, mut addrs) = b.identity().await.unwrap();
     let b_id = b_pk.into_peer_id();
 
-    a.connect(addrs.pop().expect("b must have address to connect to")).await.unwrap();
+    a.connect(addrs.pop().expect("b must have address to connect to"))
+        .await
+        .unwrap();
 
     let topic = "shared";
 
@@ -73,16 +75,21 @@ async fn publish_between_two_nodes() {
     // need to wait to see both sides so that the messages will get through
     let mut appeared = false;
     for _ in 0..100usize {
-        if a.pubsub_peers(Some(topic)).await.unwrap().contains(&b_id) && b.pubsub_peers(Some(topic)).await.unwrap().contains(&a_id) {
+        if a.pubsub_peers(Some(topic)).await.unwrap().contains(&b_id)
+            && b.pubsub_peers(Some(topic)).await.unwrap().contains(&a_id)
+        {
             appeared = true;
             break;
         }
-        timeout(
-            Duration::from_millis(100),
-            pending::<()>()).await.unwrap_err();
+        timeout(Duration::from_millis(100), pending::<()>())
+            .await
+            .unwrap_err();
     }
 
-    assert!(appeared, "timed out before both nodes appeared as pubsub peers");
+    assert!(
+        appeared,
+        "timed out before both nodes appeared as pubsub peers"
+    );
 
     a.pubsub_publish(topic, b"foobar").await.unwrap();
     b.pubsub_publish(topic, b"barfoo").await.unwrap();

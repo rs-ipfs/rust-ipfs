@@ -43,6 +43,7 @@ use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
 pub use self::p2p::Connection;
+pub use self::p2p::PubsubMessage;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
@@ -50,7 +51,6 @@ pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
 use self::subscription::SubscriptionFuture;
 use self::unixfs::File;
-pub use self::p2p::PubsubMessage;
 
 /// All types can be changed at compile time by implementing
 /// `IpfsTypes`.
@@ -414,7 +414,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
     /// The subscription can be unsubscribed by dropping the stream or calling
     /// [`pubsub_unsubscribe`].
-    pub async fn pubsub_subscribe(&self, topic: &str) -> Result<impl futures::stream::Stream<Item = Arc<PubsubMessage>> + fmt::Debug, Error> {
+    pub async fn pubsub_subscribe(
+        &self,
+        topic: &str,
+    ) -> Result<impl futures::stream::Stream<Item = Arc<PubsubMessage>> + fmt::Debug, Error> {
         let (tx, rx) = oneshot_channel();
 
         self.to_task
@@ -422,7 +425,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .send(IpfsEvent::PubsubSubscribe(topic.into(), tx))
             .await?;
 
-        rx.await?.ok_or_else(|| format_err!("already subscribed to {:?}", topic))
+        rx.await?
+            .ok_or_else(|| format_err!("already subscribed to {:?}", topic))
     }
 
     /// Publishes to the topic which may have been subscribed to earlier
@@ -607,7 +611,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 pub use node::Node;
 
 mod node {
-    use super::{Ipfs, TestTypes, IpfsOptions, UninitializedIpfs};
+    use super::{Ipfs, IpfsOptions, TestTypes, UninitializedIpfs};
 
     /// Node encapsulates everything to setup a testing instance so that things become easier.
     pub struct Node {
