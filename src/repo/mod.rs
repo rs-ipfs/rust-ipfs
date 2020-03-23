@@ -69,6 +69,7 @@ pub trait DataStore: Debug + Clone + Send + Sync + Unpin + 'static {
 #[derive(Clone, Copy, Debug)]
 pub enum Column {
     Ipns,
+    Pin,
 }
 
 #[derive(Debug)]
@@ -209,15 +210,15 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.data_store.remove(Column::Ipns, ipns.as_bytes()).await
     }
 
-    pub async fn pin_block(&self, ipns: &PeerId, cid: &Cid) -> Result<(), Error> {
+    pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
         self.data_store
-            .put(Column::Ipns, &cid.to_bytes(), &vec![1])
+            .put(Column::Pin, &cid.to_bytes(), &vec![1])
             .await
     }
 
-    pub async fn unpin_block(&self, ipns: &PeerId, cid: &Cid) -> Result<(), Error> {
+    pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
         self.data_store
-            .put(Column::Ipns, &cid.to_bytes(), &vec![0])
+            .put(Column::Pin, &cid.to_bytes(), &vec![0])
             .await
     }
 }

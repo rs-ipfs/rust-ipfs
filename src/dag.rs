@@ -36,10 +36,15 @@ impl<Types: RepoTypes> IpldDag<Types> {
             Some(cid) => cid,
             None => return Err(anyhow::anyhow!("expected cid")),
         };
-        let mut ipld = decode_ipld(&cid, self.repo.get_block(&cid).await?.data())?;
-        for sub_path in path.iter() {}
+        self.repo.pin_block(cid).await
+    }
 
-        todo!()
+    pub async fn unpin(&self, path: IpfsPath) -> Result<(), Error> {
+        let cid = match path.root().cid() {
+            Some(cid) => cid,
+            None => return Err(anyhow::anyhow!("expected cid")),
+        };
+        self.repo.unpin_block(cid).await
     }
 
     pub async fn get(&self, path: IpfsPath) -> Result<Ipld, Error> {
