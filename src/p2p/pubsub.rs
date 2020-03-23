@@ -303,17 +303,14 @@ impl NetworkBehaviour for Pubsub {
                 peer_id,
                 topic,
             }) => {
-                match self.peers.entry(peer_id) {
-                    Entry::Occupied(mut oe) => {
-                        let topics = oe.get_mut();
-                        if let Some(pos) = topics.iter().position(|t| t == &topic) {
-                            topics.swap_remove(pos);
-                        }
-                        if topics.is_empty() {
-                            oe.remove();
-                        }
+                if let Entry::Occupied(mut oe) = self.peers.entry(peer_id) {
+                    let topics = oe.get_mut();
+                    if let Some(pos) = topics.iter().position(|t| t == &topic) {
+                        topics.swap_remove(pos);
                     }
-                    _ => {}
+                    if topics.is_empty() {
+                        oe.remove();
+                    }
                 }
 
                 Poll::Pending

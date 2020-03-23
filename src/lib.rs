@@ -575,7 +575,8 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     let _ = ret.send(self.swarm.as_mut().unsubscribe(topic));
                 }
                 IpfsEvent::PubsubPublish(topic, data, ret) => {
-                    let _ = ret.send(self.swarm.as_mut().publish(topic, data));
+                    self.swarm.as_mut().publish(topic, data);
+                    let _ = ret.send(());
                 }
                 IpfsEvent::PubsubPeers(Some(topic), ret) => {
                     let topic = libp2p::floodsub::Topic::new(topic);
