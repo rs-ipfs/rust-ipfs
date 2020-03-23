@@ -1,9 +1,9 @@
 //! IPFS repo
+use crate::daemon::IpfsEvent;
 use crate::error::Error;
 use crate::options::{IpfsOptions, IpfsTypes};
 use crate::path::IpfsPath;
 use crate::subscription::SubscriptionRegistry;
-use crate::IpfsEvent;
 use async_std::path::PathBuf;
 use async_std::sync::Mutex;
 use async_trait::async_trait;
