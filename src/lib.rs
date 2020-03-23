@@ -313,11 +313,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Pins a given Cid
-    pub async fn pin_block(&mut self, cid: IpfsPath) -> Result<(), Error> {
-        Ok(self
-            .dag
-            .pin(self.identity().await?.0.into_peer_id(), cid)
-            .await?)
+    pub async fn pin_block(&mut self, path: IpfsPath) -> Result<(), Error> {
+        Ok(self.dag.pin(path).await?)
     }
 
     /// Puts an ipld dag node into the ipfs repo.
