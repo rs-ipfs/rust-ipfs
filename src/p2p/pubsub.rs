@@ -1,7 +1,11 @@
 use futures::channel::mpsc as channel;
+use futures::stream::Stream;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::pin::Pin;
+use std::fmt;
 
 use libp2p::floodsub::{Floodsub, Topic, FloodsubMessage, FloodsubEvent};
 use libp2p::core::{ConnectedPoint, Multiaddr, PeerId};
@@ -14,6 +18,7 @@ pub struct Pubsub {
     streams: HashMap<Topic, channel::UnboundedSender<Arc<PubsubMessage>>>,
     peers: HashMap<PeerId, Vec<Topic>>,
     floodsub: Floodsub,
+    unsubscriptions: (channel::UnboundedSender<String>, channel::UnboundedReceiver<String>),
 }
 
 /// Adaptation hopefully supporting somehow both Floodsub and Gossipsub Messages in the future
@@ -39,33 +44,65 @@ impl From<FloodsubMessage> for PubsubMessage {
     }
 }
 
+pub(crate) type StreamImpl = UnsubscribeOnDrop<channel::UnboundedReceiver<Arc<PubsubMessage>>>;
+
+pub struct UnsubscribeOnDrop<T>(channel::UnboundedSender<String>, Option<String>, T);
+
+impl<T> Drop for UnsubscribeOnDrop<T> {
+    fn drop(&mut self) {
+        // ignore errors
+        let _ = self.0.unbounded_send(self.1.take().unwrap());
+    }
+}
+
+impl<T> fmt::Debug for UnsubscribeOnDrop<T> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "UnsubscribeOnDrop<{}>({:?})", std::any::type_name::<T>(), self.1)
+    }
+}
+
+impl<T: Stream + Unpin> Stream for UnsubscribeOnDrop<T> {
+    type Item = T::Item;
+
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+        let inner = &mut self.as_mut().2;
+        let inner = Pin::new(inner);
+        inner.poll_next(ctx)
+    }
+}
+
 impl Pubsub {
     pub fn new(peer_id: PeerId) -> Self {
+        let (tx, rx) = channel::unbounded();
         Pubsub {
             streams: HashMap::new(),
             peers: HashMap::new(),
             floodsub: Floodsub::new(peer_id),
+            unsubscriptions: (tx, rx),
         }
     }
 
     /// Subscribes to an currently unsubscribed topic.
     /// Returns a receiver for messages sent to the topic or `None` if subscription existed already
-    pub fn subscribe(&mut self, topic: impl Into<String>) -> Option<channel::UnboundedReceiver<Arc<PubsubMessage>>> {
+    pub fn subscribe(&mut self, topic: impl Into<String>) -> Option<StreamImpl> {
         use std::collections::hash_map::Entry;
 
         let topic = Topic::new(topic);
 
         match self.streams.entry(topic) {
             Entry::Vacant(ve) => {
+                // TODO: this could also be bounded; we could send the message and drop the
+                // subscription if it ever became full.
                 let (tx, rx) = channel::unbounded();
 
-                // TODO: unsure on what could be the limits here
+                // there are probably some invariants which need to hold for the topic...
                 assert!(
                     self.floodsub.subscribe(ve.key().clone()),
                     "subscribing to a unsubscribed topic should have succeeded");
 
+                let name = ve.key().id().to_string();
                 ve.insert(tx);
-                Some(rx)
+                Some(UnsubscribeOnDrop(self.unsubscriptions.0.clone(), Some(name), rx))
             },
             Entry::Occupied(_) => None,
         }
@@ -158,6 +195,24 @@ impl NetworkBehaviour for Pubsub {
         poll: &mut impl PollParameters,
     ) -> Poll<PubsubNetworkBehaviourAction> {
         use std::collections::hash_map::Entry;
+        use futures::stream::StreamExt;
+
+        loop {
+            match self.unsubscriptions.1.poll_next_unpin(ctx) {
+                Poll::Ready(Some(dropped)) => {
+                    let topic = Topic::new(dropped);
+                    if self.streams.remove(&topic).is_some() {
+                        log::debug!("unsubscribing via drop from {:?}", topic.id());
+                        assert!(self.floodsub.unsubscribe(topic), "Failed to unsubscribe a dropped subscription");
+                    } else {
+                        // subscription dropped via unsubscribe call, TODO: not sure if the
+                        // unsubscribe functionality is needed if this drop works
+                    }
+                }
+                Poll::Ready(None) => unreachable!("we own the sender"),
+                Poll::Pending => break,
+            }
+        }
 
         match futures::ready!(self.floodsub.poll(ctx, poll)) {
             NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Message(msg)) => {
@@ -169,16 +224,19 @@ impl NetworkBehaviour for Pubsub {
                     match self.streams.entry(topic) {
                         Entry::Occupied(oe) => {
                             let sent = buffer.take().unwrap_or_else(|| Arc::clone(&msg));
-                            if let Some(se) = oe.get().unbounded_send(sent).err() {
+                            if let Err(se) = oe.get().unbounded_send(sent) {
                                 // receiver has dropped
                                 let (topic, _) = oe.remove_entry();
+                                log::debug!("unsubscribing via SendError from {:?}", topic.id());
                                 assert!(self.floodsub.unsubscribe(topic.clone()), "Closed sender didnt allow unsubscribing {:?}", topic);
-                                log::debug!("unsubscribed via SendError from {:?}", topic);
                                 buffer = Some(se.into_inner());
                             }
                         }
                         Entry::Vacant(ve) => {
-                            panic!("we received a message to a topic we havent subscribed to {:?}, streams are probably out of sync", ve.key());
+                            panic!(
+                                "we received a message to a topic we havent subscribed to {:?},
+                                streams are probably out of sync. Please report this as a bug.",
+                                ve.key());
                         }
                     }
                 }

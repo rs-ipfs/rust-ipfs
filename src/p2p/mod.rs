@@ -11,7 +11,7 @@ use std::sync::Arc;
 mod behaviour;
 mod swarm;
 mod transport;
-mod pubsub;
+pub(crate) mod pubsub;
 pub use pubsub::PubsubMessage;
 
 pub use swarm::Connection;

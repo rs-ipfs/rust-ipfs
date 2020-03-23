@@ -221,7 +221,7 @@ enum IpfsEvent {
     Disconnect(Multiaddr, Channel<()>),
     /// Request background task to return the listened and external addresses
     GetAddresses(OneshotSender<Vec<Multiaddr>>),
-    PubsubSubscribe(String, OneshotSender<Option<futures::channel::mpsc::UnboundedReceiver<Arc<PubsubMessage>>>>),
+    PubsubSubscribe(String, OneshotSender<Option<p2p::pubsub::StreamImpl>>),
     PubsubUnsubscribe(String, OneshotSender<bool>),
     PubsubPublish(String, Vec<u8>, OneshotSender<()>),
     PubsubPeers(Option<String>, OneshotSender<Vec<PeerId>>),
@@ -409,8 +409,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
-    /// Unsubscription can happen automatically after dropping the receiver and failing to send a
-    /// message over using it's corresponding sender.
+    /// The subscription can be unsubscribed by dropping the stream or calling
+    /// [`pubsub_unsubscribe`].
     pub async fn pubsub_subscribe(&self, topic: &str) -> Result<impl futures::stream::Stream<Item = Arc<PubsubMessage>> + fmt::Debug, Error> {
         let (tx, rx) = oneshot_channel();
 

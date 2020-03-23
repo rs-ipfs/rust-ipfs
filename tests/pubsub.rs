@@ -26,6 +26,18 @@ async fn resubscribe_after_unsubscribe() {
 }
 
 #[async_std::test]
+async fn unsubscribe_via_drop() {
+    env_logger::init();
+    let a = Node::new(MDNS).await;
+
+    // drop it right away
+    drop(a.pubsub_subscribe("shared").await.unwrap());
+
+    let empty: &[&str] = &[];
+    assert_eq!(a.pubsub_subscribed().await.unwrap(), empty);
+}
+
+#[async_std::test]
 async fn list_subscriptions() {
     let a = Node::new(MDNS).await;
     let _stream = a.pubsub_subscribe("topic").await.unwrap();
@@ -86,46 +98,4 @@ async fn publish_between_two_nodes() {
     assert_eq!(recvd.source, b_id);
     assert_eq!(recvd.data, b"barfoo");
     assert_eq!(recvd.topics, &[topic]);
-}
-
-#[async_std::test]
-async fn unsubscribe_via_message_reception() {
-    env_logger::init();
-    let a = Node::new(MDNS).await;
-    let b = Node::new(MDNS).await;
-
-    let (_, mut addrs) = b.identity().await.unwrap();
-
-    a.connect(addrs.pop().expect("b must have address to connect to")).await.unwrap();
-
-    // drop it right away
-    drop(a.pubsub_subscribe("shared").await.unwrap());
-    let _b_msgs = b.pubsub_subscribe("shared").await.unwrap();
-
-    assert_eq!(a.pubsub_subscribed().await.unwrap(), &["shared"]);
-    assert_eq!(b.pubsub_subscribed().await.unwrap(), &["shared"]);
-
-    // need to wait some time to allow propagation
-    timeout(
-        Duration::from_millis(100),
-        pending::<()>()).await.unwrap_err();
-
-    // once this gets to node a, the subscription should be dropped as it can no longer be sent to
-    b.pubsub_publish("shared", b"barfoo").await.unwrap();
-
-    let mut succeeded = false;
-
-    // waiting for the FloodsubEvent itself would be great but during testing this sometimes
-    // completed really fast but mostly really slow.
-    for _ in 0..100 {
-        if a.pubsub_subscribed().await.unwrap().is_empty() {
-            succeeded = true;
-            break;
-        }
-        timeout(
-            Duration::from_millis(100),
-            pending::<()>()).await.unwrap_err();
-    }
-
-    assert!(succeeded, "timed out before getting the message from b -> a");
 }
