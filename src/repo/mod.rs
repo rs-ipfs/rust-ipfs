@@ -212,13 +212,13 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
         self.data_store
-            .put(Column::Pin, &cid.to_bytes(), &vec![1])
+            .put(Column::Pin, &cid.to_bytes(), &[1])
             .await
     }
 
     pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
         self.data_store
-            .put(Column::Pin, &cid.to_bytes(), &vec![0])
+            .put(Column::Pin, &cid.to_bytes(), &[0])
             .await
     }
 }
