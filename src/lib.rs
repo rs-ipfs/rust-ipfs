@@ -465,6 +465,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(rx.await?)
     }
 
+    /// Returns all currently subscribed topics
     pub async fn pubsub_subscribed(&self) -> Result<Vec<String>, Error> {
         let (tx, rx) = oneshot_channel();
 
@@ -613,7 +614,8 @@ pub use node::Node;
 mod node {
     use super::{Ipfs, IpfsOptions, TestTypes, UninitializedIpfs};
 
-    /// Node encapsulates everything to setup a testing instance so that multi-node tests become easier.
+    /// Node encapsulates everything to setup a testing instance so that multi-node tests become
+    /// easier.
     pub struct Node {
         ipfs: Ipfs<TestTypes>,
         background_task: async_std::task::JoinHandle<()>,
