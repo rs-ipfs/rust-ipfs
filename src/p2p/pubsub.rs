@@ -13,11 +13,14 @@ use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, Pr
 
 /// Currently a thin wrapper around Floodsub, perhaps supporting both Gossipsub and Floodsub later.
 /// Allows single subscription to a topic with only unbounded senders. Tracks the peers subscribed
-/// to different topics.
+/// to different topics. The messages in the streams are wrapped in `Arc` as they technically could
+/// be sent to multiple topics, but this api is not provided.
 pub struct Pubsub {
     streams: HashMap<Topic, channel::UnboundedSender<Arc<PubsubMessage>>>,
     peers: HashMap<PeerId, Vec<Topic>>,
     floodsub: Floodsub,
+    // the subscription streams implement Drop and will send out their topic name through the
+    // sender cloned from here if they are dropped before the stream has ended.
     unsubscriptions: (
         channel::UnboundedSender<String>,
         channel::UnboundedReceiver<String>,
@@ -29,7 +32,8 @@ pub struct Pubsub {
 pub struct PubsubMessage {
     pub source: PeerId,
     pub data: Vec<u8>,
-    // this could be an enum for gossipsub message compat, it uses u64
+    // this could be an enum for gossipsub message compat, it uses u64, though the floodsub
+    // sequence numbers looked like 8 bytes in testing..
     pub sequence_number: Vec<u8>,
     // TODO: gossipsub uses topichashes, haven't checked if we could have some unifying abstraction
     // or if we should have a hash to name mapping internally?
@@ -100,6 +104,8 @@ impl<T: Stream + Unpin> Stream for UnsubscribeOnDrop<T> {
 }
 
 impl Pubsub {
+    /// Delegates the `peer_id` over to [`Floodsub::new`] and internally only does accounting on
+    /// top of the floodsub.
     pub fn new(peer_id: PeerId) -> Self {
         let (tx, rx) = channel::unbounded();
         Pubsub {
@@ -263,8 +269,9 @@ impl NetworkBehaviour for Pubsub {
                             "Failed to unsubscribe a dropped subscription"
                         );
                     } else {
-                        // subscription dropped via unsubscribe call, TODO: not sure if the
-                        // unsubscribe functionality is needed if this drop works
+                        // unsubscribed already by `unsubscribe`
+                        // TODO: not sure if the unsubscribe functionality is needed as the
+                        // unsubscribe on drop seems to work
                     }
                 }
                 Poll::Ready(None) => unreachable!("we own the sender"),
