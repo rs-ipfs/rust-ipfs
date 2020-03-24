@@ -2,7 +2,7 @@ use std::num::NonZeroU16;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
+use ipfs::{Ipfs, IpfsOptions};
 use ipfs_http::{config, v0};
 
 #[derive(Debug, StructOpt)]
@@ -135,13 +135,7 @@ fn main() {
     rt.block_on(async move {
         let opts = IpfsOptions::new(home.clone().into(), keypair, Vec::new(), false);
 
-        let (ipfs, task) = UninitializedIpfs::<ipfs::TestTypes>::new(opts)
-            .await
-            .start()
-            .await
-            .expect("Initialization failed");
-
-        tokio::spawn(task);
+        let ipfs = Ipfs::new::<ipfs::TestTypes>(opts).await.unwrap();
 
         let api_link_file = home.join("api");
         let (addr, server) = serve(&ipfs);
@@ -166,14 +160,10 @@ fn main() {
                 .await
                 .map_err(|e| eprintln!("Failed to truncate {:?}: {}", api_link_file, e));
         }
-
-        ipfs.exit_daemon().await;
     });
 }
 
-fn serve<Types: IpfsTypes>(
-    ipfs: &Ipfs<Types>,
-) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
+fn serve(ipfs: &Ipfs) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
     use tokio::stream::StreamExt;
     use warp::Filter;
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);

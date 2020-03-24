@@ -1,11 +1,11 @@
 use super::{with_ipfs, InvalidPeerId, NotImplemented, StringError};
-use ipfs::{Ipfs, IpfsTypes, PeerId};
+use ipfs::{Ipfs, PeerId};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use warp::{query, Filter};
 
-pub fn identity<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn identity(
+    ipfs: &Ipfs,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("id")
         .and(with_ipfs(ipfs))
@@ -26,8 +26,8 @@ fn optional_peer_id() -> impl Filter<Extract = (Option<PeerId>,), Error = warp::
 // FIXME: /api/v0/id has argument `arg: PeerId` which is not implemented.
 //
 // https://docs.ipfs.io/reference/api/http/#api-v0-id
-async fn identity_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+async fn identity_query(
+    ipfs: Ipfs,
     peer: Option<PeerId>,
 ) -> Result<impl warp::Reply, warp::reject::Rejection> {
     use multibase::Base::Base64Pad;

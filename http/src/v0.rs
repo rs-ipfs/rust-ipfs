@@ -1,4 +1,4 @@
-use ipfs::{Ipfs, IpfsTypes};
+use ipfs::Ipfs;
 use std::convert::Infallible;
 
 pub mod id;
@@ -9,13 +9,10 @@ pub mod support;
 pub use support::recover_as_message_response;
 pub(crate) use support::{with_ipfs, InvalidPeerId, NotImplemented, StringError};
 
-pub fn routes<T>(
-    ipfs: &Ipfs<T>,
+pub fn routes(
+    ipfs: &Ipfs,
     shutdown_tx: tokio::sync::mpsc::Sender<()>,
-) -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone
-where
-    T: IpfsTypes,
-{
+) -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
     use warp::{query, Filter};
     // /api/v0/shutdown
     let shutdown = warp::post()
@@ -81,16 +78,11 @@ mod tests {
     async fn testing_routes(
     ) -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
         use super::routes;
-        use ipfs::{IpfsOptions, UninitializedIpfs};
+        use ipfs::{Ipfs, IpfsOptions};
 
         let options = IpfsOptions::inmemory_with_generated_keys(false);
 
-        let (ipfs, fut) = UninitializedIpfs::<ipfs::TestTypes>::new(options)
-            .await
-            .start()
-            .await
-            .unwrap();
-        drop(fut);
+        let ipfs = Ipfs::new::<ipfs::TestTypes>(options).await.unwrap();
         let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
         drop(shutdown_rx);
 
