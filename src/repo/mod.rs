@@ -9,11 +9,26 @@ use libipld::cid::Cid;
 pub mod fs;
 pub mod mem;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum BlockStoreEvent {
     Get(Cid, Result<Option<Box<[u8]>>, Error>),
     Put(Cid, Result<(), Error>),
     Remove(Cid, Result<(), Error>),
+}
+
+impl PartialEq for BlockStoreEvent {
+    fn eq(&self, other: &Self) -> bool {
+        use BlockStoreEvent::*;
+        match (self, other) {
+            (Get(cid1, Ok(data1)), Get(cid2, Ok(data2))) => cid1 == cid2 && data1 == data2,
+            (Put(cid1, Ok(())), Put(cid2, Ok(()))) => cid1 == cid2,
+            (Remove(cid1, Ok(())), Remove(cid2, Ok(()))) => cid1 == cid2,
+            (Get(cid1, Err(_)), Get(cid2, Err(_))) => cid1 == cid2,
+            (Put(cid1, Err(_)), Put(cid2, Err(_))) => cid1 == cid2,
+            (Remove(cid1, Err(_)), Remove(cid2, Err(_))) => cid1 == cid2,
+            _ => false,
+        }
+    }
 }
 
 #[async_trait]

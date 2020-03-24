@@ -122,7 +122,7 @@ impl DataStore for MemDataStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitswap::Block;
+    use futures::stream::StreamExt;
     use libipld::cid::{Cid, Codec};
     use multihash::Sha2_256;
     use std::env::temp_dir;
@@ -130,34 +130,45 @@ mod tests {
     #[async_std::test]
     async fn test_mem_blockstore() {
         let tmp = temp_dir();
-        let store = MemBlockStore::new(tmp.into());
+        let mut store = MemBlockStore::open(tmp.into()).await.unwrap();
         let data = b"1".to_vec().into_boxed_slice();
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
-        let block = Block::new(data, cid.clone());
-
-        assert_eq!(store.init().await.unwrap(), ());
-        assert_eq!(store.open().await.unwrap(), ());
 
         let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), false);
-        let get = store.get(&cid);
-        assert_eq!(get.await.unwrap(), None);
-        let remove = store.remove(&cid);
-        assert_eq!(remove.await.unwrap(), ());
+        assert_eq!(contains, false);
 
-        let put = store.put(block.clone());
-        assert_eq!(put.await.unwrap(), cid.to_owned());
-        let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), true);
-        let get = store.get(&cid);
-        assert_eq!(get.await.unwrap(), Some(block.clone()));
+        store.get(cid.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(event, BlockStoreEvent::Get(cid.clone(), Ok(None)));
 
-        let remove = store.remove(&cid);
-        assert_eq!(remove.await.unwrap(), ());
+        store.remove(cid.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(event, BlockStoreEvent::Remove(cid.clone(), Ok(())));
+
+        store.put(cid.clone(), data.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(event, BlockStoreEvent::Put(cid.clone(), Ok(())));
+
         let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), false);
-        let get = store.get(&cid);
-        assert_eq!(get.await.unwrap(), None);
+        assert_eq!(contains, true);
+
+        store.get(cid.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(
+            event,
+            BlockStoreEvent::Get(cid.clone(), Ok(Some(data.clone())))
+        );
+
+        store.remove(cid.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(event, BlockStoreEvent::Remove(cid.clone(), Ok(())));
+
+        let contains = store.contains(&cid);
+        assert_eq!(contains, false);
+
+        store.get(cid.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(event, BlockStoreEvent::Get(cid, Ok(None)));
     }
 
     #[async_std::test]

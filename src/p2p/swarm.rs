@@ -176,16 +176,13 @@ impl NetworkBehaviour for SwarmApi {
 mod tests {
     use super::*;
     use crate::p2p::transport::{build_transport, TTransport};
-    use async_std::task;
-    use futures::channel::mpsc;
+    use futures::channel::oneshot;
     use futures::future::{select, FutureExt};
-    use futures::sink::SinkExt;
-    use futures::stream::StreamExt;
     use libp2p::identity::Keypair;
     use libp2p::swarm::Swarm;
 
-    #[test]
-    fn swarm_api() {
+    #[async_std::test]
+    async fn swarm_api() {
         env_logger::init();
 
         let (peer1_id, trans) = mk_transport();
@@ -194,15 +191,14 @@ mod tests {
         let (peer2_id, trans) = mk_transport();
         let mut swarm2 = Swarm::new(trans, SwarmApi::new(), peer2_id.clone());
 
-        let (mut tx, mut rx) = mpsc::channel::<Multiaddr>(1);
+        let (tx, rx) = oneshot::channel::<Multiaddr>();
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
         let peer1 = async move {
             while let Some(_) = swarm1.next().now_or_never() {}
 
-            for l in Swarm::listeners(&swarm1) {
-                tx.send(l.clone()).await.unwrap();
-            }
+            let addr = Swarm::listeners(&swarm1).next().unwrap();
+            tx.send(addr.clone()).unwrap();
 
             loop {
                 swarm1.next().await;
@@ -210,7 +206,8 @@ mod tests {
         };
 
         let peer2 = async move {
-            let future = swarm2.connect(rx.next().await.unwrap());
+            let (tx, ret) = oneshot::channel();
+            swarm2.connect(rx.await.unwrap(), tx);
 
             let poll_swarm = async move {
                 loop {
@@ -218,11 +215,10 @@ mod tests {
                 }
             };
 
-            select(Box::pin(future), Box::pin(poll_swarm)).await;
+            select(Box::pin(ret), Box::pin(poll_swarm)).await;
         };
 
-        let result = select(Box::pin(peer1), Box::pin(peer2));
-        task::block_on(result);
+        select(Box::pin(peer1), Box::pin(peer2)).await;
     }
 
     fn mk_transport() -> (PeerId, TTransport) {
