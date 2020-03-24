@@ -216,10 +216,17 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             .await
     }
 
+    pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
+        self.data_store.contains(Column::Pin, &cid.to_bytes()).await
+    }
+
     pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
-        self.data_store
-            .put(Column::Pin, &cid.to_bytes(), &[0])
-            .await
+        let is_pinned = self.is_pinned(cid).await?;
+        if is_pinned {
+            self.data_store.remove(Column::Pin, &cid.to_bytes()).await
+        } else {
+            Err(anyhow::anyhow!("Block to unpin isn't pinned"))
+        }
     }
 }
 
