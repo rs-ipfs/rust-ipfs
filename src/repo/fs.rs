@@ -4,6 +4,7 @@ use crate::repo::{BlockStore, BlockStoreEvent};
 #[cfg(feature = "rocksdb")]
 use crate::repo::{Column, DataStore};
 use async_std::path::{Path, PathBuf};
+use async_std::sync::{Arc, Mutex};
 use async_std::{fs, task};
 use async_trait::async_trait;
 use core::convert::TryFrom;
@@ -16,6 +17,7 @@ use futures::stream::{Stream, StreamExt};
 use libipld::cid::Cid;
 use std::collections::HashSet;
 use std::ffi::OsStr;
+use std::io::ErrorKind;
 
 fn block_path(path: &Path, cid: &Cid) -> PathBuf {
     let mut cid = cid.to_string();
@@ -26,7 +28,7 @@ fn block_path(path: &Path, cid: &Cid) -> PathBuf {
 #[derive(Debug)]
 pub struct FsBlockStore {
     path: PathBuf,
-    cids: HashSet<Cid>,
+    cids: Arc<Mutex<HashSet<Cid>>>,
     sender: mpsc::Sender<BlockStoreEvent>,
     receiver: mpsc::Receiver<BlockStoreEvent>,
 }
@@ -46,6 +48,7 @@ impl BlockStore for FsBlockStore {
             let cid = Cid::try_from(cid_str)?;
             cids.insert(cid);
         }
+        let cids = Arc::new(Mutex::new(cids));
         let (sender, receiver) = mpsc::channel(1);
         Ok(Self {
             path,
@@ -56,65 +59,73 @@ impl BlockStore for FsBlockStore {
     }
 
     fn contains(&mut self, cid: &Cid) -> bool {
-        self.cids.contains(cid)
+        task::block_on(async { self.cids.lock().await.contains(cid) })
     }
 
     fn get(&mut self, cid: Cid) {
         let path = block_path(&self.path, &cid);
         let mut sender = self.sender.clone();
         task::spawn(async move {
-            let data = match fs::read(path).await {
-                Ok(data) => data,
+            match fs::read(path).await {
+                Ok(data) => {
+                    sender
+                        .send(BlockStoreEvent::Get(cid, Ok(Some(data.into_boxed_slice()))))
+                        .await
+                        .ok();
+                }
                 Err(err) => {
-                    if err.kind() == std::io::ErrorKind::NotFound {
+                    if err.kind() == ErrorKind::NotFound {
                         sender.send(BlockStoreEvent::Get(cid, Ok(None))).await.ok();
-                        return;
                     } else {
                         sender
                             .send(BlockStoreEvent::Get(cid, Err(err.into())))
                             .await
                             .ok();
-                        return;
                     }
                 }
             };
-            sender
-                .send(BlockStoreEvent::Get(cid, Ok(Some(data.into_boxed_slice()))))
-                .await
-                .ok();
         });
     }
 
     fn put(&mut self, cid: Cid, data: Box<[u8]>) {
         let path = block_path(&self.path, &cid);
         let mut sender = self.sender.clone();
+        let cids = self.cids.clone();
         task::spawn(async move {
             if let Err(err) = fs::write(path, data).await {
                 sender
                     .send(BlockStoreEvent::Put(cid, Err(err.into())))
                     .await
                     .ok();
-                return;
+            } else {
+                cids.lock().await.insert(cid.clone());
+                sender.send(BlockStoreEvent::Put(cid, Ok(()))).await.ok();
             }
-            sender.send(BlockStoreEvent::Put(cid, Ok(()))).await.ok();
         });
     }
 
     fn remove(&mut self, cid: Cid) {
         let path = block_path(&self.path, &cid);
-        if self.cids.remove(&cid) {
-            let mut sender = self.sender.clone();
-            task::spawn(async move {
-                if let Err(err) = fs::remove_file(path).await {
-                    sender
-                        .send(BlockStoreEvent::Remove(cid, Err(err.into())))
-                        .await
-                        .ok();
-                } else {
+        let mut sender = self.sender.clone();
+        let cids = self.cids.clone();
+        task::spawn(async move {
+            match fs::remove_file(path).await {
+                Ok(()) => {
+                    cids.lock().await.remove(&cid);
                     sender.send(BlockStoreEvent::Remove(cid, Ok(()))).await.ok();
                 }
-            });
-        }
+                Err(err) => {
+                    if err.kind() == ErrorKind::NotFound {
+                        sender.send(BlockStoreEvent::Remove(cid, Ok(()))).await.ok();
+                    } else {
+                        sender
+                            .send(BlockStoreEvent::Remove(cid, Err(err.into())))
+                            .await
+                            .ok();
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -128,7 +139,6 @@ impl Stream for FsBlockStore {
     }
 }
 
-/*
 #[derive(Clone, Debug)]
 #[cfg(feature = "rocksdb")]
 pub struct RocksDataStore {
@@ -226,7 +236,6 @@ impl DataStore for RocksDataStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitswap::Block;
     use libipld::cid::{Cid, Codec};
     use multihash::Sha2_256;
     use std::env::temp_dir;
@@ -236,35 +245,43 @@ mod tests {
         let mut tmp = temp_dir();
         tmp.push("blockstore1");
         std::fs::remove_dir_all(tmp.clone()).ok();
-        let store = FsBlockStore::new(tmp.clone().into());
+        let mut store = FsBlockStore::open(tmp.clone().into()).await.unwrap();
 
         let data = b"1".to_vec().into_boxed_slice();
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
-        let block = Block::new(data, cid.clone());
 
-        assert_eq!(store.init().await.unwrap(), ());
-        assert_eq!(store.open().await.unwrap(), ());
+        assert!(!store.contains(&cid));
 
-        let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), false);
-        let get = store.get(&cid);
-        assert_eq!(get.await.unwrap(), None);
-        let remove = store.remove(&cid);
-        assert_eq!(remove.await.unwrap(), ());
+        store.get(cid.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(event, BlockStoreEvent::Get(cid.clone(), Ok(None)));
 
-        let put = store.put(block.clone());
-        assert_eq!(put.await.unwrap(), cid.to_owned());
-        let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), true);
-        let get = store.get(&cid);
-        assert_eq!(get.await.unwrap(), Some(block.clone()));
+        store.remove(cid.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(event, BlockStoreEvent::Remove(cid.clone(), Ok(())));
 
-        let remove = store.remove(&cid);
-        assert_eq!(remove.await.unwrap(), ());
-        let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), false);
-        let get = store.get(&cid);
-        assert_eq!(get.await.unwrap(), None);
+        store.put(cid.clone(), data.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(event, BlockStoreEvent::Put(cid.clone(), Ok(())));
+
+        assert!(store.contains(&cid));
+
+        store.get(cid.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(
+            event,
+            BlockStoreEvent::Get(cid.clone(), Ok(Some(data.clone())))
+        );
+
+        store.remove(cid.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(event, BlockStoreEvent::Remove(cid.clone(), Ok(())));
+
+        assert!(!store.contains(&cid));
+
+        store.get(cid.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(event, BlockStoreEvent::Get(cid.clone(), Ok(None)));
 
         std::fs::remove_dir_all(tmp).ok();
     }
@@ -277,19 +294,19 @@ mod tests {
 
         let data = b"1".to_vec().into_boxed_slice();
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
-        let block = Block::new(data, cid);
 
-        let block_store = FsBlockStore::new(tmp.clone().into());
-        block_store.init().await.unwrap();
-        block_store.open().await.unwrap();
+        let mut store = FsBlockStore::open(tmp.clone().into()).await.unwrap();
+        assert!(!store.contains(&cid));
 
-        assert!(!block_store.contains(block.cid()).await.unwrap());
-        block_store.put(block.clone()).await.unwrap();
+        store.put(cid.clone(), data.clone());
+        store.next().await;
 
-        let block_store = FsBlockStore::new(tmp.clone().into());
-        block_store.open().await.unwrap();
-        assert!(block_store.contains(block.cid()).await.unwrap());
-        assert_eq!(block_store.get(block.cid()).await.unwrap().unwrap(), block);
+        let mut store = FsBlockStore::open(tmp.clone().into()).await.unwrap();
+        assert!(store.contains(&cid));
+
+        store.get(cid.clone());
+        let event = store.next().await.unwrap();
+        assert_eq!(event, BlockStoreEvent::Get(cid, Ok(Some(data))));
 
         std::fs::remove_dir_all(&tmp).ok();
     }
@@ -332,4 +349,4 @@ mod tests {
 
         std::fs::remove_dir_all(&tmp).ok();
     }
-}*/
+}
