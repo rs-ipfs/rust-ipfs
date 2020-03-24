@@ -60,8 +60,13 @@ pub struct UnsubscribeOnDrop<T>(channel::UnboundedSender<String>, Option<String>
 
 impl<T> Drop for UnsubscribeOnDrop<T> {
     fn drop(&mut self) {
-        // ignore errors
-        let _ = self.0.unbounded_send(self.1.take().unwrap());
+        // the topic option allows us to disable this unsubscribe on drop once the stream has
+        // ended. TODO: it would also be easy to implement FusedStream based on the state of the
+        // option, if that is ever needed.
+        if let Some(topic) = self.1.take() {
+            // ignore errors
+            let _ = self.0.unbounded_send(topic);
+        }
     }
 }
 
@@ -82,7 +87,15 @@ impl<T: Stream + Unpin> Stream for UnsubscribeOnDrop<T> {
     fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
         let inner = &mut self.as_mut().2;
         let inner = Pin::new(inner);
-        inner.poll_next(ctx)
+        match inner.poll_next(ctx) {
+            Poll::Ready(None) => {
+                // no need to unsubscribe on drop as the stream has already ended, likely via
+                // unsubscribe call.
+                self.1.take();
+                Poll::Ready(None)
+            }
+            other => other,
+        }
     }
 }
 
