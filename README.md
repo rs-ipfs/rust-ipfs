@@ -59,7 +59,9 @@ _Note: binaries available via `cargo install` is coming soon._
 ```rust,no_run
 use futures::join;
 use ipfs::{IpfsOptions, Ipfs, Types};
-use libipld::ipld;
+use libipld::dag::{DagPath, StoreDagExt};
+use libipld::hash::Sha2_256;
+use libipld::store::StoreCborExt;
 
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -70,20 +72,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ipfs = Ipfs::new::<Types>(options).await?;
 
     // Create a DAG
-    let f1 = ipfs.put_dag(ipld!("block1"));
-    let f2 = ipfs.put_dag(ipld!("block2"));
+    let f1 = ipfs.write_cbor::<Sha2_256, _>(&1000);
+    let f2 = ipfs.write_cbor::<Sha2_256, _>(&2000);
     let (res1, res2) = join!(f1, f2);
-    let root = ipld!([res1.unwrap(), res2.unwrap()]);
-    let cid = ipfs.put_dag(root).await.unwrap();
+    let root = vec![res1?, res2?];
+    let cid = ipfs.write_cbor::<Sha2_256, _>(&root).await?;
 
     // Query the DAG
     let path1 = DagPath::new(&cid, "0");
     let path2 = DagPath::new(&cid, "1");
-    let f1 = ipfs.get_dag(path1);
-    let f2 = ipfs.get_dag(path2);
+    let f1 = ipfs.get(&path1);
+    let f2 = ipfs.get(&path2);
     let (res1, res2) = join!(f1, f2);
-    println!("Received block with contents: {:?}", res1.unwrap());
-    println!("Received block with contents: {:?}", res2.unwrap());
+    println!("Received block with contents: {:?}", res1?);
+    println!("Received block with contents: {:?}", res2?);
 
     Ok(())
 }
