@@ -1,28 +1,20 @@
-use async_std::task;
 use futures::join;
-use ipfs::{IpfsOptions, IpfsPath, TestTypes, UninitializedIpfs};
-use std::str::FromStr;
+use ipfs::{Cid, Ipfs, IpfsOptions, TestTypes};
+use libipld::dag::{DagPath, StoreDagExt};
 
-fn main() {
+#[async_std::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let options = IpfsOptions::inmemory_with_generated_keys(true);
-    let path =
-        IpfsPath::from_str("/ipfs/zdpuB1caPcm4QNXeegatVfLQ839Lmprd5zosXGwRUBJHwj66X").unwrap();
+    let cid: Cid = "zdpuB1caPcm4QNXeegatVfLQ839Lmprd5zosXGwRUBJHwj66X".parse()?;
+    let ipfs = Ipfs::new::<TestTypes>(options).await.unwrap();
 
-    task::block_on(async move {
-        let (ipfs, fut) = UninitializedIpfs::<TestTypes>::new(options)
-            .await
-            .start()
-            .await
-            .unwrap();
-        task::spawn(fut);
-
-        let f1 = ipfs.get_dag(path.sub_path("0").unwrap());
-        let f2 = ipfs.get_dag(path.sub_path("1").unwrap());
-        let (res1, res2) = join!(f1, f2);
-        println!("Received block with contents: {:?}", res1.unwrap());
-        println!("Received block with contents: {:?}", res2.unwrap());
-
-        ipfs.exit_daemon().await;
-    });
+    let path1 = DagPath::new(&cid, "0");
+    let path2 = DagPath::new(&cid, "1");
+    let f1 = ipfs.get(&path1);
+    let f2 = ipfs.get(&path2);
+    let (res1, res2) = join!(f1, f2);
+    println!("Received block with contents: {:?}", res1?);
+    println!("Received block with contents: {:?}", res2?);
+    Ok(())
 }

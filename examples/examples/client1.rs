@@ -1,27 +1,32 @@
-use async_std::task;
 use futures::join;
-use ipfs::{IpfsOptions, Types, UninitializedIpfs};
-use libipld::ipld;
+use ipfs::{Ipfs, IpfsOptions, Types};
+use libipld::hash::Sha2_256;
+use libipld::store::StoreCborExt;
+use libipld::DagCbor;
 
-fn main() {
+// TODO impl WriteCbor for String
+#[derive(DagCbor)]
+struct Message(String);
+
+impl Message {
+    pub fn new(msg: &str) -> Self {
+        Self(msg.to_string())
+    }
+}
+
+#[async_std::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let options = IpfsOptions::from_env().unwrap();
+    let options = IpfsOptions::from_env()?;
 
-    task::block_on(async move {
-        let (ipfs, fut) = UninitializedIpfs::<Types>::new(options)
-            .await
-            .start()
-            .await
-            .unwrap();
-        task::spawn(fut);
+    let ipfs = Ipfs::new::<Types>(options).await?;
 
-        let f1 = ipfs.put_dag(ipld!("block1"));
-        let f2 = ipfs.put_dag(ipld!("block2"));
-        let (res1, res2) = join!(f1, f2);
+    let block1 = Message::new("block1");
+    let block2 = Message::new("block2");
+    let f1 = ipfs.write_cbor::<Sha2_256, _>(&block1);
+    let f2 = ipfs.write_cbor::<Sha2_256, _>(&block2);
+    let (res1, res2) = join!(f1, f2);
 
-        let root = ipld!([res1.unwrap(), res2.unwrap()]);
-        ipfs.put_dag(root).await.unwrap();
-
-        ipfs.exit_daemon().await;
-    });
+    ipfs.write_cbor::<Sha2_256, _>(&vec![res1?, res2?]).await?;
+    Ok(())
 }
