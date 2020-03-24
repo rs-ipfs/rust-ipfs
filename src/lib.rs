@@ -9,12 +9,10 @@ extern crate log;
 
 mod config;
 mod daemon;
-//mod dag;
 mod error;
 //mod ipns;
 mod options;
 mod p2p;
-//mod path;
 mod registry;
 mod repo;
 //mod unixfs;
