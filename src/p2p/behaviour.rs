@@ -1,8 +1,7 @@
 use super::swarm::{Connection, Disconnector, SwarmApi};
-use crate::options::{IpfsOptions, IpfsTypes};
-use crate::repo::Repo;
-use crate::subscription::SubscriptionFuture;
-use bitswap::{Bitswap, Strategy};
+use crate::options::IpfsOptions;
+use crate::registry::Channel;
+use bitswap::{Bitswap, BitswapEvent, Block};
 use libipld::cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::floodsub::{Floodsub, FloodsubEvent};
@@ -14,28 +13,32 @@ use libp2p::ping::{Ping, PingEvent};
 use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
-use std::sync::Arc;
+
+/// Behaviour event.
+#[derive(Debug)]
+pub enum BehaviourEvent {
+    ReceivedBlock(PeerId, Block),
+    ReceivedWant(PeerId, Cid),
+}
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
-pub struct Behaviour<T: IpfsTypes> {
+#[behaviour(out_event = "BehaviourEvent")]
+pub struct Behaviour {
     mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
-    bitswap: Bitswap<T::TStrategy>,
+    bitswap: Bitswap,
     ping: Ping,
     identify: Identify,
     floodsub: Floodsub,
     swarm: SwarmApi,
 }
 
-impl<T: IpfsTypes> NetworkBehaviourEventProcess<()> for Behaviour<T> {
-    fn inject_event(&mut self, _event: ()) {}
-}
-impl<T: IpfsTypes> NetworkBehaviourEventProcess<void::Void> for Behaviour<T> {
+impl NetworkBehaviourEventProcess<void::Void> for Behaviour {
     fn inject_event(&mut self, _event: void::Void) {}
 }
 
-impl<T: IpfsTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<T> {
+impl NetworkBehaviourEventProcess<MdnsEvent> for Behaviour {
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
             MdnsEvent::Discovered(list) => {
@@ -54,7 +57,7 @@ impl<T: IpfsTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<T> {
     }
 }
 
-impl<T: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour<T> {
+impl NetworkBehaviourEventProcess<KademliaEvent> for Behaviour {
     fn inject_event(&mut self, event: KademliaEvent) {
         use libp2p::kad::{GetProvidersError, GetProvidersOk};
 
@@ -92,7 +95,11 @@ impl<T: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour<T> 
     }
 }
 
-impl<T: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<T> {
+impl NetworkBehaviourEventProcess<BitswapEvent> for Behaviour {
+    fn inject_event(&mut self, event: BitswapEvent) {}
+}
+
+impl NetworkBehaviourEventProcess<PingEvent> for Behaviour {
     fn inject_event(&mut self, event: PingEvent) {
         use libp2p::ping::handler::{PingFailure, PingSuccess};
         match event {
@@ -130,21 +137,21 @@ impl<T: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<T> {
     }
 }
 
-impl<T: IpfsTypes> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<T> {
+impl NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour {
     fn inject_event(&mut self, event: IdentifyEvent) {
         log::trace!("identify: {:?}", event);
     }
 }
 
-impl<T: IpfsTypes> NetworkBehaviourEventProcess<FloodsubEvent> for Behaviour<T> {
+impl NetworkBehaviourEventProcess<FloodsubEvent> for Behaviour {
     fn inject_event(&mut self, event: FloodsubEvent) {
         log::trace!("floodsub: {:?}", event);
     }
 }
 
-impl<T: IpfsTypes> Behaviour<T> {
+impl Behaviour {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
-    pub async fn new(options: &IpfsOptions, repo: Arc<Repo<T>>) -> Self {
+    pub fn new(options: &IpfsOptions) -> Self {
         info!("Local peer id: {}", options.peer_id().to_base58());
 
         let mdns = if options.mdns {
@@ -160,8 +167,7 @@ impl<T: IpfsTypes> Behaviour<T> {
             kademlia.add_address(peer_id, addr.to_owned());
         }
 
-        let strategy = T::TStrategy::new(repo);
-        let bitswap = Bitswap::new(strategy);
+        let bitswap = Bitswap::new();
         let ping = Ping::default();
         let identify = Identify::new(
             "/ipfs/0.1.0".into(),
@@ -208,12 +214,16 @@ impl<T: IpfsTypes> Behaviour<T> {
         self.swarm.connections().cloned().collect()
     }
 
-    pub fn connect(&mut self, addr: Multiaddr) -> SubscriptionFuture<Result<(), String>> {
-        self.swarm.connect(addr)
+    pub fn connect(&mut self, addr: Multiaddr, ret: Channel<()>) {
+        self.swarm.connect(addr, ret);
     }
 
     pub fn disconnect(&mut self, addr: Multiaddr) -> Option<Disconnector> {
         self.swarm.disconnect(addr)
+    }
+
+    pub fn send_block(&mut self, peer_id: &PeerId, block: Block) {
+        self.bitswap.send_block(peer_id, block);
     }
 
     pub fn want_block(&mut self, cid: Cid) {

@@ -1,58 +1,67 @@
 //! Volatile memory backed repo
 use crate::error::Error;
-use crate::repo::{BlockStore, Column, DataStore};
+use crate::repo::{BlockStore, BlockStoreEvent, Column, DataStore};
 use async_std::path::PathBuf;
 use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
-use bitswap::Block;
+use core::pin::Pin;
+use core::task::{Context, Poll, Waker};
+use futures::Stream;
 use libipld::cid::Cid;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Default)]
 pub struct MemBlockStore {
-    blocks: Arc<Mutex<HashMap<Cid, Block>>>,
+    blocks: HashMap<Cid, Box<[u8]>>,
+    events: VecDeque<BlockStoreEvent>,
+    waker: Option<Waker>,
 }
 
 #[async_trait]
 impl BlockStore for MemBlockStore {
-    fn new(_path: PathBuf) -> Self {
-        MemBlockStore {
-            blocks: Arc::new(Mutex::new(HashMap::new())),
+    async fn open(_path: PathBuf) -> Result<Self, Error> {
+        Ok(Self::default())
+    }
+
+    fn contains(&mut self, cid: &Cid) -> bool {
+        self.blocks.contains_key(cid)
+    }
+
+    fn get(&mut self, cid: Cid) {
+        let block = self.blocks.get(&cid).cloned();
+        self.events.push_back(BlockStoreEvent::Get(cid, Ok(block)));
+        if let Some(waker) = &self.waker {
+            waker.wake_by_ref();
         }
     }
 
-    async fn init(&self) -> Result<(), Error> {
-        Ok(())
+    fn put(&mut self, cid: Cid, data: Box<[u8]>) {
+        self.blocks.insert(cid.clone(), data);
+        self.events.push_back(BlockStoreEvent::Put(cid, Ok(())));
+        if let Some(waker) = &self.waker {
+            waker.wake_by_ref();
+        }
     }
 
-    async fn open(&self) -> Result<(), Error> {
-        Ok(())
+    fn remove(&mut self, cid: Cid) {
+        self.blocks.remove(&cid);
+        self.events.push_back(BlockStoreEvent::Remove(cid, Ok(())));
+        if let Some(waker) = &self.waker {
+            waker.wake_by_ref();
+        }
     }
+}
 
-    async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
-        let contains = self.blocks.lock().await.contains_key(cid);
-        Ok(contains)
-    }
+impl Stream for MemBlockStore {
+    type Item = BlockStoreEvent;
 
-    async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
-        let block = self
-            .blocks
-            .lock()
-            .await
-            .get(cid)
-            .map(|block| block.to_owned());
-        Ok(block)
-    }
-
-    async fn put(&self, block: Block) -> Result<Cid, Error> {
-        let cid = block.cid().to_owned();
-        self.blocks.lock().await.insert(cid.clone(), block);
-        Ok(cid)
-    }
-
-    async fn remove(&self, cid: &Cid) -> Result<(), Error> {
-        self.blocks.lock().await.remove(cid);
-        Ok(())
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+        if let Some(event) = self.events.pop_front() {
+            Poll::Ready(Some(event))
+        } else {
+            self.waker = Some(ctx.waker().clone());
+            Poll::Pending
+        }
     }
 }
 

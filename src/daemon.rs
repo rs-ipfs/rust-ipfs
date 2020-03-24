@@ -1,52 +1,32 @@
-use crate::dag::IpldDag;
 use crate::error::Error;
-use crate::ipns::Ipns;
-use crate::options::{DebuggableKeypair, IpfsOptions, IpfsTypes};
+use crate::options::{IpfsOptions, IpfsTypes};
 use crate::p2p::Connection;
-use crate::p2p::{create_swarm, TSwarm};
-use crate::path::IpfsPath;
-use crate::repo::Repo;
-use crate::subscription::SubscriptionFuture;
-use crate::unixfs::File;
-use anyhow::format_err;
-use async_std::path::PathBuf;
+use crate::p2p::{create_swarm, BehaviourEvent, TSwarm};
+use crate::registry::{Channel, LocalRegistry, RemoteRegistry};
+use crate::repo::{BlockStore, BlockStoreEvent};
+use async_std::task;
+use async_trait::async_trait;
 use bitswap::Block;
-use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
+use core::fmt::Debug;
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll};
+use futures::channel::{mpsc, oneshot};
 use futures::sink::SinkExt;
-use futures::stream::Fuse;
+use futures::stream::{Fuse, StreamExt};
 use libipld::cid::Cid;
-use libipld::cid::Codec;
-use libipld::ipld::Ipld;
+use libipld::error::Result as StoreResult;
+use libipld::store::Store;
 use libp2p::core::{Multiaddr, PeerId, PublicKey};
-use libp2p::identity::Keypair;
-use std::future::Future;
-use std::pin::Pin;
+use std::path::Path;
 use std::sync::Arc;
-use std::task::{Context, Poll};
-
-/// Ipfs struct creates a new IPFS node and is the main entry point
-/// for interacting with IPFS.
-#[derive(Clone, Debug)]
-pub struct Ipfs<Types: IpfsTypes> {
-    repo: Arc<Repo<Types>>,
-    dag: IpldDag<Types>,
-    ipns: Ipns<Types>,
-    keys: DebuggableKeypair<Keypair>,
-    to_task: Sender<IpfsEvent>,
-}
-
-type Channel<T> = OneshotSender<Result<T, Error>>;
 
 /// Events used internally to communicate with the swarm, which is executed in the the background
 /// task.
 #[derive(Debug)]
 pub enum IpfsEvent {
     /// Connect
-    Connect(
-        Multiaddr,
-        OneshotSender<SubscriptionFuture<Result<(), String>>>,
-    ),
+    Connect(Multiaddr, Channel<()>),
     /// Addresses
     Addresses(Channel<Vec<(PeerId, Vec<Multiaddr>)>>),
     /// Local addresses
@@ -56,171 +36,67 @@ pub enum IpfsEvent {
     /// Disconnect
     Disconnect(Multiaddr, Channel<()>),
     /// Request background task to return the listened and external addresses
-    GetAddresses(OneshotSender<Vec<Multiaddr>>),
-    WantBlock(Cid),
-    ProvideBlock(Cid),
-    UnprovideBlock(Cid),
+    Identity(Channel<(PublicKey, Vec<Multiaddr>)>),
+    /// Returns the block with cid.
+    GetBlock(Cid, Channel<Box<[u8]>>),
+    /// Writes the block with cid.
+    PutBlock(Cid, Box<[u8]>, Channel<()>),
+    /// Removes the block with cid.
+    RemoveBlock(Cid, Channel<()>),
+    /// Exit the ipfs background process.
     Exit,
 }
 
-/// Configured Ipfs instace or value which can be only initialized.
-pub struct UninitializedIpfs<T: IpfsTypes> {
-    repo: Arc<Repo<T>>,
-    dag: IpldDag<T>,
-    ipns: Ipns<T>,
-    keys: Keypair,
-    moved_on_init: Option<(Sender<IpfsEvent>, Receiver<IpfsEvent>, TSwarm<T>)>,
+/// Ipfs struct creates a new IPFS node and is the main entry point
+/// for interacting with IPFS.
+#[derive(Clone, Debug)]
+pub struct Ipfs {
+    sender: mpsc::Sender<IpfsEvent>,
+    exit_signal: Arc<ExitSignal>,
 }
 
-impl<T: IpfsTypes> UninitializedIpfs<T> {
-    /// Configures a new UninitializedIpfs with from the given options.
-    pub async fn new(options: IpfsOptions) -> Self {
-        let keys = options.keypair.clone();
-        let (tx, rx) = channel::<IpfsEvent>(1);
-        let repo = Arc::new(Repo::new(&options, tx.clone()));
-        let swarm = create_swarm(&options, repo.clone()).await;
-        let dag = IpldDag::new(repo.clone());
-        let ipns = Ipns::new(repo.clone());
-
-        UninitializedIpfs {
-            repo,
-            dag,
-            ipns,
-            keys,
-            moved_on_init: Some((tx, rx, swarm)),
-        }
-    }
-
-    /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
-    /// future should be spawned on a executor as soon as possible.
-    pub async fn start(
-        mut self,
-    ) -> Result<(Ipfs<T>, impl std::future::Future<Output = ()>), Error> {
-        use futures::stream::StreamExt;
-
-        let (tx, rx, swarm) = self
-            .moved_on_init
-            .take()
-            .expect("start cannot be called twice");
-
-        self.repo.init().await?;
-        self.repo.init().await?;
-
-        let fut = IpfsFuture {
-            from_facade: rx.fuse(),
-            swarm,
-        };
-
-        let UninitializedIpfs {
-            repo,
-            dag,
-            ipns,
-            keys,
-            ..
-        } = self;
-
-        Ok((
-            Ipfs {
-                repo,
-                dag,
-                ipns,
-                keys: DebuggableKeypair(keys),
-                to_task: tx,
-            },
-            fut,
-        ))
-    }
-}
-
-impl<T: IpfsTypes> Ipfs<T> {
-    /// Puts a block into the ipfs repo.
-    pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error> {
-        Ok(self.repo.put_block(block).await?)
-    }
-
-    /// Retrives a block from the ipfs repo.
-    pub async fn get_block(&mut self, cid: &Cid) -> Result<Block, Error> {
-        Ok(self.repo.get_block(cid).await?)
-    }
-
-    /// Remove block from the ipfs repo.
-    pub async fn remove_block(&mut self, cid: &Cid) -> Result<(), Error> {
-        Ok(self.repo.remove_block(cid).await?)
-    }
-
-    /// Puts an ipld dag node into the ipfs repo.
-    pub async fn put_dag(&self, ipld: Ipld) -> Result<Cid, Error> {
-        Ok(self.dag.put(ipld, Codec::DagCBOR).await?)
-    }
-
-    /// Gets an ipld dag node from the ipfs repo.
-    pub async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
-        Ok(self.dag.get(path).await?)
-    }
-
-    /// Adds a file into the ipfs repo.
-    pub async fn add(&self, path: PathBuf) -> Result<Cid, Error> {
-        let dag = self.dag.clone();
-        let file = File::new(path).await?;
-        let path = file.put_unixfs_v1(&dag).await?;
-        Ok(path)
-    }
-
-    /// Gets a file from the ipfs repo.
-    pub async fn get(&self, path: IpfsPath) -> Result<File, Error> {
-        Ok(File::get_unixfs_v1(&self.dag, path).await?)
-    }
-
-    /// Resolves a ipns path to an ipld path.
-    pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        Ok(self.ipns.resolve(path).await?)
-    }
-
-    /// Publishes an ipld path.
-    pub async fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        Ok(self.ipns.publish(key, path).await?)
-    }
-
-    /// Cancel an ipns path.
-    pub async fn cancel_ipns(&self, key: &PeerId) -> Result<(), Error> {
-        self.ipns.cancel(key).await?;
-        Ok(())
+impl Ipfs {
+    pub async fn new<T: IpfsTypes>(options: IpfsOptions) -> Result<Self, Error> {
+        let (tx, rx) = mpsc::channel(1);
+        let daemon = IpfsDaemon::<T>::new(options, rx).await?;
+        task::spawn(daemon);
+        let exit_signal = Arc::new(ExitSignal { sender: tx.clone() });
+        Ok(Self {
+            sender: tx,
+            exit_signal,
+        })
     }
 
     pub async fn connect(&self, addr: Multiaddr) -> Result<(), Error> {
-        let (tx, rx) = oneshot_channel();
-        self.to_task
+        let (tx, rx) = oneshot::channel();
+        self.sender
             .clone()
             .send(IpfsEvent::Connect(addr, tx))
             .await?;
-        let subscription = rx.await?;
-        subscription.await.map_err(|e| format_err!("{}", e))
+        rx.await?
     }
 
     pub async fn addrs(&self) -> Result<Vec<(PeerId, Vec<Multiaddr>)>, Error> {
-        let (tx, rx) = oneshot_channel();
-        self.to_task.clone().send(IpfsEvent::Addresses(tx)).await?;
+        let (tx, rx) = oneshot::channel();
+        self.sender.clone().send(IpfsEvent::Addresses(tx)).await?;
         rx.await?
     }
 
     pub async fn addrs_local(&self) -> Result<Vec<Multiaddr>, Error> {
-        let (tx, rx) = oneshot_channel();
-        self.to_task.clone().send(IpfsEvent::Listeners(tx)).await?;
+        let (tx, rx) = oneshot::channel();
+        self.sender.clone().send(IpfsEvent::Listeners(tx)).await?;
         rx.await?
     }
 
     pub async fn peers(&self) -> Result<Vec<Connection>, Error> {
-        let (tx, rx) = oneshot_channel();
-        self.to_task
-            .clone()
-            .send(IpfsEvent::Connections(tx))
-            .await?;
+        let (tx, rx) = oneshot::channel();
+        self.sender.clone().send(IpfsEvent::Connections(tx)).await?;
         rx.await?
     }
 
     pub async fn disconnect(&self, addr: Multiaddr) -> Result<(), Error> {
-        let (tx, rx) = oneshot_channel();
-        self.to_task
+        let (tx, rx) = oneshot::channel();
+        self.sender
             .clone()
             .send(IpfsEvent::Disconnect(addr, tx))
             .await?;
@@ -228,32 +104,130 @@ impl<T: IpfsTypes> Ipfs<T> {
     }
 
     pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), Error> {
-        let (tx, rx) = oneshot_channel();
-
-        self.to_task
-            .clone()
-            .send(IpfsEvent::GetAddresses(tx))
-            .await?;
-        let addresses = rx.await?;
-        Ok((self.keys.as_ref().public(), addresses))
+        let (tx, rx) = oneshot::channel();
+        self.sender.clone().send(IpfsEvent::Identity(tx)).await?;
+        rx.await?
     }
 
-    /// Exit daemon.
-    pub async fn exit_daemon(mut self) {
-        // ignoring the error because it'd mean that the background task would had already been
-        // dropped
-        let _ = self.to_task.send(IpfsEvent::Exit).await;
+    pub async fn get_block(&self, cid: Cid) -> Result<Box<[u8]>, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .clone()
+            .send(IpfsEvent::GetBlock(cid, tx))
+            .await?;
+        rx.await?
+    }
+
+    pub async fn put_block(&self, cid: Cid, data: Box<[u8]>) -> Result<(), Error> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .clone()
+            .send(IpfsEvent::PutBlock(cid, data, tx))
+            .await?;
+        rx.await?
+    }
+
+    pub async fn remove_block(&self, cid: Cid) -> Result<(), Error> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .clone()
+            .send(IpfsEvent::RemoveBlock(cid, tx))
+            .await?;
+        rx.await?
+    }
+}
+
+#[async_trait]
+impl Store for Ipfs {
+    async fn read(&self, cid: &Cid) -> StoreResult<Option<Box<[u8]>>> {
+        Ok(Some(self.get_block(cid.clone()).await?))
+    }
+
+    async fn write(&self, cid: &Cid, data: Box<[u8]>) -> StoreResult<()> {
+        Ok(self.put_block(cid.clone(), data).await?)
+    }
+
+    async fn flush(&self) -> StoreResult<()> {
+        Ok(())
+    }
+
+    async fn gc(&self) -> StoreResult<()> {
+        Ok(())
+    }
+
+    async fn pin(&self, _cid: &Cid) -> StoreResult<()> {
+        Ok(())
+    }
+
+    async fn unpin(&self, _cid: &Cid) -> StoreResult<()> {
+        Ok(())
+    }
+
+    async fn autopin(&self, _cid: &Cid, _auto_path: &Path) -> StoreResult<()> {
+        Ok(())
+    }
+
+    async fn write_link(&self, _label: &str, _cid: &Cid) -> StoreResult<()> {
+        Ok(())
+    }
+
+    async fn read_link(&self, _label: &str) -> StoreResult<Option<Cid>> {
+        Ok(None)
+    }
+
+    async fn remove_link(&self, _label: &str) -> StoreResult<()> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct ExitSignal {
+    sender: mpsc::Sender<IpfsEvent>,
+}
+
+impl Drop for ExitSignal {
+    fn drop(&mut self) {
+        let mut sender = self.sender.clone();
+        task::spawn(async move {
+            sender.send(IpfsEvent::Exit).await.ok();
+        });
     }
 }
 
 /// Background task of `Ipfs` created when calling `UninitializedIpfs::start`.
 // The receivers are Fuse'd so that we don't have to manage state on them being exhausted.
-struct IpfsFuture<T: IpfsTypes> {
-    swarm: TSwarm<T>,
-    from_facade: Fuse<Receiver<IpfsEvent>>,
+struct IpfsDaemon<T: IpfsTypes> {
+    options: IpfsOptions,
+    swarm: TSwarm,
+    block_store: T::TBlockStore,
+    read_registry: LocalRegistry<Cid, Box<[u8]>>,
+    write_registry: LocalRegistry<Cid, ()>,
+    remove_registry: LocalRegistry<Cid, ()>,
+    bitswap_registry: RemoteRegistry,
+    from_facade: Fuse<mpsc::Receiver<IpfsEvent>>,
 }
 
-impl<T: IpfsTypes> Future for IpfsFuture<T> {
+impl<T: IpfsTypes> IpfsDaemon<T> {
+    pub async fn new(
+        options: IpfsOptions,
+        receiver: mpsc::Receiver<IpfsEvent>,
+    ) -> Result<Self, Error> {
+        let swarm = create_swarm(&options);
+        let block_store = T::TBlockStore::open(options.ipfs_path.join("blockstore")).await?;
+        Ok(Self {
+            options,
+            swarm,
+            block_store,
+            read_registry: Default::default(),
+            write_registry: Default::default(),
+            remove_registry: Default::default(),
+            bitswap_registry: Default::default(),
+            from_facade: receiver.fuse(),
+        })
+    }
+}
+
+impl<T: IpfsTypes> Future for IpfsDaemon<T> {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
@@ -272,18 +246,63 @@ impl<T: IpfsTypes> Future for IpfsFuture<T> {
                     Poll::Pending => break,
                 }
             };
-            match inner {
-                SwarmEvent::Behaviour(()) => {}
-                SwarmEvent::Connected(_peer_id) => {}
-                SwarmEvent::Disconnected(_peer_id) => {}
-                SwarmEvent::NewListenAddr(_addr) => {}
-                SwarmEvent::ExpiredListenAddr(_addr) => {}
-                SwarmEvent::UnreachableAddr {
-                    peer_id: _peer_id,
-                    address: _address,
-                    error: _error,
-                } => {}
-                SwarmEvent::StartConnect(_peer_id) => {}
+            if let SwarmEvent::Behaviour(event) = inner {
+                match event {
+                    BehaviourEvent::ReceivedBlock(_peer_id, block) => {
+                        let cid = block.cid().clone();
+                        let data = block.data().to_vec().into_boxed_slice();
+                        self.read_registry.consume(&cid, &Ok(data.clone()));
+                        // Safe to do as struct fields are disjoint.
+                        let bitswap_registry: &mut RemoteRegistry =
+                            unsafe { &mut *(&mut self.bitswap_registry as *mut _) };
+                        bitswap_registry.consume(&mut self.swarm, block);
+                        self.block_store.put(cid, data);
+                    }
+                    BehaviourEvent::ReceivedWant(peer_id, cid) => {
+                        self.bitswap_registry.register(cid.clone(), peer_id);
+                        self.block_store.get(cid);
+                    }
+                }
+            }
+        }
+
+        loop {
+            let next = self.block_store.next();
+            futures::pin_mut!(next);
+            match next.poll(ctx) {
+                Poll::Ready(Some(res)) => {
+                    match res {
+                        BlockStoreEvent::Get(cid, res) => {
+                            let res = match res {
+                                Ok(Some(data)) => Some(Ok(data)),
+                                Ok(None) => None,
+                                Err(err) => Some(Err(err)),
+                            };
+                            if let Some(res) = res {
+                                self.read_registry.consume(&cid, &res);
+                                if let Ok(data) = res {
+                                    // Safe to do as struct fields are disjoint.
+                                    let bitswap_registry: &mut RemoteRegistry =
+                                        unsafe { &mut *(&mut self.bitswap_registry as *mut _) };
+                                    let block = Block::new(data, cid);
+                                    bitswap_registry.consume(&mut self.swarm, block);
+                                }
+                            } else {
+                                self.swarm.want_block(cid);
+                            }
+                        }
+                        BlockStoreEvent::Put(cid, res) => {
+                            self.write_registry.consume(&cid, &res);
+                            self.swarm.provide_block(cid);
+                        }
+                        BlockStoreEvent::Remove(cid, res) => {
+                            self.remove_registry.consume(&cid, &res);
+                            self.swarm.stop_providing_block(&cid);
+                        }
+                    }
+                }
+                Poll::Ready(None) => unreachable!(),
+                Poll::Pending => break,
             }
         }
 
@@ -300,7 +319,7 @@ impl<T: IpfsTypes> Future for IpfsFuture<T> {
 
             match inner {
                 IpfsEvent::Connect(addr, ret) => {
-                    ret.send(self.swarm.connect(addr)).ok();
+                    self.swarm.connect(addr, ret);
                 }
                 IpfsEvent::Addresses(ret) => {
                     let addrs = self.swarm.addrs();
@@ -320,16 +339,26 @@ impl<T: IpfsTypes> Future for IpfsFuture<T> {
                     }
                     ret.send(Ok(())).ok();
                 }
-                IpfsEvent::WantBlock(cid) => self.swarm.want_block(cid),
-                IpfsEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
-                IpfsEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
-                IpfsEvent::GetAddresses(ret) => {
+                IpfsEvent::GetBlock(cid, ret) => {
+                    self.read_registry.register(cid.clone(), ret);
+                    self.block_store.get(cid);
+                }
+                IpfsEvent::PutBlock(cid, data, ret) => {
+                    self.write_registry.register(cid.clone(), ret);
+                    self.block_store.put(cid, data);
+                }
+                IpfsEvent::RemoveBlock(cid, ret) => {
+                    self.remove_registry.register(cid.clone(), ret);
+                    self.block_store.remove(cid);
+                }
+                IpfsEvent::Identity(ret) => {
                     // perhaps this could be moved under `IpfsEvent` or free functions?
                     let mut addresses = Vec::new();
                     addresses.extend(Swarm::listeners(&self.swarm).cloned());
                     addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
                     // ignore error, perhaps caller went away already
-                    let _ = ret.send(addresses);
+                    ret.send(Ok((self.options.keypair.public(), addresses)))
+                        .ok();
                 }
                 IpfsEvent::Exit => {
                     // FIXME: we could do a proper teardown

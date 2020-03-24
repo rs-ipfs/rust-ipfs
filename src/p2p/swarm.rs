@@ -1,4 +1,5 @@
-use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
+use crate::error::Error;
+use crate::registry::{Channel, LocalRegistry};
 use core::task::{Context, Poll};
 use libp2p::core::{ConnectedPoint, Multiaddr, PeerId};
 use libp2p::swarm::protocols_handler::{
@@ -34,7 +35,7 @@ type NetworkBehaviourAction = swarm::NetworkBehaviourAction<<<<SwarmApi as Netwo
 pub struct SwarmApi {
     events: VecDeque<NetworkBehaviourAction>,
     peers: HashSet<PeerId>,
-    connect_registry: SubscriptionRegistry<Multiaddr, Result<(), String>>,
+    connect_registry: LocalRegistry<Multiaddr, ()>,
     connections: HashMap<Multiaddr, Connection>,
     connected_peers: HashMap<PeerId, Multiaddr>,
     /// The waker of the last polled task, if any.
@@ -70,12 +71,10 @@ impl SwarmApi {
         }
     }
 
-    pub fn connect(&mut self, address: Multiaddr) -> SubscriptionFuture<Result<(), String>> {
+    pub fn connect(&mut self, address: Multiaddr, ret: Channel<()>) {
         log::trace!("starting to connect to {}", address);
-        self.push_action(NetworkBehaviourAction::DialAddress {
-            address: address.clone(),
-        });
-        self.connect_registry.create_subscription(address)
+        self.connect_registry.register(address.clone(), ret);
+        self.push_action(NetworkBehaviourAction::DialAddress { address });
     }
 
     fn push_action(&mut self, action: NetworkBehaviourAction) {
@@ -132,7 +131,7 @@ impl NetworkBehaviour for SwarmApi {
         self.peers.insert(peer_id.clone());
         self.connected_peers.insert(peer_id, addr.clone());
         self.connections.insert(addr.clone(), conn);
-        self.connect_registry.finish_subscription(&addr, Ok(()));
+        self.connect_registry.consume(&addr, &Ok(()));
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, cp: ConnectedPoint) {
@@ -155,7 +154,7 @@ impl NetworkBehaviour for SwarmApi {
     ) {
         log::trace!("inject_addr_reach_failure {} {}", addr, error);
         self.connect_registry
-            .finish_subscription(addr, Err(format!("{}", error)));
+            .consume(addr, &Err(Error::Connect(format!("{}", error))));
     }
 
     fn poll(

@@ -1,4 +1,4 @@
-use crate::error::{Error, TryError};
+use crate::error::Error;
 use core::convert::{TryFrom, TryInto};
 use libipld::cid::Cid;
 use libipld::ipld::Ipld;
@@ -14,22 +14,27 @@ pub struct IpfsPath {
 }
 
 impl FromStr for IpfsPath {
-    type Err = Error;
+    type Err = IpfsPathError;
 
-    fn from_str(string: &str) -> Result<Self, Error> {
+    fn from_str(string: &str) -> Result<Self, IpfsPathError> {
         let mut subpath = string.split('/');
         let empty = subpath.next();
         let root_type = subpath.next();
         let key = subpath.next();
 
         let root = match (empty, root_type, key) {
-            (Some(""), Some("ipfs"), Some(key)) => PathRoot::Ipld(Cid::try_from(key)?),
-            (Some(""), Some("ipld"), Some(key)) => PathRoot::Ipld(Cid::try_from(key)?),
+            (Some(""), Some("ipfs"), Some(key)) => Cid::try_from(key).ok().map(PathRoot::Ipld),
+            (Some(""), Some("ipld"), Some(key)) => Cid::try_from(key).ok().map(PathRoot::Ipld),
             (Some(""), Some("ipns"), Some(key)) => match PeerId::from_str(key).ok() {
-                Some(peer_id) => PathRoot::Ipns(peer_id),
-                None => PathRoot::Dns(key.to_string()),
+                Some(peer_id) => Some(PathRoot::Ipns(peer_id)),
+                None => Some(PathRoot::Dns(key.to_string())),
             },
-            _ => return Err(IpfsPathError::InvalidPath(string.to_owned()).into()),
+            _ => None,
+        };
+        let root = if let Some(root) = root {
+            root
+        } else {
+            return Err(IpfsPathError::InvalidPath(string.to_owned()));
         };
         let mut path = IpfsPath::new(root);
         path.push_str(&subpath.collect::<Vec<&str>>().join("/"))?;
@@ -57,13 +62,13 @@ impl IpfsPath {
         self.path.push(sub_path.into());
     }
 
-    pub fn push_str(&mut self, string: &str) -> Result<(), Error> {
+    pub fn push_str(&mut self, string: &str) -> Result<(), IpfsPathError> {
         if string.is_empty() {
             return Ok(());
         }
         for sub_path in string.split('/') {
             if sub_path == "" {
-                return Err(IpfsPathError::InvalidPath(string.to_owned()).into());
+                return Err(IpfsPathError::InvalidPath(string.to_owned()));
             }
             let index = sub_path.parse::<usize>();
             if let Ok(index) = index {
@@ -102,7 +107,7 @@ impl fmt::Display for IpfsPath {
 }
 
 impl TryFrom<&str> for IpfsPath {
-    type Error = Error;
+    type Error = IpfsPathError;
 
     fn try_from(string: &str) -> Result<Self, Self::Error> {
         IpfsPath::from_str(string)
@@ -116,23 +121,23 @@ impl<T: Into<PathRoot>> From<T> for IpfsPath {
 }
 
 impl TryInto<Cid> for IpfsPath {
-    type Error = Error;
+    type Error = IpfsPathError;
 
     fn try_into(self) -> Result<Cid, Self::Error> {
         match self.root().cid() {
             Some(cid) => Ok(cid.to_owned()),
-            None => Err(anyhow::anyhow!("expected cid")),
+            None => Err(IpfsPathError::ExpectedCid),
         }
     }
 }
 
 impl TryInto<PeerId> for IpfsPath {
-    type Error = Error;
+    type Error = IpfsPathError;
 
     fn try_into(self) -> Result<PeerId, Self::Error> {
         match self.root().peer_id() {
             Some(peer_id) => Ok(peer_id.to_owned()),
-            None => Err(anyhow::anyhow!("expected peer id")),
+            None => Err(IpfsPathError::ExpectedPeerId),
         }
     }
 }
@@ -212,23 +217,23 @@ impl From<PeerId> for PathRoot {
 }
 
 impl TryInto<Cid> for PathRoot {
-    type Error = TryError;
+    type Error = IpfsPathError;
 
     fn try_into(self) -> Result<Cid, Self::Error> {
         match self {
             PathRoot::Ipld(cid) => Ok(cid),
-            _ => Err(TryError),
+            _ => Err(IpfsPathError::ExpectedCid),
         }
     }
 }
 
 impl TryInto<PeerId> for PathRoot {
-    type Error = TryError;
+    type Error = IpfsPathError;
 
     fn try_into(self) -> Result<PeerId, Self::Error> {
         match self {
             PathRoot::Ipns(peer_id) => Ok(peer_id),
-            _ => Err(TryError),
+            _ => Err(IpfsPathError::ExpectedPeerId),
         }
     }
 }
@@ -296,12 +301,16 @@ impl fmt::Display for SubPath {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum IpfsPathError {
     #[error("Invalid path {0:?}")]
     InvalidPath(String),
     #[error("Can't resolve {path:?}")]
     ResolveError { ipld: Ipld, path: SubPath },
+    #[error("Expected cid")]
+    ExpectedCid,
+    #[error("Expected peer_id")]
+    ExpectedPeerId,
 }
 
 #[cfg(test)]

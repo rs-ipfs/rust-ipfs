@@ -1207,7 +1207,6 @@ dependencies = [
 name = "ipfs"
 version = "0.1.0"
 dependencies = [
- "anyhow 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)",
  "async-std 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "async-trait 0.1.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "bitswap 0.1.0",

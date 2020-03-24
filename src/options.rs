@@ -2,7 +2,6 @@ use crate::config::ConfigFile;
 use crate::error::Error;
 use crate::repo::{BlockStore, DataStore};
 use async_std::path::PathBuf;
-use bitswap::Strategy;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identity::Keypair;
 use std::borrow::Borrow;
@@ -13,7 +12,6 @@ use std::fmt;
 pub trait IpfsTypes: Clone + 'static {
     type TBlockStore: BlockStore;
     type TDataStore: DataStore;
-    type TStrategy: Strategy;
 }
 
 /// Default IPFS types.
@@ -25,8 +23,6 @@ impl IpfsTypes for Types {
     type TDataStore = crate::repo::fs::RocksDataStore;
     #[cfg(not(feature = "rocksdb"))]
     type TDataStore = crate::repo::mem::MemDataStore;
-
-    type TStrategy = bitswap::AltruisticStrategy;
 }
 
 /// Testing IPFS types
@@ -35,7 +31,6 @@ pub struct TestTypes;
 impl IpfsTypes for TestTypes {
     type TBlockStore = crate::repo::mem::MemBlockStore;
     type TDataStore = crate::repo::mem::MemDataStore;
-    type TStrategy = bitswap::AltruisticStrategy;
 }
 
 /// Ipfs options

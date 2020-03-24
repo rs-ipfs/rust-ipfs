@@ -1,112 +1,134 @@
 //! Persistent fs backed repo
 use crate::error::Error;
-use crate::repo::BlockStore;
+use crate::repo::{BlockStore, BlockStoreEvent};
 #[cfg(feature = "rocksdb")]
 use crate::repo::{Column, DataStore};
-use async_std::fs;
-use async_std::path::PathBuf;
-use async_std::prelude::*;
+use async_std::path::{Path, PathBuf};
+use async_std::{fs, task};
 use async_trait::async_trait;
-use bitswap::Block;
 use core::convert::TryFrom;
-use futures::stream::StreamExt;
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll};
+use futures::channel::mpsc;
+use futures::sink::SinkExt;
+use futures::stream::{Stream, StreamExt};
 use libipld::cid::Cid;
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::sync::{Arc, Mutex};
 
-#[derive(Clone, Debug)]
+fn block_path(path: &Path, cid: &Cid) -> PathBuf {
+    let mut cid = cid.to_string();
+    cid.push_str(".data");
+    path.join(cid)
+}
+
+#[derive(Debug)]
 pub struct FsBlockStore {
     path: PathBuf,
-    cids: Arc<Mutex<HashSet<Cid>>>,
+    cids: HashSet<Cid>,
+    sender: mpsc::Sender<BlockStoreEvent>,
+    receiver: mpsc::Receiver<BlockStoreEvent>,
 }
 
 #[async_trait]
 impl BlockStore for FsBlockStore {
-    fn new(path: PathBuf) -> Self {
-        FsBlockStore {
-            path,
-            cids: Arc::new(Mutex::new(HashSet::new())),
-        }
-    }
-
-    async fn init(&self) -> Result<(), Error> {
-        let path = self.path.clone();
-        fs::create_dir_all(path).await?;
-        Ok(())
-    }
-
-    async fn open(&self) -> Result<(), Error> {
-        let path = self.path.clone();
-        let cids = self.cids.clone();
-
-        let mut stream = fs::read_dir(path).await?;
-
-        fn append_cid(cids: &Arc<Mutex<HashSet<Cid>>>, path: PathBuf) {
+    async fn open(path: PathBuf) -> Result<Self, Error> {
+        fs::create_dir_all(&path).await?;
+        let mut stream = fs::read_dir(&path).await?;
+        let mut cids = HashSet::new();
+        while let Some(res) = stream.next().await {
+            let path = res?.path();
             if path.extension() != Some(OsStr::new("data")) {
+                continue;
+            }
+            let cid_str = path.file_stem().unwrap().to_str().unwrap();
+            let cid = Cid::try_from(cid_str)?;
+            cids.insert(cid);
+        }
+        let (sender, receiver) = mpsc::channel(1);
+        Ok(Self {
+            path,
+            cids,
+            sender,
+            receiver,
+        })
+    }
+
+    fn contains(&mut self, cid: &Cid) -> bool {
+        self.cids.contains(cid)
+    }
+
+    fn get(&mut self, cid: Cid) {
+        let path = block_path(&self.path, &cid);
+        let mut sender = self.sender.clone();
+        task::spawn(async move {
+            let data = match fs::read(path).await {
+                Ok(data) => data,
+                Err(err) => {
+                    if err.kind() == std::io::ErrorKind::NotFound {
+                        sender.send(BlockStoreEvent::Get(cid, Ok(None))).await.ok();
+                        return;
+                    } else {
+                        sender
+                            .send(BlockStoreEvent::Get(cid, Err(err.into())))
+                            .await
+                            .ok();
+                        return;
+                    }
+                }
+            };
+            sender
+                .send(BlockStoreEvent::Get(cid, Ok(Some(data.into_boxed_slice()))))
+                .await
+                .ok();
+        });
+    }
+
+    fn put(&mut self, cid: Cid, data: Box<[u8]>) {
+        let path = block_path(&self.path, &cid);
+        let mut sender = self.sender.clone();
+        task::spawn(async move {
+            if let Err(err) = fs::write(path, data).await {
+                sender
+                    .send(BlockStoreEvent::Put(cid, Err(err.into())))
+                    .await
+                    .ok();
                 return;
             }
-            let cid_str = path.file_stem().unwrap();
-            let cid = Cid::try_from(cid_str.to_str().unwrap()).unwrap();
-            cids.lock().unwrap_or_else(|p| p.into_inner()).insert(cid);
-        }
-
-        loop {
-            let dir = stream.next().await;
-
-            match dir {
-                Some(Ok(dir)) => append_cid(&cids, dir.path()),
-                Some(Err(e)) => return Err(e.into()),
-                None => return Ok(()),
-            }
-        }
+            sender.send(BlockStoreEvent::Put(cid, Ok(()))).await.ok();
+        });
     }
 
-    async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
-        let contains = self.cids.lock().unwrap().contains(cid);
-        Ok(contains)
-    }
-
-    async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
-        let path = block_path(self.path.clone(), cid);
-        let cid = cid.to_owned();
-        let mut file = match fs::File::open(path).await {
-            Ok(file) => file,
-            Err(err) => {
-                if err.kind() == std::io::ErrorKind::NotFound {
-                    return Ok(None);
+    fn remove(&mut self, cid: Cid) {
+        let path = block_path(&self.path, &cid);
+        if self.cids.remove(&cid) {
+            let mut sender = self.sender.clone();
+            task::spawn(async move {
+                if let Err(err) = fs::remove_file(path).await {
+                    sender
+                        .send(BlockStoreEvent::Remove(cid, Err(err.into())))
+                        .await
+                        .ok();
                 } else {
-                    return Err(err.into());
+                    sender.send(BlockStoreEvent::Remove(cid, Ok(()))).await.ok();
                 }
-            }
-        };
-        let mut data = Vec::new();
-        file.read_to_end(&mut data).await?;
-        let block = Block::new(data.into_boxed_slice(), cid);
-        Ok(Some(block))
-    }
-
-    async fn put(&self, block: Block) -> Result<Cid, Error> {
-        let path = block_path(self.path.clone(), &block.cid());
-        let cids = self.cids.clone();
-        let mut file = fs::File::create(path).await?;
-        let data = block.data();
-        file.write_all(&*data).await?;
-        cids.lock().unwrap().insert(block.cid().to_owned());
-        Ok(block.cid().to_owned())
-    }
-
-    async fn remove(&self, cid: &Cid) -> Result<(), Error> {
-        let path = block_path(self.path.clone(), cid);
-        let cid = cid.to_owned();
-        let cids = self.cids.clone();
-        if cids.lock().unwrap().remove(&cid) {
-            fs::remove_file(path).await?;
+            });
         }
-        Ok(())
     }
 }
 
+impl Stream for FsBlockStore {
+    type Item = BlockStoreEvent;
+
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+        let next = self.receiver.next();
+        futures::pin_mut!(next);
+        next.poll(ctx)
+    }
+}
+
+/*
 #[derive(Clone, Debug)]
 #[cfg(feature = "rocksdb")]
 pub struct RocksDataStore {
@@ -199,13 +221,6 @@ impl DataStore for RocksDataStore {
         db.delete_cf(cf, &key)?;
         Ok(())
     }
-}
-
-fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
-    let mut file = cid.to_string();
-    file.push_str(".data");
-    base.push(file);
-    base
 }
 
 #[cfg(test)]
@@ -317,4 +332,4 @@ mod tests {
 
         std::fs::remove_dir_all(&tmp).ok();
     }
-}
+}*/
