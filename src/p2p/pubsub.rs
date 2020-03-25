@@ -279,73 +279,89 @@ impl NetworkBehaviour for Pubsub {
             }
         }
 
-        match futures::ready!(self.floodsub.poll(ctx, poll)) {
-            NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Message(msg)) => {
-                let topics = msg.topics.clone();
-                let msg = Arc::new(PubsubMessage::from(msg));
-                let mut buffer = None;
+        loop {
+            match futures::ready!(self.floodsub.poll(ctx, poll)) {
+                NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Message(msg)) => {
+                    let topics = msg.topics.clone();
+                    let msg = Arc::new(PubsubMessage::from(msg));
+                    let mut buffer = None;
 
-                for topic in topics {
-                    match self.streams.entry(topic) {
-                        Entry::Occupied(oe) => {
-                            let sent = buffer.take().unwrap_or_else(|| Arc::clone(&msg));
-                            if let Err(se) = oe.get().unbounded_send(sent) {
-                                // receiver has dropped
-                                let (topic, _) = oe.remove_entry();
-                                log::debug!("unsubscribing via SendError from {:?}", topic.id());
-                                assert!(
-                                    self.floodsub.unsubscribe(topic.clone()),
-                                    "Closed sender didnt allow unsubscribing {:?}",
-                                    topic
+                    for topic in topics {
+                        match self.streams.entry(topic) {
+                            Entry::Occupied(oe) => {
+                                let sent = buffer.take().unwrap_or_else(|| Arc::clone(&msg));
+                                if let Err(se) = oe.get().unbounded_send(sent) {
+                                    // receiver has dropped
+                                    let (topic, _) = oe.remove_entry();
+                                    log::debug!(
+                                        "unsubscribing via SendError from {:?}",
+                                        topic.id()
+                                    );
+                                    assert!(
+                                        self.floodsub.unsubscribe(topic),
+                                        "Failed to unsubscribe following SendError"
+                                    );
+                                    buffer = Some(se.into_inner());
+                                }
+                            }
+                            Entry::Vacant(ve) => {
+                                panic!(
+                                    "we received a message to a topic we havent subscribed to {:?},
+                                    streams are probably out of sync. Please report this as a bug.",
+                                    ve.key()
                                 );
-                                buffer = Some(se.into_inner());
                             }
                         }
-                        Entry::Vacant(ve) => {
-                            panic!(
-                                "we received a message to a topic we havent subscribed to {:?},
-                                streams are probably out of sync. Please report this as a bug.",
-                                ve.key()
-                            );
+                    }
+
+                    continue;
+                }
+                NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Subscribed {
+                    peer_id,
+                    topic,
+                }) => {
+                    let topics = self.peers.entry(peer_id.clone()).or_insert_with(Vec::new);
+                    let appeared = topics.is_empty();
+                    if topics.iter().find(|&t| t == &topic).is_none() {
+                        topics.push(topic);
+                    }
+
+                    if appeared {
+                        log::debug!("peer appeared as pubsub subscriber: {}", peer_id);
+                    }
+
+                    continue;
+                }
+                NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Unsubscribed {
+                    peer_id,
+                    topic,
+                }) => {
+                    if let Entry::Occupied(mut oe) = self.peers.entry(peer_id.clone()) {
+                        let topics = oe.get_mut();
+                        if let Some(pos) = topics.iter().position(|t| t == &topic) {
+                            topics.swap_remove(pos);
+                        }
+                        if topics.is_empty() {
+                            log::debug!("peer disappeared as pubsub subscriber: {}", peer_id);
+                            oe.remove();
                         }
                     }
-                }
-                Poll::Pending
-            }
-            NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Subscribed { peer_id, topic }) => {
-                let topics = self.peers.entry(peer_id).or_insert_with(Vec::new);
-                if topics.iter().find(|&t| t == &topic).is_none() {
-                    topics.push(topic);
-                }
-                Poll::Pending
-            }
-            NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Unsubscribed {
-                peer_id,
-                topic,
-            }) => {
-                if let Entry::Occupied(mut oe) = self.peers.entry(peer_id) {
-                    let topics = oe.get_mut();
-                    if let Some(pos) = topics.iter().position(|t| t == &topic) {
-                        topics.swap_remove(pos);
-                    }
-                    if topics.is_empty() {
-                        oe.remove();
-                    }
-                }
 
-                Poll::Pending
-            }
-            NetworkBehaviourAction::DialAddress { address } => {
-                Poll::Ready(NetworkBehaviourAction::DialAddress { address })
-            }
-            NetworkBehaviourAction::DialPeer { peer_id } => {
-                Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id })
-            }
-            NetworkBehaviourAction::SendEvent { peer_id, event } => {
-                Poll::Ready(NetworkBehaviourAction::SendEvent { peer_id, event })
-            }
-            NetworkBehaviourAction::ReportObservedAddr { address } => {
-                Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address })
+                    continue;
+                }
+                NetworkBehaviourAction::DialAddress { address } => {
+                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address });
+                }
+                NetworkBehaviourAction::DialPeer { peer_id } => {
+                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id });
+                }
+                NetworkBehaviourAction::SendEvent { peer_id, event } => {
+                    log::debug!("SendEvent {{ {}, {:?} }}", peer_id, event);
+                    return Poll::Ready(NetworkBehaviourAction::SendEvent { peer_id, event });
+                }
+                NetworkBehaviourAction::ReportObservedAddr { address } => {
+                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address });
+                }
             }
         }
     }
