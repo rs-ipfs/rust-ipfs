@@ -44,7 +44,7 @@ async fn inner_peers<T: IpfsTypes>(
     topic: Option<String>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let peers = ipfs
-        .pubsub_peers(topic.as_ref().map(String::as_str))
+        .pubsub_peers(topic.as_deref())
         .await
         .map_err(|e| warp::reject::custom(StringError::from(e)))?;
 
