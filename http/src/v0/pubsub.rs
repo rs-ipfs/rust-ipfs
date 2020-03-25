@@ -165,8 +165,8 @@ async fn inner_subscribe<T: IpfsTypes>(
 
             // using broadcast channel should allow us have N concurrent subscribes and
             // preformatted json should give us good enough performance. this channel can last over
-            // multiple subscriptions and unsubscriptions
-            let (tx, rx) = broadcast::channel::<Result<PreformattedJsonMessage, StreamError>>(4);
+            // multiple subscriptions and unsubscriptions.
+            let (tx, rx) = broadcast::channel::<Result<PreformattedJsonMessage, StreamError>>(16);
 
             // this will be used to create more subscriptions
             ve.insert(tx.clone());
