@@ -348,7 +348,6 @@ impl NetworkBehaviour for Pubsub {
                     return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id });
                 }
                 NetworkBehaviourAction::SendEvent { peer_id, event } => {
-                    log::debug!("SendEvent {{ {}, {:?} }}", peer_id, event);
                     return Poll::Ready(NetworkBehaviourAction::SendEvent { peer_id, event });
                 }
                 NetworkBehaviourAction::ReportObservedAddr { address } => {
