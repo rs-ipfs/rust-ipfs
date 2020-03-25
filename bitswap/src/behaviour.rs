@@ -26,6 +26,7 @@ pub enum BitswapEvent {
 }
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
+#[derive(Default)]
 pub struct Bitswap {
     /// Queue of events to report to the user.
     events: VecDeque<NetworkBehaviourAction<BitswapMessage, BitswapEvent>>,
@@ -40,13 +41,7 @@ pub struct Bitswap {
 impl Bitswap {
     /// Creates a new `Bitswap`.
     pub fn new() -> Self {
-        log::trace!("bitswap: new");
-        Bitswap {
-            events: VecDeque::new(),
-            target_peers: FnvHashSet::default(),
-            connected_peers: HashMap::new(),
-            wanted_blocks: HashMap::new(),
-        }
+        Default::default()
     }
 
     fn ledger(&mut self, peer_id: &PeerId) -> &mut Ledger {
