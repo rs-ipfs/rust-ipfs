@@ -7,7 +7,6 @@ use libp2p::swarm::protocols_handler::{
 };
 use libp2p::swarm::{self, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::task::Waker;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
@@ -38,8 +37,6 @@ pub struct SwarmApi {
     connect_registry: LocalRegistry<Multiaddr, ()>,
     connections: HashMap<Multiaddr, Connection>,
     connected_peers: HashMap<PeerId, Multiaddr>,
-    /// The waker of the last polled task, if any.
-    waker: Option<Waker>,
 }
 
 impl SwarmApi {
@@ -74,15 +71,8 @@ impl SwarmApi {
     pub fn connect(&mut self, address: Multiaddr, ret: Channel<()>) {
         log::trace!("starting to connect to {}", address);
         self.connect_registry.register(address.clone(), ret);
-        self.push_action(NetworkBehaviourAction::DialAddress { address });
-    }
-
-    fn push_action(&mut self, action: NetworkBehaviourAction) {
-        self.events.push_back(action);
-
-        if let Some(waker) = self.waker.as_ref() {
-            waker.wake_by_ref();
-        }
+        self.events
+            .push_back(NetworkBehaviourAction::DialAddress { address });
     }
 
     pub fn disconnect(&mut self, address: Multiaddr) -> Option<Disconnector> {
@@ -159,11 +149,9 @@ impl NetworkBehaviour for SwarmApi {
 
     fn poll(
         &mut self,
-        ctx: &mut Context,
+        _: &mut Context,
         _: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction> {
-        // store the poller so that we can wake the task on next push_action
-        self.waker = Some(ctx.waker().clone());
         if let Some(event) = self.events.pop_front() {
             Poll::Ready(event)
         } else {
