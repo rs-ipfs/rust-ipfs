@@ -43,6 +43,7 @@ use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
 pub use self::p2p::Connection;
+pub use self::p2p::PubsubMessage;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
@@ -220,6 +221,11 @@ enum IpfsEvent {
     Disconnect(Multiaddr, Channel<()>),
     /// Request background task to return the listened and external addresses
     GetAddresses(OneshotSender<Vec<Multiaddr>>),
+    PubsubSubscribe(String, OneshotSender<Option<p2p::pubsub::StreamImpl>>),
+    PubsubUnsubscribe(String, OneshotSender<bool>),
+    PubsubPublish(String, Vec<u8>, OneshotSender<()>),
+    PubsubPeers(Option<String>, OneshotSender<Vec<PeerId>>),
+    PubsubSubscribed(OneshotSender<Vec<String>>),
     Exit,
 }
 
@@ -391,6 +397,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         rx.await?
     }
 
+    /// Returns the local node public key and the listened and externally visible addresses.
+    ///
+    /// Public key can be converted to [`PeerId`].
     pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), Error> {
         let (tx, rx) = oneshot_channel();
 
@@ -400,6 +409,72 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .await?;
         let addresses = rx.await?;
         Ok((self.keys.get_ref().public(), addresses))
+    }
+
+    /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
+    /// The subscription can be unsubscribed by dropping the stream or calling
+    /// [`pubsub_unsubscribe`].
+    pub async fn pubsub_subscribe(
+        &self,
+        topic: &str,
+    ) -> Result<impl futures::stream::Stream<Item = Arc<PubsubMessage>> + fmt::Debug, Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::PubsubSubscribe(topic.into(), tx))
+            .await?;
+
+        rx.await?
+            .ok_or_else(|| format_err!("already subscribed to {:?}", topic))
+    }
+
+    /// Publishes to the topic which may have been subscribed to earlier
+    pub async fn pubsub_publish(&self, topic: &str, data: &[u8]) -> Result<(), Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::PubsubPublish(topic.into(), data.to_vec(), tx))
+            .await?;
+
+        Ok(rx.await?)
+    }
+
+    /// Returns true if unsubscription was successful
+    pub async fn pubsub_unsubscribe(&self, topic: &str) -> Result<bool, Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::PubsubUnsubscribe(topic.into(), tx))
+            .await?;
+
+        Ok(rx.await?)
+    }
+
+    /// Returns all known pubsub peers with the optional topic filter
+    pub async fn pubsub_peers(&self, topic: Option<&str>) -> Result<Vec<PeerId>, Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::PubsubPeers(topic.map(String::from), tx))
+            .await?;
+
+        Ok(rx.await?)
+    }
+
+    /// Returns all currently subscribed topics
+    pub async fn pubsub_subscribed(&self) -> Result<Vec<String>, Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::PubsubSubscribed(tx))
+            .await?;
+
+        Ok(rx.await?)
     }
 
     /// Exit daemon.
@@ -428,89 +503,161 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
         // begin by polling the swarm so that initially it'll first have chance to bind listeners
         // and such. TODO: this no longer needs to be a swarm event but perhaps we should
         // consolidate logging of these events here, if necessary?
-        loop {
-            let inner = {
-                let next = self.swarm.next_event();
-                futures::pin_mut!(next);
-                match next.poll(ctx) {
-                    Poll::Ready(inner) => inner,
-                    Poll::Pending => break,
-                }
-            };
-            match inner {
-                SwarmEvent::Behaviour(()) => {}
-                SwarmEvent::Connected(_peer_id) => {}
-                SwarmEvent::Disconnected(_peer_id) => {}
-                SwarmEvent::NewListenAddr(_addr) => {}
-                SwarmEvent::ExpiredListenAddr(_addr) => {}
-                SwarmEvent::UnreachableAddr {
-                    peer_id: _peer_id,
-                    address: _address,
-                    error: _error,
-                } => {}
-                SwarmEvent::StartConnect(_peer_id) => {}
-            }
-        }
 
-        // temporary pinning of the receivers should be safe as we are pinning through the
-        // already pinned self. with the receivers we can also safely ignore exhaustion
-        // as those are fused.
-        loop {
-            let inner = match Pin::new(&mut self.from_facade).poll_next(ctx) {
-                Poll::Ready(Some(evt)) => evt,
-                // doing teardown also after the `Ipfs` has been dropped
-                Poll::Ready(None) => IpfsEvent::Exit,
-                Poll::Pending => break,
-            };
+        let mut done = false;
 
-            match inner {
-                IpfsEvent::Connect(addr, ret) => {
-                    ret.send(self.swarm.connect(addr)).ok();
-                }
-                IpfsEvent::Addresses(ret) => {
-                    let addrs = self.swarm.addrs();
-                    ret.send(Ok(addrs)).ok();
-                }
-                IpfsEvent::Listeners(ret) => {
-                    let listeners = Swarm::listeners(&self.swarm).cloned().collect();
-                    ret.send(Ok(listeners)).ok();
-                }
-                IpfsEvent::Connections(ret) => {
-                    let connections = self.swarm.connections();
-                    ret.send(Ok(connections)).ok();
-                }
-                IpfsEvent::Disconnect(addr, ret) => {
-                    if let Some(disconnector) = self.swarm.disconnect(addr) {
-                        disconnector.disconnect(&mut self.swarm);
+        loop {
+            loop {
+                let inner = {
+                    let next = self.swarm.next_event();
+                    futures::pin_mut!(next);
+                    match next.poll(ctx) {
+                        Poll::Ready(inner) => inner,
+                        Poll::Pending if done => return Poll::Pending,
+                        Poll::Pending => break,
                     }
-                    ret.send(Ok(())).ok();
+                };
+                done = false;
+                match inner {
+                    SwarmEvent::Behaviour(()) => {}
+                    SwarmEvent::Connected(_peer_id) => {}
+                    SwarmEvent::Disconnected(_peer_id) => {}
+                    SwarmEvent::NewListenAddr(_addr) => {}
+                    SwarmEvent::ExpiredListenAddr(_addr) => {}
+                    SwarmEvent::UnreachableAddr {
+                        peer_id: _peer_id,
+                        address: _address,
+                        error: _error,
+                    } => {}
+                    SwarmEvent::StartConnect(_peer_id) => {}
                 }
-                IpfsEvent::GetAddresses(ret) => {
-                    // perhaps this could be moved under `IpfsEvent` or free functions?
-                    let mut addresses = Vec::new();
-                    addresses.extend(Swarm::listeners(&self.swarm).cloned());
-                    addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
-                    // ignore error, perhaps caller went away already
-                    let _ = ret.send(addresses);
+            }
+
+            // temporary pinning of the receivers should be safe as we are pinning through the
+            // already pinned self. with the receivers we can also safely ignore exhaustion
+            // as those are fused.
+            loop {
+                let inner = match Pin::new(&mut self.from_facade).poll_next(ctx) {
+                    Poll::Ready(Some(evt)) => evt,
+                    // doing teardown also after the `Ipfs` has been dropped
+                    Poll::Ready(None) => IpfsEvent::Exit,
+                    Poll::Pending => break,
+                };
+
+                match inner {
+                    IpfsEvent::Connect(addr, ret) => {
+                        ret.send(self.swarm.connect(addr)).ok();
+                    }
+                    IpfsEvent::Addresses(ret) => {
+                        let addrs = self.swarm.addrs();
+                        ret.send(Ok(addrs)).ok();
+                    }
+                    IpfsEvent::Listeners(ret) => {
+                        let listeners = Swarm::listeners(&self.swarm).cloned().collect();
+                        ret.send(Ok(listeners)).ok();
+                    }
+                    IpfsEvent::Connections(ret) => {
+                        let connections = self.swarm.connections();
+                        ret.send(Ok(connections)).ok();
+                    }
+                    IpfsEvent::Disconnect(addr, ret) => {
+                        if let Some(disconnector) = self.swarm.disconnect(addr) {
+                            disconnector.disconnect(&mut self.swarm);
+                        }
+                        ret.send(Ok(())).ok();
+                    }
+                    IpfsEvent::GetAddresses(ret) => {
+                        // perhaps this could be moved under `IpfsEvent` or free functions?
+                        let mut addresses = Vec::new();
+                        addresses.extend(Swarm::listeners(&self.swarm).cloned());
+                        addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
+                        // ignore error, perhaps caller went away already
+                        let _ = ret.send(addresses);
+                    }
+                    IpfsEvent::PubsubSubscribe(topic, ret) => {
+                        let _ = ret.send(self.swarm.as_mut().subscribe(topic));
+                    }
+                    IpfsEvent::PubsubUnsubscribe(topic, ret) => {
+                        let _ = ret.send(self.swarm.as_mut().unsubscribe(topic));
+                    }
+                    IpfsEvent::PubsubPublish(topic, data, ret) => {
+                        self.swarm.as_mut().publish(topic, data);
+                        let _ = ret.send(());
+                    }
+                    IpfsEvent::PubsubPeers(Some(topic), ret) => {
+                        let topic = libp2p::floodsub::Topic::new(topic);
+                        let _ = ret.send(self.swarm.as_mut().subscribed_peers(&topic));
+                    }
+                    IpfsEvent::PubsubPeers(None, ret) => {
+                        let _ = ret.send(self.swarm.as_mut().known_peers());
+                    }
+                    IpfsEvent::PubsubSubscribed(ret) => {
+                        let _ = ret.send(self.swarm.as_mut().subscribed_topics());
+                    }
+                    IpfsEvent::Exit => {
+                        // FIXME: we could do a proper teardown
+                        return Poll::Ready(());
+                    }
                 }
-                IpfsEvent::Exit => {
-                    // FIXME: we could do a proper teardown
-                    return Poll::Ready(());
+            }
+
+            // Poll::Ready(None) and Poll::Pending can be used to break out of the loop, clippy
+            // wants this to be written with a `while let`.
+            while let Poll::Ready(Some(evt)) = Pin::new(&mut self.repo_events).poll_next(ctx) {
+                match evt {
+                    RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
+                    RepoEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
+                    RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
                 }
+            }
+
+            done = true;
+        }
+    }
+}
+
+#[doc(hidden)]
+pub use node::Node;
+
+mod node {
+    use super::{Ipfs, IpfsOptions, TestTypes, UninitializedIpfs};
+
+    /// Node encapsulates everything to setup a testing instance so that multi-node tests become
+    /// easier.
+    pub struct Node {
+        ipfs: Ipfs<TestTypes>,
+        background_task: async_std::task::JoinHandle<()>,
+    }
+
+    impl Node {
+        pub async fn new(mdns: bool) -> Self {
+            let opts = IpfsOptions::inmemory_with_generated_keys(mdns);
+            let (ipfs, fut) = UninitializedIpfs::new(opts)
+                .await
+                .start()
+                .await
+                .expect("Inmemory instance must succeed start");
+
+            let jh = async_std::task::spawn(fut);
+
+            Node {
+                ipfs,
+                background_task: jh,
             }
         }
 
-        // Poll::Ready(None) and Poll::Pending can be used to break out of the loop, clippy
-        // wants this to be written with a `while let`.
-        while let Poll::Ready(Some(evt)) = Pin::new(&mut self.repo_events).poll_next(ctx) {
-            match evt {
-                RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
-                RepoEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
-                RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
-            }
+        pub async fn shutdown(self) {
+            self.ipfs.exit_daemon().await;
+            self.background_task.await;
         }
+    }
 
-        Poll::Pending
+    impl std::ops::Deref for Node {
+        type Target = Ipfs<TestTypes>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.ipfs
+        }
     }
 }
 

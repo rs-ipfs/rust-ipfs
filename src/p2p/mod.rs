@@ -9,8 +9,10 @@ use libp2p::{Multiaddr, PeerId};
 use std::sync::Arc;
 
 mod behaviour;
+pub(crate) mod pubsub;
 mod swarm;
 mod transport;
+pub use pubsub::PubsubMessage;
 
 pub use swarm::Connection;
 
