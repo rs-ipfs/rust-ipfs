@@ -17,10 +17,13 @@ pub struct Pubsub {
 }
 
 pub fn routes<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    peers(ipfs)
-        .or(list_subscriptions(ipfs))
-        .or(publish(ipfs))
-        .or(subscribe(ipfs, Default::default()))
+    warp::path("pubsub")
+        .and(
+            peers(ipfs)
+                .or(list_subscriptions(ipfs))
+                .or(publish(ipfs))
+                .or(subscribe(ipfs, Default::default()))
+        )
 }
 
 pub fn peers<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
