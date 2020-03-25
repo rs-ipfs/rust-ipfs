@@ -183,8 +183,13 @@ async fn inner_subscribe<T: IpfsTypes>(
     };
 
     // map recv errors into the StreamError and flatten
+    let mut errored = false;
     rx.into_stream()
         .map(|res| res.map_err(|_| StreamError::Recv).and_then(|res| res))
+        .take_while(move |res| {
+            // return until the first error
+            !std::mem::replace(&mut errored, res.is_err())
+        })
 }
 
 /// Shovel task takes items from the [`SubscriptionStream`], formats them and passes them on to
