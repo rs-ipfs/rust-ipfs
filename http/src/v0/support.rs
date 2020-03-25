@@ -124,7 +124,7 @@ pub async fn recover_as_message_response(
                 .to_json_reply(),
         );
         status = StatusCode::BAD_REQUEST;
-    } else if let Some(e) = err.find::<NonUtf8Topic>() {
+    } else if let Some(_) = err.find::<NonUtf8Topic>() {
         resp = Box::new(
             MessageKind::Error
                 .with_code(0)
