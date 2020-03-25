@@ -4,6 +4,7 @@ use multihash::Sha2_256;
 
 /// Discovers a peer via mdns and exchanges a block through bitswap.
 #[async_std::test]
+#[ignore]
 async fn exchange_block() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
