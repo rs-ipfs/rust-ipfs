@@ -67,6 +67,7 @@ pub fn publish<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl warp::Filter<Extract = impl
 }
 
 async fn inner_publish<T: IpfsTypes>(ipfs: Ipfs<T>, PublishArgs { topic, message }: PublishArgs) -> Result<impl warp::Reply, warp::Rejection> {
+    // FIXME: perhaps these should be taken by value as they are always moved?
     ipfs.pubsub_publish(&topic, &message.into_inner())
         .await
         .map_err(|e| warp::reject::custom(StringError::from(e)))?;
@@ -88,7 +89,10 @@ pub fn subscribe<T: IpfsTypes>(ipfs: &Ipfs<T>, pubsub: Arc<Pubsub>) -> impl warp
 
 async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic: String) -> impl TryStream<Ok = PreformattedJsonMessage, Error = StreamError> {
     use std::collections::hash_map::Entry;
-    use futures::stream::{StreamExt, TryStreamExt};
+    use std::time::Duration;
+    use tokio::{time::timeout, stream::StreamExt};
+    use futures::stream::TryStreamExt;
+
     // accessing this through mutex bets on "most accesses would need write access" as in most
     // requests would be asking for new subscriptions, which would require RwLock upgrading
     // from write, which is not supported operation either.
@@ -98,6 +102,7 @@ async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic
         Entry::Occupied(oe) => {
             // the easiest case: just join in, even if there are no other subscribers at the
             // moment
+            log::debug!("joining in existing subscription of {:?}", oe.key());
             oe.get().subscribe()
         }
         Entry::Vacant(ve) => {
@@ -105,11 +110,13 @@ async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic
             let topic = ve.key().clone();
 
             // the returned stream needs to be set up to be shoveled in a background task
-            let mut shoveled = ipfs.pubsub_subscribe(&topic).await
+            let shoveled = ipfs.pubsub_subscribe(&topic)
+                .await
                 .expect("new subscriptions shouldn't fail while holding the lock");
 
             // using broadcast channel should allow us have N concurrent subscribes and
-            // preformatted json should give us good enough performance
+            // preformatted json should give us good enough performance. this channel can last over
+            // multiple subscriptions and unsubscriptions
             let (tx, rx) = broadcast::channel::<Result<PreformattedJsonMessage, StreamError>>(4);
 
             // this will be used to create more subscriptions
@@ -121,18 +128,41 @@ async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic
             // stream of "all streams" from ipfs::p2p::Behaviour ... perhaps one could be added
             // alongside the current "spread per topic" somehow?
             tokio::spawn(async move {
+
+                log::trace!("started background task for shoveling messages of {:?}", topic);
+
+                // needs to be mut so that we resubscribe
+                let mut shoveled = shoveled;
+                let one_second = Duration::from_millis(1000);
+
                 loop {
+                    // has the underlying stream been stopped by directly calling
+                    // `Ipfs::pubsub_unsubscribe`
+                    let mut unsubscribed = true;
                     loop {
-                        let next = match shoveled.next().await {
-                            Some(next) => preformat(next),
-                            // stop shoveling
-                            None => break,
+                        let next = match timeout(one_second, shoveled.next()).await {
+                            Ok(Some(next)) => preformat(next),
+                            Ok(None) => break,
+                            Err(_) => {
+                                if tx.receiver_count() == 0 {
+                                    log::debug!("timed out shoveling with zero receivers");
+                                    break;
+                                }
+
+                                // nice thing about this timeout is that it reduces resubscription
+                                // traffic, bad thing is that it is still work but then again it's
+                                // done once per topic so it's not too much work.
+                                continue;
+                            }
                         };
 
-                        if tx.send(next).is_err() {
+                        if tx.send(next.clone()).is_err() {
                             // currently no more subscribers
+                            unsubscribed = false;
                             break;
                         }
+
+                        log::trace!("message of {:?} bytes shoveled {:?}", next.as_ref().map(|b| b.0.len()), topic);
                     }
 
                     let mut guard = pubsub.subscriptions.lock().await;
@@ -142,20 +172,29 @@ async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic
 
                     if let Entry::Occupied(oe) = guard.entry(topic.clone()) {
                         if oe.get().receiver_count() > 0 {
-                            log::trace!("got a new subscriber between removing");
+                            if unsubscribed {
+                                // this is tricky, se should obtain a new shoveled by resubscribing
+                                // and reusing the existing broadcast::channel. this will fail if
+                                // we introduce other Ipfs::pubsub_subscribe using code which does
+                                // not use the `Pubsub` thing.
+                                log::debug!("resubscribing with the existing broadcast channel to {:?}", topic);
+                                shoveled = ipfs.pubsub_subscribe(&topic)
+                                    .await
+                                    .expect("new subscriptions shouldn't fail while holding the lock");
+                            } else {
+                                log::trace!("got a new subscriber to existing broadcast channel on {:?}", topic);
+                            }
                             // a new subscriber has appeared since our previous send failure.
-                            // it is possible it gets dropped while we hold the lock, but then
-                            // we will eventually exit the next await ... FIXME: perhaps there
-                            // should be a timeout?
                             continue;
                         }
                         // really no more subscribers, unsubscribe and terminate the shoveling
-                        // task for this stream. racing this will have to happen through mutex.
+                        // task for this stream.
+                        log::debug!("unsubscribing from {:?}", topic);
                         oe.remove();
                         return;
                     } else {
                         unreachable!("only way to remove subscriptions from
-                            ipfs-http::v0::pubsub::Pubsub is through tasks exiting");
+                            ipfs-http::v0::pubsub::Pubsub is through shoveling tasks exiting");
                     }
                 }
             });
@@ -164,6 +203,7 @@ async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic
         }
     };
 
+    // map recv errors into the StreamError and flatten
     rx.into_stream().map(|res| res.map_err(|_| StreamError::Recv).and_then(|res| res))
 }
 
@@ -193,10 +233,10 @@ struct PubsubHttpApiMessage {
     topics: Vec<String>,
 }
 
-impl<T> From<T> for PubsubHttpApiMessage
+impl<'a, T> From<&'a T> for PubsubHttpApiMessage
     where T: AsRef<ipfs::PubsubMessage>
 {
-    fn from(msg: T) -> Self {
+    fn from(msg: &'a T) -> Self {
         use multibase::Base::Base64Pad;
         let msg = msg.as_ref();
 
@@ -232,12 +272,12 @@ impl Into<Bytes> for PreformattedJsonMessage {
 
 /// Formats the given pubsub message into json and a newline, as is the subscription format.
 fn preformat(msg: impl AsRef<ipfs::PubsubMessage>) -> Result<PreformattedJsonMessage, StreamError> {
-    serde_json::to_vec(&PubsubHttpApiMessage::from(msg))
+    serde_json::to_vec(&PubsubHttpApiMessage::from(&msg))
         .map(|mut vec| { vec.push(b'\n'); vec })
         .map(Bytes::from)
         .map(PreformattedJsonMessage::from)
         .map_err(|e| {
-            log::error!("failed to serialize PubsubMessage: {}", e);
+            log::error!("failed to serialize {:?}: {}", msg.as_ref(), e);
             StreamError::Serialization
         })
 }
@@ -279,25 +319,6 @@ struct OptionalTopicParameter {
     #[serde(rename = "arg")]
     topic: Option<String>,
 }
-
-// GET|POST /pubsub/peers or /pubsub/peers/?arg=topic
-//fn peers(topic: Option<String>) {}
-
-// GET|POST /pubsub/pub
-//  - two args in query: topic and query: ?arg=topic&arg=msg
-//    - not sure if msgs can be newline delimited
-//  - topic in query, newline delimited msgs in body: ?arg=topic
-//    - still unsure on the content splitting, how does it work with "any bytes"
-//fn publish(topic: String, msg: Vec<u8>) {}
-
-// GET|POST /pubsub/sub?arg=topic
-//  - persistent subscription
-//  - needs header Trailer: X-Stream-Error
-//    - we cannot end stream with error with hyper and warp at the moment
-//fn subscribe(topic: String) {}
-
-// GET|[POST??] /pubsub/ls lists the ongoing local subscriptions
-//fn ls() {}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -407,9 +428,9 @@ impl<'a> Iterator for QueryAsRawPartsParser<'a> {
             }
 
             let mut split2 = sequence.splitn(2, |&b| b == b'=');
-            let name = split2.next().unwrap();
+            let name = split2.next().expect("splitn will always return first");
             let value = split2.next().unwrap_or(&[][..]);
-            // original implementation calls percent_decode for both arguments into Cow<str>
+            // original implementation calls percent_decode for both arguments into lossy Cow<str>
             return Some((name, value));
         }
     }
