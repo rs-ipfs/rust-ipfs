@@ -2,9 +2,9 @@ use ipfs::{Ipfs, IpfsTypes};
 use std::convert::Infallible;
 
 pub mod id;
+pub mod pubsub;
 pub mod swarm;
 pub mod version;
-pub mod pubsub;
 
 pub mod support;
 pub use support::recover_as_message_response;

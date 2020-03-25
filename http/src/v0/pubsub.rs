@@ -1,32 +1,36 @@
-use warp::Filter;
-use warp::hyper::body::Bytes;
-use serde::{Serialize, Deserialize};
 use futures::stream::TryStream;
-use tokio::sync::Mutex;
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
+use tokio::sync::Mutex;
+use warp::hyper::body::Bytes;
+use warp::Filter;
 
-use std::fmt;
-use std::collections::HashMap;
-use std::sync::Arc;
-use ipfs::{Ipfs, IpfsTypes};
 use super::support::{with_ipfs, StringError};
+use ipfs::{Ipfs, IpfsTypes};
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::Arc;
 
 #[derive(Default)]
 pub struct Pubsub {
-    subscriptions: Mutex<HashMap<String, broadcast::Sender<Result<PreformattedJsonMessage, StreamError>>>>,
+    subscriptions:
+        Mutex<HashMap<String, broadcast::Sender<Result<PreformattedJsonMessage, StreamError>>>>,
 }
 
-pub fn routes<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path("pubsub")
-        .and(
-            peers(ipfs)
-                .or(list_subscriptions(ipfs))
-                .or(publish(ipfs))
-                .or(subscribe(ipfs, Default::default()))
-        )
+pub fn routes<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::path("pubsub").and(
+        peers(ipfs)
+            .or(list_subscriptions(ipfs))
+            .or(publish(ipfs))
+            .or(subscribe(ipfs, Default::default())),
+    )
 }
 
-pub fn peers<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+pub fn peers<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("peers")
         .and(warp::get().or(warp::post()))
         .unify()
@@ -35,14 +39,23 @@ pub fn peers<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl warp::Filter<Extract = impl w
         .and_then(inner_peers)
 }
 
-async fn inner_peers<T: IpfsTypes>(ipfs: Ipfs<T>, topic: Option<String>) -> Result<impl warp::Reply, warp::Rejection>{
-    let peers = ipfs.pubsub_peers(topic.as_ref().map(String::as_str)).await
+async fn inner_peers<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    topic: Option<String>,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let peers = ipfs
+        .pubsub_peers(topic.as_ref().map(String::as_str))
+        .await
         .map_err(|e| warp::reject::custom(StringError::from(e)))?;
 
-    Ok(warp::reply::json(&StringListResponse { strings: peers.into_iter().map(|id| id.to_string()).collect() }))
+    Ok(warp::reply::json(&StringListResponse {
+        strings: peers.into_iter().map(|id| id.to_string()).collect(),
+    }))
 }
 
-pub fn list_subscriptions<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+pub fn list_subscriptions<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("ls")
         .and(warp::get().or(warp::post()))
         .unify()
@@ -51,14 +64,17 @@ pub fn list_subscriptions<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl warp::Filter<Ext
 }
 
 async fn inner_ls<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl warp::Reply, warp::Rejection> {
-    let topics = ipfs.pubsub_subscribed()
+    let topics = ipfs
+        .pubsub_subscribed()
         .await
         .map_err(|e| warp::reject::custom(StringError::from(e)))?;
 
     Ok(warp::reply::json(&StringListResponse { strings: topics }))
 }
 
-pub fn publish<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+pub fn publish<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("pub")
         .and(warp::post())
         .and(with_ipfs(ipfs))
@@ -66,7 +82,10 @@ pub fn publish<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl warp::Filter<Extract = impl
         .and_then(inner_publish)
 }
 
-async fn inner_publish<T: IpfsTypes>(ipfs: Ipfs<T>, PublishArgs { topic, message }: PublishArgs) -> Result<impl warp::Reply, warp::Rejection> {
+async fn inner_publish<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    PublishArgs { topic, message }: PublishArgs,
+) -> Result<impl warp::Reply, warp::Rejection> {
     // FIXME: perhaps these should be taken by value as they are always moved?
     ipfs.pubsub_publish(&topic, &message.into_inner())
         .await
@@ -74,8 +93,10 @@ async fn inner_publish<T: IpfsTypes>(ipfs: Ipfs<T>, PublishArgs { topic, message
     Ok(warp::reply::reply())
 }
 
-
-pub fn subscribe<T: IpfsTypes>(ipfs: &Ipfs<T>, pubsub: Arc<Pubsub>) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+pub fn subscribe<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+    pubsub: Arc<Pubsub>,
+) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("sub")
         .and(warp::get().or(warp::post()))
         .unify()
@@ -87,11 +108,15 @@ pub fn subscribe<T: IpfsTypes>(ipfs: &Ipfs<T>, pubsub: Arc<Pubsub>) -> impl warp
         })
 }
 
-async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic: String) -> impl TryStream<Ok = PreformattedJsonMessage, Error = StreamError> {
+async fn inner_subscribe<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    pubsub: Arc<Pubsub>,
+    topic: String,
+) -> impl TryStream<Ok = PreformattedJsonMessage, Error = StreamError> {
+    use futures::stream::TryStreamExt;
     use std::collections::hash_map::Entry;
     use std::time::Duration;
-    use tokio::{time::timeout, stream::StreamExt};
-    use futures::stream::TryStreamExt;
+    use tokio::{stream::StreamExt, time::timeout};
 
     // accessing this through mutex bets on "most accesses would need write access" as in most
     // requests would be asking for new subscriptions, which would require RwLock upgrading
@@ -106,11 +131,11 @@ async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic
             oe.get().subscribe()
         }
         Entry::Vacant(ve) => {
-
             let topic = ve.key().clone();
 
             // the returned stream needs to be set up to be shoveled in a background task
-            let shoveled = ipfs.pubsub_subscribe(&topic)
+            let shoveled = ipfs
+                .pubsub_subscribe(&topic)
                 .await
                 .expect("new subscriptions shouldn't fail while holding the lock");
 
@@ -128,8 +153,10 @@ async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic
             // stream of "all streams" from ipfs::p2p::Behaviour ... perhaps one could be added
             // alongside the current "spread per topic" somehow?
             tokio::spawn(async move {
-
-                log::trace!("started background task for shoveling messages of {:?}", topic);
+                log::trace!(
+                    "started background task for shoveling messages of {:?}",
+                    topic
+                );
 
                 // needs to be mut so that we resubscribe
                 let mut shoveled = shoveled;
@@ -162,7 +189,11 @@ async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic
                             break;
                         }
 
-                        log::trace!("message of {:?} bytes shoveled {:?}", next.as_ref().map(|b| b.0.len()), topic);
+                        log::trace!(
+                            "message of {:?} bytes shoveled {:?}",
+                            next.as_ref().map(|b| b.0.len()),
+                            topic
+                        );
                     }
 
                     let mut guard = pubsub.subscriptions.lock().await;
@@ -177,12 +208,18 @@ async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic
                                 // and reusing the existing broadcast::channel. this will fail if
                                 // we introduce other Ipfs::pubsub_subscribe using code which does
                                 // not use the `Pubsub` thing.
-                                log::debug!("resubscribing with the existing broadcast channel to {:?}", topic);
-                                shoveled = ipfs.pubsub_subscribe(&topic)
-                                    .await
-                                    .expect("new subscriptions shouldn't fail while holding the lock");
+                                log::debug!(
+                                    "resubscribing with the existing broadcast channel to {:?}",
+                                    topic
+                                );
+                                shoveled = ipfs.pubsub_subscribe(&topic).await.expect(
+                                    "new subscriptions shouldn't fail while holding the lock",
+                                );
                             } else {
-                                log::trace!("got a new subscriber to existing broadcast channel on {:?}", topic);
+                                log::trace!(
+                                    "got a new subscriber to existing broadcast channel on {:?}",
+                                    topic
+                                );
                             }
                             // a new subscriber has appeared since our previous send failure.
                             continue;
@@ -193,8 +230,10 @@ async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic
                         oe.remove();
                         return;
                     } else {
-                        unreachable!("only way to remove subscriptions from
-                            ipfs-http::v0::pubsub::Pubsub is through shoveling tasks exiting");
+                        unreachable!(
+                            "only way to remove subscriptions from
+                            ipfs-http::v0::pubsub::Pubsub is through shoveling tasks exiting"
+                        );
                     }
                 }
             });
@@ -204,20 +243,21 @@ async fn inner_subscribe<T: IpfsTypes>(ipfs: Ipfs<T>, pubsub: Arc<Pubsub>, topic
     };
 
     // map recv errors into the StreamError and flatten
-    rx.into_stream().map(|res| res.map_err(|_| StreamError::Recv).and_then(|res| res))
+    rx.into_stream()
+        .map(|res| res.map_err(|_| StreamError::Recv).and_then(|res| res))
 }
 
 #[derive(Debug, Clone)]
 enum StreamError {
     Serialization,
-    Recv
+    Recv,
 }
 
 impl fmt::Display for StreamError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
             StreamError::Serialization => write!(fmt, "failed to serialize received message"),
-            StreamError::Recv => write!(fmt, "consuming the stream too slowly")
+            StreamError::Recv => write!(fmt, "consuming the stream too slowly"),
         }
     }
 }
@@ -234,7 +274,8 @@ struct PubsubHttpApiMessage {
 }
 
 impl<'a, T> From<&'a T> for PubsubHttpApiMessage
-    where T: AsRef<ipfs::PubsubMessage>
+where
+    T: AsRef<ipfs::PubsubMessage>,
 {
     fn from(msg: &'a T) -> Self {
         use multibase::Base::Base64Pad;
@@ -249,7 +290,7 @@ impl<'a, T> From<&'a T> for PubsubHttpApiMessage
             from,
             data,
             seqno,
-            topics
+            topics,
         }
     }
 }
@@ -273,7 +314,10 @@ impl Into<Bytes> for PreformattedJsonMessage {
 /// Formats the given pubsub message into json and a newline, as is the subscription format.
 fn preformat(msg: impl AsRef<ipfs::PubsubMessage>) -> Result<PreformattedJsonMessage, StreamError> {
     serde_json::to_vec(&PubsubHttpApiMessage::from(&msg))
-        .map(|mut vec| { vec.push(b'\n'); vec })
+        .map(|mut vec| {
+            vec.push(b'\n');
+            vec
+        })
         .map(Bytes::from)
         .map(PreformattedJsonMessage::from)
         .map_err(|e| {
@@ -285,14 +329,15 @@ fn preformat(msg: impl AsRef<ipfs::PubsubMessage>) -> Result<PreformattedJsonMes
 struct StreamResponse<S>(S);
 
 impl<S> warp::Reply for StreamResponse<S>
-    where S: futures::stream::TryStream + Send + Sync + 'static,
-          S::Ok: Into<Bytes>,
-          S::Error: std::error::Error + Send + Sync + 'static
+where
+    S: futures::stream::TryStream + Send + Sync + 'static,
+    S::Ok: Into<Bytes>,
+    S::Error: std::error::Error + Send + Sync + 'static,
 {
     fn into_response(self) -> warp::reply::Response {
-        use warp::hyper::Body;
         use futures::stream::TryStreamExt;
-        use warp::http::header::{HeaderValue, TRAILER, CONTENT_TYPE};
+        use warp::http::header::{HeaderValue, CONTENT_TYPE, TRAILER};
+        use warp::hyper::Body;
 
         // while it may seem like the S::Error is handled somehow it currently just means the
         // response will stop. hopefully later it can be used to become trailer headers.
@@ -323,7 +368,7 @@ struct OptionalTopicParameter {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
 struct StringListResponse {
-    strings: Vec<String>
+    strings: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -348,7 +393,9 @@ impl QueryOrBody {
 }
 
 /// `parameter_name` is bytes slice because there is no percent decoding done for that component.
-fn publish_args(parameter_name: &'static [u8]) -> impl warp::Filter<Extract = (PublishArgs, ), Error = warp::Rejection> + Copy {
+fn publish_args(
+    parameter_name: &'static [u8],
+) -> impl warp::Filter<Extract = (PublishArgs,), Error = warp::Rejection> + Copy {
     warp::filters::query::raw()
         .and_then(move |s: String| {
             let ret = if s.is_empty() {
@@ -358,23 +405,28 @@ fn publish_args(parameter_name: &'static [u8]) -> impl warp::Filter<Extract = (P
                 // conversion to utf8 without us being able to recover the raw bytes, which are
                 // used by js-ipfs/ipfs-http-client to encode raw Buffers:
                 // https://github.com/ipfs/js-ipfs/blob/master/packages/ipfs-http-client/src/pubsub/publish.js
-                let mut args = QueryAsRawPartsParser { input: s.as_bytes() }
-                    .filter(|&(k, _)| k == parameter_name)
-                    .map(|t| t.1);
+                let mut args = QueryAsRawPartsParser {
+                    input: s.as_bytes(),
+                }
+                .filter(|&(k, _)| k == parameter_name)
+                .map(|t| t.1);
 
-                let first = args.next()
+                let first = args
+                    .next()
                     // can't be missing
                     .ok_or_else(|| warp::reject::custom(RequiredArgumentMissing(b"arg")))
                     // decode into Result<String, warp::Rejection>
-                    .and_then(|raw_first| percent_encoding::percent_decode(raw_first)
-                        .decode_utf8()
-                        .map(|cow| cow.into_owned())
-                        .map_err(|_| warp::reject::custom(NonUtf8Topic))
-                    );
+                    .and_then(|raw_first| {
+                        percent_encoding::percent_decode(raw_first)
+                            .decode_utf8()
+                            .map(|cow| cow.into_owned())
+                            .map_err(|_| warp::reject::custom(NonUtf8Topic))
+                    });
 
                 first.map(move |first| {
                     // continue to second arg, which may or may not be present
-                    let second = args.next()
+                    let second = args
+                        .next()
                         .map(|slice| percent_encoding::percent_decode(slice).collect::<Vec<_>>())
                         .map(QueryOrBody::Query);
 
@@ -384,7 +436,7 @@ fn publish_args(parameter_name: &'static [u8]) -> impl warp::Filter<Extract = (P
 
             futures::future::ready(ret)
         })
-        .and_then(|(topic, opt_arg) : (String, Option<QueryOrBody>)| {
+        .and_then(|(topic, opt_arg): (String, Option<QueryOrBody>)| {
             let ret = if let Some(message) = opt_arg {
                 Ok(PublishArgs { topic, message })
             } else {
@@ -406,7 +458,9 @@ impl warp::reject::Reject for NonUtf8Topic {}
 struct RequiredArgumentMissing(&'static [u8]);
 impl warp::reject::Reject for RequiredArgumentMissing {}
 
-struct QueryAsRawPartsParser<'a> { input: &'a [u8] }
+struct QueryAsRawPartsParser<'a> {
+    input: &'a [u8],
+}
 
 // This has been monkey'd from https://github.com/servo/rust-url/blob/cce2d32015419b38f00c210430ecd3059105a7f2/src/form_urlencoded.rs
 impl<'a> Iterator for QueryAsRawPartsParser<'a> {
@@ -415,7 +469,7 @@ impl<'a> Iterator for QueryAsRawPartsParser<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if self.input.is_empty() {
-                return None
+                return None;
             }
 
             let mut split2 = self.input.splitn(2, |&b| b == b'&');
