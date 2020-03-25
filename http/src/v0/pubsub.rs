@@ -1,15 +1,35 @@
-use futures::stream::TryStream;
-use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
-use tokio::sync::Mutex;
-use warp::hyper::body::Bytes;
-use warp::Filter;
+//! /api/v0/pubsub module.
+//!
+//! /api/v0/pubsub/sub?arg=topic allows multiple clients to subscribe to the single topic, with
+//! semantics of getting the messages received on that topic from request onwards. This is
+//! implemented with [`tokio::sync::broadcast`] which supports these semantics.
+//!
+//! # Panics
+//!
+//! The subscription functionality *assumes* that there are no other users for
+//! `ipfs::Ipfs::pubsub_subscribe` and thus will panic if an subscription was made outside of this
+//! locking mechanism.
 
-use super::support::{with_ipfs, StringError};
+use futures::stream::TryStream;
+use futures::stream::TryStreamExt;
+use serde::{Deserialize, Serialize};
+
+use tokio::stream::StreamExt;
+use tokio::sync::{broadcast, Mutex};
+use tokio::time::timeout;
+
 use ipfs::{Ipfs, IpfsTypes};
+
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
+
+use warp::hyper::body::Bytes;
+use warp::Filter;
+
+use super::support::{with_ipfs, NonUtf8Topic, RequiredArgumentMissing, StringError};
 
 #[derive(Default)]
 pub struct Pubsub {
@@ -17,6 +37,7 @@ pub struct Pubsub {
         Mutex<HashMap<String, broadcast::Sender<Result<PreformattedJsonMessage, StreamError>>>>,
 }
 
+/// Creates a filter composing pubsub/{peers,ls,pub,sub}.
 pub fn routes<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
@@ -28,6 +49,7 @@ pub fn routes<T: IpfsTypes>(
     )
 }
 
+/// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-pubsub-peers
 pub fn peers<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
@@ -53,6 +75,7 @@ async fn inner_peers<T: IpfsTypes>(
     }))
 }
 
+/// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-pubsub-ls
 pub fn list_subscriptions<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
@@ -72,6 +95,7 @@ async fn inner_ls<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl warp::Reply, warp:
     Ok(warp::reply::json(&StringListResponse { strings: topics }))
 }
 
+/// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-pubsub-pub
 pub fn publish<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
@@ -93,6 +117,11 @@ async fn inner_publish<T: IpfsTypes>(
     Ok(warp::reply::reply())
 }
 
+/// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-pubsub-sub
+///
+/// # Panics
+///
+/// Note the module documentation.
 pub fn subscribe<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
     pubsub: Arc<Pubsub>,
@@ -113,11 +142,6 @@ async fn inner_subscribe<T: IpfsTypes>(
     pubsub: Arc<Pubsub>,
     topic: String,
 ) -> impl TryStream<Ok = PreformattedJsonMessage, Error = StreamError> {
-    use futures::stream::TryStreamExt;
-    use std::collections::hash_map::Entry;
-    use std::time::Duration;
-    use tokio::{stream::StreamExt, time::timeout};
-
     // accessing this through mutex bets on "most accesses would need write access" as in most
     // requests would be asking for new subscriptions, which would require RwLock upgrading
     // from write, which is not supported operation either.
@@ -152,91 +176,7 @@ async fn inner_subscribe<T: IpfsTypes>(
             // FIXME: handling this all efficiently in single task would require getting a
             // stream of "all streams" from ipfs::p2p::Behaviour ... perhaps one could be added
             // alongside the current "spread per topic" somehow?
-            tokio::spawn(async move {
-                log::trace!(
-                    "started background task for shoveling messages of {:?}",
-                    topic
-                );
-
-                // needs to be mut so that we resubscribe
-                let mut shoveled = shoveled;
-                let one_second = Duration::from_millis(1000);
-
-                loop {
-                    // has the underlying stream been stopped by directly calling
-                    // `Ipfs::pubsub_unsubscribe`
-                    let mut unsubscribed = true;
-                    loop {
-                        let next = match timeout(one_second, shoveled.next()).await {
-                            Ok(Some(next)) => preformat(next),
-                            Ok(None) => break,
-                            Err(_) => {
-                                if tx.receiver_count() == 0 {
-                                    log::debug!("timed out shoveling with zero receivers");
-                                    break;
-                                }
-
-                                // nice thing about this timeout is that it reduces resubscription
-                                // traffic, bad thing is that it is still work but then again it's
-                                // done once per topic so it's not too much work.
-                                continue;
-                            }
-                        };
-
-                        if tx.send(next.clone()).is_err() {
-                            // currently no more subscribers
-                            unsubscribed = false;
-                            break;
-                        }
-
-                        log::trace!(
-                            "message of {:?} bytes shoveled {:?}",
-                            next.as_ref().map(|b| b.0.len()),
-                            topic
-                        );
-                    }
-
-                    let mut guard = pubsub.subscriptions.lock().await;
-
-                    // as this can take a long time to acquire the mutex, we might get a new
-                    // subscriber in the between
-
-                    if let Entry::Occupied(oe) = guard.entry(topic.clone()) {
-                        if oe.get().receiver_count() > 0 {
-                            if unsubscribed {
-                                // this is tricky, se should obtain a new shoveled by resubscribing
-                                // and reusing the existing broadcast::channel. this will fail if
-                                // we introduce other Ipfs::pubsub_subscribe using code which does
-                                // not use the `Pubsub` thing.
-                                log::debug!(
-                                    "resubscribing with the existing broadcast channel to {:?}",
-                                    topic
-                                );
-                                shoveled = ipfs.pubsub_subscribe(&topic).await.expect(
-                                    "new subscriptions shouldn't fail while holding the lock",
-                                );
-                            } else {
-                                log::trace!(
-                                    "got a new subscriber to existing broadcast channel on {:?}",
-                                    topic
-                                );
-                            }
-                            // a new subscriber has appeared since our previous send failure.
-                            continue;
-                        }
-                        // really no more subscribers, unsubscribe and terminate the shoveling
-                        // task for this stream.
-                        log::debug!("unsubscribing from {:?}", topic);
-                        oe.remove();
-                        return;
-                    } else {
-                        unreachable!(
-                            "only way to remove subscriptions from
-                            ipfs-http::v0::pubsub::Pubsub is through shoveling tasks exiting"
-                        );
-                    }
-                }
-            });
+            tokio::spawn(shovel(ipfs, pubsub, topic, shoveled, tx));
 
             rx
         }
@@ -247,9 +187,102 @@ async fn inner_subscribe<T: IpfsTypes>(
         .map(|res| res.map_err(|_| StreamError::Recv).and_then(|res| res))
 }
 
+/// Shovel task takes items from the [`SubscriptionStream`], formats them and passes them on to
+/// response streams. Uses timeouts to attempt dropping subscriptions which no longer have
+/// responses reading from them and resubscribes streams which get new requests.
+async fn shovel<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    pubsub: Arc<Pubsub>,
+    topic: String,
+    mut shoveled: ipfs::SubscriptionStream,
+    tx: broadcast::Sender<Result<PreformattedJsonMessage, StreamError>>,
+) {
+    log::trace!(
+        "started background task for shoveling messages of {:?}",
+        topic
+    );
+
+    // needs to be mut so that we resubscribe
+    let one_second = Duration::from_millis(1000);
+
+    loop {
+        // has the underlying stream been stopped by directly calling
+        // `Ipfs::pubsub_unsubscribe`
+        let mut unsubscribed = true;
+        loop {
+            let next = match timeout(one_second, shoveled.next()).await {
+                Ok(Some(next)) => preformat(next),
+                Ok(None) => break,
+                Err(_) => {
+                    if tx.receiver_count() == 0 {
+                        log::debug!("timed out shoveling with zero receivers");
+                        break;
+                    }
+
+                    // nice thing about this timeout is that it reduces resubscription
+                    // traffic, bad thing is that it is still work but then again it's
+                    // done once per topic so it's not too much work.
+                    continue;
+                }
+            };
+
+            if tx.send(next.clone()).is_err() {
+                // currently no more subscribers
+                unsubscribed = false;
+                break;
+            }
+        }
+
+        let mut guard = pubsub.subscriptions.lock().await;
+
+        // as this can take a long time to acquire the mutex, we might get a new
+        // subscriber in the between
+
+        if let Entry::Occupied(oe) = guard.entry(topic.clone()) {
+            if oe.get().receiver_count() > 0 {
+                if unsubscribed {
+                    // this is tricky, se should obtain a new shoveled by resubscribing
+                    // and reusing the existing broadcast::channel. this will fail if
+                    // we introduce other Ipfs::pubsub_subscribe using code which does
+                    // not use the `Pubsub` thing.
+                    log::debug!(
+                        "resubscribing with the existing broadcast channel to {:?}",
+                        topic
+                    );
+                    shoveled = ipfs
+                        .pubsub_subscribe(&topic)
+                        .await
+                        .expect("new subscriptions shouldn't fail while holding the lock");
+                } else {
+                    log::trace!(
+                        "got a new subscriber to existing broadcast channel on {:?}",
+                        topic
+                    );
+                }
+                // a new subscriber has appeared since our previous send failure.
+                continue;
+            }
+            // really no more subscribers, unsubscribe and terminate the shoveling
+            // task for this stream.
+            log::debug!("unsubscribing from {:?}", topic);
+            oe.remove();
+            return;
+        } else {
+            unreachable!(
+                "only way to remove subscriptions from
+                ipfs-http::v0::pubsub::Pubsub is through shoveling tasks exiting"
+            );
+        }
+    }
+}
+
+/// The two cases which can stop a pubsub/sub response generation.
+// Any error from the stream wrapped in warp::hyper::Body will currently stop the request.
 #[derive(Debug, Clone)]
 enum StreamError {
+    /// Something went bad with the `serde_json`
     Serialization,
+    /// Response is not keeping up with the stream (slow client)
     Recv,
 }
 
@@ -264,11 +297,17 @@ impl fmt::Display for StreamError {
 
 impl std::error::Error for StreamError {}
 
+/// Another representation for ipfs::PubsubMessage, but with the Base64Pad encoded fields.
 #[derive(Debug, Serialize)]
 struct PubsubHttpApiMessage {
+    // Base64Pad encoded PeerId
     from: String,
+    // Base64Pad encoded Vec<u8>
     data: String,
+    // Base64Pad encoded sequence number (go-ipfs sends incrementing, rust-libp2p has random
+    // values)
     seqno: String,
+    // Plain text topic names
     #[serde(rename = "topicIDs")]
     topics: Vec<String>,
 }
@@ -305,6 +344,7 @@ impl From<Bytes> for PreformattedJsonMessage {
     }
 }
 
+// This direction is required by warp::hyper::Body
 impl Into<Bytes> for PreformattedJsonMessage {
     fn into(self) -> Bytes {
         self.0
@@ -335,7 +375,6 @@ where
     S::Error: std::error::Error + Send + Sync + 'static,
 {
     fn into_response(self) -> warp::reply::Response {
-        use futures::stream::TryStreamExt;
         use warp::http::header::{HeaderValue, CONTENT_TYPE, TRAILER};
         use warp::hyper::Body;
 
@@ -353,24 +392,30 @@ where
     }
 }
 
+/// The  "arg" for `pubsub/sub`
 #[derive(Debug, Deserialize)]
 struct TopicParameter {
     #[serde(rename = "arg")]
     topic: String,
 }
 
+/// The optional "arg" for `pubsub/peers`
 #[derive(Debug, Deserialize)]
 struct OptionalTopicParameter {
     #[serde(rename = "arg")]
     topic: Option<String>,
 }
 
+/// Generic response which should be moved to ipfs_http::v0
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
 struct StringListResponse {
     strings: Vec<String>,
 }
 
+/// `pubsub/pub` is used by `go-ipfs` by including the topic in the query string and using body for
+/// the message. `js-ipfs-http-client` uses query parameters for both. Currently only supports the
+/// `js-ipfs-http-client` as `go-ipfs` doesn't send `Content-Length` with the body.
 #[derive(Debug)]
 struct PublishArgs {
     topic: String,
@@ -392,7 +437,7 @@ impl QueryOrBody {
     }
 }
 
-/// `parameter_name` is bytes slice because there is no percent decoding done for that component.
+/// `parameter_name` is byte slice because there is no percent decoding done for that component.
 fn publish_args(
     parameter_name: &'static [u8],
 ) -> impl warp::Filter<Extract = (PublishArgs,), Error = warp::Rejection> + Copy {
@@ -449,14 +494,6 @@ fn publish_args(
             futures::future::ready(ret)
         })
 }
-
-#[derive(Debug)]
-struct NonUtf8Topic;
-impl warp::reject::Reject for NonUtf8Topic {}
-
-#[derive(Debug)]
-struct RequiredArgumentMissing(&'static [u8]);
-impl warp::reject::Reject for RequiredArgumentMissing {}
 
 struct QueryAsRawPartsParser<'a> {
     input: &'a [u8],

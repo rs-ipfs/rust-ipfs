@@ -59,6 +59,16 @@ pub fn with_ipfs<T: IpfsTypes>(
     warp::any().map(move || ipfs.clone())
 }
 
+/// Special rejection from `pubsub/pub`
+#[derive(Debug)]
+pub(crate) struct NonUtf8Topic;
+impl warp::reject::Reject for NonUtf8Topic {}
+
+/// Used by `pubsub/pub`
+#[derive(Debug)]
+pub(crate) struct RequiredArgumentMissing(pub(crate) &'static [u8]);
+impl warp::reject::Reject for RequiredArgumentMissing {}
+
 /// Marker for `warp` specific rejections when something is unimplemented
 #[derive(Debug)]
 pub(crate) struct NotImplemented;
@@ -106,6 +116,22 @@ pub async fn recover_as_message_response(
                 .to_json_reply(),
         );
         status = StatusCode::NOT_IMPLEMENTED;
+    } else if let Some(e) = err.find::<RequiredArgumentMissing>() {
+        resp = Box::new(
+            MessageKind::Error
+                .with_code(0)
+                .with_message(format!("required argument {:?} missing", e.0))
+                .to_json_reply(),
+        );
+        status = StatusCode::BAD_REQUEST;
+    } else if let Some(e) = err.find::<NonUtf8Topic>() {
+        resp = Box::new(
+            MessageKind::Error
+                .with_code(0)
+                .with_message("non utf8 topic")
+                .to_json_reply(),
+        );
+        status = StatusCode::BAD_REQUEST;
     } else if let Some(e) = err.find::<InvalidQuery>() {
         // invalidquery contains box<std::error::Error + Sync + Static>
         resp = Box::new(
