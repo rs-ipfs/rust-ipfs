@@ -9,7 +9,6 @@ use crate::block::Block;
 use crate::ledger::Ledger;
 use crate::message::{BitswapMessage, Priority};
 use crate::protocol::BitswapConfig;
-use core::task::Waker;
 use fnv::FnvHashSet;
 use futures::task::Context;
 use futures::task::Poll;
@@ -36,8 +35,6 @@ pub struct Bitswap {
     connected_peers: HashMap<PeerId, Ledger>,
     /// Wanted blocks
     wanted_blocks: HashMap<Cid, Priority>,
-    /// Waker
-    waker: Option<Waker>,
 }
 
 impl Bitswap {
@@ -49,13 +46,6 @@ impl Bitswap {
             target_peers: FnvHashSet::default(),
             connected_peers: HashMap::new(),
             wanted_blocks: HashMap::new(),
-            waker: None,
-        }
-    }
-
-    fn wake(&self) {
-        if let Some(waker) = self.waker.as_ref() {
-            waker.wake_by_ref();
         }
     }
 
@@ -74,7 +64,6 @@ impl Bitswap {
         log::trace!("  queuing dial_peer to {}", peer_id.to_base58());
         self.events
             .push_back(NetworkBehaviourAction::DialPeer { peer_id });
-        self.wake();
     }
 
     /// Sends a block to the peer.
@@ -84,7 +73,6 @@ impl Bitswap {
         log::trace!("bitswap: send_block");
         log::trace!("  queuing block for {}", peer_id.to_base58());
         self.ledger(peer_id).add_block(block);
-        self.wake();
     }
 
     /// Sends the wantlist to the peer.
@@ -98,7 +86,6 @@ impl Bitswap {
         for (cid, priority) in &self.wanted_blocks {
             ledger.want(cid, *priority);
         }
-        self.wake();
     }
 
     /// Queues the wanted block for all peers.
@@ -111,7 +98,6 @@ impl Bitswap {
             ledger.want(&cid, priority);
         }
         self.wanted_blocks.insert(cid, priority);
-        self.wake();
     }
 
     /// Removes the block from our want list and updates all peers.
@@ -125,7 +111,6 @@ impl Bitswap {
             ledger.cancel(cid);
         }
         self.wanted_blocks.remove(cid);
-        self.wake();
     }
 }
 
@@ -190,7 +175,7 @@ impl NetworkBehaviour for Bitswap {
     }
 
     #[allow(clippy::type_complexity)]
-    fn poll(&mut self, ctx: &mut Context, _: &mut impl PollParameters)
+    fn poll(&mut self, _: &mut Context, _: &mut impl PollParameters)
         -> Poll<NetworkBehaviourAction<<<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>
     {
         if let Some(event) = self.events.pop_front() {
@@ -204,7 +189,6 @@ impl NetworkBehaviour for Bitswap {
                 });
             }
         }
-        self.waker = Some(ctx.waker().clone());
         Poll::Pending
     }
 }
