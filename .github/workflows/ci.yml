@@ -67,7 +67,7 @@ jobs:
 
     - name: Install dependencies ubuntu
       if: matrix.platform.host == 'ubuntu-latest'
-      run: sudo apt-get install llvm-dev libssl-dev pkg-config
+      run: sudo apt-get update && sudo apt-get install llvm-dev libssl-dev pkg-config
 
     - name: Install dependencies macos
       if: matrix.platform.host == 'macos-latest'
