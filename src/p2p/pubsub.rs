@@ -287,30 +287,22 @@ impl NetworkBehaviour for Pubsub {
                     let mut buffer = None;
 
                     for topic in topics {
-                        match self.streams.entry(topic) {
-                            Entry::Occupied(oe) => {
-                                let sent = buffer.take().unwrap_or_else(|| Arc::clone(&msg));
-                                if let Err(se) = oe.get().unbounded_send(sent) {
-                                    // receiver has dropped
-                                    let (topic, _) = oe.remove_entry();
-                                    log::debug!(
-                                        "unsubscribing via SendError from {:?}",
-                                        topic.id()
-                                    );
-                                    assert!(
-                                        self.floodsub.unsubscribe(topic),
-                                        "Failed to unsubscribe following SendError"
-                                    );
-                                    buffer = Some(se.into_inner());
-                                }
-                            }
-                            Entry::Vacant(ve) => {
-                                panic!(
-                                    "we received a message to a topic we havent subscribed to {:?},
-                                    streams are probably out of sync. Please report this as a bug.",
-                                    ve.key()
+                        if let Entry::Occupied(oe) = self.streams.entry(topic) {
+                            let sent = buffer.take().unwrap_or_else(|| Arc::clone(&msg));
+
+                            if let Err(se) = oe.get().unbounded_send(sent) {
+                                // receiver has dropped
+                                let (topic, _) = oe.remove_entry();
+                                log::debug!("unsubscribing via SendError from {:?}", topic.id());
+                                assert!(
+                                    self.floodsub.unsubscribe(topic),
+                                    "Failed to unsubscribe following SendError"
                                 );
+                                buffer = Some(se.into_inner());
                             }
+                        } else {
+                            // we had unsubscribed from the topic after Floodsub had received the
+                            // message
                         }
                     }
 
