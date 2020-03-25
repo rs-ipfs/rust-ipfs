@@ -202,15 +202,15 @@ async fn shovel<T: IpfsTypes>(
         topic
     );
 
-    // needs to be mut so that we resubscribe
-    let one_second = Duration::from_millis(1000);
+    // related conformance test waits for 100ms
+    let check_every = Duration::from_millis(50);
 
     loop {
         // has the underlying stream been stopped by directly calling
         // `Ipfs::pubsub_unsubscribe`
         let mut unsubscribed = true;
         loop {
-            let next = match timeout(one_second, shoveled.next()).await {
+            let next = match timeout(check_every, shoveled.next()).await {
                 Ok(Some(next)) => preformat(next),
                 Ok(None) => break,
                 Err(_) => {
