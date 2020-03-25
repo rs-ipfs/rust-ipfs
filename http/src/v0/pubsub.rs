@@ -1,21 +1,19 @@
 use warp::Filter;
 use warp::hyper::body::Bytes;
 use serde::{Serialize, Deserialize};
-use futures::stream::{Stream, TryStream};
+use futures::stream::TryStream;
 use tokio::sync::Mutex;
 use tokio::sync::broadcast;
-use tokio::sync::mpsc;
 
 use std::fmt;
 use std::collections::HashMap;
 use std::sync::Arc;
-use ipfs::{Ipfs, IpfsTypes, Error, PeerId};
+use ipfs::{Ipfs, IpfsTypes};
 use super::support::{with_ipfs, StringError};
 
 #[derive(Default)]
 pub struct Pubsub {
     subscriptions: Mutex<HashMap<String, broadcast::Sender<Result<PreformattedJsonMessage, StreamError>>>>,
-    //shoveler_tx: mpsc::Sender<(Subscription, broadcast::Sender<PubsubMessage)>>,
 }
 
 pub fn routes<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
@@ -256,7 +254,7 @@ impl<S> warp::Reply for StreamResponse<S>
         // while it may seem like the S::Error is handled somehow it currently just means the
         // response will stop. hopefully later it can be used to become trailer headers.
         let mut resp = warp::reply::Response::new(Body::wrap_stream(self.0.into_stream()));
-        let mut headers = resp.headers_mut();
+        let headers = resp.headers_mut();
 
         // FIXME: unable to send this header with warp/hyper right now
         headers.insert(TRAILER, HeaderValue::from_static("X-Stream-Error"));
