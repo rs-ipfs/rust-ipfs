@@ -46,6 +46,10 @@ async fn can_publish_without_subscribing() {
 
 #[async_std::test]
 async fn publish_between_two_nodes() {
+    use futures::stream::StreamExt;
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
     let ((a, a_id), (b, b_id)) = two_connected_nodes().await;
 
     let topic = "shared";
@@ -75,17 +79,28 @@ async fn publish_between_two_nodes() {
     a.pubsub_publish(topic, b"foobar").await.unwrap();
     b.pubsub_publish(topic, b"barfoo").await.unwrap();
 
-    let recvd = b_msgs.next().await.unwrap();
+    // the order is not defined, but both should see the other's message and the message they sent
+    let expected = [(&[topic], &a_id, b"foobar"), (&[topic], &b_id, b"barfoo")]
+        .iter()
+        .cloned()
+        .map(|(topics, id, data)| {
+            (
+                topics.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                id.clone(),
+                data.to_vec(),
+            )
+        })
+        .collect::<HashSet<_>>();
 
-    assert_eq!(recvd.source, a_id);
-    assert_eq!(recvd.data, b"foobar");
-    assert_eq!(recvd.topics, &[topic]);
-
-    let recvd = a_msgs.next().await.unwrap();
-
-    assert_eq!(recvd.source, b_id);
-    assert_eq!(recvd.data, b"barfoo");
-    assert_eq!(recvd.topics, &[topic]);
+    for st in &mut [b_msgs.by_ref(), a_msgs.by_ref()] {
+        let actual = st
+            .take(2)
+            .map(|msg| Arc::try_unwrap(msg).expect("single subscriber"))
+            .map(|msg| (msg.topics, msg.source, msg.data))
+            .collect::<HashSet<_>>()
+            .await;
+        assert_eq!(expected, actual);
+    }
 
     drop(b_msgs);
 

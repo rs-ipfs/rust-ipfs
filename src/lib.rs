@@ -42,8 +42,8 @@ use self::config::ConfigFile;
 use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
+pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
 pub use self::p2p::Connection;
-pub use self::p2p::PubsubMessage;
 pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
@@ -221,7 +221,7 @@ enum IpfsEvent {
     Disconnect(Multiaddr, Channel<()>),
     /// Request background task to return the listened and external addresses
     GetAddresses(OneshotSender<Vec<Multiaddr>>),
-    PubsubSubscribe(String, OneshotSender<Option<p2p::pubsub::StreamImpl>>),
+    PubsubSubscribe(String, OneshotSender<Option<SubscriptionStream>>),
     PubsubUnsubscribe(String, OneshotSender<bool>),
     PubsubPublish(String, Vec<u8>, OneshotSender<()>),
     PubsubPeers(Option<String>, OneshotSender<Vec<PeerId>>),
@@ -414,10 +414,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
     /// The subscription can be unsubscribed by dropping the stream or calling
     /// [`pubsub_unsubscribe`].
-    pub async fn pubsub_subscribe(
-        &self,
-        topic: &str,
-    ) -> Result<impl futures::stream::Stream<Item = Arc<PubsubMessage>> + fmt::Debug, Error> {
+    pub async fn pubsub_subscribe(&self, topic: &str) -> Result<SubscriptionStream, Error> {
         let (tx, rx) = oneshot_channel();
 
         self.to_task

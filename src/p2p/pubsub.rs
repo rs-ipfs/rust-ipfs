@@ -1,5 +1,5 @@
 use futures::channel::mpsc as channel;
-use futures::stream::Stream;
+use futures::stream::{FusedStream, Stream};
 
 use std::collections::HashMap;
 use std::fmt;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use libp2p::core::{ConnectedPoint, Multiaddr, PeerId};
-use libp2p::floodsub::{Floodsub, FloodsubEvent, FloodsubMessage, Topic};
+use libp2p::floodsub::{Floodsub, FloodsubEvent, FloodsubMessage, FloodsubOptions, Topic};
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
 
 /// Currently a thin wrapper around Floodsub, perhaps supporting both Gossipsub and Floodsub later.
@@ -58,48 +58,65 @@ impl From<FloodsubMessage> for PubsubMessage {
     }
 }
 
-pub(crate) type StreamImpl = UnsubscribeOnDrop<channel::UnboundedReceiver<Arc<PubsubMessage>>>;
+/// Stream of a pubsub messages. Implements [`FusedStream`].
+pub struct SubscriptionStream {
+    on_drop: Option<channel::UnboundedSender<String>>,
+    topic: Option<String>,
+    inner: channel::UnboundedReceiver<Arc<PubsubMessage>>,
+}
 
-pub struct UnsubscribeOnDrop<T>(channel::UnboundedSender<String>, Option<String>, T);
-
-impl<T> Drop for UnsubscribeOnDrop<T> {
+impl Drop for SubscriptionStream {
     fn drop(&mut self) {
-        // the topic option allows us to disable this unsubscribe on drop once the stream has
-        // ended. TODO: it would also be easy to implement FusedStream based on the state of the
-        // option, if that is ever needed.
-        if let Some(topic) = self.1.take() {
-            // ignore errors
-            let _ = self.0.unbounded_send(topic);
+        // the on_drop option allows us to disable this unsubscribe on drop once the stream has
+        // ended.
+        if let Some(sender) = self.on_drop.take() {
+            if let Some(topic) = self.topic.take() {
+                let _ = sender.unbounded_send(topic);
+            }
         }
     }
 }
 
-impl<T> fmt::Debug for UnsubscribeOnDrop<T> {
+impl fmt::Debug for SubscriptionStream {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            fmt,
-            "UnsubscribeOnDrop<{}>({:?})",
-            std::any::type_name::<T>(),
-            self.1
-        )
+        if let Some(topic) = self.topic.as_ref() {
+            write!(
+                fmt,
+                "SubscriptionStream {{ topic: {:?}, is_terminated: {} }}",
+                topic,
+                self.is_terminated()
+            )
+        } else {
+            write!(
+                fmt,
+                "SubscriptionStream {{ is_terminated: {} }}",
+                self.is_terminated()
+            )
+        }
     }
 }
 
-impl<T: Stream + Unpin> Stream for UnsubscribeOnDrop<T> {
-    type Item = T::Item;
+impl Stream for SubscriptionStream {
+    type Item = Arc<PubsubMessage>;
 
     fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
-        let inner = &mut self.as_mut().2;
-        let inner = Pin::new(inner);
-        match inner.poll_next(ctx) {
+        use futures::stream::StreamExt;
+        let inner = &mut self.as_mut().inner;
+        match inner.poll_next_unpin(ctx) {
             Poll::Ready(None) => {
                 // no need to unsubscribe on drop as the stream has already ended, likely via
                 // unsubscribe call.
-                self.1.take();
+                self.on_drop.take();
                 Poll::Ready(None)
             }
             other => other,
         }
+    }
+}
+
+impl FusedStream for SubscriptionStream {
+    fn is_terminated(&self) -> bool {
+        self.on_drop.is_none()
     }
 }
 
@@ -108,17 +125,19 @@ impl Pubsub {
     /// top of the floodsub.
     pub fn new(peer_id: PeerId) -> Self {
         let (tx, rx) = channel::unbounded();
+        let mut opts = FloodsubOptions::new(peer_id);
+        opts.subscribe_local_messages = true;
         Pubsub {
             streams: HashMap::new(),
             peers: HashMap::new(),
-            floodsub: Floodsub::new(peer_id),
+            floodsub: Floodsub::from_options(opts),
             unsubscriptions: (tx, rx),
         }
     }
 
     /// Subscribes to an currently unsubscribed topic.
     /// Returns a receiver for messages sent to the topic or `None` if subscription existed already
-    pub fn subscribe(&mut self, topic: impl Into<String>) -> Option<StreamImpl> {
+    pub fn subscribe(&mut self, topic: impl Into<String>) -> Option<SubscriptionStream> {
         use std::collections::hash_map::Entry;
 
         let topic = Topic::new(topic);
@@ -137,11 +156,11 @@ impl Pubsub {
 
                 let name = ve.key().id().to_string();
                 ve.insert(tx);
-                Some(UnsubscribeOnDrop(
-                    self.unsubscriptions.0.clone(),
-                    Some(name),
-                    rx,
-                ))
+                Some(SubscriptionStream {
+                    on_drop: Some(self.unsubscriptions.0.clone()),
+                    topic: Some(name),
+                    inner: rx,
+                })
             }
             Entry::Occupied(_) => None,
         }

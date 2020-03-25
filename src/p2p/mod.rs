@@ -12,7 +12,6 @@ mod behaviour;
 pub(crate) mod pubsub;
 mod swarm;
 mod transport;
-pub use pubsub::PubsubMessage;
 
 pub use swarm::Connection;
 

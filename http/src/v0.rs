@@ -2,6 +2,7 @@ use ipfs::{Ipfs, IpfsTypes};
 use std::convert::Infallible;
 
 pub mod id;
+pub mod pubsub;
 pub mod swarm;
 pub mod version;
 
@@ -43,7 +44,7 @@ where
             .or(warp::path!("object" / ..).and_then(not_implemented))
             .or(warp::path!("pin" / ..).and_then(not_implemented))
             .or(warp::path!("ping" / ..).and_then(not_implemented))
-            .or(warp::path!("pubsub" / ..).and_then(not_implemented))
+            .or(pubsub::routes(ipfs))
             .or(warp::path!("refs" / ..).and_then(not_implemented))
             .or(warp::path!("repo" / ..).and_then(not_implemented))
             .or(warp::path!("stats" / ..).and_then(not_implemented))
