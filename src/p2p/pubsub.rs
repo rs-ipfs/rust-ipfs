@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use libp2p::core::{ConnectedPoint, Multiaddr, PeerId};
-use libp2p::floodsub::{Floodsub, FloodsubEvent, FloodsubMessage, Topic};
+use libp2p::floodsub::{Floodsub, FloodsubEvent, FloodsubMessage, FloodsubOptions, Topic};
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
 
 /// Currently a thin wrapper around Floodsub, perhaps supporting both Gossipsub and Floodsub later.
@@ -125,10 +125,12 @@ impl Pubsub {
     /// top of the floodsub.
     pub fn new(peer_id: PeerId) -> Self {
         let (tx, rx) = channel::unbounded();
+        let mut opts = FloodsubOptions::new(peer_id);
+        opts.subscribe_local_messages = true;
         Pubsub {
             streams: HashMap::new(),
             peers: HashMap::new(),
-            floodsub: Floodsub::new(peer_id),
+            floodsub: Floodsub::from_options(opts),
             unsubscriptions: (tx, rx),
         }
     }

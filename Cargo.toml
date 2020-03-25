@@ -43,3 +43,9 @@ members = [ "bitswap", "http", "examples" ]
 
 [patch.crates-io]
 ctr = { git = "https://github.com/koivunej/stream-ciphers.git", branch = "ctr128-64to128" }
+
+# these are needed for the floodsub local originated messages to be seen by subscribers
+libp2p = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
+libp2p-core = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
+libp2p-swarm = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
+libp2p-floodsub = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
