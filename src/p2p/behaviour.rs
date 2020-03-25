@@ -2,6 +2,7 @@ use super::swarm::{Connection, Disconnector, SwarmApi};
 use crate::options::IpfsOptions;
 use crate::registry::Channel;
 use bitswap::{Bitswap, BitswapEvent, Block};
+use core::task::{Context, Poll};
 use libipld::cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::floodsub::{Floodsub, FloodsubEvent};
@@ -11,8 +12,11 @@ use libp2p::kad::{Kademlia, KademliaEvent};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
 use libp2p::swarm::toggle::Toggle;
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
+use libp2p::swarm::{
+    NetworkBehaviour, NetworkBehaviourAction, NetworkBehaviourEventProcess, PollParameters,
+};
 use libp2p::NetworkBehaviour;
+use std::collections::VecDeque;
 
 /// Behaviour event.
 #[derive(Debug)]
@@ -23,7 +27,7 @@ pub enum BehaviourEvent {
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
-#[behaviour(out_event = "BehaviourEvent")]
+#[behaviour(poll_method = "custom_poll", out_event = "BehaviourEvent")]
 pub struct Behaviour {
     mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
@@ -32,6 +36,8 @@ pub struct Behaviour {
     identify: Identify,
     floodsub: Floodsub,
     swarm: SwarmApi,
+    #[behaviour(ignore)]
+    events: VecDeque<BehaviourEvent>,
 }
 
 impl NetworkBehaviourEventProcess<void::Void> for Behaviour {
@@ -96,7 +102,18 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for Behaviour {
 }
 
 impl NetworkBehaviourEventProcess<BitswapEvent> for Behaviour {
-    fn inject_event(&mut self, event: BitswapEvent) {}
+    fn inject_event(&mut self, event: BitswapEvent) {
+        let event = match event {
+            BitswapEvent::ReceivedBlock(peer_id, block) => {
+                BehaviourEvent::ReceivedBlock(peer_id, block)
+            }
+            BitswapEvent::ReceivedWant(peer_id, cid, _) => {
+                BehaviourEvent::ReceivedWant(peer_id, cid)
+            }
+            BitswapEvent::ReceivedCancel(_, _) => return,
+        };
+        self.events.push_back(event);
+    }
 }
 
 impl NetworkBehaviourEventProcess<PingEvent> for Behaviour {
@@ -185,6 +202,7 @@ impl Behaviour {
             identify,
             floodsub,
             swarm,
+            events: Default::default(),
         }
     }
 
@@ -243,5 +261,17 @@ impl Behaviour {
         info!("Finished providing block {}", cid.to_string());
         //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
         //self.kademlia.remove_providing(&hash);
+    }
+
+    pub fn custom_poll<T>(
+        &mut self,
+        _: &mut Context,
+        _: &mut impl PollParameters,
+    ) -> Poll<NetworkBehaviourAction<T, BehaviourEvent>> {
+        if let Some(event) = self.events.pop_front() {
+            Poll::Ready(NetworkBehaviourAction::GenerateEvent(event))
+        } else {
+            Poll::Pending
+        }
     }
 }

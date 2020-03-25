@@ -57,9 +57,7 @@ impl Ipfs {
         let (tx, rx) = mpsc::channel(1);
         let daemon = IpfsDaemon::<T>::new(options, rx).await?;
         task::spawn(daemon);
-        Ok(Self {
-            sender: tx,
-        })
+        Ok(Self { sender: tx })
     }
 
     pub async fn connect(&self, addr: Multiaddr) -> Result<(), Error> {
