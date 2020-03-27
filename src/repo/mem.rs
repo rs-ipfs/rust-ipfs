@@ -59,6 +59,7 @@ impl BlockStore for MemBlockStore {
 #[derive(Clone, Debug)]
 pub struct MemDataStore {
     ipns: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
+    pin: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
 }
 
 #[async_trait]
@@ -66,6 +67,7 @@ impl DataStore for MemDataStore {
     fn new(_path: PathBuf) -> Self {
         MemDataStore {
             ipns: Arc::new(Mutex::new(HashMap::new())),
+            pin: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -80,6 +82,7 @@ impl DataStore for MemDataStore {
     async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
+            Column::Pin => &self.pin,
         };
         let contains = map.lock().await.contains_key(key);
         Ok(contains)
@@ -88,6 +91,7 @@ impl DataStore for MemDataStore {
     async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
+            Column::Pin => &self.pin,
         };
         let value = map.lock().await.get(key).map(|value| value.to_owned());
         Ok(value)
@@ -96,6 +100,7 @@ impl DataStore for MemDataStore {
     async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
+            Column::Pin => &self.pin,
         };
         map.lock().await.insert(key.to_owned(), value.to_owned());
         Ok(())
@@ -104,6 +109,7 @@ impl DataStore for MemDataStore {
     async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
+            Column::Pin => &self.pin,
         };
         map.lock().await.remove(key);
         Ok(())

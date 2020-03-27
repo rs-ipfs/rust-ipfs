@@ -318,6 +318,21 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(self.repo.remove_block(cid).await?)
     }
 
+    /// Pins a given Cid
+    pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
+        Ok(self.repo.pin_block(cid).await?)
+    }
+
+    /// Unpins a given Cid
+    pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
+        Ok(self.repo.unpin_block(cid).await?)
+    }
+
+    /// Checks whether a given block is pinned
+    pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
+        Ok(self.repo.is_pinned(cid).await?)
+    }
+
     /// Puts an ipld dag node into the ipfs repo.
     pub async fn put_dag(&self, ipld: Ipld) -> Result<Cid, Error> {
         Ok(self.dag.put(ipld, Codec::DagCBOR).await?)
@@ -693,6 +708,24 @@ mod tests {
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
         let new_data = ipfs.get_dag(cid.into()).await.unwrap();
         assert_eq!(data, new_data);
+
+        ipfs.exit_daemon().await;
+    }
+
+    #[async_std::test]
+    async fn test_pin_and_unpin() {
+        let options = IpfsOptions::<TestTypes>::default();
+
+        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        task::spawn(fut);
+
+        let data = ipld!([-1, -2, -3]);
+        let cid = ipfs.put_dag(data.clone()).await.unwrap();
+
+        ipfs.pin_block(&cid).await.unwrap();
+        assert!(ipfs.is_pinned(&cid).await.unwrap());
+        ipfs.unpin_block(&cid).await.unwrap();
+        assert!(!ipfs.is_pinned(&cid).await.unwrap());
 
         ipfs.exit_daemon().await;
     }
