@@ -236,9 +236,6 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         
         match pin_value {
             Some(pin_count) if pin_count[0] == 1 => {
-                if pin_count[0] == std::u8::MAX {
-                    return Err(anyhow::anyhow!("Block cannot be pinned more times"));
-                } 
                 self.data_store.remove(Column::Pin, &cid.to_bytes()).await 
             },
             Some(pin_count) => { 
