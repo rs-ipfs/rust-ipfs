@@ -48,7 +48,6 @@ async fn can_publish_without_subscribing() {
 async fn publish_between_two_nodes() {
     use futures::stream::StreamExt;
     use std::collections::HashSet;
-    use std::sync::Arc;
 
     let ((a, a_id), (b, b_id)) = two_connected_nodes().await;
 
