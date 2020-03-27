@@ -100,7 +100,7 @@ More usage examples coming soon :+1:
 
 A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs](https://github.com/ipfs/devgrants/tree/master/open-grants/ipfs-rust). In the proposal, we discussed using implemented HTTP API endpoints as a metric to determine progress. _There are always opportunities for community members to contribute by helping out with endpoints not covered in the grant._
 
-### Devgrant Phase 1.0
+### Devgrant Phase 1.0 - `Complete`
 
 - Project Setup
 - Testing Setup
@@ -108,7 +108,7 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
     - Interop testing
 - HTTP API Scaffolding
 
-### Devgrant Phase 1.1
+### Devgrant Phase 1.1 - `Complete`
 
 - Blockstore implementation
 - /pubsub
@@ -116,7 +116,7 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
 - /version
 - /id
 
-### Devgrant Phase 1.2
+### Devgrant Phase 1.2 - `In Progress`
 
 - Bitswap updates
 - /block
