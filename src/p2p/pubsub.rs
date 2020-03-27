@@ -28,7 +28,7 @@ pub struct Pubsub {
 }
 
 /// Adaptation hopefully supporting somehow both Floodsub and Gossipsub Messages in the future
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PubsubMessage {
     pub source: PeerId,
     pub data: Vec<u8>,
