@@ -6,6 +6,7 @@ mod behaviour;
 mod block;
 mod error;
 mod ledger;
+mod prefix;
 mod protocol;
 mod strategy;
 
