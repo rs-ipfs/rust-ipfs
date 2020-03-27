@@ -1,9 +1,11 @@
 use ipfs::Ipfs;
 use std::convert::Infallible;
 
-pub mod id;
-pub mod swarm;
-pub mod version;
+mod bitswap;
+mod block;
+mod id;
+mod swarm;
+mod version;
 
 pub mod support;
 pub use support::recover_as_message_response;
@@ -28,8 +30,12 @@ pub fn routes(
             // Placeholder paths
             // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
             .or(warp::path!("add").and_then(not_implemented))
-            .or(warp::path!("bitswap" / ..).and_then(not_implemented))
-            .or(warp::path!("block" / ..).and_then(not_implemented))
+            .or(bitswap::wantlist(ipfs))
+            .or(bitswap::stat(ipfs))
+            .or(block::get(ipfs))
+            .or(block::put(ipfs))
+            .or(block::rm(ipfs))
+            .or(block::stat(ipfs))
             .or(warp::path!("bootstrap" / ..).and_then(not_implemented))
             .or(warp::path!("config" / ..).and_then(not_implemented))
             .or(warp::path!("dag" / ..).and_then(not_implemented))

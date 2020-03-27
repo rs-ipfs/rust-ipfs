@@ -107,6 +107,30 @@ impl Bitswap {
         }
         self.wanted_blocks.remove(cid);
     }
+
+    /// Retrieves the want list of a peer.
+    pub fn wantlist(&self, peer_id: Option<&PeerId>) -> Vec<(Cid, Priority)> {
+        if let Some(peer_id) = peer_id {
+            self.connected_peers
+                .get(peer_id)
+                .map(|ledger| ledger.wantlist().collect())
+                .unwrap_or_default()
+        } else {
+            self.wanted_blocks
+                .iter()
+                .map(|(cid, priority)| (cid.clone(), *priority))
+                .collect()
+        }
+    }
+
+    /// Retrieves the connected bitswap peers.
+    pub fn peers(&self) -> Vec<PeerId> {
+        self.connected_peers
+            .iter()
+            .map(|(peer_id, _)| peer_id)
+            .cloned()
+            .collect()
+    }
 }
 
 impl NetworkBehaviour for Bitswap {

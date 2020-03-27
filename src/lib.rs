@@ -17,7 +17,7 @@ mod registry;
 mod repo;
 //mod unixfs;
 
-pub use crate::daemon::Ipfs;
+pub use crate::daemon::{BitswapStats, Ipfs};
 pub use crate::error::Error;
 pub use crate::options::{IpfsOptions, IpfsTypes, TestTypes, Types};
 pub use crate::p2p::Connection;

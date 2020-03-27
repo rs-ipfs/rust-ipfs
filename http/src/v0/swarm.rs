@@ -13,9 +13,7 @@ async fn connect_query(
     ipfs: Ipfs,
     query: ConnectQuery,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    ipfs.connect(query.arg)
-        .await
-        .map_err(|e| warp::reject::custom(StringError::from(e)))?;
+    ipfs.connect(query.arg).await.map_err(StringError::from)?;
     let response: &[&str] = &[];
     Ok(warp::reply::json(&response))
 }
@@ -52,7 +50,7 @@ async fn peers_query(ipfs: Ipfs, query: PeersQuery) -> Result<impl warp::Reply, 
     let peers = ipfs
         .peers()
         .await
-        .map_err(|e| warp::reject::custom(StringError::from(e)))?
+        .map_err(StringError::from)?
         .into_iter()
         .map(|conn| {
             let latency = if let Some(true) = query.verbose {
@@ -87,10 +85,7 @@ struct AddrsResponse {
 }
 
 async fn addrs_query(ipfs: Ipfs) -> Result<impl warp::Reply, warp::Rejection> {
-    let addresses = ipfs
-        .addrs()
-        .await
-        .map_err(|e| warp::reject::custom(StringError::from(e)))?;
+    let addresses = ipfs.addrs().await.map_err(StringError::from)?;
     let mut res = BTreeMap::new();
     for (peer_id, addrs) in addresses {
         res.insert(
@@ -128,7 +123,7 @@ async fn addrs_local_query(
     let addresses = ipfs
         .addrs_local()
         .await
-        .map_err(|e| warp::reject::custom(StringError::from(e)))?
+        .map_err(StringError::from)?
         .into_iter()
         .map(|a| a.to_string())
         .collect();
@@ -156,7 +151,7 @@ async fn disconnect_query(
 ) -> Result<impl warp::Reply, warp::Rejection> {
     ipfs.disconnect(query.arg)
         .await
-        .map_err(|e| warp::reject::custom(StringError::from(e)))?;
+        .map_err(StringError::from)?;
     let response: &[&str] = &[];
     Ok(warp::reply::json(&response))
 }

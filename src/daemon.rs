@@ -6,7 +6,7 @@ use crate::registry::{Channel, LocalRegistry, RemoteRegistry};
 use crate::repo::{BlockStore, BlockStoreEvent};
 use async_std::task;
 use async_trait::async_trait;
-use bitswap::Block;
+use bitswap::{Block, Priority};
 use core::fmt::Debug;
 use core::future::Future;
 use core::pin::Pin;
@@ -43,6 +43,10 @@ pub enum IpfsEvent {
     PutBlock(Cid, Box<[u8]>, Channel<()>),
     /// Removes the block with cid.
     RemoveBlock(Cid, Channel<()>),
+    /// Bitswap wantlist.
+    WantList(Option<PeerId>, Channel<Vec<(Cid, Priority)>>),
+    /// Bitswap stats.
+    BitswapStats(Channel<BitswapStats>),
 }
 
 /// Ipfs struct creates a new IPFS node and is the main entry point
@@ -128,6 +132,27 @@ impl Ipfs {
             .await?;
         rx.await?
     }
+
+    pub async fn bitswap_wantlist(
+        &self,
+        peer_id: Option<PeerId>,
+    ) -> Result<Vec<(Cid, Priority)>, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .clone()
+            .send(IpfsEvent::WantList(peer_id, tx))
+            .await?;
+        rx.await?
+    }
+
+    pub async fn bitswap_stats(&self) -> Result<BitswapStats, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .clone()
+            .send(IpfsEvent::BitswapStats(tx))
+            .await?;
+        rx.await?
+    }
 }
 
 #[async_trait]
@@ -184,6 +209,12 @@ struct IpfsDaemon<T: IpfsTypes> {
     remove_registry: LocalRegistry<Cid, ()>,
     bitswap_registry: RemoteRegistry,
     ipfs_events: Fuse<mpsc::Receiver<IpfsEvent>>,
+
+    // Receive stats.
+    blocks_received: u64,
+    data_received: u64,
+    dup_blks_received: u64,
+    dup_data_received: u64,
 }
 
 impl<T: IpfsTypes> IpfsDaemon<T> {
@@ -202,6 +233,11 @@ impl<T: IpfsTypes> IpfsDaemon<T> {
             remove_registry: Default::default(),
             bitswap_registry: Default::default(),
             ipfs_events: receiver.fuse(),
+
+            blocks_received: 0,
+            data_received: 0,
+            dup_blks_received: 0,
+            dup_data_received: 0,
         })
     }
 }
@@ -243,7 +279,15 @@ impl<T: IpfsTypes> Future for IpfsDaemon<T> {
                         let bitswap_registry: &mut RemoteRegistry =
                             unsafe { &mut *(&mut self.bitswap_registry as *mut _) };
                         bitswap_registry.consume(&mut self.swarm, block);
-                        self.block_store.put(cid, data);
+
+                        self.blocks_received += 1;
+                        self.data_received += data.len() as u64;
+                        if self.block_store.contains(&cid) {
+                            self.dup_blks_received += 1;
+                            self.dup_data_received += data.len() as u64;
+                        } else {
+                            self.block_store.put(cid, data);
+                        }
                     }
                     BehaviourEvent::ReceivedWant(peer_id, cid) => {
                         self.bitswap_registry.register(cid.clone(), peer_id);
@@ -328,10 +372,39 @@ impl<T: IpfsTypes> Future for IpfsDaemon<T> {
                         ret.send(Ok((self.options.keypair.public(), addresses)))
                             .ok();
                     }
+                    IpfsEvent::WantList(peer_id, ret) => {
+                        let wantlist = self.swarm.bitswap_wantlist(peer_id.as_ref());
+                        ret.send(Ok(wantlist)).ok();
+                    }
+                    IpfsEvent::BitswapStats(ret) => {
+                        let stats = BitswapStats {
+                            blocks_sent: self.swarm.bitswap_blocks_sent(),
+                            data_sent: self.swarm.bitswap_data_sent(),
+                            blocks_received: self.blocks_received,
+                            data_received: self.data_received,
+                            dup_blks_received: self.dup_blks_received,
+                            dup_data_received: self.dup_data_received,
+                            peers: self.swarm.bitswap_peers(),
+                            wantlist: self.swarm.bitswap_wantlist(None),
+                        };
+                        ret.send(Ok(stats)).ok();
+                    }
                 }
             }
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BitswapStats {
+    pub blocks_sent: u64,
+    pub data_sent: u64,
+    pub blocks_received: u64,
+    pub data_received: u64,
+    pub dup_blks_received: u64,
+    pub dup_data_received: u64,
+    pub peers: Vec<PeerId>,
+    pub wantlist: Vec<(Cid, Priority)>,
 }
 
 #[cfg(test)]

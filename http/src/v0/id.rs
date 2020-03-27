@@ -55,7 +55,7 @@ async fn identity_query(
             // Reject
             Ok(warp::reply::json(&response))
         }
-        Err(e) => Err(warp::reject::custom(StringError::from(e))),
+        Err(e) => Err(StringError::from(e).into()),
     }
 }
 

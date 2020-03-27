@@ -1,7 +1,7 @@
 use super::swarm::{Connection, Disconnector, SwarmApi};
 use crate::options::IpfsOptions;
 use crate::registry::Channel;
-use bitswap::{Bitswap, BitswapEvent, Block};
+use bitswap::{Bitswap, BitswapEvent, Block, Priority};
 use core::task::{Context, Poll};
 use libipld::cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
@@ -38,6 +38,10 @@ pub struct Behaviour {
     swarm: SwarmApi,
     #[behaviour(ignore)]
     events: VecDeque<BehaviourEvent>,
+    #[behaviour(ignore)]
+    blocks_sent: u64,
+    #[behaviour(ignore)]
+    data_sent: u64,
 }
 
 impl NetworkBehaviourEventProcess<void::Void> for Behaviour {
@@ -203,6 +207,8 @@ impl Behaviour {
             floodsub,
             swarm,
             events: Default::default(),
+            blocks_sent: 0,
+            data_sent: 0,
         }
     }
 
@@ -241,6 +247,8 @@ impl Behaviour {
     }
 
     pub fn send_block(&mut self, peer_id: &PeerId, block: Block) {
+        self.blocks_sent += 1;
+        self.data_sent += block.data().len() as u64;
         self.bitswap.send_block(peer_id, block);
     }
 
@@ -261,6 +269,22 @@ impl Behaviour {
         info!("Finished providing block {}", cid.to_string());
         //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
         //self.kademlia.remove_providing(&hash);
+    }
+
+    pub fn bitswap_wantlist(&self, peer_id: Option<&PeerId>) -> Vec<(Cid, Priority)> {
+        self.bitswap.wantlist(peer_id)
+    }
+
+    pub fn bitswap_peers(&self) -> Vec<PeerId> {
+        self.bitswap.peers()
+    }
+
+    pub fn bitswap_blocks_sent(&self) -> u64 {
+        self.blocks_sent
+    }
+
+    pub fn bitswap_data_sent(&self) -> u64 {
+        self.data_sent
     }
 
     pub fn custom_poll<T>(

@@ -6,10 +6,6 @@ use std::collections::HashMap;
 /// The Ledger contains the history of transactions with a peer.
 #[derive(Debug, Default)]
 pub struct Ledger {
-    /// The number of blocks sent to the peer.
-    sent_blocks: usize,
-    /// The number of blocks received from the peer.
-    received_blocks: usize,
     /// The list of wanted blocks sent to the peer.
     sent_want_list: HashMap<Cid, Priority>,
     /// The list of wanted blocks received from the peer.
@@ -40,7 +36,6 @@ impl Ledger {
         if self.message.is_empty() {
             return None;
         }
-        self.sent_blocks += self.message.blocks().len();
         for cid in self.message.cancel() {
             self.sent_want_list.remove(cid);
         }
@@ -51,7 +46,6 @@ impl Ledger {
     }
 
     pub fn receive(&mut self, message: &BitswapMessage) {
-        self.received_blocks += message.blocks().len();
         for cid in message.cancel() {
             self.received_want_list.remove(cid);
             self.message.remove_block(cid);
@@ -59,6 +53,12 @@ impl Ledger {
         for (cid, priority) in message.want() {
             self.received_want_list.insert(cid.to_owned(), *priority);
         }
+    }
+
+    pub fn wantlist<'a>(&'a self) -> impl Iterator<Item = (Cid, Priority)> + 'a {
+        self.received_want_list
+            .iter()
+            .map(|(cid, priority)| (cid.clone(), *priority))
     }
 }
 

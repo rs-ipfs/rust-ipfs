@@ -3,6 +3,7 @@ use log::warn;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::convert::Infallible;
+use warp::{reject, Rejection};
 
 /// The common responses apparently returned by the go-ipfs HTTP api on errors.
 /// See also: https://github.com/ferristseng/rust-ipfs-api/blob/master/ipfs-api/src/response/error.rs
@@ -63,9 +64,9 @@ pub fn with_ipfs(
 #[derive(Debug)]
 pub(crate) struct NotImplemented;
 impl warp::reject::Reject for NotImplemented {}
-impl Into<warp::reject::Rejection> for NotImplemented {
-    fn into(self) -> warp::reject::Rejection {
-        warp::reject::custom(self)
+impl From<NotImplemented> for Rejection {
+    fn from(err: NotImplemented) -> Self {
+        reject::custom(err)
     }
 }
 
@@ -73,18 +74,38 @@ impl Into<warp::reject::Rejection> for NotImplemented {
 #[derive(Debug)]
 pub(crate) struct InvalidPeerId;
 impl warp::reject::Reject for InvalidPeerId {}
+impl From<InvalidPeerId> for Rejection {
+    fn from(err: InvalidPeerId) -> Self {
+        reject::custom(err)
+    }
+}
+
+/// PeerId parsing error, details from `libp2p::identity::ParseError` are lost.
+#[derive(Debug)]
+pub(crate) struct InvalidMultipartFormData;
+impl warp::reject::Reject for InvalidMultipartFormData {}
+impl From<InvalidMultipartFormData> for Rejection {
+    fn from(err: InvalidMultipartFormData) -> Self {
+        reject::custom(err)
+    }
+}
 
 /// Default placeholder for ipfs::Error but once we get more typed errors we could start making
 /// them more readable, if needed.
 #[derive(Debug)]
 pub(crate) struct StringError(Cow<'static, str>);
 impl warp::reject::Reject for StringError {}
+impl From<StringError> for Rejection {
+    fn from(err: StringError) -> Self {
+        reject::custom(err)
+    }
+}
 
 // FIXME: it's a bit questionable to keep this but in the beginning it might help us glide in the
 // right direction.
-impl From<ipfs::Error> for StringError {
-    fn from(e: ipfs::Error) -> Self {
-        Self(format!("{}", e).into())
+impl<T: core::fmt::Display> From<T> for StringError {
+    fn from(e: T) -> Self {
+        StringError(format!("{}", e).into())
     }
 }
 
