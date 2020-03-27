@@ -711,4 +711,22 @@ mod tests {
 
         ipfs.exit_daemon().await;
     }
+
+    #[async_std::test]
+    async fn test_pin_and_unpin() {
+        let options = IpfsOptions::<TestTypes>::default();
+
+        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        task::spawn(fut);
+
+        let data = ipld!([-1, -2, -3]);
+        let cid = ipfs.put_dag(data.clone()).await.unwrap();
+
+        ipfs.pin_block(&cid).await.unwrap();
+        assert!(ipfs.is_pinned(&cid).await.unwrap());
+        ipfs.unpin_block(&cid).await.unwrap();
+        assert!(!ipfs.is_pinned(&cid).await.unwrap());
+
+        ipfs.exit_daemon().await;
+    }
 }
