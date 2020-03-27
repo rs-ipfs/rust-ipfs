@@ -215,17 +215,23 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
         let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
-        
+
         match pin_value {
             Some(pin_count) => {
                 if pin_count[0] == std::u8::MAX {
                     return Err(anyhow::anyhow!("Block cannot be pinned more times"));
-                } 
-                self.data_store.put(Column::Pin, &cid.to_bytes(), &[pin_count[0] + 1]).await 
-            },
-            None => self.data_store.put(Column::Pin, &cid.to_bytes(), &[1]).await
+                }
+                self.data_store
+                    .put(Column::Pin, &cid.to_bytes(), &[pin_count[0] + 1])
+                    .await
+            }
+            None => {
+                self.data_store
+                    .put(Column::Pin, &cid.to_bytes(), &[1])
+                    .await
+            }
         }
-   }
+    }
 
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
         self.data_store.contains(Column::Pin, &cid.to_bytes()).await
@@ -233,16 +239,18 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
         let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
-        
+
         match pin_value {
             Some(pin_count) if pin_count[0] == 1 => {
-                self.data_store.remove(Column::Pin, &cid.to_bytes()).await 
-            },
-            Some(pin_count) => { 
-                self.data_store.put(Column::Pin, &cid.to_bytes(), &[pin_count[0] - 1]).await 
-            },
+                self.data_store.remove(Column::Pin, &cid.to_bytes()).await
+            }
+            Some(pin_count) => {
+                self.data_store
+                    .put(Column::Pin, &cid.to_bytes(), &[pin_count[0] - 1])
+                    .await
+            }
             // This is a no-op
-            None => {Ok(())}
+            None => Ok(()),
         }
     }
 }
