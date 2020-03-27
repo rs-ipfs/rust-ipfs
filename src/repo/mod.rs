@@ -169,6 +169,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Remove block from the block store.
     pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error> {
+        if self.is_pinned(cid).await? {
+            return Err(anyhow::anyhow!("block to remove is pinned"));
+        }
         // sending only fails if the background task has exited
         self.events
             .clone()
@@ -211,21 +214,38 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
-        self.data_store
-            .put(Column::Pin, &cid.to_bytes(), &[1])
-            .await
-    }
+        let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
+        
+        match pin_value {
+            Some(pin_count) => {
+                if pin_count[0] == std::u8::MAX {
+                    return Err(anyhow::anyhow!("Block cannot be pinned more times"));
+                } 
+                self.data_store.put(Column::Pin, &cid.to_bytes(), &[pin_count[0] + 1]).await 
+            },
+            None => self.data_store.put(Column::Pin, &cid.to_bytes(), &[1]).await
+        }
+   }
 
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
         self.data_store.contains(Column::Pin, &cid.to_bytes()).await
     }
 
     pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
-        let is_pinned = self.is_pinned(cid).await?;
-        if is_pinned {
-            self.data_store.remove(Column::Pin, &cid.to_bytes()).await
-        } else {
-            Err(anyhow::anyhow!("Block to unpin isn't pinned"))
+        let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
+        
+        match pin_value {
+            Some(pin_count) if pin_count[0] == 1 => {
+                if pin_count[0] == std::u8::MAX {
+                    return Err(anyhow::anyhow!("Block cannot be pinned more times"));
+                } 
+                self.data_store.remove(Column::Pin, &cid.to_bytes()).await 
+            },
+            Some(pin_count) => { 
+                self.data_store.put(Column::Pin, &cid.to_bytes(), &[pin_count[0] - 1]).await 
+            },
+            // This is a no-op
+            None => {Ok(())}
         }
     }
 }
