@@ -95,7 +95,9 @@ async fn publish_between_two_nodes() {
     for st in &mut [b_msgs.by_ref(), a_msgs.by_ref()] {
         let actual = st
             .take(2)
-            .map(|msg| Arc::try_unwrap(msg).expect("single subscriber"))
+            // Arc::try_unwrap will fail sometimes here as the sender side in src/p2p/pubsub.rs:305
+            // can still be looping
+            .map(|msg| (*msg).clone())
             .map(|msg| (msg.topics, msg.source, msg.data))
             .collect::<HashSet<_>>()
             .await;
