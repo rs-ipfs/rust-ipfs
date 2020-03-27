@@ -319,18 +319,18 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Pins a given Cid
-    pub async fn pin_block(&self, path: IpfsPath) -> Result<(), Error> {
-        Ok(self.dag.pin(path).await?)
+    pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
+        Ok(self.repo.pin_block(cid).await?)
     }
 
     /// Unpins a given Cid
-    pub async fn unpin_block(&self, path: IpfsPath) -> Result<(), Error> {
-        Ok(self.dag.unpin(path).await?)
+    pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
+        Ok(self.repo.unpin_block(cid).await?)
     }
 
     /// Checks whether a given block is pinned
-    pub async fn is_pinned(&self, path: IpfsPath) -> Result<bool, Error> {
-        Ok(self.dag.is_pinned(path).await?)
+    pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
+        Ok(self.repo.is_pinned(cid).await?)
     }
 
     /// Puts an ipld dag node into the ipfs repo.

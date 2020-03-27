@@ -31,30 +31,6 @@ impl<Types: RepoTypes> IpldDag<Types> {
         Ok(cid)
     }
 
-    pub async fn pin(&self, path: IpfsPath) -> Result<(), Error> {
-        let cid = match path.root().cid() {
-            Some(cid) => cid,
-            None => return Err(anyhow::anyhow!("expected cid")),
-        };
-        self.repo.pin_block(cid).await
-    }
-
-    pub async fn is_pinned(&self, path: IpfsPath) -> Result<bool, Error> {
-        let cid = match path.root().cid() {
-            Some(cid) => cid,
-            None => return Err(anyhow::anyhow!("expected cid")),
-        };
-        self.repo.is_pinned(cid).await
-    }
-
-    pub async fn unpin(&self, path: IpfsPath) -> Result<(), Error> {
-        let cid = match path.root().cid() {
-            Some(cid) => cid,
-            None => return Err(anyhow::anyhow!("expected cid")),
-        };
-        self.repo.unpin_block(cid).await
-    }
-
     pub async fn get(&self, path: IpfsPath) -> Result<Ipld, Error> {
         let cid = match path.root().cid() {
             Some(cid) => cid,
