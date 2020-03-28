@@ -36,13 +36,13 @@ jobs:
           host: ubuntu-latest
           cross: true
 
-        - target: x86_64-apple-ios
-          host: macos-latest
-          cross: true
+      # - target: x86_64-apple-ios
+      #   host: macos-latest
+      #   cross: true
 
-        - target: aarch64-apple-ios
-          host: macos-latest
-          cross: true
+      # - target: aarch64-apple-ios
+      #   host: macos-latest
+      #   cross: true
 
        # - target: wasm32-unknown-unknown
        #   host: ubuntu-latest
@@ -107,9 +107,6 @@ jobs:
     - name: Build other cross compilations
       if: contains(matrix.platform.target, 'android') == false && matrix.platform.cross == true
       run: cargo build --workspace --target ${{ matrix.platform.target }}
-      env:
-        OPENSSL_LIB_DIR: '/usr/lib/x86-64-linux-gnu/libssl.a'
-        OPENSSL_INCLUDE_DIR: '/usr/include/openssl'
 
     - name: Rust tests
       if: matrix.platform.cross == false
