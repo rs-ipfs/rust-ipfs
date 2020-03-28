@@ -104,10 +104,14 @@ jobs:
       run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --workspace --exclude ipfs-http
       # exclude http on android because openssl
 
+    - name: testing brew prefix path
+      if: contains(matrix.platform.target, 'darwin')
+      run: brew --prefix openssl`/include
+
     - name: Build other cross compilations
       if: contains(matrix.platform.target, 'android') == false && matrix.platform.cross == true
       run: cargo build --workspace --target ${{ matrix.platform.target }}
-      env:
+      env: 
         OPENSSL_DIR: '/usr/bin/openssl'
 
     - name: Rust tests
