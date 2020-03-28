@@ -53,6 +53,7 @@ jobs:
       LLVM_CONFIG_PATH: /usr/local/opt/llvm/bin/llvm-config
       NDK_HOME: /usr/local/lib/android/sdk/ndk-bundle
       VCPKGRS_DYNAMIC: 1
+      PKG_CONFIG_ALLOW_CROSS: 1
 
     runs-on: ${{ matrix.platform.host }}
     steps:
@@ -105,8 +106,10 @@ jobs:
 
     - name: Build other cross compilations
       if: contains(matrix.platform.target, 'android') == false && matrix.platform.cross == true
-      run: cargo build --workspace --exclude ipfs-http --target ${{ matrix.platform.target }}
-      # exclude http on other cross compilation targets because openssl
+      run: cargo build --workspace --target ${{ matrix.platform.target }}
+      env:
+        OPENSSL_LIB_DIR: '/usr/lib/x86-64-linux-gnu/libssl.a'
+        OPENSSL_INCLUDE_DIR: '/usr/include/openssl'
 
     - name: Rust tests
       if: matrix.platform.cross == false
