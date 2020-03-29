@@ -29,6 +29,7 @@ fn main() {
     }
 
     env_logger::init();
+    openssl_probe::init_ssl_cert_env_vars();
 
     let opts = Options::from_args();
 
