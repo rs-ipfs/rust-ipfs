@@ -226,6 +226,8 @@ enum IpfsEvent {
     PubsubPublish(String, Vec<u8>, OneshotSender<()>),
     PubsubPeers(Option<String>, OneshotSender<Vec<PeerId>>),
     PubsubSubscribed(OneshotSender<Vec<String>>),
+    WantList(Option<PeerId>, OneshotSender<Vec<(Cid, bitswap::Priority)>>),
+    BitswapStats(OneshotSender<BitswapStats>),
     Exit,
 }
 
@@ -489,6 +491,28 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(rx.await?)
     }
 
+    pub async fn bitswap_wantlist(&self, peer: Option<PeerId>) -> Result<Vec<(Cid, bitswap::Priority)>, Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::WantList(peer, tx))
+            .await?;
+
+        Ok(rx.await?)
+    }
+
+    pub async fn bitswap_stats(&self) -> Result<BitswapStats, Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::BitswapStats(tx))
+            .await?;
+
+        Ok(rx.await?)
+    }
+
     /// Exit daemon.
     pub async fn exit_daemon(mut self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
@@ -609,6 +633,12 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     }
                     IpfsEvent::PubsubSubscribed(ret) => {
                         let _ = ret.send(self.swarm.as_mut().subscribed_topics());
+                    }
+                    IpfsEvent::WantList(peer, ret) => {
+                        todo!()
+                    }
+                    IpfsEvent::BitswapStats(ret) => {
+                        todo!()
                     }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
