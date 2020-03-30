@@ -522,6 +522,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(rx.await?)
     }
 
+    pub async fn refs_local(&self) -> Result<Vec<Cid>, Error> {
+        Ok(self.repo.list_blocks().await?)
+    }
+
     pub async fn bitswap_stats(&self) -> Result<BitswapStats, Error> {
         let (tx, rx) = oneshot_channel();
 

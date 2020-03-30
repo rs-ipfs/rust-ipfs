@@ -6,6 +6,7 @@ pub mod block;
 pub mod dag;
 pub mod id;
 pub mod pubsub;
+pub mod refs;
 pub mod swarm;
 pub mod version;
 
@@ -53,7 +54,8 @@ where
             .or(warp::path!("pin" / ..).and_then(not_implemented))
             .or(warp::path!("ping" / ..).and_then(not_implemented))
             .or(pubsub::routes(ipfs))
-            .or(warp::path!("refs" / ..).and_then(not_implemented))
+            .or(refs::local(ipfs))
+            // .or(warp::path!("refs").and_then(refs::of_path))
             .or(warp::path!("repo" / ..).and_then(not_implemented))
             .or(warp::path!("stats" / ..).and_then(not_implemented))
             .or(swarm::connect(ipfs))

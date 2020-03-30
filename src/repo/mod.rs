@@ -63,6 +63,7 @@ pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error>;
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error>;
     async fn remove(&self, cid: &Cid) -> Result<(), Error>;
+    async fn list(&self) -> Result<Vec<Cid>, Error>;
 }
 
 #[async_trait]
@@ -181,6 +182,10 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 .ok();
             Ok(subscription.await?)
         }
+    }
+
+    pub async fn list_blocks(&self) -> Result<Vec<Cid>, Error> {
+        Ok(self.block_store.list().await?)
     }
 
     /// Remove block from the block store.

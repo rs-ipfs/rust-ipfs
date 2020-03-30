@@ -115,6 +115,12 @@ impl BlockStore for FsBlockStore {
         }
         Ok(())
     }
+
+    async fn list(&self) -> Result<Vec<Cid>, Error> {
+        // unwrapping as we want to panic on poisoned lock
+        let guard = self.cids.lock().unwrap();
+        Ok(guard.iter().cloned().collect())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -288,6 +294,30 @@ mod tests {
         assert_eq!(block_store.get(block.cid()).await.unwrap().unwrap(), block);
 
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[async_std::test]
+    async fn test_fs_blockstore_list() {
+        let mut tmp = temp_dir();
+        tmp.push("blockstore_list");
+        std::fs::remove_dir_all(&tmp).ok();
+
+        let block_store = FsBlockStore::new(tmp.clone().into());
+        block_store.init().await.unwrap();
+        block_store.open().await.unwrap();
+
+        for data in &[b"1", b"2", b"3"] {
+            let data_slice = data.to_vec().into_boxed_slice();
+            let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data_slice));
+            let block = Block::new(data_slice, cid);
+            block_store.put(block.clone()).await.unwrap();
+        }
+
+        let cids = block_store.list().await.unwrap();
+        assert_eq!(cids.len(), 3);
+        for cid in cids.iter() {
+            assert!(block_store.contains(cid).await.unwrap());
+        }
     }
 
     #[async_std::test]
