@@ -232,10 +232,8 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
         //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
         //self.kademlia.remove_providing(&hash);
     }
-}
 
-impl<T: SwarmTypes> std::convert::AsMut<Pubsub> for Behaviour<T> {
-    fn as_mut(&mut self) -> &mut Pubsub {
+    pub fn pubsub(&mut self) -> &mut Pubsub {
         &mut self.pubsub
     }
 }
