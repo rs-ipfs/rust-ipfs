@@ -615,24 +615,24 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                         let _ = ret.send(addresses);
                     }
                     IpfsEvent::PubsubSubscribe(topic, ret) => {
-                        let _ = ret.send(self.swarm.as_mut().subscribe(topic));
+                        let _ = ret.send(self.swarm.pubsub().subscribe(topic));
                     }
                     IpfsEvent::PubsubUnsubscribe(topic, ret) => {
-                        let _ = ret.send(self.swarm.as_mut().unsubscribe(topic));
+                        let _ = ret.send(self.swarm.pubsub().unsubscribe(topic));
                     }
                     IpfsEvent::PubsubPublish(topic, data, ret) => {
-                        self.swarm.as_mut().publish(topic, data);
+                        self.swarm.pubsub().publish(topic, data);
                         let _ = ret.send(());
                     }
                     IpfsEvent::PubsubPeers(Some(topic), ret) => {
                         let topic = libp2p::floodsub::Topic::new(topic);
-                        let _ = ret.send(self.swarm.as_mut().subscribed_peers(&topic));
+                        let _ = ret.send(self.swarm.pubsub().subscribed_peers(&topic));
                     }
                     IpfsEvent::PubsubPeers(None, ret) => {
-                        let _ = ret.send(self.swarm.as_mut().known_peers());
+                        let _ = ret.send(self.swarm.pubsub().known_peers());
                     }
                     IpfsEvent::PubsubSubscribed(ret) => {
-                        let _ = ret.send(self.swarm.as_mut().subscribed_topics());
+                        let _ = ret.send(self.swarm.pubsub().subscribed_topics());
                     }
                     IpfsEvent::WantList(peer, ret) => {
                         todo!()
