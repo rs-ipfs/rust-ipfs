@@ -6,6 +6,8 @@ use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use bitswap::Block;
 use libipld::cid::Cid;
+
+// FIXME: Transition to Persistent Map to make iterating more consistent
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -60,6 +62,11 @@ impl BlockStore for MemBlockStore {
     async fn remove(&self, cid: &Cid) -> Result<(), Error> {
         self.blocks.lock().await.remove(cid);
         Ok(())
+    }
+
+    async fn list(&self) -> Result<Vec<Cid>, Error> {
+        let guard = self.blocks.lock().await;
+        Ok(guard.iter().map(|(cid, _block)| cid).cloned().collect())
     }
 }
 
@@ -162,6 +169,29 @@ mod tests {
         assert_eq!(contains.await.unwrap(), false);
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), None);
+    }
+
+    #[async_std::test]
+    async fn test_mem_blockstore_list() {
+        let tmp = temp_dir();
+        let mem_store = MemBlockStore::new(tmp.into());
+
+        mem_store.init().await.unwrap();
+        mem_store.open().await.unwrap();
+
+        for data in &[b"1", b"2", b"3"] {
+            let data_slice = data.to_vec().into_boxed_slice();
+            let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data_slice));
+            let block = Block::new(data_slice, cid);
+            mem_store.put(block.clone()).await.unwrap();
+            assert!(mem_store.contains(block.cid()).await.unwrap());
+        }
+
+        let cids = mem_store.list().await.unwrap();
+        assert_eq!(cids.len(), 3);
+        for cid in cids.iter() {
+            assert!(mem_store.contains(cid).await.unwrap());
+        }
     }
 
     #[async_std::test]
