@@ -7,6 +7,8 @@ use async_trait::async_trait;
 use bitswap::Block;
 use libipld::cid::Cid;
 
+use super::{BlockRm, BlockRmError};
+
 // FIXME: Transition to Persistent Map to make iterating more consistent
 use std::collections::HashMap;
 
@@ -59,9 +61,11 @@ impl BlockStore for MemBlockStore {
         }
     }
 
-    async fn remove(&self, cid: &Cid) -> Result<(), Error> {
-        self.blocks.lock().await.remove(cid);
-        Ok(())
+    async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
+        match self.blocks.lock().await.remove(cid) {
+            Some(_block) => Ok(Ok(BlockRm::Removed(cid.clone()))),
+            None => Ok(Err(BlockRmError::NotFound(cid.clone()))),
+        }
     }
 
     async fn list(&self) -> Result<Vec<Cid>, Error> {
@@ -153,7 +157,9 @@ mod tests {
         assert_eq!(contains.await.unwrap(), false);
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), None);
-        store.remove(&cid).await.unwrap();
+        if store.remove(&cid).await.unwrap().is_ok() {
+            panic!("block should not be found")
+        }
 
         let put = store.put(block.clone());
         assert_eq!(put.await.unwrap().0, cid.to_owned());
@@ -162,7 +168,7 @@ mod tests {
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), Some(block.clone()));
 
-        store.remove(&cid).await.unwrap();
+        store.remove(&cid).await.unwrap().unwrap();
         let contains = store.contains(&cid);
         assert_eq!(contains.await.unwrap(), false);
         let get = store.get(&cid);

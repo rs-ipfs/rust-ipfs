@@ -15,6 +15,8 @@ use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::sync::{Arc, Mutex};
 
+use super::{BlockRm, BlockRmError};
+
 #[derive(Clone, Debug)]
 pub struct FsBlockStore {
     path: PathBuf,
@@ -106,14 +108,18 @@ impl BlockStore for FsBlockStore {
         Ok((block.cid().to_owned(), retval))
     }
 
-    async fn remove(&self, cid: &Cid) -> Result<(), Error> {
+    async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
         let path = block_path(self.path.clone(), cid);
-        let cid = cid.to_owned();
         let cids = self.cids.clone();
+
+        // We want to panic if there's a mutex unlock error
+        // TODO: Check for pinned blocks here? Instead of repo?
         if cids.lock().unwrap().remove(&cid) {
             fs::remove_file(path).await?;
+            Ok(Ok(BlockRm::Removed(cid.clone())))
+        } else {
+            Ok(Err(BlockRmError::NotFound(cid.clone())))
         }
-        Ok(())
     }
 
     async fn list(&self) -> Result<Vec<Cid>, Error> {
@@ -251,7 +257,9 @@ mod tests {
         assert_eq!(contains.await.unwrap(), false);
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), None);
-        store.remove(&cid).await.unwrap();
+        if store.remove(&cid).await.unwrap().is_ok() {
+            panic!("block should not be found")
+        }
 
         let put = store.put(block.clone());
         assert_eq!(put.await.unwrap().0, cid.to_owned());
@@ -260,7 +268,7 @@ mod tests {
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), Some(block.clone()));
 
-        store.remove(&cid).await.unwrap();
+        store.remove(&cid).await.unwrap().unwrap();
         let contains = store.contains(&cid);
         assert_eq!(contains.await.unwrap(), false);
         let get = store.get(&cid);

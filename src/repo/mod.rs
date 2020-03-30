@@ -53,6 +53,20 @@ pub enum BlockPut {
     Existed,
 }
 
+#[derive(Debug)]
+pub enum BlockRm {
+    Removed(Cid),
+    // TODO: DownloadCancelled(Cid, Duration),
+}
+
+// pub struct BlockNotFound(Cid);
+
+#[derive(Debug)]
+pub enum BlockRmError {
+    // TODO: Pinned(Cid),
+    NotFound(Cid),
+}
+
 /// This API is being discussed and evolved, which will likely lead to breakage.
 #[async_trait]
 pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
@@ -62,7 +76,7 @@ pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
     async fn contains(&self, cid: &Cid) -> Result<bool, Error>;
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error>;
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error>;
-    async fn remove(&self, cid: &Cid) -> Result<(), Error>;
+    async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error>;
     async fn list(&self) -> Result<Vec<Cid>, Error>;
 }
 
@@ -241,11 +255,12 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     /// Remove block from the block store.
-    pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error> {
-        let cid = cid.as_upgraded_cid();
+    pub async fn remove_block(&self, original: &Cid) -> Result<Cid, Error> {
+        let cid = original.as_upgraded_cid();
         if self.is_pinned(&cid).await? {
             return Err(anyhow::anyhow!("block to remove is pinned"));
         }
+
         // sending only fails if the background task has exited
         self.events
             .clone()
@@ -253,8 +268,19 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             .send(RepoEvent::UnprovideBlock(cid.clone()))
             .await
             .ok();
-        self.block_store.remove(&cid).await?;
-        Ok(())
+
+        // FIXME: Need to change location of pinning logic.
+        // I like this pattern of the repo abstraction being some sort of
+        // "clearing house" for the underlying result enums, but this
+        // could potentially be pushed out out of here up to Ipfs, idk
+        match self.block_store.remove(&cid).await? {
+            Ok(success) => match success {
+                BlockRm::Removed(_cid) => Ok(original.clone()),
+            },
+            Err(err) => match err {
+                BlockRmError::NotFound(_cid) => Err(anyhow::anyhow!("block not found")),
+            },
+        }
     }
 
     /// Get an ipld path from the datastore.

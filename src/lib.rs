@@ -334,8 +334,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Remove block from the ipfs repo.
-    pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error> {
-        Ok(self.repo.remove_block(cid).await?)
+    pub async fn remove_block(&self, cid: Cid) -> Result<Cid, Error> {
+        self.repo.remove_block(&cid).await
     }
 
     /// Pins a given Cid

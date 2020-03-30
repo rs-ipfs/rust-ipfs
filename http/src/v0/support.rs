@@ -3,6 +3,11 @@ use log::warn;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::convert::Infallible;
+use std::error::Error as StdError;
+use std::fmt;
+
+pub mod option_parsing;
+pub mod unshared;
 
 /// The common responses apparently returned by the go-ipfs HTTP api on errors.
 /// See also: https://github.com/ferristseng/rust-ipfs-api/blob/master/ipfs-api/src/response/error.rs
@@ -202,4 +207,17 @@ pub async fn recover_as_message_response(
     }
 
     Ok(warp::reply::with_status(resp, status))
+}
+
+/// Empty struct implementing std::error::Error, which we can use to mark the serde_json::Error as
+/// "handled" (by logging).
+#[derive(Debug)]
+pub struct HandledErr;
+
+impl StdError for HandledErr {}
+
+impl fmt::Display for HandledErr {
+    fn fmt(&self, _fmt: &mut fmt::Formatter) -> fmt::Result {
+        Ok(())
+    }
 }

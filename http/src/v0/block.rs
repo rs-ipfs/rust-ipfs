@@ -1,9 +1,21 @@
-use crate::v0::support::{with_ipfs, InvalidMultipartFormData, StringError};
+use crate::v0::support::unshared::Unshared;
+use crate::v0::support::{with_ipfs, HandledErr, InvalidMultipartFormData, StringError};
+use futures::stream::FuturesOrdered;
 use futures::stream::StreamExt;
+use futures::stream::{TryStream, TryStreamExt};
+use ipfs::error::Error;
 use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::{Cid, Codec, Version};
 use serde::{Deserialize, Serialize};
-use warp::{http::Response, multipart, path, query, reply, Buf, Filter, Rejection, Reply};
+use std::convert::TryFrom;
+use std::error::Error as StdError;
+use warp::hyper::body::Bytes;
+use warp::{
+    http::Response, hyper::Body, multipart, path, query, reply, Buf, Filter, Rejection, Reply,
+};
+
+mod options;
+use options::RmOptions;
 
 #[derive(Debug, Deserialize)]
 pub struct GetQuery {
@@ -98,29 +110,95 @@ pub fn put<T: IpfsTypes>(
         .and_then(put_query)
 }
 
-#[derive(Debug, Deserialize)]
-pub struct RmQuery {
-    arg: String,
-}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct RmResponse {}
-
-async fn rm_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: RmQuery) -> Result<impl Reply, Rejection> {
-    let cid: Cid = query.arg.parse().map_err(StringError::from)?;
-    ipfs.remove_block(&cid).await.map_err(StringError::from)?;
-    let response = RmResponse {};
-    Ok(reply::json(&response))
+pub struct RmResponse {
+    error: String,
+    hash: String,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct EmptyResponse {}
 
 pub fn rm<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "rm")
         .and(with_ipfs(ipfs))
-        .and(query::<RmQuery>())
+        .and(rm_options())
         .and_then(rm_query)
+}
+
+fn rm_options() -> impl Filter<Extract = (RmOptions,), Error = Rejection> + Clone {
+    warp::filters::query::raw().and_then(|q: String| {
+        let res = RmOptions::try_from(q.as_str())
+            .map_err(StringError::from)
+            .map_err(warp::reject::custom);
+
+        futures::future::ready(res)
+    })
+}
+
+async fn rm_query<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    options: RmOptions,
+) -> Result<impl Reply, Rejection> {
+    use futures::future::TryFutureExt;
+
+    let RmOptions { args, force, quiet } = options;
+
+    let cids = args
+        .into_iter()
+        .map(|s| Cid::try_from(s.as_str()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(StringError::from)?;
+
+    let futs: FuturesOrdered<_> = cids
+        .into_iter()
+        .map(|cid| ipfs.remove_block(cid.clone()).map_err(move |e| (cid, e)))
+        .collect();
+
+    let responses = futs
+        .collect::<Vec<Result<Cid, (Cid, Error)>>>()
+        .await
+        .into_iter()
+        .map(move |result| match result {
+            Ok(cid) => RmResponse {
+                hash: cid.to_string(),
+                error: "".to_string(),
+            },
+            Err((cid, e)) => {
+                if force {
+                    RmResponse {
+                        hash: cid.to_string(),
+                        error: e.to_string(),
+                    }
+                } else {
+                    RmResponse {
+                        hash: cid.to_string(),
+                        error: "".to_string(),
+                    }
+                }
+            }
+        })
+        .map(|response: RmResponse| serde_json::to_string(&response))
+        .map(move |result| match result {
+            Ok(mut string) => {
+                if quiet {
+                    string = "".to_string();
+                } else {
+                    string.push('\n');
+                }
+                Ok(string.into_bytes())
+            }
+            Err(e) => {
+                log::error!("edge serialization failed: {}", e);
+                Err(HandledErr)
+            }
+        });
+
+    let st = futures::stream::iter(responses);
+    Ok(StreamResponse(Unshared::new(st)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -155,4 +233,17 @@ pub fn stat<T: IpfsTypes>(
         .and(with_ipfs(ipfs))
         .and(query::<StatQuery>())
         .and_then(stat_query)
+}
+
+pub struct StreamResponse<S>(pub S);
+
+impl<S> Reply for StreamResponse<S>
+where
+    S: TryStream + Send + Sync + 'static,
+    S::Ok: Into<Bytes>,
+    S::Error: StdError + Send + Sync + 'static,
+{
+    fn into_response(self) -> warp::reply::Response {
+        Response::new(Body::wrap_stream(self.0.into_stream()))
+    }
 }
