@@ -635,7 +635,12 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                         let _ = ret.send(self.swarm.pubsub().subscribed_topics());
                     }
                     IpfsEvent::WantList(peer, ret) => {
-                        todo!()
+                        let list = if let Some(peer) = peer {
+                            self.swarm.bitswap().peer_wantlist(&peer).unwrap_or_default()
+                        } else {
+                            self.swarm.bitswap().local_wantlist()
+                        };
+                        let _ = ret.send(list);
                     }
                     IpfsEvent::BitswapStats(ret) => {
                         todo!()

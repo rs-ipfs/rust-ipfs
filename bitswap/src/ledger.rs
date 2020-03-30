@@ -70,6 +70,11 @@ impl Ledger {
             self.received_want_list.insert(cid.to_owned(), *priority);
         }
     }
+
+    /// Returns the blocks wanted by the peer in unspecified order
+    pub fn wantlist(&self) -> Vec<(Cid, Priority)> {
+        self.received_want_list.iter().map(|(cid, prio)| (cid.clone(), *prio)).collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

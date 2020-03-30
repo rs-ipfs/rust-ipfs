@@ -236,6 +236,10 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
     pub fn pubsub(&mut self) -> &mut Pubsub {
         &mut self.pubsub
     }
+
+    pub fn bitswap(&mut self) -> &mut Bitswap<TSwarmTypes::TStrategy> {
+        &mut self.bitswap
+    }
 }
 
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.

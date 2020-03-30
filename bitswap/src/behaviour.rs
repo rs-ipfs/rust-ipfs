@@ -45,6 +45,16 @@ impl<TStrategy> Bitswap<TStrategy> {
         }
     }
 
+    /// Return the wantlist of the local node
+    pub fn local_wantlist(&self) -> Vec<(Cid, Priority)> {
+        self.wanted_blocks.iter().map(|(cid, prio)| (cid.clone(), *prio)).collect()
+    }
+
+    /// Return the wantlist of a peer, if known
+    pub fn peer_wantlist(&self, peer: &PeerId) -> Option<Vec<(Cid, Priority)>> {
+        self.connected_peers.get(peer).map(Ledger::wantlist)
+    }
+
     /// Connect to peer.
     ///
     /// Called from Kademlia behaviour.
