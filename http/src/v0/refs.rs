@@ -21,11 +21,12 @@ use format::EdgeFormatter;
 mod path;
 pub use path::{IpfsPath, WalkSuccess};
 
-mod unshared;
-use unshared::Unshared;
+use crate::v0::support::unshared::Unshared;
 
 mod support;
-use support::{HandledErr, StreamResponse};
+use support::StreamResponse;
+
+use crate::v0::support::HandledErr;
 
 /// https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs
 pub fn refs<T: IpfsTypes>(
