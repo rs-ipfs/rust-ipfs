@@ -27,7 +27,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
         };
         let cid = Cid::new(version, codec, hash)?;
         let block = Block::new(bytes, cid);
-        let cid = self.repo.put_block(block).await?;
+        let (cid, _) = self.repo.put_block(block).await?;
         Ok(cid)
     }
 

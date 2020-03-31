@@ -307,7 +307,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 impl<Types: IpfsTypes> Ipfs<Types> {
     /// Puts a block into the ipfs repo.
     pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error> {
-        Ok(self.repo.put_block(block).await?)
+        Ok(self.repo.put_block(block).await?.0)
     }
 
     /// Retrives a block from the ipfs repo.
@@ -643,7 +643,10 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                         let _ = ret.send(list);
                     }
                     IpfsEvent::BitswapStats(ret) => {
-                        todo!()
+                        let stats = self.swarm.bitswap().stats();
+                        let peers = self.swarm.bitswap().peers();
+                        let wantlist = self.swarm.bitswap().local_wantlist();
+                        let _ = ret.send((stats, peers, wantlist).into());
                     }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
@@ -677,6 +680,21 @@ pub struct BitswapStats {
     pub dup_data_received: u64,
     pub peers: Vec<PeerId>,
     pub wantlist: Vec<(Cid, bitswap::Priority)>,
+}
+
+impl From<(bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>)> for BitswapStats {
+    fn from((stats, peers, wantlist): (bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>)) -> Self {
+        BitswapStats {
+            blocks_sent: stats.sent_blocks,
+            data_sent: stats.sent_data,
+            blocks_received: stats.received_blocks,
+            data_received: stats.received_data,
+            dup_blks_received: stats.duplicate_blocks,
+            dup_data_received: stats.duplicate_data,
+            peers,
+            wantlist,
+        }
+    }
 }
 
 #[doc(hidden)]

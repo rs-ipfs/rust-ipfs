@@ -44,6 +44,16 @@ pub fn create_repo<TRepoTypes: RepoTypes>(
     (Arc::new(repo), ch)
 }
 
+/// Describes the outcome of `BlockStore::put_block`
+#[derive(Debug, PartialEq, Eq)]
+pub enum BlockPut {
+    /// A new block was written
+    NewBlock,
+    /// The block existed already
+    Existed
+}
+
+/// This API is being discussed and evolved, which will likely lead to breakage.
 #[async_trait]
 pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
@@ -51,7 +61,7 @@ pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
     async fn open(&self) -> Result<(), Error>;
     async fn contains(&self, cid: &Cid) -> Result<bool, Error>;
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error>;
-    async fn put(&self, block: Block) -> Result<Cid, Error>;
+    async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error>;
     async fn remove(&self, cid: &Cid) -> Result<(), Error>;
 }
 
@@ -136,8 +146,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     /// Puts a block into the block store.
-    pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
-        let cid = self.block_store.put(block.clone()).await?;
+    pub async fn put_block(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
+        let (cid, res) = self.block_store.put(block.clone()).await?;
         self.subscriptions
             .lock()
             .await
@@ -149,7 +159,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             .send(RepoEvent::ProvideBlock(cid.clone()))
             .await
             .ok();
-        Ok(cid)
+        Ok((cid, res))
     }
 
     /// Retrives a block from the block store.
@@ -267,9 +277,13 @@ impl<T: RepoTypes> bitswap::BitswapStore for Repo<T> {
         self.block_store.get(cid).await
     }
 
-    async fn put_block(&self, block: Block) -> Result<(), anyhow::Error> {
-        self.put_block(block).await?;
-        Ok(())
+    async fn put_block(&self, block: Block) -> Result<bitswap::BlockPut, anyhow::Error> {
+        let (_, res) = self.put_block(block).await?;
+        let res = match res {
+            BlockPut::NewBlock => bitswap::BlockPut::Stored,
+            BlockPut::Existed => bitswap::BlockPut::Duplicate,
+        };
+        Ok(res)
     }
 }
 

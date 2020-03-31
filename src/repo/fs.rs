@@ -1,6 +1,6 @@
 //! Persistent fs backed repo
 use crate::error::Error;
-use crate::repo::BlockStore;
+use crate::repo::{BlockStore, BlockPut};
 #[cfg(feature = "rocksdb")]
 use crate::repo::{Column, DataStore};
 use async_std::fs;
@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Debug)]
 pub struct FsBlockStore {
     path: PathBuf,
+    // FIXME: this lock is not from futures
     cids: Arc<Mutex<HashSet<Cid>>>,
 }
 
@@ -86,14 +87,23 @@ impl BlockStore for FsBlockStore {
         Ok(Some(block))
     }
 
-    async fn put(&self, block: Block) -> Result<Cid, Error> {
+    async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
         let path = block_path(self.path.clone(), &block.cid());
         let cids = self.cids.clone();
-        let mut file = fs::File::create(path).await?;
         let data = block.data();
+        let mut file = fs::File::create(path).await?;
         file.write_all(&*data).await?;
-        cids.lock().unwrap().insert(block.cid().to_owned());
-        Ok(block.cid().to_owned())
+        file.flush().await?;
+        let retval = if cids.lock().unwrap().insert(block.cid().to_owned()) {
+            BlockPut::NewBlock
+        } else {
+            BlockPut::Existed
+        };
+        // FIXME: checking if the file existed already while creating complicates this function a
+        // lot; might be better to just guard with mutex to enforce single task file access.. the
+        // current implementation will write over the same file multiple times, each time believing
+        // it was the first.
+        Ok((block.cid().to_owned(), retval))
     }
 
     async fn remove(&self, cid: &Cid) -> Result<(), Error> {
@@ -111,6 +121,7 @@ impl BlockStore for FsBlockStore {
 #[cfg(feature = "rocksdb")]
 pub struct RocksDataStore {
     path: PathBuf,
+    // FIXME: this lock is not from futures
     db: Arc<Mutex<Option<rocksdb::DB>>>,
 }
 
@@ -238,7 +249,7 @@ mod tests {
         assert_eq!(remove.await.unwrap(), ());
 
         let put = store.put(block.clone());
-        assert_eq!(put.await.unwrap(), cid.to_owned());
+        assert_eq!(put.await.unwrap().0, cid.to_owned());
         let contains = store.contains(&cid);
         assert_eq!(contains.await.unwrap(), true);
         let get = store.get(&cid);

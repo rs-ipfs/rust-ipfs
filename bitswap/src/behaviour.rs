@@ -32,6 +32,16 @@ pub struct Bitswap<TStrategy> {
     strategy: TStrategy,
 }
 
+#[derive(Debug, Default)]
+pub struct Stats {
+    pub sent_blocks: u64,
+    pub sent_data: u64,
+    pub received_blocks: u64,
+    pub received_data: u64,
+    pub duplicate_blocks: u64,
+    pub duplicate_data: u64
+}
+
 impl<TStrategy> Bitswap<TStrategy> {
     /// Creates a `Bitswap`.
     pub fn new(strategy: TStrategy) -> Self {
@@ -53,6 +63,23 @@ impl<TStrategy> Bitswap<TStrategy> {
     /// Return the wantlist of a peer, if known
     pub fn peer_wantlist(&self, peer: &PeerId) -> Option<Vec<(Cid, Priority)>> {
         self.connected_peers.get(peer).map(Ledger::wantlist)
+    }
+
+    pub fn stats(&self) -> Stats {
+        // we currently do not remove ledgers so this is ... good enough
+        self.connected_peers.values().fold(Stats::default(), |mut acc, ledger| {
+            acc.sent_blocks += ledger.sent_blocks;
+            acc.sent_data += ledger.sent_data;
+            acc.received_blocks += ledger.received_blocks;
+            acc.received_data += ledger.received_data;
+            acc.duplicate_blocks += ledger.duplicate_blocks;
+            acc.duplicate_data += ledger.duplicate_data;
+            acc
+        })
+    }
+
+    pub fn peers(&self) -> Vec<PeerId> {
+        self.connected_peers.keys().cloned().collect()
     }
 
     /// Connect to peer.
@@ -182,7 +209,6 @@ impl<TStrategy: Strategy> NetworkBehaviour for Bitswap<TStrategy> {
         };
         debug!("  received message");
 
-        // Update the ledger.
         let ledger = self
             .connected_peers
             .get_mut(&source)
@@ -219,6 +245,8 @@ impl<TStrategy: Strategy> NetworkBehaviour for Bitswap<TStrategy> {
                             .push_back(NetworkBehaviourAction::SendEvent { peer_id, event })
                     }
                     Some(ref mut ledger) => {
+                        // FIXME: this is a bit early to update stats as the block hasn't been sent
+                        // to anywhere at this point.
                         ledger.update_outgoing_stats(&event);
                         debug!("  send_message to {}", peer_id.to_base58());
                         return Poll::Ready(NetworkBehaviourAction::SendEvent { peer_id, event });
@@ -231,9 +259,22 @@ impl<TStrategy: Strategy> NetworkBehaviour for Bitswap<TStrategy> {
             }
         }
 
-        if let Some(StrategyEvent::Send { peer_id, block }) = self.strategy.poll() {
-            self.send_block(peer_id, block);
-            ctx.waker().wake_by_ref();
+        let inner = match self.strategy.poll(ctx) {
+            Poll::Ready(Some(inner)) => inner,
+            Poll::Ready(None) => return Poll::Pending,
+            Poll::Pending => {
+                return Poll::Pending;
+            }
+        };
+
+        match inner {
+            StrategyEvent::Send { peer_id, block } => self.send_block(peer_id, block),
+            StrategyEvent::NewBlockStored { source, bytes } => if let Some(ledger) = self.connected_peers.get_mut(&source) {
+                ledger.update_incoming_stored(bytes)
+            },
+            StrategyEvent::DuplicateBlockReceived { source, bytes } => if let Some(ledger) = self.connected_peers.get_mut(&source) {
+                ledger.update_incoming_duplicate(bytes)
+            }
         }
 
         Poll::Pending
