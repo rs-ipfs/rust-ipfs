@@ -4,38 +4,50 @@ use async_std::task;
 use async_trait::async_trait;
 use libipld::cid::Cid;
 use libp2p_core::PeerId;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use futures::channel::mpsc::{unbounded, UnboundedSender as Sender, UnboundedReceiver as Receiver};
+use std::task::{Context, Poll};
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum BlockPut {
+    Stored,
+    Duplicate,
+}
 
 #[async_trait]
 pub trait BitswapStore: Send + Sync {
     async fn get_block(&self, cid: &Cid) -> Result<Option<Block>, anyhow::Error>;
 
-    async fn put_block(&self, block: Block) -> Result<(), anyhow::Error>;
+    async fn put_block(&self, block: Block) -> Result<BlockPut, anyhow::Error>;
 }
 
 pub trait Strategy: Send + Unpin + 'static {
     fn new(store: Arc<dyn BitswapStore>) -> Self;
     fn process_want(&self, source: PeerId, cid: Cid, priority: Priority);
     fn process_block(&self, source: PeerId, block: Block);
-    fn poll(&self) -> Option<StrategyEvent>;
+    fn poll(&self, ctx: &mut Context<'_>) -> Poll<Option<StrategyEvent>>;
 }
 
 #[derive(Debug)]
 pub enum StrategyEvent {
     Send { peer_id: PeerId, block: Block },
+    DuplicateBlockReceived { source: PeerId, bytes: u64 },
+    NewBlockStored { source: PeerId, bytes: u64 },
 }
 
 pub struct AltruisticStrategy {
     store: Arc<dyn BitswapStore>,
-    events: (Sender<StrategyEvent>, Receiver<StrategyEvent>),
+    event_sender: Sender<StrategyEvent>,
+    events: Mutex<Receiver<StrategyEvent>>,
 }
 
 impl Strategy for AltruisticStrategy {
     fn new(store: Arc<dyn BitswapStore>) -> Self {
+        let (tx, rx) = unbounded();
         AltruisticStrategy {
             store,
-            events: channel::<StrategyEvent>(),
+            event_sender: tx,
+            events: Mutex::new(rx),
         }
     }
 
@@ -46,7 +58,7 @@ impl Strategy for AltruisticStrategy {
             cid.to_string(),
             priority
         );
-        let events = self.events.0.clone();
+        let sender = self.event_sender.clone();
         let store = self.store.clone();
 
         task::spawn(async move {
@@ -69,14 +81,7 @@ impl Strategy for AltruisticStrategy {
                 block,
             };
 
-            if let Err(e) = events.send(req) {
-                warn!(
-                    "Peer {} wanted block {} we failed start sending it: {}",
-                    source.to_base58(),
-                    cid,
-                    e
-                );
-            }
+            let _ = sender.unbounded_send(req);
         });
     }
 
@@ -85,22 +90,36 @@ impl Strategy for AltruisticStrategy {
         info!("Received block {} from peer {}", cid, source.to_base58());
 
         let store = self.store.clone();
+        let sender = self.event_sender.clone();
 
         task::spawn(async move {
+            let bytes = block.data().len() as u64;
             let res = store.put_block(block).await;
-            if let Err(e) = res {
-                debug!(
-                    "Got block {} from peer {} but failed to store it: {}",
-                    cid,
-                    source.to_base58(),
-                    e
-                );
-            }
+            let evt = match res {
+                Ok(BlockPut::Stored) => StrategyEvent::NewBlockStored { source, bytes },
+                Ok(BlockPut::Duplicate) => StrategyEvent::DuplicateBlockReceived { source, bytes },
+                Err(e) => {
+                    debug!(
+                        "Got block {} from peer {} but failed to store it: {}",
+                        cid,
+                        source.to_base58(),
+                        e
+                    );
+                    return;
+                },
+            };
+
+            let _ = sender.unbounded_send(evt);
         });
     }
 
-    fn poll(&self) -> Option<StrategyEvent> {
-        self.events.1.try_recv().ok()
+    /// Can return Poll::Ready(None) multiple times, Poll::Pending
+    fn poll(&self, ctx: &mut Context) -> Poll<Option<StrategyEvent>> {
+        use futures::stream::StreamExt;
+
+        let mut g = self.events.try_lock().expect("Failed to acquire the uncontended mutex right away");
+
+        g.poll_next_unpin(ctx)
     }
 }
 

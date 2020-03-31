@@ -1,6 +1,6 @@
 //! Volatile memory backed repo
 use crate::error::Error;
-use crate::repo::{BlockStore, Column, DataStore};
+use crate::repo::{BlockStore, BlockPut, Column, DataStore};
 use async_std::path::PathBuf;
 use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
@@ -44,10 +44,17 @@ impl BlockStore for MemBlockStore {
         Ok(block)
     }
 
-    async fn put(&self, block: Block) -> Result<Cid, Error> {
-        let cid = block.cid().to_owned();
-        self.blocks.lock().await.insert(cid.clone(), block);
-        Ok(cid)
+    async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
+        use std::collections::hash_map::Entry;
+        let mut g = self.blocks.lock().await;
+        match g.entry(block.cid.clone()) {
+            Entry::Occupied(_) => Ok((block.cid, BlockPut::Existed)),
+            Entry::Vacant(ve) => {
+                let cid = ve.key().clone();
+                ve.insert(block);
+                Ok((cid, BlockPut::NewBlock))
+            }
+        }
     }
 
     async fn remove(&self, cid: &Cid) -> Result<(), Error> {
@@ -143,7 +150,7 @@ mod tests {
         assert_eq!(remove.await.unwrap(), ());
 
         let put = store.put(block.clone());
-        assert_eq!(put.await.unwrap(), cid.to_owned());
+        assert_eq!(put.await.unwrap().0, cid.to_owned());
         let contains = store.contains(&cid);
         assert_eq!(contains.await.unwrap(), true);
         let get = store.get(&cid);
