@@ -126,6 +126,7 @@ fn main() {
     };
 
     println!("IPFS_PATH: {:?}", home);
+    println!("Process id: {}", std::process::id());
 
     // TODO: sigterm should initiate graceful shutdown, second time should shutdown right now
     // NOTE: sigkill ... well surely it will stop the process right away
