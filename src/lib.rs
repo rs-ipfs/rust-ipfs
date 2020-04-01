@@ -740,6 +740,12 @@ mod node {
             &self.ipfs
         }
     }
+
+    impl std::ops::DerefMut for Node {
+        fn deref_mut(&mut self) -> &mut <Self as std::ops::Deref>::Target {
+            &mut self.ipfs
+        }
+    }
 }
 
 #[cfg(test)]
