@@ -19,7 +19,7 @@ async fn get_query<T: IpfsTypes>(
         .get_block(&cid)
         .await
         .map_err(StringError::from)?
-        .to_vec();
+        .into_vec();
 
     let response = Response::builder().body(data);
     Ok(response)
