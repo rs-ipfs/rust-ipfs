@@ -2,7 +2,6 @@ use ipfs::{Block, Node};
 use libipld::cid::{Cid, Codec};
 use multihash::Sha2_256;
 
-/// Discovers a peer via mdns and exchanges a block through bitswap.
 #[async_std::test]
 async fn exchange_block() {
     env_logger::init();
