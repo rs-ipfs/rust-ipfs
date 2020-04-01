@@ -5,6 +5,8 @@ pub mod id;
 pub mod pubsub;
 pub mod swarm;
 pub mod version;
+pub mod block;
+pub mod bitswap;
 
 pub mod support;
 pub use support::recover_as_message_response;
@@ -32,7 +34,10 @@ where
             // Placeholder paths
             // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
             .or(warp::path!("add").and_then(not_implemented))
-            .or(warp::path!("bitswap" / ..).and_then(not_implemented))
+            .or(bitswap::wantlist(ipfs))
+            .or(bitswap::stat(ipfs))
+            .or(block::get(ipfs))
+            .or(block::put(ipfs))
             .or(warp::path!("block" / ..).and_then(not_implemented))
             .or(warp::path!("bootstrap" / ..).and_then(not_implemented))
             .or(warp::path!("config" / ..).and_then(not_implemented))

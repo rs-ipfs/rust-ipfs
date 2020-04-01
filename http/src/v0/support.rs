@@ -69,13 +69,22 @@ impl warp::reject::Reject for NonUtf8Topic {}
 pub(crate) struct RequiredArgumentMissing(pub(crate) &'static [u8]);
 impl warp::reject::Reject for RequiredArgumentMissing {}
 
+#[derive(Debug)]
+pub(crate) struct InvalidMultipartFormData;
+impl warp::reject::Reject for InvalidMultipartFormData {}
+impl From<InvalidMultipartFormData> for warp::Rejection {
+    fn from(err: InvalidMultipartFormData) -> warp::Rejection {
+        warp::reject::custom(err)
+    }
+}
+
 /// Marker for `warp` specific rejections when something is unimplemented
 #[derive(Debug)]
 pub(crate) struct NotImplemented;
 impl warp::reject::Reject for NotImplemented {}
-impl Into<warp::reject::Rejection> for NotImplemented {
-    fn into(self) -> warp::reject::Rejection {
-        warp::reject::custom(self)
+impl From<NotImplemented> for warp::Rejection {
+    fn from(err: NotImplemented) -> warp::Rejection {
+        warp::reject::custom(err)
     }
 }
 
@@ -83,18 +92,27 @@ impl Into<warp::reject::Rejection> for NotImplemented {
 #[derive(Debug)]
 pub(crate) struct InvalidPeerId;
 impl warp::reject::Reject for InvalidPeerId {}
+impl From<InvalidPeerId> for warp::Rejection {
+    fn from(err: InvalidPeerId) -> warp::Rejection {
+        warp::reject::custom(err)
+    }
+}
 
 /// Default placeholder for ipfs::Error but once we get more typed errors we could start making
 /// them more readable, if needed.
+// TODO: needs to be considered if this is even needed..
 #[derive(Debug)]
 pub(crate) struct StringError(Cow<'static, str>);
 impl warp::reject::Reject for StringError {}
+impl From<StringError> for warp::Rejection {
+    fn from(err: StringError) -> warp::Rejection {
+        warp::reject::custom(err)
+    }
+}
 
-// FIXME: it's a bit questionable to keep this but in the beginning it might help us glide in the
-// right direction.
-impl From<ipfs::Error> for StringError {
-    fn from(e: ipfs::Error) -> Self {
-        Self(format!("{}", e).into())
+impl<D: std::fmt::Display> From<D> for StringError {
+    fn from(d: D) -> Self {
+        Self(format!("{}", d).into())
     }
 }
 

@@ -632,6 +632,18 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BitswapStats {
+    pub blocks_sent: u64,
+    pub data_sent: u64,
+    pub blocks_received: u64,
+    pub data_received: u64,
+    pub dup_blks_received: u64,
+    pub dup_data_received: u64,
+    pub peers: Vec<PeerId>,
+    pub wantlist: Vec<(Cid, bitswap::Priority)>,
+}
+
 #[doc(hidden)]
 pub use node::Node;
 
