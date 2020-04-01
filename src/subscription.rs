@@ -20,7 +20,8 @@ impl<TReq: Debug + Eq + Hash, TRes: Debug> fmt::Debug for SubscriptionRegistry<T
             std::any::type_name::<Self>(),
             std::any::type_name::<TReq>(),
             std::any::type_name::<TRes>(),
-            self.subscriptions)
+            self.subscriptions
+        )
     }
 }
 
@@ -72,7 +73,8 @@ impl<TReq: Debug + Eq + Hash, TRes: Debug> SubscriptionRegistry<TReq, TRes> {
         log::trace!(
             "Cancelled {} subscriptions and {} are pending (not immediatedly locked)",
             cancelled,
-            pending.len());
+            pending.len()
+        );
 
         let remaining = pending.len();
 
@@ -85,7 +87,8 @@ impl<TReq: Debug + Eq + Hash, TRes: Debug> SubscriptionRegistry<TReq, TRes> {
         log::debug!(
             "Remaining {} pending subscriptions cancelled (total of {})",
             remaining,
-            cancelled + remaining);
+            cancelled + remaining
+        );
     }
 }
 
@@ -125,9 +128,14 @@ impl<TResult> fmt::Debug for Subscription<TResult> {
             fmt,
             "Subscription<{}>(result: {}, wakers: {}, cancelled: {})",
             std::any::type_name::<TResult>(),
-            if self.result.is_some() { "Some(_)" } else { "None" },
+            if self.result.is_some() {
+                "Some(_)"
+            } else {
+                "None"
+            },
             self.wakers.len(),
-            self.cancelled)
+            self.cancelled
+        )
     }
 }
 

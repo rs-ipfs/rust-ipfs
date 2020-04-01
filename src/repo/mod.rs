@@ -110,9 +110,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     /// Shutdowns the repo, cancelling any pending subscriptions; Likely going away after some
     /// refactoring, see notes on [`Ipfs::exit_daemon`].
     pub async fn shutdown(&self) {
-        self.subscriptions.lock()
-            .await
-            .shutdown();
+        self.subscriptions.lock().await.shutdown();
     }
 
     pub async fn init(&self) -> Result<(), Error> {
