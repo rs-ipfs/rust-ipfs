@@ -379,7 +379,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .send(IpfsEvent::Connect(addr, tx))
             .await?;
         let subscription = rx.await?;
-        subscription.await.map_err(|e| format_err!("{}", e))
+        subscription.await?.map_err(|e| format_err!("{}", e))
     }
 
     pub async fn addrs(&self) -> Result<Vec<(PeerId, Vec<Multiaddr>)>, Error> {
@@ -491,6 +491,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Exit daemon.
     pub async fn exit_daemon(mut self) {
+        // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
+        // the background task or stream. After that this could be handled by dropping.
+        self.repo.shutdown().await;
+
         // ignoring the error because it'd mean that the background task would had already been
         // dropped
         let _ = self.to_task.send(IpfsEvent::Exit).await;

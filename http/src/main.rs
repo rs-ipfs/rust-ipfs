@@ -147,6 +147,9 @@ fn main() {
         let api_link_file = home.join("api");
         let (addr, server) = serve(&ipfs);
 
+        // shutdown future will handle signalling the exit
+        drop(ipfs);
+
         let api_multiaddr = format!("/ip4/{}/tcp/{}", addr.ip(), addr.port());
 
         // this file is looked for when js-ipfsd-ctl checks optimistically if the IPFS_PATH has a
@@ -167,8 +170,6 @@ fn main() {
                 .await
                 .map_err(|e| eprintln!("Failed to truncate {:?}: {}", api_link_file, e));
         }
-
-        ipfs.exit_daemon().await;
     });
 }
 
@@ -182,7 +183,10 @@ fn serve<Types: IpfsTypes>(
     let routes = v0::routes(ipfs, shutdown_tx);
     let routes = routes.with(warp::log("rust-ipfs-http-v0"));
 
+    let ipfs = ipfs.clone();
+
     warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 0), async move {
         shutdown_rx.next().await;
+        ipfs.exit_daemon().await;
     })
 }
