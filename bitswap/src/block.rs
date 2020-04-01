@@ -18,4 +18,8 @@ impl Block {
     pub fn data(&self) -> &[u8] {
         &self.data
     }
+
+    pub fn to_vec(self) -> Vec<u8> {
+        self.data.into()
+    }
 }

@@ -27,3 +27,5 @@ percent-encoding = "*"
 openssl = "0.10"
 
 prost = "0.6.1"
+cid = "0.4"
+multihash = "0.10"
