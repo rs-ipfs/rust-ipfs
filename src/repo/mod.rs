@@ -107,6 +107,14 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         )
     }
 
+    /// Shutdowns the repo, cancelling any pending subscriptions; Likely going away after some
+    /// refactoring, see notes on [`Ipfs::exit_daemon`].
+    pub async fn shutdown(&self) {
+        self.subscriptions.lock()
+            .await
+            .shutdown();
+    }
+
     pub async fn init(&self) -> Result<(), Error> {
         let f1 = self.block_store.init();
         let f2 = self.data_store.init();
@@ -163,7 +171,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 .send(RepoEvent::WantBlock(cid.clone()))
                 .await
                 .ok();
-            Ok(subscription.await)
+            Ok(subscription.await?)
         }
     }
 

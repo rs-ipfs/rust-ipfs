@@ -10,17 +10,22 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug)]
 pub struct SubscriptionRegistry<TReq: Debug + Eq + Hash, TRes: Debug> {
     subscriptions: HashMap<TReq, Arc<Mutex<Subscription<TRes>>>>,
+    cancelled: bool,
 }
 
 impl<TReq: Debug + Eq + Hash, TRes: Debug> SubscriptionRegistry<TReq, TRes> {
     pub fn new() -> Self {
         Self {
             subscriptions: Default::default(),
+            cancelled: false,
         }
     }
 
     pub fn create_subscription(&mut self, req: TReq) -> SubscriptionFuture<TRes> {
         let subscription = self.subscriptions.entry(req).or_default().clone();
+        if self.cancelled {
+            subscription.lock().unwrap().cancel();
+        }
         SubscriptionFuture { subscription }
     }
 
@@ -28,6 +33,48 @@ impl<TReq: Debug + Eq + Hash, TRes: Debug> SubscriptionRegistry<TReq, TRes> {
         if let Some(subscription) = self.subscriptions.remove(req) {
             subscription.lock().unwrap().wake(res);
         }
+    }
+
+    /// After shutdown all SubscriptionFutures will return Err(Cancelled)
+    pub fn shutdown(&mut self) {
+        if self.cancelled {
+            return;
+        }
+        self.cancelled = true;
+
+        log::debug!("Shutting down {:?}", self);
+
+        let mut cancelled = 0;
+        let mut pending = Vec::new();
+
+        for (_, sub) in self.subscriptions.drain() {
+            {
+                if let Ok(mut sub) = sub.try_lock() {
+                    sub.cancel();
+                    cancelled += 1;
+                    continue;
+                }
+            }
+            pending.push(sub);
+        }
+
+        log::trace!(
+            "Cancelled {} subscriptions and {} are pending (not immediatedly locked)",
+            cancelled,
+            pending.len());
+
+        let remaining = pending.len();
+
+        for sub in pending {
+            if let Ok(mut sub) = sub.lock() {
+                sub.cancel();
+            }
+        }
+
+        log::debug!(
+            "Remaining {} pending subscriptions cancelled (total of {})",
+            remaining,
+            cancelled + remaining);
     }
 }
 
@@ -37,10 +84,29 @@ impl<TReq: Debug + Eq + Hash, TRes: Debug> Default for SubscriptionRegistry<TReq
     }
 }
 
+impl<TReq: Debug + Eq + Hash, TRes: Debug> Drop for SubscriptionRegistry<TReq, TRes> {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+/// Subscription and it's linked SubscriptionFutures were cancelled before completion.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Cancelled;
+
+impl fmt::Display for Cancelled {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "{:?}", self)
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
 #[derive(Debug)]
 pub struct Subscription<TResult> {
     result: Option<TResult>,
     wakers: Vec<Waker>,
+    cancelled: bool,
 }
 
 impl<TResult> Subscription<TResult> {
@@ -48,6 +114,7 @@ impl<TResult> Subscription<TResult> {
         Self {
             result: Default::default(),
             wakers: Default::default(),
+            cancelled: false,
         }
     }
 
@@ -60,6 +127,20 @@ impl<TResult> Subscription<TResult> {
         for waker in self.wakers.drain(..) {
             waker.wake();
         }
+    }
+
+    pub fn cancel(&mut self) {
+        if self.cancelled {
+            return;
+        }
+        self.cancelled = true;
+        for waker in self.wakers.drain(..) {
+            waker.wake();
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled
     }
 }
 
@@ -80,12 +161,16 @@ pub struct SubscriptionFuture<TResult> {
 }
 
 impl<TResult: Clone> Future for SubscriptionFuture<TResult> {
-    type Output = TResult;
+    type Output = Result<TResult, Cancelled>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
         let mut subscription = self.subscription.lock().unwrap();
+        if subscription.is_cancelled() {
+            return Poll::Ready(Err(Cancelled));
+        }
+
         if let Some(result) = subscription.result() {
-            Poll::Ready(result)
+            Poll::Ready(Ok(result))
         } else {
             subscription.add_waker(context.waker().clone());
             Poll::Pending
@@ -97,7 +182,7 @@ impl<TResult> fmt::Debug for SubscriptionFuture<TResult> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,
-            "SubscriptionFuture<{}>",
+            "SubscriptionFuture<Output = Result<{}, Cancelled>>",
             std::any::type_name::<TResult>()
         )
     }
@@ -113,7 +198,31 @@ mod tests {
         let s1 = registry.create_subscription(0);
         let s2 = registry.create_subscription(0);
         registry.finish_subscription(&0, 10);
-        assert_eq!(s1.await, 10);
-        assert_eq!(s2.await, 10);
+        assert_eq!(s1.await.unwrap(), 10);
+        assert_eq!(s2.await.unwrap(), 10);
+    }
+
+    #[async_std::test]
+    async fn subscription_cancelled_on_dropping_registry() {
+        let mut registry = SubscriptionRegistry::<u32, u32>::new();
+        let s1 = registry.create_subscription(0);
+        drop(registry);
+        s1.await.unwrap_err();
+    }
+
+    #[async_std::test]
+    async fn subscription_cancelled_on_shutdown() {
+        let mut registry = SubscriptionRegistry::<u32, u32>::new();
+        let s1 = registry.create_subscription(0);
+        registry.shutdown();
+        s1.await.unwrap_err();
+    }
+
+    #[async_std::test]
+    async fn new_subscriptions_cancelled_after_shutdown() {
+        let mut registry = SubscriptionRegistry::<u32, u32>::new();
+        registry.shutdown();
+        let s1 = registry.create_subscription(0);
+        s1.await.unwrap_err();
     }
 }
