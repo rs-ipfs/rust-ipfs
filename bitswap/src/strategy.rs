@@ -2,10 +2,10 @@ use crate::block::Block;
 use crate::ledger::Priority;
 use async_std::task;
 use async_trait::async_trait;
+use futures::channel::mpsc::{unbounded, UnboundedReceiver as Receiver, UnboundedSender as Sender};
 use libipld::cid::Cid;
 use libp2p_core::PeerId;
 use std::sync::{Arc, Mutex};
-use futures::channel::mpsc::{unbounded, UnboundedSender as Sender, UnboundedReceiver as Receiver};
 use std::task::{Context, Poll};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -106,7 +106,7 @@ impl Strategy for AltruisticStrategy {
                         e
                     );
                     return;
-                },
+                }
             };
 
             let _ = sender.unbounded_send(evt);
@@ -117,7 +117,10 @@ impl Strategy for AltruisticStrategy {
     fn poll(&self, ctx: &mut Context) -> Poll<Option<StrategyEvent>> {
         use futures::stream::StreamExt;
 
-        let mut g = self.events.try_lock().expect("Failed to acquire the uncontended mutex right away");
+        let mut g = self
+            .events
+            .try_lock()
+            .expect("Failed to acquire the uncontended mutex right away");
 
         g.poll_next_unpin(ctx)
     }

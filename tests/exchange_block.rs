@@ -20,7 +20,12 @@ async fn exchange_block() {
         .await
         .unwrap();
 
-    a.put_block(Block { cid: cid.clone(), data: data.clone() }).await.unwrap();
+    a.put_block(Block {
+        cid: cid.clone(),
+        data: data.clone(),
+    })
+    .await
+    .unwrap();
 
     let Block { data: data2, .. } = b.get_block(&cid).await.unwrap();
 

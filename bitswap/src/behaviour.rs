@@ -39,7 +39,7 @@ pub struct Stats {
     pub received_blocks: u64,
     pub received_data: u64,
     pub duplicate_blocks: u64,
-    pub duplicate_data: u64
+    pub duplicate_data: u64,
 }
 
 impl<TStrategy> Bitswap<TStrategy> {
@@ -57,7 +57,10 @@ impl<TStrategy> Bitswap<TStrategy> {
 
     /// Return the wantlist of the local node
     pub fn local_wantlist(&self) -> Vec<(Cid, Priority)> {
-        self.wanted_blocks.iter().map(|(cid, prio)| (cid.clone(), *prio)).collect()
+        self.wanted_blocks
+            .iter()
+            .map(|(cid, prio)| (cid.clone(), *prio))
+            .collect()
     }
 
     /// Return the wantlist of a peer, if known
@@ -67,15 +70,17 @@ impl<TStrategy> Bitswap<TStrategy> {
 
     pub fn stats(&self) -> Stats {
         // we currently do not remove ledgers so this is ... good enough
-        self.connected_peers.values().fold(Stats::default(), |mut acc, ledger| {
-            acc.sent_blocks += ledger.sent_blocks;
-            acc.sent_data += ledger.sent_data;
-            acc.received_blocks += ledger.received_blocks;
-            acc.received_data += ledger.received_data;
-            acc.duplicate_blocks += ledger.duplicate_blocks;
-            acc.duplicate_data += ledger.duplicate_data;
-            acc
-        })
+        self.connected_peers
+            .values()
+            .fold(Stats::default(), |mut acc, ledger| {
+                acc.sent_blocks += ledger.sent_blocks;
+                acc.sent_data += ledger.sent_data;
+                acc.received_blocks += ledger.received_blocks;
+                acc.received_data += ledger.received_data;
+                acc.duplicate_blocks += ledger.duplicate_blocks;
+                acc.duplicate_data += ledger.duplicate_data;
+                acc
+            })
     }
 
     pub fn peers(&self) -> Vec<PeerId> {
@@ -269,11 +274,15 @@ impl<TStrategy: Strategy> NetworkBehaviour for Bitswap<TStrategy> {
 
         match inner {
             StrategyEvent::Send { peer_id, block } => self.send_block(peer_id, block),
-            StrategyEvent::NewBlockStored { source, bytes } => if let Some(ledger) = self.connected_peers.get_mut(&source) {
-                ledger.update_incoming_stored(bytes)
-            },
-            StrategyEvent::DuplicateBlockReceived { source, bytes } => if let Some(ledger) = self.connected_peers.get_mut(&source) {
-                ledger.update_incoming_duplicate(bytes)
+            StrategyEvent::NewBlockStored { source, bytes } => {
+                if let Some(ledger) = self.connected_peers.get_mut(&source) {
+                    ledger.update_incoming_stored(bytes)
+                }
+            }
+            StrategyEvent::DuplicateBlockReceived { source, bytes } => {
+                if let Some(ledger) = self.connected_peers.get_mut(&source) {
+                    ledger.update_incoming_duplicate(bytes)
+                }
             }
         }
 

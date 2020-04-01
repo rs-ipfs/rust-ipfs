@@ -15,7 +15,10 @@ pub struct WantlistResponse {
     keys: Vec<Value>,
 }
 
-async fn wantlist_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: WantlistQuery) -> Result<impl Reply, Rejection> {
+async fn wantlist_query<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    query: WantlistQuery,
+) -> Result<impl Reply, Rejection> {
     let peer_id = if let Some(peer_id) = query.peer {
         let peer_id = peer_id.parse().map_err(|_| InvalidPeerId)?;
         Some(peer_id)
@@ -34,7 +37,9 @@ async fn wantlist_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: WantlistQuery) -> Re
     Ok(reply::json(&response))
 }
 
-pub fn wantlist<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn wantlist<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("bitswap" / "wantlist")
         .and(with_ipfs(ipfs))
         .and(query::<WantlistQuery>())
@@ -92,7 +97,9 @@ async fn stat_query<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejection
     Ok(reply::json(&stats))
 }
 
-pub fn stat<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn stat<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("bitswap" / "stat")
         .and(with_ipfs(ipfs))
         .and_then(stat_query)

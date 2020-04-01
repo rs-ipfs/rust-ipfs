@@ -1,6 +1,6 @@
 //! Persistent fs backed repo
 use crate::error::Error;
-use crate::repo::{BlockStore, BlockPut};
+use crate::repo::{BlockPut, BlockStore};
 #[cfg(feature = "rocksdb")]
 use crate::repo::{Column, DataStore};
 use async_std::fs;

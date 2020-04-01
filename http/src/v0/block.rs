@@ -3,14 +3,17 @@ use cid::{Codec, Version};
 use futures::stream::StreamExt;
 use ipfs::{Cid, Ipfs, IpfsTypes};
 use serde::{Deserialize, Serialize};
-use warp::{http::Response, multipart, path, query, reply, Filter, Rejection, Reply, Buf};
+use warp::{http::Response, multipart, path, query, reply, Buf, Filter, Rejection, Reply};
 
 #[derive(Debug, Deserialize)]
 pub struct GetQuery {
     arg: String,
 }
 
-async fn get_query<T: IpfsTypes>(mut ipfs: Ipfs<T>, query: GetQuery) -> Result<impl Reply, Rejection> {
+async fn get_query<T: IpfsTypes>(
+    mut ipfs: Ipfs<T>,
+    query: GetQuery,
+) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
     let data = ipfs
         .get_block(&cid)
@@ -22,7 +25,9 @@ async fn get_query<T: IpfsTypes>(mut ipfs: Ipfs<T>, query: GetQuery) -> Result<i
     Ok(response)
 }
 
-pub fn get<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn get<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "get")
         .and(with_ipfs(ipfs))
         .and(query::<GetQuery>())
@@ -96,7 +101,9 @@ async fn put_query<T: IpfsTypes>(
     Ok(reply::json(&response))
 }
 
-pub fn put<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn put<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "put")
         .and(with_ipfs(ipfs))
         .and(query::<PutQuery>())
@@ -118,14 +125,18 @@ async fn rm_query<T: IpfsTypes>(_ipfs: Ipfs<T>, _query: RmQuery) -> Result<impl 
     Ok(reply::json(&response))
 }
 
-pub fn rm<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn rm<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "rm")
         .and(with_ipfs(ipfs))
         .and(query::<RmQuery>())
         .and_then(rm_query)
 }
 
-pub fn stat<T: IpfsTypes>(ipfs: &Ipfs<T>) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn stat<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "stat")
         .and(with_ipfs(ipfs))
         .and(query::<RmQuery>())
