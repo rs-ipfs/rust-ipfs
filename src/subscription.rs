@@ -7,10 +7,21 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug)]
 pub struct SubscriptionRegistry<TReq: Debug + Eq + Hash, TRes: Debug> {
     subscriptions: HashMap<TReq, Arc<Mutex<Subscription<TRes>>>>,
     cancelled: bool,
+}
+
+impl<TReq: Debug + Eq + Hash, TRes: Debug> fmt::Debug for SubscriptionRegistry<TReq, TRes> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            fmt,
+            "{}<{}, {}>(subscriptions: {:?})",
+            std::any::type_name::<Self>(),
+            std::any::type_name::<TReq>(),
+            std::any::type_name::<TRes>(),
+            self.subscriptions)
+    }
 }
 
 impl<TReq: Debug + Eq + Hash, TRes: Debug> SubscriptionRegistry<TReq, TRes> {
@@ -102,11 +113,22 @@ impl fmt::Display for Cancelled {
 
 impl std::error::Error for Cancelled {}
 
-#[derive(Debug)]
 pub struct Subscription<TResult> {
     result: Option<TResult>,
     wakers: Vec<Waker>,
     cancelled: bool,
+}
+
+impl<TResult> fmt::Debug for Subscription<TResult> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            fmt,
+            "Subscription<{}>(result: {}, wakers: {}, cancelled: {})",
+            std::any::type_name::<TResult>(),
+            if self.result.is_some() { "Some(_)" } else { "None" },
+            self.wakers.len(),
+            self.cancelled)
+    }
 }
 
 impl<TResult> Subscription<TResult> {
