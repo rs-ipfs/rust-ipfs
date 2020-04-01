@@ -50,7 +50,7 @@ pub enum BlockPut {
     /// A new block was written
     NewBlock,
     /// The block existed already
-    Existed
+    Existed,
 }
 
 /// This API is being discussed and evolved, which will likely lead to breakage.

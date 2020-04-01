@@ -1,6 +1,6 @@
 //! Volatile memory backed repo
 use crate::error::Error;
-use crate::repo::{BlockStore, BlockPut, Column, DataStore};
+use crate::repo::{BlockPut, BlockStore, Column, DataStore};
 use async_std::path::PathBuf;
 use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;

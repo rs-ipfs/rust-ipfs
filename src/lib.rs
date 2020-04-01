@@ -491,7 +491,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(rx.await?)
     }
 
-    pub async fn bitswap_wantlist(&self, peer: Option<PeerId>) -> Result<Vec<(Cid, bitswap::Priority)>, Error> {
+    pub async fn bitswap_wantlist(
+        &self,
+        peer: Option<PeerId>,
+    ) -> Result<Vec<(Cid, bitswap::Priority)>, Error> {
         let (tx, rx) = oneshot_channel();
 
         self.to_task
@@ -636,7 +639,10 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     }
                     IpfsEvent::WantList(peer, ret) => {
                         let list = if let Some(peer) = peer {
-                            self.swarm.bitswap().peer_wantlist(&peer).unwrap_or_default()
+                            self.swarm
+                                .bitswap()
+                                .peer_wantlist(&peer)
+                                .unwrap_or_default()
                         } else {
                             self.swarm.bitswap().local_wantlist()
                         };
@@ -683,7 +689,9 @@ pub struct BitswapStats {
 }
 
 impl From<(bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>)> for BitswapStats {
-    fn from((stats, peers, wantlist): (bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>)) -> Self {
+    fn from(
+        (stats, peers, wantlist): (bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>),
+    ) -> Self {
         BitswapStats {
             blocks_sent: stats.sent_blocks,
             data_sent: stats.sent_data,
