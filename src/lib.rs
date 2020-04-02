@@ -38,7 +38,6 @@ pub mod repo;
 mod subscription;
 pub mod unixfs;
 
-use self::config::ConfigFile;
 use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
@@ -160,7 +159,25 @@ impl<Types: IpfsTypes> IpfsOptions<Types> {
 
 impl<T: IpfsTypes> Default for IpfsOptions<T> {
     /// Create `IpfsOptions` from environment.
+    ///
+    /// # Panics
+    ///
+    /// Can panic if two threads call this method at the same time due to race condition on
+    /// creating a configuration file under `IPFS_PATH` and other thread failing to read the just
+    /// created empty file. Because of this, the implementation has been disabled in tests.
     fn default() -> Self {
+        use self::config::ConfigFile;
+
+        if cfg!(test) {
+            // making this implementation conditional on `not(test)` results in multiple dead_code
+            // lints on config.rs but for rustc 1.42.0 at least having this `cfg!(test)` branch
+            // does not result in the same.
+            panic!(
+                "This implementation must not be invoked when testing as it cannot be safely
+                used from multiple threads"
+            );
+        }
+
         let ipfs_path = if let Ok(path) = std::env::var("IPFS_PATH") {
             PathBuf::from(path)
         } else {
@@ -813,5 +830,11 @@ mod tests {
         assert!(!ipfs.is_pinned(&cid).await.unwrap());
 
         ipfs.exit_daemon().await;
+    }
+
+    #[test]
+    #[should_panic]
+    fn default_ipfs_options_disabled_when_testing() {
+        IpfsOptions::<TestTypes>::default();
     }
 }
