@@ -684,9 +684,11 @@ mod tests {
     use libipld::ipld;
     use multihash::Sha2_256;
 
+    const MDNS: bool = false;
+
     #[async_std::test]
     async fn test_put_and_get_block() {
-        let options = IpfsOptions::<TestTypes>::default();
+        let options = IpfsOptions::inmemory_with_generated_keys(MDNS);
         let data = b"hello block\n".to_vec().into_boxed_slice();
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
         let block = Block::new(data, cid);
@@ -703,7 +705,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_put_and_get_dag() {
-        let options = IpfsOptions::<TestTypes>::default();
+        let options = IpfsOptions::inmemory_with_generated_keys(MDNS);
 
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         task::spawn(fut);
@@ -718,7 +720,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_pin_and_unpin() {
-        let options = IpfsOptions::<TestTypes>::default();
+        let options = IpfsOptions::inmemory_with_generated_keys(MDNS);
 
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         task::spawn(fut);
