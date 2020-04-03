@@ -5,7 +5,7 @@
 
 > The Interplanetary File System (IPFS), implemented in Rust
 
-[![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme) [![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/ipfs-rust) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW)
+[![Financial Contributors on Open Collective](https://opencollective.com/ipfs-rust/all/badge.svg?label=financial+contributors)](https://opencollective.com/ipfs-rust) [![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme) [![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/ipfs-rust) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW)
 
 
 ## Description
@@ -141,6 +141,36 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
 ## Maintainers
 
 Rust IPFS is currently actively maintained by @dvc94ch, @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol), [Equilibrium Labs](https://github.com/eqlabs), and [MRH.io](https://mrh.io).
+
+## Contributors
+
+### Code Contributors
+
+This project exists thanks to all the people who contribute. [[Contribute](CONTRIBUTING.md)].
+<a href="https://github.com/ipfs-rust/rust-ipfs/graphs/contributors"><img src="https://opencollective.com/ipfs-rust/contributors.svg?width=890&button=false" /></a>
+
+### Financial Contributors
+
+Become a financial contributor and help us sustain our community. [[Contribute](https://opencollective.com/ipfs-rust/contribute)]
+
+#### Individuals
+
+<a href="https://opencollective.com/ipfs-rust"><img src="https://opencollective.com/ipfs-rust/individuals.svg?width=890"></a>
+
+#### Organizations
+
+Support this project with your organization. Your logo will show up here with a link to your website. [[Contribute](https://opencollective.com/ipfs-rust/contribute)]
+
+<a href="https://opencollective.com/ipfs-rust/organization/0/website"><img src="https://opencollective.com/ipfs-rust/organization/0/avatar.svg"></a>
+<a href="https://opencollective.com/ipfs-rust/organization/1/website"><img src="https://opencollective.com/ipfs-rust/organization/1/avatar.svg"></a>
+<a href="https://opencollective.com/ipfs-rust/organization/2/website"><img src="https://opencollective.com/ipfs-rust/organization/2/avatar.svg"></a>
+<a href="https://opencollective.com/ipfs-rust/organization/3/website"><img src="https://opencollective.com/ipfs-rust/organization/3/avatar.svg"></a>
+<a href="https://opencollective.com/ipfs-rust/organization/4/website"><img src="https://opencollective.com/ipfs-rust/organization/4/avatar.svg"></a>
+<a href="https://opencollective.com/ipfs-rust/organization/5/website"><img src="https://opencollective.com/ipfs-rust/organization/5/avatar.svg"></a>
+<a href="https://opencollective.com/ipfs-rust/organization/6/website"><img src="https://opencollective.com/ipfs-rust/organization/6/avatar.svg"></a>
+<a href="https://opencollective.com/ipfs-rust/organization/7/website"><img src="https://opencollective.com/ipfs-rust/organization/7/avatar.svg"></a>
+<a href="https://opencollective.com/ipfs-rust/organization/8/website"><img src="https://opencollective.com/ipfs-rust/organization/8/avatar.svg"></a>
+<a href="https://opencollective.com/ipfs-rust/organization/9/website"><img src="https://opencollective.com/ipfs-rust/organization/9/avatar.svg"></a>
 
 ## License
 
