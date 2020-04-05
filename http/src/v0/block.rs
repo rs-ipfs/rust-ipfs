@@ -1,7 +1,7 @@
 use crate::v0::support::{with_ipfs, InvalidMultipartFormData, StringError};
-use cid::{Codec, Version};
 use futures::stream::StreamExt;
-use ipfs::{Cid, Ipfs, IpfsTypes};
+use ipfs::{Ipfs, IpfsTypes};
+use libipld::cid::{Cid, Codec, Version};
 use serde::{Deserialize, Serialize};
 use warp::{http::Response, multipart, path, query, reply, Buf, Filter, Rejection, Reply};
 
@@ -112,15 +112,17 @@ pub fn put<T: IpfsTypes>(
 }
 
 #[derive(Debug, Deserialize)]
-pub struct RmQuery {}
+pub struct RmQuery {
+    arg: String,
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct RmResponse {}
 
-async fn rm_query<T: IpfsTypes>(_ipfs: Ipfs<T>, _query: RmQuery) -> Result<impl Reply, Rejection> {
-    //let _data = ipfs.put_block(query.cid).await
-    //    .map_err(|e| reject::custom(StringError::from(e)))?;
+async fn rm_query<T: IpfsTypes>(mut ipfs: Ipfs<T>, query: RmQuery) -> Result<impl Reply, Rejection> {
+    let cid: Cid = query.arg.parse().map_err(StringError::from)?;
+    ipfs.remove_block(&cid).await.map_err(StringError::from)?;
     let response = RmResponse {};
     Ok(reply::json(&response))
 }
@@ -134,11 +136,30 @@ pub fn rm<T: IpfsTypes>(
         .and_then(rm_query)
 }
 
+#[derive(Debug, Deserialize)]
+pub struct StatQuery {
+    arg: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct StatResponse {
+    key: String,
+    size: usize,
+}
+
+async fn stat_query<T: IpfsTypes>(mut ipfs: Ipfs<T>, query: StatQuery) -> Result<impl Reply, Rejection> {
+    let cid: Cid = query.arg.parse().map_err(StringError::from)?;
+    let block = ipfs.get_block(&cid).await.map_err(StringError::from)?;
+    let response = StatResponse { key: query.arg, size: block.data().len() };
+    Ok(reply::json(&response))
+}
+
 pub fn stat<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "stat")
         .and(with_ipfs(ipfs))
-        .and(query::<RmQuery>())
-        .and_then(rm_query)
+        .and(query::<StatQuery>())
+        .and_then(stat_query)
 }

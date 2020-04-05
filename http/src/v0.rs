@@ -3,6 +3,7 @@ use std::convert::Infallible;
 
 pub mod bitswap;
 pub mod block;
+pub mod dag;
 pub mod id;
 pub mod pubsub;
 pub mod swarm;
@@ -38,10 +39,12 @@ where
             .or(bitswap::stat(ipfs))
             .or(block::get(ipfs))
             .or(block::put(ipfs))
-            .or(warp::path!("block" / ..).and_then(not_implemented))
+            .or(block::rm(ipfs))
+            .or(block::stat(ipfs))
             .or(warp::path!("bootstrap" / ..).and_then(not_implemented))
             .or(warp::path!("config" / ..).and_then(not_implemented))
-            .or(warp::path!("dag" / ..).and_then(not_implemented))
+            .or(dag::put(ipfs))
+            //.or(dag::get(ipfs))
             .or(warp::path!("dht" / ..).and_then(not_implemented))
             .or(warp::path!("get").and_then(not_implemented))
             .or(warp::path!("key" / ..).and_then(not_implemented))
