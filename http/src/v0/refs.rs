@@ -41,9 +41,12 @@ async fn refs_inner<T: IpfsTypes>(
 
 #[derive(Debug, Deserialize)]
 struct RefsOptions {
-    /// Ipfs path like `/ipfs/cid[/link]`
+    /// This can start with /ipfs/ but doesn't have to, can continue with paths, if a link cannot
+    /// be found it's an json error from go-ipfs
     arg: String,
+    /// This can be used to format the output string into the `{ "Ref": "here" .. }`
     format: Option<String>,
+    /// This cannot be used with `format`, prepends "source -> " to the `Ref` response
     #[serde(default)]
     edges: bool,
     #[serde(default)]
@@ -51,7 +54,9 @@ struct RefsOptions {
     #[serde(default)]
     recursive: bool,
     // `int` in the docs apparently is platform specific
-    // This should accepted only when recursive.
+    // go-ipfs only honors this when `recursive` is true, doesn't validate otherwise.
+    // go-ipfs treats -2 as -1 when `recursive` is true.
+    // go-ipfs doesn't use the json return value if this value is too large or non-int
     #[serde(rename = "max-depth")]
     max_depth: Option<i64>,
 }
@@ -68,10 +73,17 @@ fn edges<T: IpfsTypes>(
     start: Cid,
     max_depth: Option<u64>,
 ) -> impl Stream<Item = Result<(Cid, Cid), Error>> {
-    // FIXME: there should be an optional path
     use async_stream::try_stream;
 
+    // this looks great but the current implementation turns this into a future which yields
+    // through a oneshot channel. I think it's worth it as the by-hand stream implementation is
+    // quite a lot of work, at least until doing one. This is very slow to compile though.
     try_stream! {
+        if let Some(0) = max_depth {
+            // go-ipfs returns immediatedly without checking if the cid is available
+            return;
+        }
+
         let mut work = VecDeque::new();
         work.push_back((0u64, start, None));
 
@@ -88,7 +100,6 @@ fn edges<T: IpfsTypes>(
             let links = block_links(block)?;
 
             for next_cid in links {
-                println!("found link {} => {}", cid, next_cid);
                 work.push_back((depth + 1, next_cid, Some(cid.clone())));
             }
 
