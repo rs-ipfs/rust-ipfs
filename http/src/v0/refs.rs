@@ -3,9 +3,9 @@ use ipfs::error::Error;
 use ipfs::{Ipfs, IpfsTypes};
 use serde::Serialize;
 use warp::hyper::Body;
-use warp::{path, Filter, Rejection, Reply};
-
-use super::support::{with_ipfs, StringError};
+use warp::{path, query, Filter, Rejection, Reply};
+use crate::v0::support::{with_ipfs, StringError};
+use serde::Deserialize;
 
 #[derive(Serialize, Debug)]
 struct RefsResponseItem {
@@ -14,6 +14,40 @@ struct RefsResponseItem {
 
     #[serde(rename = "Ref")]
     refs: String,
+}
+
+/// https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs
+pub fn refs<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    path!("refs")
+        .and(with_ipfs(ipfs))
+        .and(query::<RefsOptions>())
+        .and_then(refs_inner)
+}
+
+async fn refs_inner<T: IpfsTypes>(
+    _ipfs: Ipfs<T>,
+    _opts: RefsOptions
+) -> Result<impl Reply, Rejection> {
+    Ok("foo")
+}
+
+#[derive(Debug, Deserialize)]
+struct RefsOptions {
+    /// Ipfs path like `/ipfs/cid[/link]`
+    arg: String,
+    format: Option<String>,
+    #[serde(default)]
+    edges: bool,
+    #[serde(default)]
+    unique: bool,
+    #[serde(default)]
+    recursive: bool,
+    // `int` in the docs apparently is platform specific
+    // This should accepted only when recursive.
+    #[serde(rename = "max-depth")]
+    max_depth: Option<isize>,
 }
 
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs-local
