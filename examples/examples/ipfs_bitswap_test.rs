@@ -8,9 +8,11 @@ fn main() {
     env_logger::init();
     let options = IpfsOptions::<TestTypes>::default();
 
+    // Note: this test is now at rust-ipfs/tests/exchange_block.rs
+
     task::block_on(async move {
         // Start daemon and initialize repo
-        let (mut ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         task::spawn(fut);
 
         // Create a Block
