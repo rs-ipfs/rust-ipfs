@@ -11,7 +11,7 @@ pub struct GetQuery {
 }
 
 async fn get_query<T: IpfsTypes>(
-    mut ipfs: Ipfs<T>,
+    ipfs: Ipfs<T>,
     query: GetQuery,
 ) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
@@ -49,7 +49,7 @@ pub struct PutResponse {
 }
 
 async fn put_query<T: IpfsTypes>(
-    mut ipfs: Ipfs<T>,
+    ipfs: Ipfs<T>,
     query: PutQuery,
     mut form: multipart::FormData,
 ) -> Result<impl Reply, Rejection> {
@@ -121,7 +121,7 @@ pub struct RmQuery {
 pub struct RmResponse {}
 
 async fn rm_query<T: IpfsTypes>(
-    mut ipfs: Ipfs<T>,
+    ipfs: Ipfs<T>,
     query: RmQuery,
 ) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
@@ -152,7 +152,7 @@ pub struct StatResponse {
 }
 
 async fn stat_query<T: IpfsTypes>(
-    mut ipfs: Ipfs<T>,
+    ipfs: Ipfs<T>,
     query: StatQuery,
 ) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;

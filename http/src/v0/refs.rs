@@ -76,7 +76,7 @@ mod tests {
 
         let options = IpfsOptions::inmemory_with_generated_keys(false);
 
-        let (mut ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         drop(fut);
 
         for data in &[b"1", b"2", b"3"] {

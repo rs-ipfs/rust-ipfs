@@ -13,7 +13,7 @@ pub struct PutQuery {
 }
 
 async fn put_query<T: IpfsTypes>(
-    mut ipfs: Ipfs<T>,
+    ipfs: Ipfs<T>,
     query: PutQuery,
     mut form: multipart::FormData,
 ) -> Result<impl Reply, Rejection> {

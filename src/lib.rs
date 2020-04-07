@@ -323,17 +323,17 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
 impl<Types: IpfsTypes> Ipfs<Types> {
     /// Puts a block into the ipfs repo.
-    pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error> {
+    pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
         Ok(self.repo.put_block(block).await?.0)
     }
 
     /// Retrives a block from the ipfs repo.
-    pub async fn get_block(&mut self, cid: &Cid) -> Result<Block, Error> {
+    pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
         Ok(self.repo.get_block(cid).await?)
     }
 
     /// Remove block from the ipfs repo.
-    pub async fn remove_block(&mut self, cid: &Cid) -> Result<(), Error> {
+    pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error> {
         Ok(self.repo.remove_block(cid).await?)
     }
 
@@ -793,7 +793,7 @@ mod tests {
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
         let block = Block::new(data, cid);
         let ipfs = UninitializedIpfs::new(options).await;
-        let (mut ipfs, fut) = ipfs.start().await.unwrap();
+        let (ipfs, fut) = ipfs.start().await.unwrap();
         task::spawn(fut);
 
         let cid: Cid = ipfs.put_block(block.clone()).await.unwrap();

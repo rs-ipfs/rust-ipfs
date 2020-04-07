@@ -10,8 +10,8 @@ async fn exchange_block() {
     let data = b"hello block\n".to_vec().into_boxed_slice();
     let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
 
-    let mut a = Node::new(mdns).await;
-    let mut b = Node::new(mdns).await;
+    let a = Node::new(mdns).await;
+    let b = Node::new(mdns).await;
 
     let (_, mut addrs) = b.identity().await.unwrap();
 
