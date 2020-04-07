@@ -28,3 +28,7 @@ structopt = "0.3.12"
 thiserror = "1.0.14"
 tokio = { version = "0.2.16", features = ["full"] }
 warp = "0.2.2"
+async-stream = "0.2.1"
+
+[dev-dependencies]
+hex = "0.4.2"

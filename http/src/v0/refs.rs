@@ -1,5 +1,4 @@
 use futures::stream;
-use ipfs::error::Error;
 use ipfs::{Ipfs, IpfsTypes};
 use serde::Serialize;
 use warp::hyper::Body;
@@ -47,7 +46,122 @@ struct RefsOptions {
     // `int` in the docs apparently is platform specific
     // This should accepted only when recursive.
     #[serde(rename = "max-depth")]
-    max_depth: Option<isize>,
+    max_depth: Option<i64>,
+}
+
+// RefsStream which goes around in bfs
+//
+// - unsure if it should track duplicates, what if we get a loop
+//
+// Should return all in some order, probably in the order of discovery. Tests sort the values
+// either way. Probably something like struct Edge { source: Cid, destination: Cid }.
+
+use futures::stream::Stream;
+use libipld::cid::Cid;
+use ipfs::{Error, Block};
+use std::convert::TryFrom;
+use std::collections::VecDeque;
+
+fn edges<T: IpfsTypes>(ipfs: Ipfs<T>, start: Cid, max_depth: Option<u64>)
+    -> impl Stream<Item = Result<(Cid, Cid), Error>>
+{
+    // FIXME: there should be an optional path
+    use async_stream::try_stream;
+
+    try_stream! {
+        let mut work = VecDeque::new();
+        work.push_back((0u64, start, None));
+
+        while let Some((depth, cid, source)) = work.pop_front() {
+
+            if let Some(max_depth) = max_depth.as_ref() {
+                if *max_depth > depth {
+                    return;
+                }
+            }
+
+            let block = ipfs.get_block(&cid).await?;
+
+            let links = block_links(block)?;
+
+            for next_cid in links {
+                println!("found link {} => {}", cid, next_cid);
+                work.push_back((depth + 1, next_cid, Some(cid.clone())));
+            }
+
+            if let Some(source) = source {
+                yield (source, cid);
+            }
+        }
+    }
+}
+
+use libipld::Ipld;
+
+fn block_links(Block { cid, data }: Block) -> Result<impl Iterator<Item = Cid>, Error> {
+    let ipld = libipld::block::decode_ipld(&cid, &data)?;
+    // a wrapping iterator without there being a libipld_base::IpldIntoIter might not be doable
+    // with safe code
+    Ok(ipld.iter()
+        .inspect(move |ipld| println!("found {} => {:?}", cid, ipld))
+        .filter_map(|val| match val {
+            Ipld::Link(cid) => Some(cid),
+            _ => None,
+        })
+        .cloned()
+        .collect::<Vec<_>>()
+        .into_iter())
+}
+
+#[tokio::test]
+async fn stack_refs() {
+    use futures::stream::TryStreamExt;
+
+    let options = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
+    let (ipfs, _) = ipfs::UninitializedIpfs::new(options).await.start().await.unwrap();
+
+    let blocks = [
+        ("bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44", "a263626172d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c6537463666f6fd82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885e"),
+        ("QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy", "0a0d08021207626172666f6f0a1807"),
+        ("bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily", "a163666f6fd82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33"),
+        ("QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL", "0a0d08021207666f6f6261720a1807"),
+    ];
+
+    for (cid_str, hex_str) in blocks.iter() {
+        let cid = Cid::try_from(*cid_str).unwrap();
+        let data = hex::decode(hex_str).unwrap();
+
+        println!("starting to process {:?}", cid_str);
+
+        libipld::block::decode_ipld(&cid, &data)
+            .unwrap_or_else(|e| panic!("failed to decode {:?} codec: {:?}: {:?}", cid_str, cid.codec(), e));
+
+        println!("processed {:?} ok", cid_str);
+        let block = Block { cid, data: data.into() };
+
+        // TODO: it would probably be a good idea to rehash here not to get any copypaste mistakes
+        ipfs.put_block(block).await.unwrap();
+    }
+
+    let root = Cid::try_from(blocks[0].0).unwrap();
+
+    let all_edges = edges(ipfs, root, None);
+
+    let all_edges: Result<Vec<_>, _> = all_edges.map_ok(|(source, dest)| (source.to_string(), dest.to_string())).try_collect().await;
+
+    let all_edges = all_edges.unwrap();
+
+    let expected = [
+        ("bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44", "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy"),
+        ("bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44", "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily"),
+        ("bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily", "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL"),
+    ];
+
+    let expected: Vec<_> = expected.iter()
+        .map(|(source, dest)| (String::from(*source), String::from(*dest)))
+        .collect();
+
+    assert_eq!(expected, all_edges);
 }
 
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs-local
