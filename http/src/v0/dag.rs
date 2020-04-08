@@ -1,10 +1,7 @@
 use crate::v0::support::{with_ipfs, InvalidMultipartFormData, StringError};
 use futures::stream::StreamExt;
 use ipfs::{Ipfs, IpfsTypes};
-use libipld::block::encode_ipld;
 use libipld::cid::{Cid, Codec};
-use libipld::codec::Codec as _;
-use libipld::json::DagJsonCodec;
 use serde::Deserialize;
 use serde_json::json;
 use warp::{multipart, path, query, reply, Buf, Filter, Rejection, Reply};
