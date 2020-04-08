@@ -120,7 +120,10 @@ pub struct RmQuery {
 #[serde(rename_all = "PascalCase")]
 pub struct RmResponse {}
 
-async fn rm_query<T: IpfsTypes>(mut ipfs: Ipfs<T>, query: RmQuery) -> Result<impl Reply, Rejection> {
+async fn rm_query<T: IpfsTypes>(
+    mut ipfs: Ipfs<T>,
+    query: RmQuery,
+) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
     ipfs.remove_block(&cid).await.map_err(StringError::from)?;
     let response = RmResponse {};
@@ -148,10 +151,16 @@ pub struct StatResponse {
     size: usize,
 }
 
-async fn stat_query<T: IpfsTypes>(mut ipfs: Ipfs<T>, query: StatQuery) -> Result<impl Reply, Rejection> {
+async fn stat_query<T: IpfsTypes>(
+    mut ipfs: Ipfs<T>,
+    query: StatQuery,
+) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
     let block = ipfs.get_block(&cid).await.map_err(StringError::from)?;
-    let response = StatResponse { key: query.arg, size: block.data().len() };
+    let response = StatResponse {
+        key: query.arg,
+        size: block.data().len(),
+    };
     Ok(reply::json(&response))
 }
 
