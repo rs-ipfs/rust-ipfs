@@ -1362,7 +1362,7 @@ dependencies = [
  "env_logger",
  "futures 0.3.4",
  "ipfs",
- "libipld 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
  "multihash",
 ]
 
