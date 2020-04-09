@@ -7,8 +7,7 @@ use ipfs::{Block, Error};
 use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::Cid;
 use serde::Deserialize;
-use std::collections::VecDeque;
-use std::convert::TryFrom;
+use std::collections::{VecDeque, BTreeMap};
 use warp::{path, query, Filter, Rejection, Reply};
 use crate::v0::support::{with_ipfs, StringError};
 use serde::Deserialize;
@@ -34,8 +33,10 @@ pub fn refs<T: IpfsTypes>(
 
 async fn refs_inner<T: IpfsTypes>(
     _ipfs: Ipfs<T>,
-    _opts: RefsOptions,
+    opts: RefsOptions,
 ) -> Result<impl Reply, Rejection> {
+    let max_depth = opts.max_depth();
+
     Ok("foo")
 }
 
@@ -49,16 +50,207 @@ struct RefsOptions {
     /// This cannot be used with `format`, prepends "source -> " to the `Ref` response
     #[serde(default)]
     edges: bool,
+    /// Not sure if this is tested by conformance testing but I'd assume this destinatinos on their
+    /// first linking.
     #[serde(default)]
     unique: bool,
     #[serde(default)]
     recursive: bool,
     // `int` in the docs apparently is platform specific
-    // go-ipfs only honors this when `recursive` is true, doesn't validate otherwise.
+    // go-ipfs only honors this when `recursive` is true.
     // go-ipfs treats -2 as -1 when `recursive` is true.
     // go-ipfs doesn't use the json return value if this value is too large or non-int
     #[serde(rename = "max-depth")]
     max_depth: Option<i64>,
+}
+
+impl RefsOptions {
+    fn max_depth(&self) -> Option<u64> {
+        if self.recursive {
+            match self.max_depth {
+                // zero means do nothing
+                Some(x) if x >= 0 => Some(x as u64),
+                _ => None,
+            }
+        } else {
+            // only immediate links after the path
+            Some(1)
+        }
+    }
+}
+
+#[derive(Debug)]
+enum PathError {
+    InvalidCid(libipld::cid::Error),
+    InvalidPath,
+}
+
+use std::fmt;
+
+impl fmt::Display for PathError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PathError::InvalidCid(e) => write!(fmt, "{}", e),
+            PathError::InvalidPath => write!(fmt, "invalid path"),
+        }
+    }
+}
+
+impl std::error::Error for PathError {}
+
+/// Following https://github.com/ipfs/go-path/
+struct IpfsPath {
+    /// Option to support moving the cid
+    root: Option<Cid>,
+    path: std::vec::IntoIter<String>,
+}
+
+use std::convert::TryFrom;
+
+impl From<Cid> for IpfsPath {
+    fn from(root: Cid) -> IpfsPath {
+        IpfsPath {
+            root: Some(root),
+            path: Vec::new().into_iter(),
+        }
+    }
+}
+
+impl TryFrom<&str> for IpfsPath {
+    type Error = PathError;
+
+    fn try_from(path: &str) -> Result<Self, Self::Error> {
+        let mut split = path.splitn(2, "/ipfs/");
+        let first = split.next();
+        let (root, path) = match first {
+            Some("") => {
+                /* started with /ipfs/ */
+                if let Some(x) = split.next() {
+                    // was /ipfs/x
+                    ("ipfs", x)
+                } else {
+                    // just the /ipfs/
+                    return Err(PathError::InvalidPath);
+                }
+            }
+            Some(x) => {
+                /* maybe didn't start with /ipfs/, need to check second */
+                if let Some(_) = split.next() {
+                    // x/ipfs/_
+                    return Err(PathError::InvalidPath);
+                }
+
+                ("", x)
+            }
+            None => return Err(PathError::InvalidPath),
+        };
+
+        let mut split = path.splitn(2, '/');
+        log::trace!("splitting {:?} per path", path);
+        let root = split
+            .next()
+            .expect("first value from splitn(2, _) must exist");
+
+        let path = split
+            .next()
+            .iter()
+            .flat_map(|s| s.split('/').filter(|s| !s.is_empty()).map(String::from))
+            .collect::<Vec<_>>()
+            .into_iter();
+
+        let root = Some(Cid::try_from(root).map_err(PathError::InvalidCid)?);
+
+        Ok(IpfsPath { root, path })
+    }
+}
+
+impl IpfsPath {
+    pub fn new(path: &str) -> Result<Self, PathError> {
+        Self::try_from(path)
+    }
+
+    pub fn root(&self) -> Option<&Cid> {
+        self.root.as_ref()
+    }
+
+    pub fn take_root(&mut self) -> Option<Cid> {
+        self.root.take()
+    }
+
+    pub fn walk(&mut self, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
+        if self.len() == 0 {
+            return Ok(WalkSuccess::EmptyPath(ipld));
+        }
+        while let Some(key) = self.next() {
+            // FIXME: can you have an ipld document which is only a link? well if it was
+            // possible, we can handle it with the default case?
+            ipld = match ipld {
+                Ipld::Map(mut m) if m.contains_key(&key) => {
+                    if let Some(ipld) = m.remove(&key) {
+                        ipld
+                    } else {
+                        return Err(WalkFailed::UnmatchedMapProperty(m, key));
+                    }
+                }
+                Ipld::List(mut l) => {
+                    if let Ok(index) = key.parse::<usize>() {
+                        if index < l.len() {
+                            l.swap_remove(index)
+                        } else {
+                            return Err(WalkFailed::ListIndexOutOfRange(l, index));
+                        }
+                    } else {
+                        return Err(WalkFailed::UnparseableListIndex(l, key));
+                    }
+                }
+                x => return Err(WalkFailed::UnmatchableSegment(x, key)),
+            };
+
+            if let Ipld::Link(next_cid) = ipld {
+                return Ok(WalkSuccess::Link(key, next_cid));
+            }
+        }
+
+        Ok(WalkSuccess::AtDestination(ipld))
+    }
+}
+
+pub enum WalkSuccess {
+    /// IpfsPath was already empty, or became empty during previous walk
+    EmptyPath(Ipld),
+    /// IpfsPath arrived at destination, following walk attempts will return EmptyPath
+    AtDestination(Ipld),
+    /// Path segment lead to a link which needs to be loaded to continue the walk
+    Link(String, Cid),
+}
+
+pub enum WalkFailed {
+    /// Map key was not found
+    UnmatchedMapProperty(BTreeMap<String, Ipld>, String),
+    /// Segment could not be parsed as index
+    UnparseableListIndex(Vec<Ipld>, String),
+    /// Segment was out of range for the list
+    ListIndexOutOfRange(Vec<Ipld>, usize),
+    /// Catch-all failure for example when walking a segment on integer
+    UnmatchableSegment(Ipld, String),
+}
+
+impl Iterator for IpfsPath {
+    type Item = String;
+
+    fn next(&mut self) -> Option<String> {
+        self.path.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.path.size_hint()
+    }
+}
+
+impl ExactSizeIterator for IpfsPath {
+    fn len(&self) -> usize {
+        self.path.len()
+    }
 }
 
 // RefsStream which goes around in bfs
@@ -70,7 +262,7 @@ struct RefsOptions {
 
 fn edges<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    start: Cid,
+    mut path: IpfsPath,
     max_depth: Option<u64>,
 ) -> impl Stream<Item = Result<(Cid, Cid), Error>> {
     use async_stream::try_stream;
@@ -85,35 +277,77 @@ fn edges<T: IpfsTypes>(
         }
 
         let mut work = VecDeque::new();
-        work.push_back((0u64, start, None));
+        work.push_back((0u64, path.take_root().unwrap(), None));
 
-        while let Some((depth, cid, source)) = work.pop_front() {
-
-            if let Some(max_depth) = max_depth.as_ref() {
-                if *max_depth > depth {
-                    return;
-                }
+        'work: while let Some((depth, cid, source)) = work.pop_front() {
+            match source.as_ref() {
+                Some(src) => log::trace!("depth={}, cid={}, source={}", depth, cid, src),
+                _ => log::trace!("depth={}, cid={}, source=None", depth, cid),
             }
 
-            let block = ipfs.get_block(&cid).await?;
+            match max_depth {
+                Some(d) if d <= depth => {
+                    log::trace!("stopping at target depth {}", depth);
+                    return;
+                },
+                _ => {}
+            }
 
-            let links = block_links(block)?;
+            // this cannot block the processing, just adjust this result
+            let Block { cid, data } = if let Ok(block) = ipfs.get_block(&cid).await {
+                block
+            } else {
+                // TODO: yield error msg
+                continue;
+            };
+
+            let mut ipld = if let Ok(ipld) = decode_ipld(&cid, &data) {
+                ipld
+            } else {
+                // TODO: yield error msg
+                continue;
+            };
+
+            let ipld = match path.walk(ipld) {
+                Ok(WalkSuccess::EmptyPath(ipld)) | Ok(WalkSuccess::AtDestination(ipld)) => ipld,
+                Ok(WalkSuccess::Link(_key, next_cid)) => {
+                    work.push_back((depth, next_cid, Some(cid)));
+                    continue;
+                }
+
+                // go-ipfs: if the path was unmatchable, or invalid int ("foo", or out of range, or
+                // negative) a 500 and internal server error is returned ... feels a bit wrong. but
+                // then again, I just spliced this structure wrong.
+                //
+                // there needs to be a path_refs and an ipld_refs, latter returns a stream and
+                // first is a future. it'll help with DFS and BFS concerns as well.
+                Err(_) => return,
+            };
+
+            assert_eq!(path.len(), 0, "here we should be done with the path and depth first search");
+
+            let links = block_links(ipld)?;
 
             for next_cid in links {
                 work.push_back((depth + 1, next_cid, Some(cid.clone())));
             }
 
             if let Some(source) = source {
-                yield (source, cid);
+                // depth == 0 means that we are still traversing the path or have just completed
+                // it, so the source can be both None and Some(_) depending on if this is the root
+                // or some followed link.
+                if depth > 0 {
+                    log::trace!("yielding {} -> {}", source, cid);
+                    yield (source, cid);
+                }
             }
         }
     }
 }
 
-fn block_links(Block { cid, data }: Block) -> Result<impl Iterator<Item = Cid>, Error> {
-    use libipld::Ipld;
+use libipld::{block::decode_ipld, Ipld};
 
-    let ipld = libipld::block::decode_ipld(&cid, &data)?;
+fn block_links(ipld: Ipld) -> Result<impl Iterator<Item = Cid>, Error> {
     // a wrapping iterator without there being a libipld_base::IpldIntoIter might not be doable
     // with safe code
     Ok(ipld
@@ -127,10 +361,9 @@ fn block_links(Block { cid, data }: Block) -> Result<impl Iterator<Item = Cid>, 
         .into_iter())
 }
 
-#[tokio::test]
-async fn stack_refs() {
-    use futures::stream::TryStreamExt;
-    use libipld::block::{decode_ipld, validate};
+#[cfg(test)]
+async fn preloaded_testing_ipfs() -> Ipfs<ipfs::TestTypes> {
+    use libipld::block::validate;
 
     let options = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
     let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
@@ -159,6 +392,11 @@ async fn stack_refs() {
             "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
             "0a0d08021207666f6f6261720a1807"
         ),
+        (
+            // echo -e '[{"/":"bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44"},{"/":"QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy"},{"/":"bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily"},{"/":"QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL"}]' | ./ipfs dag put
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+            "84d82a5825000171122070a20db04672d858427771a4e7cf6ce3c53c52f32404b4499747d38fc19592e7d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c65374d82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885ed82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33"
+        )
     ];
 
     for (cid_str, hex_str) in blocks.iter() {
@@ -176,35 +414,126 @@ async fn stack_refs() {
         ipfs.put_block(block).await.unwrap();
     }
 
-    let root = Cid::try_from(blocks[0].0).unwrap();
+    ipfs
+}
 
-    let all_edges: Vec<_> = edges(ipfs, root, None)
+#[cfg(test)]
+fn assert_edges(expected: &[(&str, &str)], actual: &[(String, String)]) {
+    use std::collections::HashSet;
+    let expected: HashSet<_> = expected.iter().map(|&(a, b)| (a, b)).collect();
+
+    let actual: HashSet<_> = actual
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
+
+    let diff: Vec<_> = expected.symmetric_difference(&actual).collect();
+
+    assert!(diff.is_empty(), "{:#?}", diff);
+}
+
+#[tokio::test]
+async fn all_refs_from_root() {
+    use futures::stream::TryStreamExt;
+    let ipfs = preloaded_testing_ipfs().await;
+
+    let (root, dag0, unixfs0, dag1, unixfs1) = (
+        // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
+        "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+        // {foo: dag1, bar: unixfs0}
+        "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
+        "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
+        // {foo: unixfs1}
+        "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+        "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+    );
+
+    let all_edges: Vec<_> = edges(ipfs, IpfsPath::try_from(root).unwrap(), None)
         .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
         .try_collect()
         .await
         .unwrap();
 
+    // not sure why go-ipfs outputs this order, this is more like dfs?
     let expected = [
-        (
-            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
-        ),
-        (
-            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-        ),
-        (
-            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-        ),
+        (root, dag0),
+        (dag0, unixfs0),
+        (dag0, dag1),
+        (dag1, unixfs1),
+        (root, unixfs0),
+        (root, dag1),
+        (dag1, unixfs1),
+        (root, unixfs1),
     ];
 
-    let expected: Vec<_> = expected
-        .iter()
-        .map(|(source, dest)| (String::from(*source), String::from(*dest)))
-        .collect();
+    println!("found edges:\n{:#?}", all_edges);
 
-    assert_eq!(expected, all_edges);
+    assert_edges(&expected, all_edges.as_slice());
+}
+
+#[tokio::test]
+#[ignore]
+async fn all_unique_refs_from_root() {
+    use futures::stream::TryStreamExt;
+    let ipfs = preloaded_testing_ipfs().await;
+
+    let (root, dag0, unixfs0, dag1, unixfs1) = (
+        // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
+        "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+        // {foo: dag1, bar: unixfs0}
+        "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
+        "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
+        // {foo: unixfs1}
+        "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+        "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+    );
+
+    let all_edges: Vec<_> = edges(ipfs, IpfsPath::try_from(root).unwrap(), None)
+        .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
+        .try_collect()
+        .await
+        .unwrap();
+
+    // go-ipfs output:
+    // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
+    // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy
+    // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily
+    // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL
+    //
+    // conformance tests test this with <linkname> rendering on dagpb, on dagcbor linknames are
+    // always empty?
+    todo!("this test needs all fixtures in dagpb format as <linkname> from cbor is empty str for go-ipfs?")
+}
+
+#[tokio::test]
+async fn refs_with_path() {
+    use futures::stream::TryStreamExt;
+    env_logger::init();
+
+    let ipfs = preloaded_testing_ipfs().await;
+
+    let paths = [
+        "/ipfs/bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44/foo",
+        "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44/foo",
+        "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64/0/foo",
+        "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64/0/foo/",
+    ];
+
+    for path in paths.iter() {
+        let path = IpfsPath::try_from(*path).unwrap();
+        let all_edges: Vec<_> = edges(ipfs.clone(), path, None)
+            .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
+            .try_collect()
+            .await
+            .unwrap();
+
+        let expected = [(
+            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+        )];
+
+        assert_edges(&expected, &all_edges);
+    }
 }
 
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs-local
