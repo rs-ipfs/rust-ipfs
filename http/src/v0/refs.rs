@@ -7,7 +7,7 @@ use ipfs::{Block, Error};
 use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::Cid;
 use serde::Deserialize;
-use std::collections::{VecDeque, BTreeMap};
+use std::collections::{BTreeMap, VecDeque};
 use warp::{path, query, Filter, Rejection, Reply};
 use crate::v0::support::{with_ipfs, StringError};
 use serde::Deserialize;
@@ -165,10 +165,6 @@ impl TryFrom<&str> for IpfsPath {
 }
 
 impl IpfsPath {
-    pub fn new(path: &str) -> Result<Self, PathError> {
-        Self::try_from(path)
-    }
-
     pub fn root(&self) -> Option<&Cid> {
         self.root.as_ref()
     }
@@ -182,9 +178,11 @@ impl IpfsPath {
             return Ok(WalkSuccess::EmptyPath(ipld));
         }
         while let Some(key) = self.next() {
-            // FIXME: can you have an ipld document which is only a link? well if it was
-            // possible, we can handle it with the default case?
             ipld = match ipld {
+                Ipld::Link(cid) if key == "." || key == "0" => {
+                    // go-ipfs: not sure why 0 is allowed but lets go with it
+                    return Ok(WalkSuccess::Link(key, cid));
+                }
                 Ipld::Map(mut m) if m.contains_key(&key) => {
                     if let Some(ipld) = m.remove(&key) {
                         ipld
@@ -224,6 +222,7 @@ pub enum WalkSuccess {
     Link(String, Cid),
 }
 
+#[derive(Debug)]
 pub enum WalkFailed {
     /// Map key was not found
     UnmatchedMapProperty(BTreeMap<String, Ipld>, String),
@@ -234,6 +233,34 @@ pub enum WalkFailed {
     /// Catch-all failure for example when walking a segment on integer
     UnmatchableSegment(Ipld, String),
 }
+
+impl fmt::Display for WalkFailed {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            // go-ipfs: no such link found
+            WalkFailed::UnmatchedMapProperty(_, ref key) => {
+                write!(fmt, "No such link found: {:?}", key)
+            }
+            // go-ipfs: strconv.Atoi: parsing {:?}: invalid syntax
+            WalkFailed::UnparseableListIndex(_, ref segment) => {
+                write!(fmt, "Invalid list index: {:?}", segment)
+            }
+            // go-ipfs: array index out of range
+            WalkFailed::ListIndexOutOfRange(ref list, index) => write!(
+                fmt,
+                "List index out of range: the length is {} but the index is {}",
+                list.len(),
+                index
+            ),
+            // go-ipfs: tried to resolve through object that had no links
+            WalkFailed::UnmatchableSegment(_, _) => {
+                write!(fmt, "Tried to resolve through object that had no links")
+            }
+        }
+    }
+}
+
+impl std::error::Error for WalkFailed {}
 
 impl Iterator for IpfsPath {
     type Item = String;
@@ -253,48 +280,63 @@ impl ExactSizeIterator for IpfsPath {
     }
 }
 
-// RefsStream which goes around in bfs
-//
-// - unsure if it should track duplicates, what if we get a loop
-//
-// Should return all in some order, probably in the order of discovery. Tests sort the values
-// either way. Probably something like struct Edge { source: Cid, destination: Cid }.
-
-fn edges<T: IpfsTypes>(
+/// Refs similar to go-ipfs `refs` which will first walk the path and then continue streaming the
+/// results after first walking the path.
+async fn refs_path<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    mut path: IpfsPath,
+    path: IpfsPath,
     max_depth: Option<u64>,
-) -> impl Stream<Item = Result<(Cid, Cid), Error>> {
-    use async_stream::try_stream;
+) -> Result<impl Stream<Item = (Cid, Cid)>, Error> {
+    let (origin, ipld) = walk_path(&ipfs, path).await?;
+    Ok(ipld_refs(ipfs, origin, ipld, max_depth))
+}
 
-    // this looks great but the current implementation turns this into a future which yields
-    // through a oneshot channel. I think it's worth it as the by-hand stream implementation is
-    // quite a lot of work, at least until doing one. This is very slow to compile though.
-    try_stream! {
+async fn walk_path<T: IpfsTypes>(ipfs: &Ipfs<T>, mut path: IpfsPath) -> Result<(Cid, Ipld), Error> {
+    let mut current = path.take_root().unwrap();
+
+    loop {
+        let Block { data, .. } = ipfs.get_block(&current).await?;
+        let ipld = decode_ipld(&current, &data)?;
+
+        match path.walk(ipld)? {
+            WalkSuccess::EmptyPath(ipld) | WalkSuccess::AtDestination(ipld) => {
+                return Ok((current, ipld))
+            }
+            WalkSuccess::Link(_key, next_cid) => current = next_cid,
+        };
+    }
+}
+
+fn ipld_refs<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    origin: Cid,
+    ipld: Ipld,
+    max_depth: Option<u64>,
+) -> impl Stream<Item = (Cid, Cid)> {
+    use async_stream::stream;
+
+    stream! {
         if let Some(0) = max_depth {
-            // go-ipfs returns immediatedly without checking if the cid is available
             return;
         }
 
         let mut work = VecDeque::new();
-        work.push_back((0u64, path.take_root().unwrap(), None));
 
-        'work: while let Some((depth, cid, source)) = work.pop_front() {
-            match source.as_ref() {
-                Some(src) => log::trace!("depth={}, cid={}, source={}", depth, cid, src),
-                _ => log::trace!("depth={}, cid={}, source=None", depth, cid),
-            }
+        for next_cid in ipld_links(ipld) {
+            work.push_back((1, next_cid, origin.clone()));
+        }
 
+        drop(origin);
+
+        while let Some((depth, cid, source)) = work.pop_front() {
             match max_depth {
                 Some(d) if d <= depth => {
-                    log::trace!("stopping at target depth {}", depth);
                     return;
                 },
                 _ => {}
             }
 
-            // this cannot block the processing, just adjust this result
-            let Block { cid, data } = if let Ok(block) = ipfs.get_block(&cid).await {
+            let Block { data, .. } = if let Ok(block) = ipfs.get_block(&cid).await {
                 block
             } else {
                 // TODO: yield error msg
@@ -308,57 +350,28 @@ fn edges<T: IpfsTypes>(
                 continue;
             };
 
-            let ipld = match path.walk(ipld) {
-                Ok(WalkSuccess::EmptyPath(ipld)) | Ok(WalkSuccess::AtDestination(ipld)) => ipld,
-                Ok(WalkSuccess::Link(_key, next_cid)) => {
-                    work.push_back((depth, next_cid, Some(cid)));
-                    continue;
-                }
-
-                // go-ipfs: if the path was unmatchable, or invalid int ("foo", or out of range, or
-                // negative) a 500 and internal server error is returned ... feels a bit wrong. but
-                // then again, I just spliced this structure wrong.
-                //
-                // there needs to be a path_refs and an ipld_refs, latter returns a stream and
-                // first is a future. it'll help with DFS and BFS concerns as well.
-                Err(_) => return,
-            };
-
-            assert_eq!(path.len(), 0, "here we should be done with the path and depth first search");
-
-            let links = block_links(ipld)?;
-
-            for next_cid in links {
-                work.push_back((depth + 1, next_cid, Some(cid.clone())));
+            for next_cid in ipld_links(ipld) {
+                work.push_back((depth + 1, next_cid, cid.clone()));
             }
 
-            if let Some(source) = source {
-                // depth == 0 means that we are still traversing the path or have just completed
-                // it, so the source can be both None and Some(_) depending on if this is the root
-                // or some followed link.
-                if depth > 0 {
-                    log::trace!("yielding {} -> {}", source, cid);
-                    yield (source, cid);
-                }
-            }
+            yield (source, cid);
         }
     }
 }
 
 use libipld::{block::decode_ipld, Ipld};
 
-fn block_links(ipld: Ipld) -> Result<impl Iterator<Item = Cid>, Error> {
+fn ipld_links(ipld: Ipld) -> impl Iterator<Item = Cid> {
     // a wrapping iterator without there being a libipld_base::IpldIntoIter might not be doable
     // with safe code
-    Ok(ipld
-        .iter()
+    ipld.iter()
         .filter_map(|val| match val {
             Ipld::Link(cid) => Some(cid),
             _ => None,
         })
         .cloned()
         .collect::<Vec<_>>()
-        .into_iter())
+        .into_iter()
 }
 
 #[cfg(test)]
@@ -434,7 +447,7 @@ fn assert_edges(expected: &[(&str, &str)], actual: &[(String, String)]) {
 
 #[tokio::test]
 async fn all_refs_from_root() {
-    use futures::stream::TryStreamExt;
+    use futures::stream::StreamExt;
     let ipfs = preloaded_testing_ipfs().await;
 
     let (root, dag0, unixfs0, dag1, unixfs1) = (
@@ -448,11 +461,12 @@ async fn all_refs_from_root() {
         "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
     );
 
-    let all_edges: Vec<_> = edges(ipfs, IpfsPath::try_from(root).unwrap(), None)
-        .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
-        .try_collect()
+    let all_edges: Vec<_> = refs_path(ipfs, IpfsPath::try_from(root).unwrap(), None)
         .await
-        .unwrap();
+        .unwrap()
+        .map(|(source, dest)| (source.to_string(), dest.to_string()))
+        .collect()
+        .await;
 
     // not sure why go-ipfs outputs this order, this is more like dfs?
     let expected = [
@@ -474,7 +488,7 @@ async fn all_refs_from_root() {
 #[tokio::test]
 #[ignore]
 async fn all_unique_refs_from_root() {
-    use futures::stream::TryStreamExt;
+    use futures::stream::StreamExt;
     let ipfs = preloaded_testing_ipfs().await;
 
     let (root, dag0, unixfs0, dag1, unixfs1) = (
@@ -488,11 +502,12 @@ async fn all_unique_refs_from_root() {
         "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
     );
 
-    let all_edges: Vec<_> = edges(ipfs, IpfsPath::try_from(root).unwrap(), None)
-        .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
-        .try_collect()
+    let all_edges: Vec<_> = refs_path(ipfs, IpfsPath::try_from(root).unwrap(), None)
         .await
-        .unwrap();
+        .unwrap()
+        .map(|(source, dest)| (source.to_string(), dest.to_string()))
+        .collect()
+        .await;
 
     // go-ipfs output:
     // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
@@ -507,7 +522,7 @@ async fn all_unique_refs_from_root() {
 
 #[tokio::test]
 async fn refs_with_path() {
-    use futures::stream::TryStreamExt;
+    use futures::stream::StreamExt;
     env_logger::init();
 
     let ipfs = preloaded_testing_ipfs().await;
@@ -521,11 +536,12 @@ async fn refs_with_path() {
 
     for path in paths.iter() {
         let path = IpfsPath::try_from(*path).unwrap();
-        let all_edges: Vec<_> = edges(ipfs.clone(), path, None)
-            .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
-            .try_collect()
+        let all_edges: Vec<_> = refs_path(ipfs.clone(), path, None)
             .await
-            .unwrap();
+            .unwrap()
+            .map(|(source, dest)| (source.to_string(), dest.to_string()))
+            .collect()
+            .await;
 
         let expected = [(
             "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
