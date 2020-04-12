@@ -6,6 +6,7 @@ pub mod block;
 pub mod dag;
 pub mod dht;
 pub mod id;
+pub mod pin;
 pub mod pubsub;
 pub mod refs;
 pub mod root_files;
