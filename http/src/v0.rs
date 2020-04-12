@@ -48,7 +48,7 @@ where
             .or(warp::path!("key" / ..).and_then(not_implemented))
             .or(warp::path!("name" / ..).and_then(not_implemented))
             .or(warp::path!("object" / ..).and_then(not_implemented))
-            .or(warp::path!("pin" / ..).and_then(not_implemented))
+            .or(pin::add_pin(ipfs))
             .or(warp::path!("ping" / ..).and_then(not_implemented))
             .or(pubsub::routes(ipfs))
             .or(warp::path!("refs" / ..).and_then(not_implemented))
