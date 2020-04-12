@@ -122,7 +122,7 @@ impl TryFrom<&str> for IpfsPath {
     fn try_from(path: &str) -> Result<Self, Self::Error> {
         let mut split = path.splitn(2, "/ipfs/");
         let first = split.next();
-        let (root, path) = match first {
+        let (_root, path) = match first {
             Some("") => {
                 /* started with /ipfs/ */
                 if let Some(x) = split.next() {
@@ -340,14 +340,20 @@ fn ipld_refs<T: IpfsTypes>(
                 block
             } else {
                 // TODO: yield error msg
+                // unsure in which cases this happens, because we'll start to search the content
+                // and stop only when request has been cancelled (FIXME: not yet, because dropping
+                // all subscriptions doesn't "stop the operation.")
                 continue;
             };
 
-            let mut ipld = if let Ok(ipld) = decode_ipld(&cid, &data) {
-                ipld
-            } else {
-                // TODO: yield error msg
-                continue;
+            let mut ipld = match decode_ipld(&cid, &data) {
+                Ok(ipld) => ipld,
+                Err(e) => {
+                    // TODO: yield error msg
+                    // go-ipfs on raw Qm hash:
+                    // > failed to decode Protocol Buffers: incorrectly formatted merkledag node: unmarshal failed. proto: illegal wireType 6
+                    continue;
+                }
             };
 
             for next_cid in ipld_links(ipld) {
