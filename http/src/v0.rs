@@ -4,6 +4,7 @@ use std::convert::Infallible;
 pub mod bitswap;
 pub mod block;
 pub mod id;
+pub mod pin;
 pub mod pubsub;
 pub mod swarm;
 pub mod version;
