@@ -179,8 +179,9 @@ impl IpfsPath {
         }
         while let Some(key) = self.next() {
             ipld = match ipld {
-                Ipld::Link(cid) if key == "." || key == "0" => {
-                    // go-ipfs: not sure why 0 is allowed but lets go with it
+                Ipld::Link(cid) if key == "." => {
+                    // go-ipfs: allows this to be skipped. lets require the dot for now.
+                    // FIXME: this would require the iterator to be peekable in addition.
                     return Ok(WalkSuccess::Link(key, cid));
                 }
                 Ipld::Map(mut m) if m.contains_key(&key) => {
