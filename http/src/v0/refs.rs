@@ -1,13 +1,15 @@
 use futures::stream;
 use ipfs::{Ipfs, IpfsTypes};
-use serde::Serialize;
 use warp::hyper::Body;
 use futures::stream::Stream;
 use ipfs::{Block, Error};
 use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::Cid;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
 use std::collections::{BTreeMap, VecDeque};
+use std::borrow::Cow;
+use std::fmt;
 use warp::{path, query, Filter, Rejection, Reply};
 use crate::v0::support::{with_ipfs, StringError};
 use serde::Deserialize;
@@ -32,12 +34,85 @@ pub fn refs<T: IpfsTypes>(
 }
 
 async fn refs_inner<T: IpfsTypes>(
-    _ipfs: Ipfs<T>,
+    ipfs: Ipfs<T>,
     opts: RefsOptions,
 ) -> Result<impl Reply, Rejection> {
+    use futures::stream::StreamExt;
+
     let max_depth = opts.max_depth();
+    let formatter = opts.formatter()?;
+    let path = IpfsPath::try_from(opts.arg.as_str()).map_err(StringError::from)?;
+
+    let st = refs_path(ipfs, path, max_depth)
+        .await
+        .map_err(StringError::from)?;
+
+    let st = st.map(move |res| {
+        let res = match res {
+            Ok((source, dest)) => {
+                let ok = formatter.format((source, dest));
+                serde_json::to_string(&Edge { ok: ok.into(), err: "".into() })
+            },
+            Err(e) => {
+                serde_json::to_string(&Edge { ok: "".into(), err: e.to_string().into() })
+            }
+        };
+
+        let res = match res {
+            Ok(mut s) => {
+                s.push('\n');
+                Ok(s.into_bytes())
+            },
+            Err(e) => {
+                log::error!("edge serialization failed: {}", e);
+                Err(HandledErr)
+            }
+        };
+
+        res
+    });
 
     Ok("foo")
+
+    // DUH: async-stream is not Send + Sync + 'static
+    // TODO: check with all of the references removed, for example get_block, check all parts from
+    // the lib level that the futures are Send + Sync + 'static
+    //Ok(StreamResponse(st))
+}
+
+struct StreamResponse<S>(S);
+
+#[derive(Debug)]
+struct HandledErr;
+
+impl std::error::Error for HandledErr {}
+
+impl fmt::Display for HandledErr {
+    fn fmt(&self, _fmt: &mut fmt::Formatter) -> fmt::Result {
+        Ok(())
+    }
+}
+
+impl<S> warp::Reply for StreamResponse<S>
+    where S: futures::stream::TryStream + Send + Sync + 'static,
+          S::Ok: Into<warp::hyper::body::Bytes>,
+          S::Error: std::error::Error + Send + Sync + 'static
+{
+    fn into_response(self) -> warp::reply::Response {
+        use futures::stream::TryStreamExt;
+
+        let res = warp::reply::Response::new(Body::wrap_stream(self.0.into_stream()));
+
+        res
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct Edge {
+    #[serde(rename = "Ref")]
+    ok: Cow<'static, str>,
+    #[serde(rename = "Err")]
+    err: Cow<'static, str>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,6 +152,35 @@ impl RefsOptions {
             Some(1)
         }
     }
+
+    fn formatter(&self) -> Result<EdgeFormatter, StringError> {
+        if self.edges && self.format.is_some() {
+            // msg from go-ipfs
+            return Err(StringError::new("using format argument with edges is not allowed".into()));
+        }
+
+        if self.edges {
+            Ok(EdgeFormatter::Arrow)
+        } else if self.format.is_some() {
+            Err(StringError::new("format not yet implemented".into()))
+        } else {
+            Ok(EdgeFormatter::Destination)
+        }
+    }
+}
+
+enum EdgeFormatter {
+    Destination,
+    Arrow,
+}
+
+impl EdgeFormatter {
+    fn format(&self, (src, dst): (Cid, Cid)) -> String {
+        match *self {
+            EdgeFormatter::Destination => dst.to_string(),
+            EdgeFormatter::Arrow => format!("{} -> {}", src, dst),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -84,8 +188,6 @@ enum PathError {
     InvalidCid(libipld::cid::Error),
     InvalidPath,
 }
-
-use std::fmt;
 
 impl fmt::Display for PathError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -104,8 +206,6 @@ struct IpfsPath {
     root: Option<Cid>,
     path: std::vec::IntoIter<String>,
 }
-
-use std::convert::TryFrom;
 
 impl From<Cid> for IpfsPath {
     fn from(root: Cid) -> IpfsPath {
@@ -281,13 +381,21 @@ impl ExactSizeIterator for IpfsPath {
     }
 }
 
-/// Refs similar to go-ipfs `refs` which will first walk the path and then continue streaming the
-/// results after first walking the path.
-async fn refs_path<T: IpfsTypes>(
+fn refs_path<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     path: IpfsPath,
     max_depth: Option<u64>,
-) -> Result<impl Stream<Item = (Cid, Cid)>, Error> {
+) -> impl std::future::Future<Output = Result<impl Stream<Item = Result<(Cid, Cid), String>> + Send + 'static, Error>> + Send + 'static {
+    refs_path0(ipfs, path, max_depth)
+}
+
+/// Refs similar to go-ipfs `refs` which will first walk the path and then continue streaming the
+/// results after first walking the path.
+async fn refs_path0<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    path: IpfsPath,
+    max_depth: Option<u64>,
+) -> Result<impl Stream<Item = Result<(Cid, Cid), String>> + Send + 'static, Error> {
     let (origin, ipld) = walk_path(&ipfs, path).await?;
     Ok(ipld_refs(ipfs, origin, ipld, max_depth))
 }
@@ -313,7 +421,7 @@ fn ipld_refs<T: IpfsTypes>(
     origin: Cid,
     ipld: Ipld,
     max_depth: Option<u64>,
-) -> impl Stream<Item = (Cid, Cid)> {
+) -> impl Stream<Item = Result<(Cid, Cid), String>> + Send + 'static {
     use async_stream::stream;
 
     stream! {
@@ -326,8 +434,6 @@ fn ipld_refs<T: IpfsTypes>(
         for next_cid in ipld_links(ipld) {
             work.push_back((1, next_cid, origin.clone()));
         }
-
-        drop(origin);
 
         while let Some((depth, cid, source)) = work.pop_front() {
             match max_depth {
@@ -361,14 +467,14 @@ fn ipld_refs<T: IpfsTypes>(
                 work.push_back((depth + 1, next_cid, cid.clone()));
             }
 
-            yield (source, cid);
+            yield Ok((source, cid));
         }
     }
 }
 
 use libipld::{block::decode_ipld, Ipld};
 
-fn ipld_links(ipld: Ipld) -> impl Iterator<Item = Cid> {
+fn ipld_links(ipld: Ipld) -> impl Iterator<Item = Cid> + Send + 'static {
     // a wrapping iterator without there being a libipld_base::IpldIntoIter might not be doable
     // with safe code
     ipld.iter()
@@ -454,7 +560,7 @@ fn assert_edges(expected: &[(&str, &str)], actual: &[(String, String)]) {
 
 #[tokio::test]
 async fn all_refs_from_root() {
-    use futures::stream::StreamExt;
+    use futures::stream::{TryStreamExt, StreamExt};
     let ipfs = preloaded_testing_ipfs().await;
 
     let (root, dag0, unixfs0, dag1, unixfs1) = (
@@ -468,12 +574,19 @@ async fn all_refs_from_root() {
         "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
     );
 
+    // fn test_send<S: Send>(_: S) {}
+    // fn test_sync<S: Sync>(_: S) {}
+
+    // test_send(refs_path(ipfs, IpfsPath::try_from(root).unwrap(), None));
+    // test_sync(refs_path(ipfs, IpfsPath::try_from(root).unwrap(), None));
+
     let all_edges: Vec<_> = refs_path(ipfs, IpfsPath::try_from(root).unwrap(), None)
         .await
         .unwrap()
-        .map(|(source, dest)| (source.to_string(), dest.to_string()))
-        .collect()
-        .await;
+        .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
+        .try_collect()
+        .await
+        .unwrap();
 
     // not sure why go-ipfs outputs this order, this is more like dfs?
     let expected = [
@@ -495,7 +608,7 @@ async fn all_refs_from_root() {
 #[tokio::test]
 #[ignore]
 async fn all_unique_refs_from_root() {
-    use futures::stream::StreamExt;
+    use futures::stream::{StreamExt, TryStreamExt};
     let ipfs = preloaded_testing_ipfs().await;
 
     let (root, dag0, unixfs0, dag1, unixfs1) = (
@@ -512,9 +625,10 @@ async fn all_unique_refs_from_root() {
     let all_edges: Vec<_> = refs_path(ipfs, IpfsPath::try_from(root).unwrap(), None)
         .await
         .unwrap()
-        .map(|(source, dest)| (source.to_string(), dest.to_string()))
-        .collect()
-        .await;
+        .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
+        .try_collect()
+        .await
+        .unwrap();
 
     // go-ipfs output:
     // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
@@ -529,7 +643,7 @@ async fn all_unique_refs_from_root() {
 
 #[tokio::test]
 async fn refs_with_path() {
-    use futures::stream::StreamExt;
+    use futures::stream::{StreamExt, TryStreamExt};
     env_logger::init();
 
     let ipfs = preloaded_testing_ipfs().await;
@@ -546,9 +660,10 @@ async fn refs_with_path() {
         let all_edges: Vec<_> = refs_path(ipfs.clone(), path, None)
             .await
             .unwrap()
-            .map(|(source, dest)| (source.to_string(), dest.to_string()))
-            .collect()
-            .await;
+            .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
+            .try_collect()
+            .await
+            .unwrap();
 
         let expected = [(
             "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
@@ -592,19 +707,6 @@ async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejectio
 
     let stream = stream::iter(refs);
     Ok(warp::reply::Response::new(Body::wrap_stream(stream)))
-}
-
-#[derive(Debug)]
-struct HandledErr;
-
-impl std::error::Error for HandledErr {}
-
-use std::fmt;
-
-impl fmt::Display for HandledErr {
-    fn fmt(&self, _fmt: &mut fmt::Formatter) -> fmt::Result {
-        Ok(())
-    }
 }
 
 #[cfg(test)]

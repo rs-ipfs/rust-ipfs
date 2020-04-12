@@ -116,6 +116,12 @@ impl<D: std::fmt::Display> From<D> for StringError {
     }
 }
 
+impl StringError {
+    pub fn new(cow: Cow<'static, str>) -> Self {
+        StringError(cow)
+    }
+}
+
 /// Common rejection handling strategy for ipfs http api compatible error responses
 pub async fn recover_as_message_response(
     err: warp::reject::Rejection,
