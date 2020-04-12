@@ -129,6 +129,10 @@ pub fn routes<T: IpfsTypes>(
             and_boxed!(warp::path!("disconnect"), swarm::disconnect(ipfs)),
             and_boxed!(warp::path!("peers"), swarm::peers(ipfs)),
         )),
+        warp::path("pin").and(combine!(
+            and_boxed!(warp::path!("add"), pin::add_pin(ipfs)),
+            and_boxed!(warp::path!("ls"), pin::list(ipfs))
+        )),
         combine_unify!(
             warp::path!("bootstrap" / ..),
             warp::path!("config" / ..),
@@ -137,7 +141,6 @@ pub fn routes<T: IpfsTypes>(
             warp::path!("key" / ..),
             warp::path!("name" / ..),
             warp::path!("object" / ..),
-            warp::path!("pin" / ..),
             warp::path!("ping" / ..),
             warp::path!("repo" / ..),
             warp::path!("stats" / ..),
@@ -145,9 +148,7 @@ pub fn routes<T: IpfsTypes>(
         .and_then(not_implemented),
     ));
 
-    // have a common handler turn the rejections into 400 or 500 with json body
-    // boxing this might save up to 15s.
-    boxed_on_debug!(api.recover(recover_as_message_response))
+    api.recover(recover_as_message_response)
 }
 
 pub(crate) async fn handle_shutdown(
