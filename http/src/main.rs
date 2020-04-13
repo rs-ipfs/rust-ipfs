@@ -182,7 +182,7 @@ fn serve<Types: IpfsTypes>(
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
 
     let routes = v0::routes(ipfs, shutdown_tx);
-    let routes = routes.with(warp::log("rust-ipfs-http-v0"));
+    let routes = routes.with(warp::log(env!("CARGO_PKG_NAME")));
 
     let ipfs = ipfs.clone();
 
