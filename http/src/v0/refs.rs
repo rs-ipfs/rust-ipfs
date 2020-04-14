@@ -55,8 +55,8 @@ async fn refs_inner<T: IpfsTypes>(
 
     let st = st.map(move |res| {
         let res = match res {
-            Ok((source, dest)) => {
-                let ok = formatter.format((source, dest));
+            Ok((source, dest, link_name)) => {
+                let ok = formatter.format(source, dest, link_name);
                 serde_json::to_string(&Edge { ok: ok.into(), err: "".into() })
             },
             Err(e) => {
@@ -367,14 +367,14 @@ impl FormattedPart {
 }
 
 impl EdgeFormatter {
-    fn format(&self, (src, dst): (Cid, Cid)) -> String {
+    fn format(&self, src: Cid, dst: Cid, link_name: Option<String>) -> String {
         match *self {
             EdgeFormatter::Destination => dst.to_string(),
             EdgeFormatter::Arrow => format!("{} -> {}", src, dst),
             EdgeFormatter::FormatString(ref parts) => {
                 let mut out = String::new();
                 for part in parts {
-                    part.format(&mut out, &src, &dst, None);
+                    part.format(&mut out, &src, &dst, link_name.as_deref());
                 }
                 out.shrink_to_fit();
                 out
@@ -661,7 +661,7 @@ async fn refs_paths<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     paths: Vec<IpfsPath>,
     max_depth: Option<u64>,
-) -> Result<impl Stream<Item = Result<(Cid, Cid), String>> + Send + 'static, Error> {
+) -> Result<impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static, Error> {
     use futures::stream::FuturesOrdered;
     use futures::stream::TryStreamExt;
 
@@ -696,7 +696,7 @@ fn iplds_refs<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     iplds: Vec<(Cid, Ipld)>,
     max_depth: Option<u64>,
-) -> impl Stream<Item = Result<(Cid, Cid), String>> + Send + 'static {
+) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static {
     use async_stream::stream;
 
     stream! {
@@ -707,12 +707,12 @@ fn iplds_refs<T: IpfsTypes>(
         let mut work = VecDeque::new();
 
         for (origin, ipld) in iplds {
-            for next_cid in ipld_links(ipld) {
-                work.push_back((1, next_cid, origin.clone()));
+            for (link_name, next_cid) in ipld_links(ipld) {
+                work.push_back((0, next_cid, origin.clone(), link_name));
             }
         }
 
-        while let Some((depth, cid, source)) = work.pop_front() {
+        while let Some((depth, cid, source, link_name)) = work.pop_front() {
             match max_depth {
                 Some(d) if d <= depth => {
                     return;
@@ -740,18 +740,21 @@ fn iplds_refs<T: IpfsTypes>(
                 }
             };
 
-            for next_cid in ipld_links(ipld) {
-                work.push_back((depth + 1, next_cid, cid.clone()));
+            for (link_name, next_cid) in ipld_links(ipld) {
+                if cid.codec() == CidCodec::DagProtobuf {
+                    log::trace!("dag-pb link: {} -> {}", cid, next_cid);
+                }
+                work.push_back((depth + 1, next_cid, cid.clone(), link_name));
             }
 
-            yield Ok((source, cid));
+            yield Ok((source, cid, link_name));
         }
     }
 }
 
 use libipld::{block::decode_ipld, Ipld};
 
-fn ipld_links(ipld: Ipld) -> impl Iterator<Item = Cid> + Send + 'static {
+fn ipld_links(ipld: Ipld) -> impl Iterator<Item = (Option<String>, Cid)> + Send + 'static {
     // a wrapping iterator without there being a libipld_base::IpldIntoIter might not be doable
     // with safe code
     ipld.iter()
@@ -760,7 +763,8 @@ fn ipld_links(ipld: Ipld) -> impl Iterator<Item = Cid> + Send + 'static {
             _ => None,
         })
         .cloned()
-        .collect::<Vec<_>>()
+        .map(|cid| (None, cid))
+        .collect::<Vec<(Option<String>, Cid)>>()
         .into_iter()
 }
 
