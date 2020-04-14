@@ -791,7 +791,7 @@ fn iplds_refs<T: IpfsTypes>(
         let mut work = VecDeque::new();
 
         for (origin, ipld) in iplds {
-            for (link_name, next_cid) in ipld_links(ipld) {
+            for (link_name, next_cid) in ipld_links(&origin, ipld) {
                 work.push_back((0, next_cid, origin.clone(), link_name));
             }
         }
@@ -828,7 +828,7 @@ fn iplds_refs<T: IpfsTypes>(
                 }
             };
 
-            for (link_name, next_cid) in ipld_links(ipld) {
+            for (link_name, next_cid) in ipld_links(&cid, ipld) {
                 work.push_back((depth + 1, next_cid, cid.clone(), link_name));
             }
 
@@ -839,18 +839,63 @@ fn iplds_refs<T: IpfsTypes>(
 
 use libipld::{block::decode_ipld, Ipld};
 
-fn ipld_links(ipld: Ipld) -> impl Iterator<Item = (Option<String>, Cid)> + Send + 'static {
+fn ipld_links(cid: &Cid, ipld: Ipld) -> impl Iterator<Item = (Option<String>, Cid)> + Send + 'static {
     // a wrapping iterator without there being a libipld_base::IpldIntoIter might not be doable
     // with safe code
-    ipld.iter()
-        .filter_map(|val| match val {
-            Ipld::Link(cid) => Some(cid),
-            _ => None,
-        })
-        .cloned()
-        .map(|cid| (None, cid))
-        .collect::<Vec<(Option<String>, Cid)>>()
-        .into_iter()
+
+
+    let items = if cid.codec() == CidCodec::DagProtobuf {
+
+        let links = match ipld {
+            Ipld::Map(mut m) => m.remove("Links"),
+            _ => return Vec::new().into_iter(),
+        };
+
+        let links = match links {
+            Some(Ipld::List(v)) => v,
+            x => panic!("Expected dag-pb2ipld \"Links\" to be a list, got: {:?}", x),
+        };
+
+        links.into_iter()
+            .enumerate()
+            .filter_map(|(i, ipld)| {
+                match ipld {
+                    Ipld::Map(mut m) => {
+                        let link = match m.remove("Hash") {
+                            Some(Ipld::Link(cid)) => cid,
+                            Some(x) => panic!("Expected dag-pb2ipld \"Links[{}]/Hash\" to be a link, got: {:?}", i, x),
+                            None => return None,
+                        };
+                        let name = match m.remove("Name") {
+                            // not sure of this
+                            Some(Ipld::String(s)) if s == "/" => None,
+                            Some(Ipld::String(s)) => Some(s),
+                            Some(x) => panic!("Expected ag-pb2ipld \"Links[{}]/Name\" to be a string, got: {:?}", i, x),
+                            // not too sure of this, this could be the index as string as well?
+                            None => None,
+                        };
+
+                        return Some((name, link));
+                    },
+                    x => panic!("Expected dag-pb2ipld \"Links[{}]\" to be a map, got: {:?}", i, x),
+                }
+            })
+            .collect()
+    } else {
+        ipld.iter()
+            .filter_map(|val| match val {
+                Ipld::Link(cid) => Some(cid),
+                _ => None,
+            })
+            .cloned()
+            // only dag-pb ever has any link names, probably because in cbor the "name" on the LHS
+            // might have a different meaning from a "link name" in dag-pb ... Doesn't seem
+            // immediatedly obvious why this is done.
+            .map(|cid| (None, cid))
+            .collect::<Vec<(Option<String>, Cid)>>()
+    };
+
+    items.into_iter()
 }
 
 #[cfg(test)]
