@@ -43,8 +43,11 @@ async fn refs_inner<T: IpfsTypes>(
     let formatter = opts.formatter()?;
     let path = IpfsPath::try_from(opts.arg.as_str()).map_err(StringError::from)?;
 
+    log::trace!("refs on {:?} to depth {:?} with {:?}", opts.arg, max_depth, formatter);
+
     let st = refs_path(ipfs, path, max_depth)
         .await
+        .map_err(|e| { log::warn!("refs path on {:?} failed with {}", &opts.arg, e); e })
         .map_err(StringError::from)?;
 
     let st = st.map(move |res| {
@@ -72,12 +75,62 @@ async fn refs_inner<T: IpfsTypes>(
         res
     });
 
-    Ok("foo")
+    //Ok("foo")
 
     // DUH: async-stream is not Send + Sync + 'static
     // TODO: check with all of the references removed, for example get_block, check all parts from
     // the lib level that the futures are Send + Sync + 'static
-    //Ok(StreamResponse(st))
+    Ok(StreamResponse(Unshared::new(st)))
+}
+
+use pin_project::pin_project;
+
+/// Copied from https://docs.rs/crate/async-compression/0.3.2/source/src/unshared.rs ... Did not
+/// keep the safety discussion comment because I am unsure if this is safe with the pinned
+/// projections.
+///
+/// The reason why this is needed is because `warp` or `hyper` needs it. `hyper` needs it because
+/// of compiler bug https://github.com/hyperium/hyper/issues/2159 and the future or stream we
+/// combine up with `async-stream` is not `Sync`, because the `async_trait` builds up a
+/// `Pin<Box<dyn std::future::Future<Output = _> + Send + '_>>`. The lifetime of those futures is
+/// not an issue, because at higher level (`refs_path`) those are within the owned values that
+/// method receives. It is unclear for me at least if the compiler is too strict with the `Sync`
+/// requirement which is derives for any reference or if the root cause here is that `hyper`
+/// suffers from that compiler issue.
+///
+/// Related: https://internals.rust-lang.org/t/what-shall-sync-mean-across-an-await/12020
+/// Related: https://github.com/dtolnay/async-trait/issues/77
+#[pin_project]
+struct Unshared<T> {
+    #[pin]
+    inner: T,
+}
+
+#[allow(dead_code)]
+impl<T> Unshared<T> {
+    pub fn new(inner: T) -> Self {
+        Unshared { inner }
+    }
+}
+
+unsafe impl<T> Sync for Unshared<T> {}
+
+impl<T> fmt::Debug for Unshared<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct(core::any::type_name::<T>()).finish()
+    }
+}
+
+use std::{pin::Pin, task::{Context, Poll}};
+
+impl<S> futures::stream::Stream for Unshared<S>
+where S: futures::stream::Stream {
+    type Item = S::Item;
+
+    fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+        this.inner.poll_next(ctx)
+    }
 }
 
 struct StreamResponse<S>(S);
@@ -169,6 +222,7 @@ impl RefsOptions {
     }
 }
 
+#[derive(Debug)]
 enum EdgeFormatter {
     Destination,
     Arrow,
@@ -381,17 +435,9 @@ impl ExactSizeIterator for IpfsPath {
     }
 }
 
-fn refs_path<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    path: IpfsPath,
-    max_depth: Option<u64>,
-) -> impl std::future::Future<Output = Result<impl Stream<Item = Result<(Cid, Cid), String>> + Send + 'static, Error>> + Send + 'static {
-    refs_path0(ipfs, path, max_depth)
-}
-
 /// Refs similar to go-ipfs `refs` which will first walk the path and then continue streaming the
 /// results after first walking the path.
-async fn refs_path0<T: IpfsTypes>(
+async fn refs_path<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     path: IpfsPath,
     max_depth: Option<u64>,
@@ -573,12 +619,6 @@ async fn all_refs_from_root() {
         "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
         "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
     );
-
-    // fn test_send<S: Send>(_: S) {}
-    // fn test_sync<S: Sync>(_: S) {}
-
-    // test_send(refs_path(ipfs, IpfsPath::try_from(root).unwrap(), None));
-    // test_sync(refs_path(ipfs, IpfsPath::try_from(root).unwrap(), None));
 
     let all_edges: Vec<_> = refs_path(ipfs, IpfsPath::try_from(root).unwrap(), None)
         .await

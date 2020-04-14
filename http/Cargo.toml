@@ -29,6 +29,7 @@ thiserror = "1.0.14"
 tokio = { version = "0.2.16", features = ["full"] }
 warp = "0.2.2"
 async-stream = "0.2.1"
+pin-project = "0.4.8"
 
 [dev-dependencies]
 hex = "0.4.2"

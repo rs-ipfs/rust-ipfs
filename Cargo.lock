@@ -1409,6 +1409,7 @@ dependencies = [
  "multihash",
  "openssl",
  "percent-encoding",
+ "pin-project",
  "prost",
  "prost-build",
  "serde",
