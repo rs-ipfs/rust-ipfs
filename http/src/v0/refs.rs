@@ -41,33 +41,47 @@ async fn refs_inner<T: IpfsTypes>(
     let max_depth = opts.max_depth();
     let formatter = opts.formatter()?;
 
-    log::trace!("refs on {:?} to depth {:?} with {:?}", opts.arg, max_depth, formatter);
+    log::trace!(
+        "refs on {:?} to depth {:?} with {:?}",
+        opts.arg,
+        max_depth,
+        formatter
+    );
 
-    let paths = opts.arg.iter()
+    let paths = opts
+        .arg
+        .iter()
         .map(|s| IpfsPath::try_from(s.as_str()).map_err(StringError::from))
         .collect::<Result<Vec<_>, _>>()?;
 
     let st = refs_paths(ipfs, paths, max_depth, opts.unique)
         .await
-        .map_err(|e| { log::warn!("refs path on {:?} failed with {}", &opts.arg, e); e })
+        .map_err(|e| {
+            log::warn!("refs path on {:?} failed with {}", &opts.arg, e);
+            e
+        })
         .map_err(StringError::from)?;
 
     let st = st.map(move |res| {
         let res = match res {
             Ok((source, dest, link_name)) => {
                 let ok = formatter.format(source, dest, link_name);
-                serde_json::to_string(&Edge { ok: ok.into(), err: "".into() })
-            },
-            Err(e) => {
-                serde_json::to_string(&Edge { ok: "".into(), err: e.to_string().into() })
+                serde_json::to_string(&Edge {
+                    ok: ok.into(),
+                    err: "".into(),
+                })
             }
+            Err(e) => serde_json::to_string(&Edge {
+                ok: "".into(),
+                err: e.to_string().into(),
+            }),
         };
 
         let res = match res {
             Ok(mut s) => {
                 s.push('\n');
                 Ok(s.into_bytes())
-            },
+            }
             Err(e) => {
                 log::error!("edge serialization failed: {}", e);
                 Err(HandledErr)
@@ -118,10 +132,15 @@ impl<T> fmt::Debug for Unshared<T> {
     }
 }
 
-use std::{pin::Pin, task::{Context, Poll}};
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 impl<S> futures::stream::Stream for Unshared<S>
-where S: futures::stream::Stream {
+where
+    S: futures::stream::Stream,
+{
     type Item = S::Item;
 
     fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
@@ -144,12 +163,14 @@ impl fmt::Display for HandledErr {
 }
 
 impl<S> warp::Reply for StreamResponse<S>
-    where S: futures::stream::TryStream + Send + Sync + 'static,
-          S::Ok: Into<warp::hyper::body::Bytes>,
-          S::Error: std::error::Error + Send + Sync + 'static
+where
+    S: futures::stream::TryStream + Send + Sync + 'static,
+    S::Ok: Into<warp::hyper::body::Bytes>,
+    S::Error: std::error::Error + Send + Sync + 'static,
 {
     fn into_response(self) -> warp::reply::Response {
         use futures::stream::TryStreamExt;
+        use warp::hyper::Body;
 
         let res = warp::reply::Response::new(Body::wrap_stream(self.0.into_stream()));
 
@@ -233,7 +254,7 @@ impl<'a> TryFrom<&'a str> for RefsOptions {
                 "arg" => {
                     args.push(value.into_owned());
                     continue;
-                },
+                }
                 "format" => {
                     if format.is_none() {
                         // not parsing this the whole way as there might be hope to have this
@@ -243,7 +264,7 @@ impl<'a> TryFrom<&'a str> for RefsOptions {
                     } else {
                         return Err(DuplicateField(key));
                     }
-                },
+                }
                 "max-depth" => {
                     if max_depth.is_none() {
                         max_depth = match value.parse::<i64>() {
@@ -254,7 +275,7 @@ impl<'a> TryFrom<&'a str> for RefsOptions {
                     } else {
                         return Err(DuplicateField(key));
                     }
-                },
+                }
                 "edges" => &mut edges,
                 "unique" => &mut unique,
                 "recursive" => &mut recursive,
@@ -285,21 +306,19 @@ impl<'a> TryFrom<&'a str> for RefsOptions {
             edges: edges.unwrap_or(false),
             unique: unique.unwrap_or(false),
             recursive: recursive.unwrap_or(false),
-            max_depth
+            max_depth,
         })
     }
 }
 
 fn refs_options() -> impl Filter<Extract = (RefsOptions,), Error = Rejection> + Clone {
-    warp::filters::query::raw()
-        .and_then(|q: String| {
+    warp::filters::query::raw().and_then(|q: String| {
+        let res = RefsOptions::try_from(q.as_str())
+            .map_err(StringError::from)
+            .map_err(|e| warp::reject::custom(e));
 
-            let res = RefsOptions::try_from(q.as_str())
-                .map_err(StringError::from)
-                .map_err(|e| warp::reject::custom(e));
-
-            futures::future::ready(res)
-        })
+        futures::future::ready(res)
+    })
 }
 
 impl RefsOptions {
@@ -319,7 +338,9 @@ impl RefsOptions {
     fn formatter(&self) -> Result<EdgeFormatter, StringError> {
         if self.edges && self.format.is_some() {
             // msg from go-ipfs
-            return Err(StringError::new("using format argument with edges is not allowed".into()));
+            return Err(StringError::new(
+                "using format argument with edges is not allowed".into(),
+            ));
         }
 
         if self.edges {
@@ -333,12 +354,11 @@ impl RefsOptions {
     }
 }
 
-
 #[derive(Debug)]
 enum EdgeFormatter {
     Destination,
     Arrow,
-    FormatString(Vec<FormattedPart>)
+    FormatString(Vec<FormattedPart>),
 }
 
 /// Different parts of the format string
@@ -347,20 +367,22 @@ enum FormattedPart {
     Static(String),
     Source,
     Destination,
-    LinkName
+    LinkName,
 }
 
 impl FormattedPart {
     fn format(&self, out: &mut String, src: &Cid, dst: &Cid, linkname: Option<&str>) {
-        use FormattedPart::*;
         use fmt::Write;
+        use FormattedPart::*;
         match *self {
             Static(ref s) => out.push_str(s),
             Source => write!(out, "{}", src).expect("String writing shouldn't fail"),
             Destination => write!(out, "{}", dst).expect("String writing shouldn't fail"),
-            LinkName => if let Some(s) = linkname {
-                out.push_str(s)
-            },
+            LinkName => {
+                if let Some(s) = linkname {
+                    out.push_str(s)
+                }
+            }
         }
     }
 }
@@ -377,7 +399,7 @@ impl EdgeFormatter {
                 }
                 out.shrink_to_fit();
                 out
-            },
+            }
         }
     }
 }
@@ -385,7 +407,7 @@ impl EdgeFormatter {
 #[derive(Debug)]
 enum FormatError<'a> {
     UnsupportedTag(&'a str),
-    UnterminatedTag(usize)
+    UnterminatedTag(usize),
 }
 
 impl<'a> fmt::Display for FormatError<'a> {
@@ -415,7 +437,9 @@ fn parse_format(s: &str) -> Result<Vec<FormattedPart>, FormatError> {
                 }
 
                 let remaining = chars.as_str();
-                let end = remaining.find('>').ok_or_else(|| FormatError::UnterminatedTag(index))?;
+                let end = remaining
+                    .find('>')
+                    .ok_or_else(|| FormatError::UnterminatedTag(index))?;
 
                 // the use of string indices here is ok as the angle brackets are ascii and
                 // cannot be in the middle of multibyte char boundaries
@@ -450,7 +474,16 @@ fn parse_good_formats() {
     use FormattedPart::*;
 
     let examples = &[
-        ("<linkname>: <src> -> <dst>", vec![LinkName, Static(": ".into()), Source, Static(" -> ".into()), Destination]),
+        (
+            "<linkname>: <src> -> <dst>",
+            vec![
+                LinkName,
+                Static(": ".into()),
+                Source,
+                Static(" -> ".into()),
+                Destination,
+            ],
+        ),
         ("-<linkname>", vec![Static("-".into()), LinkName]),
         ("<linkname>-", vec![LinkName, Static("-".into())]),
     ];
@@ -552,7 +585,6 @@ impl IpfsPath {
             return Ok(WalkSuccess::EmptyPath(ipld));
         }
         while let Some(key) = self.next() {
-
             if current.codec() == CidCodec::DagProtobuf {
                 // this "specialization" serves as a workaround until the dag-pb
                 // as Ipld is up to speed with {go,js}-ipfs counterparts
@@ -562,13 +594,22 @@ impl IpfsPath {
                 // structure changes.
 
                 let (map, links) = match ipld {
-                    Ipld::Map(mut m) => { let links = m.remove("Links"); (m, links) },
-                    x => panic!("Expected dag-pb2ipld have top-level \"Links\", was: {:?}", x),
+                    Ipld::Map(mut m) => {
+                        let links = m.remove("Links");
+                        (m, links)
+                    }
+                    x => panic!(
+                        "Expected dag-pb2ipld have top-level \"Links\", was: {:?}",
+                        x
+                    ),
                 };
 
                 let mut links = match links {
                     Some(Ipld::List(vec)) => vec,
-                    Some(x) => panic!("Expected dag-pb2ipld top-level \"Links\" to be List, was: {:?}", x),
+                    Some(x) => panic!(
+                        "Expected dag-pb2ipld top-level \"Links\" to be List, was: {:?}",
+                        x
+                    ),
                     // assume this means that the list was empty, and as such wasn't created
                     None => return Err(WalkFailed::UnmatchableSegment(Ipld::Map(map), key)),
                 };
@@ -597,13 +638,21 @@ impl IpfsPath {
                     Ipld::Map(mut m) => {
                         let link = match m.remove("Hash") {
                             Some(Ipld::Link(link)) => link,
-                            Some(x) => panic!("Expected dag-pb2ipld \"Links[{}]/Hash\" to be a link, was: {:?}", index, x),
-                            None => panic!("Expected dag-pb2ipld \"Links[{}]/Hash\" to exist", index),
+                            Some(x) => panic!(
+                                "Expected dag-pb2ipld \"Links[{}]/Hash\" to be a link, was: {:?}",
+                                index, x
+                            ),
+                            None => {
+                                panic!("Expected dag-pb2ipld \"Links[{}]/Hash\" to exist", index)
+                            }
                         };
 
                         return Ok(WalkSuccess::Link(key, link));
                     }
-                    x => panic!("Expected dag-pb2ipld \"Links[{}]\" to be a Map, was: {:?}", index, x),
+                    x => panic!(
+                        "Expected dag-pb2ipld \"Links[{}]\" to be a Map, was: {:?}",
+                        index, x
+                    ),
                 }
             }
 
@@ -668,7 +717,6 @@ impl<'a> fmt::Debug for DebuggableIpfsPath<'a> {
         Ok(())
     }
 }
-
 
 pub enum WalkSuccess {
     /// IpfsPath was already empty, or became empty during previous walk
@@ -746,7 +794,8 @@ async fn refs_paths<T: IpfsTypes>(
     paths: Vec<IpfsPath>,
     max_depth: Option<u64>,
     unique: bool,
-) -> Result<impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static, Error> {
+) -> Result<impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static, Error>
+{
     use futures::stream::FuturesOrdered;
     use futures::stream::TryStreamExt;
 
@@ -803,7 +852,8 @@ fn iplds_refs<T: IpfsTypes>(
         while let Some((depth, cid, source, link_name)) = work.pop_front() {
             match max_depth {
                 Some(d) if d <= depth => {
-                    return;
+                    // important to continue instead of stopping
+                    continue;
                 },
                 _ => {}
             }
@@ -848,13 +898,13 @@ fn iplds_refs<T: IpfsTypes>(
 
 use libipld::{block::decode_ipld, Ipld};
 
-fn ipld_links(cid: &Cid, ipld: Ipld) -> impl Iterator<Item = (Option<String>, Cid)> + Send + 'static {
+fn ipld_links(
+    cid: &Cid,
+    ipld: Ipld,
+) -> impl Iterator<Item = (Option<String>, Cid)> + Send + 'static {
     // a wrapping iterator without there being a libipld_base::IpldIntoIter might not be doable
     // with safe code
-
-
     let items = if cid.codec() == CidCodec::DagProtobuf {
-
         let links = match ipld {
             Ipld::Map(mut m) => m.remove("Links"),
             _ => return Vec::new().into_iter(),
@@ -865,28 +915,38 @@ fn ipld_links(cid: &Cid, ipld: Ipld) -> impl Iterator<Item = (Option<String>, Ci
             x => panic!("Expected dag-pb2ipld \"Links\" to be a list, got: {:?}", x),
         };
 
-        links.into_iter()
+        links
+            .into_iter()
             .enumerate()
             .filter_map(|(i, ipld)| {
                 match ipld {
                     Ipld::Map(mut m) => {
                         let link = match m.remove("Hash") {
                             Some(Ipld::Link(cid)) => cid,
-                            Some(x) => panic!("Expected dag-pb2ipld \"Links[{}]/Hash\" to be a link, got: {:?}", i, x),
+                            Some(x) => panic!(
+                                "Expected dag-pb2ipld \"Links[{}]/Hash\" to be a link, got: {:?}",
+                                i, x
+                            ),
                             None => return None,
                         };
                         let name = match m.remove("Name") {
                             // not sure of this
                             Some(Ipld::String(s)) if s == "/" => None,
                             Some(Ipld::String(s)) => Some(s),
-                            Some(x) => panic!("Expected ag-pb2ipld \"Links[{}]/Name\" to be a string, got: {:?}", i, x),
+                            Some(x) => panic!(
+                                "Expected ag-pb2ipld \"Links[{}]/Name\" to be a string, got: {:?}",
+                                i, x
+                            ),
                             // not too sure of this, this could be the index as string as well?
                             None => None,
                         };
 
                         return Some((name, link));
-                    },
-                    x => panic!("Expected dag-pb2ipld \"Links[{}]\" to be a map, got: {:?}", i, x),
+                    }
+                    x => panic!(
+                        "Expected dag-pb2ipld \"Links[{}]\" to be a map, got: {:?}",
+                        i, x
+                    ),
                 }
             })
             .collect()
@@ -980,7 +1040,7 @@ fn assert_edges(expected: &[(&str, &str)], actual: &[(String, String)]) {
 
 #[tokio::test]
 async fn all_refs_from_root() {
-    use futures::stream::{TryStreamExt, StreamExt};
+    use futures::stream::{StreamExt, TryStreamExt};
     let ipfs = preloaded_testing_ipfs().await;
 
     let (root, dag0, unixfs0, dag1, unixfs1) = (
