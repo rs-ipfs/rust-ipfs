@@ -75,11 +75,6 @@ async fn refs_inner<T: IpfsTypes>(
         res
     });
 
-    //Ok("foo")
-
-    // DUH: async-stream is not Send + Sync + 'static
-    // TODO: check with all of the references removed, for example get_block, check all parts from
-    // the lib level that the futures are Send + Sync + 'static
     Ok(StreamResponse(Unshared::new(st)))
 }
 
@@ -545,10 +540,6 @@ impl TryFrom<&str> for IpfsPath {
 }
 
 impl IpfsPath {
-    pub fn root(&self) -> Option<&Cid> {
-        self.root.as_ref()
-    }
-
     pub fn take_root(&mut self) -> Option<Cid> {
         self.root.take()
     }
