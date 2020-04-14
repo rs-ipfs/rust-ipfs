@@ -804,14 +804,16 @@ fn iplds_refs<T: IpfsTypes>(
                 _ => {}
             }
 
-            let Block { data, .. } = if let Ok(block) = ipfs.get_block(&cid).await {
-                block
-            } else {
-                // TODO: yield error msg
-                // unsure in which cases this happens, because we'll start to search the content
-                // and stop only when request has been cancelled (FIXME: not yet, because dropping
-                // all subscriptions doesn't "stop the operation.")
-                continue;
+            let data = match ipfs.get_block(&cid).await {
+                Ok(Block { data, .. }) => data,
+                Err(e) => {
+                    log::warn!("failed to load {}, linked from {}: {}", cid, source, e);
+                    // TODO: yield error msg
+                    // unsure in which cases this happens, because we'll start to search the content
+                    // and stop only when request has been cancelled (FIXME: not yet, because dropping
+                    // all subscriptions doesn't "stop the operation.")
+                    continue;
+                }
             };
 
             let mut ipld = match decode_ipld(&cid, &data) {
