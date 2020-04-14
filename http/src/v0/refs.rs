@@ -3,13 +3,14 @@ use ipfs::{Ipfs, IpfsTypes};
 use warp::hyper::Body;
 use futures::stream::Stream;
 use ipfs::{Block, Error};
-use libipld::cid::{Cid, Codec as CidCodec};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, VecDeque};
+use libipld::cid::{self, Cid};
+use libipld::{block::decode_ipld, Ipld};
 use std::borrow::Cow;
-use warp::{path, query, Filter, Rejection, Reply};
-use std::convert::TryFrom;
+use std::collections::VecDeque;
+use warp::{query, Filter, Rejection, Reply};
 use std::fmt;
+use std::convert::TryFrom;
 use crate::v0::support::{with_ipfs, StringError};
 use serde::Deserialize;
 
@@ -22,11 +23,26 @@ struct RefsResponseItem {
     refs: String,
 }
 
+mod options;
+use options::RefsOptions;
+
+mod format;
+use format::EdgeFormatter;
+
+mod path;
+use path::{IpfsPath, WalkSuccess};
+
+mod unshared;
+use unshared::Unshared;
+
+mod support;
+use support::{HandledErr, StreamResponse};
+
 /// https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs
 pub fn refs<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("refs")
+    warp::path!("refs")
         .and(with_ipfs(ipfs))
         .and(refs_options())
         .and_then(refs_inner)
@@ -39,7 +55,8 @@ async fn refs_inner<T: IpfsTypes>(
     use futures::stream::StreamExt;
 
     let max_depth = opts.max_depth();
-    let formatter = opts.formatter()?;
+    let formatter = EdgeFormatter::from_options(opts.edges, opts.format.as_deref())
+        .map_err(StringError::from)?;
 
     log::trace!(
         "refs on {:?} to depth {:?} with {:?}",
@@ -73,11 +90,11 @@ async fn refs_inner<T: IpfsTypes>(
             }
             Err(e) => serde_json::to_string(&Edge {
                 ok: "".into(),
-                err: e.to_string().into(),
+                err: e.into(),
             }),
         };
 
-        let res = match res {
+        match res {
             Ok(mut s) => {
                 s.push('\n');
                 Ok(s.into_bytes())
@@ -86,96 +103,12 @@ async fn refs_inner<T: IpfsTypes>(
                 log::error!("edge serialization failed: {}", e);
                 Err(HandledErr)
             }
-        };
-
-        res
+        }
     });
 
+    // Note: Unshared has the unsafe impl Sync which sadly is needed.
+    // See documentation for `Unshared` for more information.
     Ok(StreamResponse(Unshared::new(st)))
-}
-
-use pin_project::pin_project;
-
-/// Copied from https://docs.rs/crate/async-compression/0.3.2/source/src/unshared.rs ... Did not
-/// keep the safety discussion comment because I am unsure if this is safe with the pinned
-/// projections.
-///
-/// The reason why this is needed is because `warp` or `hyper` needs it. `hyper` needs it because
-/// of compiler bug https://github.com/hyperium/hyper/issues/2159 and the future or stream we
-/// combine up with `async-stream` is not `Sync`, because the `async_trait` builds up a
-/// `Pin<Box<dyn std::future::Future<Output = _> + Send + '_>>`. The lifetime of those futures is
-/// not an issue, because at higher level (`refs_path`) those are within the owned values that
-/// method receives. It is unclear for me at least if the compiler is too strict with the `Sync`
-/// requirement which is derives for any reference or if the root cause here is that `hyper`
-/// suffers from that compiler issue.
-///
-/// Related: https://internals.rust-lang.org/t/what-shall-sync-mean-across-an-await/12020
-/// Related: https://github.com/dtolnay/async-trait/issues/77
-#[pin_project]
-struct Unshared<T> {
-    #[pin]
-    inner: T,
-}
-
-#[allow(dead_code)]
-impl<T> Unshared<T> {
-    pub fn new(inner: T) -> Self {
-        Unshared { inner }
-    }
-}
-
-unsafe impl<T> Sync for Unshared<T> {}
-
-impl<T> fmt::Debug for Unshared<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct(core::any::type_name::<T>()).finish()
-    }
-}
-
-use std::{
-    pin::Pin,
-    task::{Context, Poll},
-};
-
-impl<S> futures::stream::Stream for Unshared<S>
-where
-    S: futures::stream::Stream,
-{
-    type Item = S::Item;
-
-    fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
-        let this = self.project();
-        this.inner.poll_next(ctx)
-    }
-}
-
-struct StreamResponse<S>(S);
-
-#[derive(Debug)]
-struct HandledErr;
-
-impl std::error::Error for HandledErr {}
-
-impl fmt::Display for HandledErr {
-    fn fmt(&self, _fmt: &mut fmt::Formatter) -> fmt::Result {
-        Ok(())
-    }
-}
-
-impl<S> warp::Reply for StreamResponse<S>
-where
-    S: futures::stream::TryStream + Send + Sync + 'static,
-    S::Ok: Into<warp::hyper::body::Bytes>,
-    S::Error: std::error::Error + Send + Sync + 'static,
-{
-    fn into_response(self) -> warp::reply::Response {
-        use futures::stream::TryStreamExt;
-        use warp::hyper::Body;
-
-        let res = warp::reply::Response::new(Body::wrap_stream(self.0.into_stream()));
-
-        res
-    }
 }
 
 #[derive(Debug, Serialize)]
@@ -186,609 +119,21 @@ struct Edge {
     err: Cow<'static, str>,
 }
 
-#[derive(Debug)]
-struct RefsOptions {
-    /// This can start with /ipfs/ but doesn't have to, can continue with paths, if a link cannot
-    /// be found it's an json error from go-ipfs
-    arg: Vec<String>,
-    /// This can be used to format the output string into the `{ "Ref": "here" .. }`
-    format: Option<String>,
-    /// This cannot be used with `format`, prepends "source -> " to the `Ref` response
-    edges: bool,
-    /// Not sure if this is tested by conformance testing but I'd assume this destinatinos on their
-    /// first linking.
-    unique: bool,
-    recursive: bool,
-    // `int` in the docs apparently is platform specific
-    // go-ipfs only honors this when `recursive` is true.
-    // go-ipfs treats -2 as -1 when `recursive` is true.
-    // go-ipfs doesn't use the json return value if this value is too large or non-int
-    max_depth: Option<i64>,
-}
-
-#[derive(Debug)]
-enum RefOptionsParseError<'a> {
-    DuplicateField(Cow<'a, str>),
-    MissingArg,
-    InvalidNumber(Cow<'a, str>, Cow<'a, str>),
-    InvalidBoolean(Cow<'a, str>, Cow<'a, str>),
-}
-
-impl<'a> fmt::Display for RefOptionsParseError<'a> {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        use RefOptionsParseError::*;
-        match *self {
-            DuplicateField(ref s) => write!(fmt, "field {:?} was duplicated", *s),
-            MissingArg => write!(fmt, "required field \"arg\" missing"),
-            InvalidNumber(ref k, ref v) => write!(fmt, "field {:?} invalid number: {:?}", *k, *v),
-            InvalidBoolean(ref k, ref v) => write!(fmt, "field {:?} invalid boolean: {:?}", *k, *v),
-        }
-    }
-}
-
-impl<'a> std::error::Error for RefOptionsParseError<'a> {}
-
-impl<'a> TryFrom<&'a str> for RefsOptions {
-    type Error = RefOptionsParseError<'a>;
-
-    fn try_from(q: &'a str) -> Result<Self, Self::Error> {
-        use RefOptionsParseError::*;
-
-        // TODO: check how go-ipfs handles duplicate parameters for non-Vec fields
-        //
-        // this manual deserialization is required because `serde_urlencoded` (used by
-        // warp::query) does not support multiple instances of the same field, nor does
-        // `serde_qs` (it would support arg[]=...). supporting this in `serde_urlencoded` is
-        // out of scope; not sure of `serde_qs`.
-        let parse = url::form_urlencoded::parse(q.as_bytes());
-
-        let mut args = Vec::new();
-        let mut format = None;
-        let mut edges = None;
-        let mut unique = None;
-        let mut recursive = None;
-        let mut max_depth = None;
-
-        for (key, value) in parse {
-            let target = match &*key {
-                "arg" => {
-                    args.push(value.into_owned());
-                    continue;
-                }
-                "format" => {
-                    if format.is_none() {
-                        // not parsing this the whole way as there might be hope to have this
-                        // function removed in the future.
-                        format = Some(value.into_owned());
-                        continue;
-                    } else {
-                        return Err(DuplicateField(key));
-                    }
-                }
-                "max-depth" => {
-                    if max_depth.is_none() {
-                        max_depth = match value.parse::<i64>() {
-                            Ok(max_depth) => Some(max_depth),
-                            Err(_) => return Err(InvalidNumber(key, value)),
-                        };
-                        continue;
-                    } else {
-                        return Err(DuplicateField(key));
-                    }
-                }
-                "edges" => &mut edges,
-                "unique" => &mut unique,
-                "recursive" => &mut recursive,
-                _ => {
-                    // ignore unknown fields
-                    continue;
-                }
-            };
-
-            // common bool field handling
-            if target.is_none() {
-                match value.parse::<bool>() {
-                    Ok(value) => *target = Some(value),
-                    Err(_) => return Err(InvalidBoolean(key, value)),
-                }
-            } else {
-                return Err(DuplicateField(key));
-            }
-        }
-
-        if args.is_empty() {
-            return Err(MissingArg);
-        }
-
-        Ok(RefsOptions {
-            arg: args,
-            format,
-            edges: edges.unwrap_or(false),
-            unique: unique.unwrap_or(false),
-            recursive: recursive.unwrap_or(false),
-            max_depth,
-        })
-    }
-}
-
+/// Filter to perform custom `warp::query<RefsOptions>`
 fn refs_options() -> impl Filter<Extract = (RefsOptions,), Error = Rejection> + Clone {
     warp::filters::query::raw().and_then(|q: String| {
         let res = RefsOptions::try_from(q.as_str())
             .map_err(StringError::from)
-            .map_err(|e| warp::reject::custom(e));
+            .map_err(warp::reject::custom);
 
         futures::future::ready(res)
     })
 }
 
-impl RefsOptions {
-    fn max_depth(&self) -> Option<u64> {
-        if self.recursive {
-            match self.max_depth {
-                // zero means do nothing
-                Some(x) if x >= 0 => Some(x as u64),
-                _ => None,
-            }
-        } else {
-            // only immediate links after the path
-            Some(1)
-        }
-    }
-
-    fn formatter(&self) -> Result<EdgeFormatter, StringError> {
-        if self.edges && self.format.is_some() {
-            // msg from go-ipfs
-            return Err(StringError::new(
-                "using format argument with edges is not allowed".into(),
-            ));
-        }
-
-        if self.edges {
-            Ok(EdgeFormatter::Arrow)
-        } else if let Some(formatstr) = self.format.as_deref() {
-            let parts = parse_format(formatstr).map_err(StringError::from)?;
-            Ok(EdgeFormatter::FormatString(parts))
-        } else {
-            Ok(EdgeFormatter::Destination)
-        }
-    }
-}
-
-#[derive(Debug)]
-enum EdgeFormatter {
-    Destination,
-    Arrow,
-    FormatString(Vec<FormattedPart>),
-}
-
-/// Different parts of the format string
-#[derive(Debug, PartialEq, Eq)]
-enum FormattedPart {
-    Static(String),
-    Source,
-    Destination,
-    LinkName,
-}
-
-impl FormattedPart {
-    fn format(&self, out: &mut String, src: &Cid, dst: &Cid, linkname: Option<&str>) {
-        use fmt::Write;
-        use FormattedPart::*;
-        match *self {
-            Static(ref s) => out.push_str(s),
-            Source => write!(out, "{}", src).expect("String writing shouldn't fail"),
-            Destination => write!(out, "{}", dst).expect("String writing shouldn't fail"),
-            LinkName => {
-                if let Some(s) = linkname {
-                    out.push_str(s)
-                }
-            }
-        }
-    }
-}
-
-impl EdgeFormatter {
-    fn format(&self, src: Cid, dst: Cid, link_name: Option<String>) -> String {
-        match *self {
-            EdgeFormatter::Destination => dst.to_string(),
-            EdgeFormatter::Arrow => format!("{} -> {}", src, dst),
-            EdgeFormatter::FormatString(ref parts) => {
-                let mut out = String::new();
-                for part in parts {
-                    part.format(&mut out, &src, &dst, link_name.as_deref());
-                }
-                out.shrink_to_fit();
-                out
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-enum FormatError<'a> {
-    UnsupportedTag(&'a str),
-    UnterminatedTag(usize),
-}
-
-impl<'a> fmt::Display for FormatError<'a> {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        use FormatError::*;
-        match *self {
-            UnsupportedTag(tag) => write!(fmt, "unsupported tag: {:?}", tag),
-            UnterminatedTag(index) => write!(fmt, "unterminated tag at index: {}", index),
-        }
-    }
-}
-
-impl<'a> std::error::Error for FormatError<'a> {}
-
-fn parse_format(s: &str) -> Result<Vec<FormattedPart>, FormatError> {
-    use std::mem;
-
-    let mut buffer = String::new();
-    let mut ret = Vec::new();
-    let mut chars = s.char_indices();
-
-    loop {
-        match chars.next() {
-            Some((index, '<')) => {
-                if !buffer.is_empty() {
-                    ret.push(FormattedPart::Static(mem::take(&mut buffer)));
-                }
-
-                let remaining = chars.as_str();
-                let end = remaining
-                    .find('>')
-                    .ok_or_else(|| FormatError::UnterminatedTag(index))?;
-
-                // the use of string indices here is ok as the angle brackets are ascii and
-                // cannot be in the middle of multibyte char boundaries
-                let inside = &remaining[0..end];
-
-                // TODO: this might need to be case insensitive
-                let part = match inside {
-                    "src" => FormattedPart::Source,
-                    "dst" => FormattedPart::Destination,
-                    "linkname" => FormattedPart::LinkName,
-                    tag => return Err(FormatError::UnsupportedTag(tag)),
-                };
-
-                ret.push(part);
-
-                // the one here is to ignore the '>', which cannot be a codepoint boundary
-                chars = remaining[end + 1..].char_indices();
-            }
-            Some((_, ch)) => buffer.push(ch),
-            None => {
-                if !buffer.is_empty() {
-                    ret.push(FormattedPart::Static(buffer));
-                }
-                return Ok(ret);
-            }
-        }
-    }
-}
-
-#[test]
-fn parse_good_formats() {
-    use FormattedPart::*;
-
-    let examples = &[
-        (
-            "<linkname>: <src> -> <dst>",
-            vec![
-                LinkName,
-                Static(": ".into()),
-                Source,
-                Static(" -> ".into()),
-                Destination,
-            ],
-        ),
-        ("-<linkname>", vec![Static("-".into()), LinkName]),
-        ("<linkname>-", vec![LinkName, Static("-".into())]),
-    ];
-
-    for (input, expected) in examples {
-        assert_eq!(&parse_format(input).unwrap(), expected);
-    }
-}
-
-#[derive(Debug)]
-enum PathError {
-    InvalidCid(libipld::cid::Error),
-    InvalidPath,
-}
-
-impl fmt::Display for PathError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            PathError::InvalidCid(e) => write!(fmt, "{}", e),
-            PathError::InvalidPath => write!(fmt, "invalid path"),
-        }
-    }
-}
-
-impl std::error::Error for PathError {}
-
-/// Following https://github.com/ipfs/go-path/
-#[derive(Debug)]
-struct IpfsPath {
-    /// Option to support moving the cid
-    root: Option<Cid>,
-    path: std::vec::IntoIter<String>,
-}
-
-impl From<Cid> for IpfsPath {
-    fn from(root: Cid) -> IpfsPath {
-        IpfsPath {
-            root: Some(root),
-            path: Vec::new().into_iter(),
-        }
-    }
-}
-
-impl TryFrom<&str> for IpfsPath {
-    type Error = PathError;
-
-    fn try_from(path: &str) -> Result<Self, Self::Error> {
-        let mut split = path.splitn(2, "/ipfs/");
-        let first = split.next();
-        let (_root, path) = match first {
-            Some("") => {
-                /* started with /ipfs/ */
-                if let Some(x) = split.next() {
-                    // was /ipfs/x
-                    ("ipfs", x)
-                } else {
-                    // just the /ipfs/
-                    return Err(PathError::InvalidPath);
-                }
-            }
-            Some(x) => {
-                /* maybe didn't start with /ipfs/, need to check second */
-                if let Some(_) = split.next() {
-                    // x/ipfs/_
-                    return Err(PathError::InvalidPath);
-                }
-
-                ("", x)
-            }
-            None => return Err(PathError::InvalidPath),
-        };
-
-        let mut split = path.splitn(2, '/');
-        log::trace!("splitting {:?} per path", path);
-        let root = split
-            .next()
-            .expect("first value from splitn(2, _) must exist");
-
-        let path = split
-            .next()
-            .iter()
-            .flat_map(|s| s.split('/').filter(|s| !s.is_empty()).map(String::from))
-            .collect::<Vec<_>>()
-            .into_iter();
-
-        let root = Some(Cid::try_from(root).map_err(PathError::InvalidCid)?);
-
-        Ok(IpfsPath { root, path })
-    }
-}
-
-impl IpfsPath {
-    pub fn take_root(&mut self) -> Option<Cid> {
-        self.root.take()
-    }
-
-    pub fn walk(&mut self, current: &Cid, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
-        if self.len() == 0 {
-            return Ok(WalkSuccess::EmptyPath(ipld));
-        }
-        while let Some(key) = self.next() {
-            if current.codec() == CidCodec::DagProtobuf {
-                // this "specialization" serves as a workaround until the dag-pb
-                // as Ipld is up to speed with {go,js}-ipfs counterparts
-
-                // the current dag-pb represents the links of dag-pb nodes under "/Links"
-                // panicking instead of errors since we want to change this is dag-pb2ipld
-                // structure changes.
-
-                let (map, links) = match ipld {
-                    Ipld::Map(mut m) => {
-                        let links = m.remove("Links");
-                        (m, links)
-                    }
-                    x => panic!(
-                        "Expected dag-pb2ipld have top-level \"Links\", was: {:?}",
-                        x
-                    ),
-                };
-
-                let mut links = match links {
-                    Some(Ipld::List(vec)) => vec,
-                    Some(x) => panic!(
-                        "Expected dag-pb2ipld top-level \"Links\" to be List, was: {:?}",
-                        x
-                    ),
-                    // assume this means that the list was empty, and as such wasn't created
-                    None => return Err(WalkFailed::UnmatchableSegment(Ipld::Map(map), key)),
-                };
-
-                let index = if let Ok(index) = key.parse::<usize>() {
-                    if index >= links.len() {
-                        return Err(WalkFailed::ListIndexOutOfRange(links, index));
-                    }
-                    index
-                } else {
-                    let index = links.iter().enumerate().position(|(i, link)| match link.get("Name") {
-                        Some(Ipld::String(s)) => s == &key,
-                        Some(x) => panic!("Expected dag-pb2ipld \"Links[{}]/Name\" to be an optional String, was: {:?}", i, x),
-                        None => false,
-                    });
-
-                    match index {
-                        Some(index) => index,
-                        None => return Err(WalkFailed::UnmatchableSegment(Ipld::List(links), key)),
-                    }
-                };
-
-                let link = links.swap_remove(index);
-
-                match link {
-                    Ipld::Map(mut m) => {
-                        let link = match m.remove("Hash") {
-                            Some(Ipld::Link(link)) => link,
-                            Some(x) => panic!(
-                                "Expected dag-pb2ipld \"Links[{}]/Hash\" to be a link, was: {:?}",
-                                index, x
-                            ),
-                            None => {
-                                panic!("Expected dag-pb2ipld \"Links[{}]/Hash\" to exist", index)
-                            }
-                        };
-
-                        return Ok(WalkSuccess::Link(key, link));
-                    }
-                    x => panic!(
-                        "Expected dag-pb2ipld \"Links[{}]\" to be a Map, was: {:?}",
-                        index, x
-                    ),
-                }
-            }
-
-            ipld = match ipld {
-                Ipld::Link(cid) if key == "." => {
-                    // go-ipfs: allows this to be skipped. lets require the dot for now.
-                    // FIXME: this would require the iterator to be peekable in addition.
-                    return Ok(WalkSuccess::Link(key, cid));
-                }
-                Ipld::Map(mut m) if m.contains_key(&key) => {
-                    if let Some(ipld) = m.remove(&key) {
-                        ipld
-                    } else {
-                        return Err(WalkFailed::UnmatchedMapProperty(m, key));
-                    }
-                }
-                Ipld::List(mut l) => {
-                    if let Ok(index) = key.parse::<usize>() {
-                        if index < l.len() {
-                            l.swap_remove(index)
-                        } else {
-                            return Err(WalkFailed::ListIndexOutOfRange(l, index));
-                        }
-                    } else {
-                        return Err(WalkFailed::UnparseableListIndex(l, key));
-                    }
-                }
-                x => return Err(WalkFailed::UnmatchableSegment(x, key)),
-            };
-
-            if let Ipld::Link(next_cid) = ipld {
-                return Ok(WalkSuccess::Link(key, next_cid));
-            }
-        }
-
-        Ok(WalkSuccess::AtDestination(ipld))
-    }
-
-    fn debug<'a>(&'a self, current: &'a Cid) -> DebuggableIpfsPath<'a> {
-        DebuggableIpfsPath {
-            current,
-            segments: self.path.as_slice(),
-        }
-    }
-}
-
-struct DebuggableIpfsPath<'a> {
-    current: &'a Cid,
-    segments: &'a [String],
-}
-
-impl<'a> fmt::Debug for DebuggableIpfsPath<'a> {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "{}", self.current)?;
-        if !self.segments.is_empty() {
-            write!(fmt, "/...")?;
-        }
-
-        for seg in self.segments {
-            write!(fmt, "/{}", seg)?;
-        }
-        Ok(())
-    }
-}
-
-pub enum WalkSuccess {
-    /// IpfsPath was already empty, or became empty during previous walk
-    EmptyPath(Ipld),
-    /// IpfsPath arrived at destination, following walk attempts will return EmptyPath
-    AtDestination(Ipld),
-    /// Path segment lead to a link which needs to be loaded to continue the walk
-    Link(String, Cid),
-}
-
-// FIXME: this probably needs to result in http 40x error? Currently converted to a stringerror
-// which is 500.
-#[derive(Debug)]
-pub enum WalkFailed {
-    /// Map key was not found
-    UnmatchedMapProperty(BTreeMap<String, Ipld>, String),
-    /// Segment could not be parsed as index
-    UnparseableListIndex(Vec<Ipld>, String),
-    /// Segment was out of range for the list
-    ListIndexOutOfRange(Vec<Ipld>, usize),
-    /// Catch-all failure for example when walking a segment on integer
-    UnmatchableSegment(Ipld, String),
-}
-
-impl fmt::Display for WalkFailed {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            // go-ipfs: no such link found
-            WalkFailed::UnmatchedMapProperty(_, ref key) => {
-                write!(fmt, "No such link found: {:?}", key)
-            }
-            // go-ipfs: strconv.Atoi: parsing {:?}: invalid syntax
-            WalkFailed::UnparseableListIndex(_, ref segment) => {
-                write!(fmt, "Invalid list index: {:?}", segment)
-            }
-            // go-ipfs: array index out of range
-            WalkFailed::ListIndexOutOfRange(ref list, index) => write!(
-                fmt,
-                "List index out of range: the length is {} but the index is {}",
-                list.len(),
-                index
-            ),
-            // go-ipfs: tried to resolve through object that had no links
-            WalkFailed::UnmatchableSegment(_, _) => {
-                write!(fmt, "Tried to resolve through object that had no links")
-            }
-        }
-    }
-}
-
-impl std::error::Error for WalkFailed {}
-
-impl Iterator for IpfsPath {
-    type Item = String;
-
-    fn next(&mut self) -> Option<String> {
-        self.path.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.path.size_hint()
-    }
-}
-
-impl ExactSizeIterator for IpfsPath {
-    fn len(&self) -> usize {
-        self.path.len()
-    }
-}
-
 /// Refs similar to go-ipfs `refs` which will first walk the path and then continue streaming the
-/// results after first walking the path.
+/// results after first walking the path. This resides currently over at `ipfs-http` instead of
+/// `ipfs` as I can't see this as an usable API call due to the multiple `paths` iterated. This
+/// does make for a good overall test, which why we wanted to include this in the grant 1 phase.
 async fn refs_paths<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     paths: Vec<IpfsPath>,
@@ -799,7 +144,7 @@ async fn refs_paths<T: IpfsTypes>(
     use futures::stream::FuturesOrdered;
     use futures::stream::TryStreamExt;
 
-    let mut walks = FuturesOrdered::new(); // Vec::with_capacity(paths.len());
+    let mut walks = FuturesOrdered::new();
 
     for path in paths {
         walks.push(walk_path(&ipfs, path));
@@ -810,6 +155,11 @@ async fn refs_paths<T: IpfsTypes>(
     Ok(iplds_refs(ipfs, iplds, max_depth, unique))
 }
 
+/// Walks the `path` while loading the links.
+///
+/// # Panics
+///
+/// If there are dag-pb nodes and the libipld has changed it's dag-pb tree structure.
 async fn walk_path<T: IpfsTypes>(ipfs: &Ipfs<T>, mut path: IpfsPath) -> Result<(Cid, Ipld), Error> {
     let mut current = path.take_root().unwrap();
 
@@ -826,6 +176,12 @@ async fn walk_path<T: IpfsTypes>(ipfs: &Ipfs<T>, mut path: IpfsPath) -> Result<(
     }
 }
 
+/// Gather links as edges between two documents from all of the `iplds` which represent the
+/// document and it's original `Cid`, as the `Ipld` can be a subtree of the document.
+///
+/// # Panics
+///
+/// If there are dag-pb nodes and the libipld has changed it's dag-pb tree structure.
 fn iplds_refs<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     iplds: Vec<(Cid, Ipld)>,
@@ -850,13 +206,15 @@ fn iplds_refs<T: IpfsTypes>(
         }
 
         while let Some((depth, cid, source, link_name)) = work.pop_front() {
-            match max_depth {
+            let traverse_links = match max_depth {
                 Some(d) if d <= depth => {
                     // important to continue instead of stopping
                     continue;
                 },
-                _ => {}
-            }
+                // no need to list links which would be filtered out
+                Some(d) if d + 1 == depth => false,
+                _ => true
+            };
 
             if unique && !visited.insert(cid.clone()) {
                 log::trace!("skipping already visited {}", cid);
@@ -887,8 +245,15 @@ fn iplds_refs<T: IpfsTypes>(
                 }
             };
 
-            for (link_name, next_cid) in ipld_links(&cid, ipld) {
-                work.push_back((depth + 1, next_cid, cid.clone(), link_name));
+            if traverse_links {
+                for (link_name, next_cid) in ipld_links(&cid, ipld) {
+                    if unique && visited.contains(&next_cid) {
+                        // skip adding already yielded documents
+                        continue;
+                    }
+                    // TODO: could also have a hashset for queued destinations ...
+                    work.push_back((depth + 1, next_cid, cid.clone(), link_name));
+                }
             }
 
             yield Ok((source, cid, link_name));
@@ -896,60 +261,14 @@ fn iplds_refs<T: IpfsTypes>(
     }
 }
 
-use libipld::{block::decode_ipld, Ipld};
-
 fn ipld_links(
     cid: &Cid,
     ipld: Ipld,
 ) -> impl Iterator<Item = (Option<String>, Cid)> + Send + 'static {
     // a wrapping iterator without there being a libipld_base::IpldIntoIter might not be doable
     // with safe code
-    let items = if cid.codec() == CidCodec::DagProtobuf {
-        let links = match ipld {
-            Ipld::Map(mut m) => m.remove("Links"),
-            _ => return Vec::new().into_iter(),
-        };
-
-        let links = match links {
-            Some(Ipld::List(v)) => v,
-            x => panic!("Expected dag-pb2ipld \"Links\" to be a list, got: {:?}", x),
-        };
-
-        links
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, ipld)| {
-                match ipld {
-                    Ipld::Map(mut m) => {
-                        let link = match m.remove("Hash") {
-                            Some(Ipld::Link(cid)) => cid,
-                            Some(x) => panic!(
-                                "Expected dag-pb2ipld \"Links[{}]/Hash\" to be a link, got: {:?}",
-                                i, x
-                            ),
-                            None => return None,
-                        };
-                        let name = match m.remove("Name") {
-                            // not sure of this
-                            Some(Ipld::String(s)) if s == "/" => None,
-                            Some(Ipld::String(s)) => Some(s),
-                            Some(x) => panic!(
-                                "Expected ag-pb2ipld \"Links[{}]/Name\" to be a string, got: {:?}",
-                                i, x
-                            ),
-                            // not too sure of this, this could be the index as string as well?
-                            None => None,
-                        };
-
-                        return Some((name, link));
-                    }
-                    x => panic!(
-                        "Expected dag-pb2ipld \"Links[{}]\" to be a map, got: {:?}",
-                        i, x
-                    ),
-                }
-            })
-            .collect()
+    let items = if cid.codec() == cid::Codec::DagProtobuf {
+        dagpb_links(ipld)
     } else {
         ipld.iter()
             .filter_map(|val| match val {
@@ -965,6 +284,66 @@ fn ipld_links(
     };
 
     items.into_iter()
+}
+
+/// Special handling for the structure created while loading dag-pb as ipld.
+///
+/// # Panics
+///
+/// If the dag-pb ipld tree doesn't conform to expectations, as in, we are out of sync with the
+/// libipld crate. This is on purpose.
+fn dagpb_links(ipld: Ipld) -> Vec<(Option<String>, Cid)> {
+    let links = match ipld {
+        Ipld::Map(mut m) => m.remove("Links"),
+        // lets assume this means "no links"
+        _ => return Vec::new(),
+    };
+
+    let links = match links {
+        Some(Ipld::List(v)) => v,
+        x => panic!("Expected dag-pb2ipld \"Links\" to be a list, got: {:?}", x),
+    };
+
+    links
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, ipld)| {
+            match ipld {
+                Ipld::Map(mut m) => {
+                    let link = match m.remove("Hash") {
+                        Some(Ipld::Link(cid)) => cid,
+                        Some(x) => panic!(
+                            "Expected dag-pb2ipld \"Links[{}]/Hash\" to be a link, got: {:?}",
+                            i, x
+                        ),
+                        None => return None,
+                    };
+                    let name = match m.remove("Name") {
+                        // not sure of this, not covered by tests, though these are only
+                        // present for multi-block files so maybe it's better to panic
+                        Some(Ipld::String(s)) if s == "/" => {
+                            unimplemented!("Slashes as the name of link")
+                        }
+                        Some(Ipld::String(s)) => Some(s),
+                        Some(x) => panic!(
+                            "Expected dag-pb2ipld \"Links[{}]/Name\" to be a string, got: {:?}",
+                            i, x
+                        ),
+                        // not too sure of this, this could be the index as string as well?
+                        None => unimplemented!(
+                            "Default name for dag-pb2ipld links, should it be index?"
+                        ),
+                    };
+
+                    Some((name, link))
+                }
+                x => panic!(
+                    "Expected dag-pb2ipld \"Links[{}]\" to be a map, got: {:?}",
+                    i, x
+                ),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1154,7 +533,7 @@ async fn refs_with_path() {
 pub fn local<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("refs" / "local")
+    warp::path!("refs" / "local")
         .and(with_ipfs(ipfs))
         .and_then(inner_local)
 }
