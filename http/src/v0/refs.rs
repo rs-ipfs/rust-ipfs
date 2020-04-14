@@ -41,11 +41,14 @@ async fn refs_inner<T: IpfsTypes>(
 
     let max_depth = opts.max_depth();
     let formatter = opts.formatter()?;
-    let path = IpfsPath::try_from(opts.arg[0].as_str()).map_err(StringError::from)?;
 
     log::trace!("refs on {:?} to depth {:?} with {:?}", opts.arg, max_depth, formatter);
 
-    let st = refs_path(ipfs, path, max_depth)
+    let paths = opts.arg.iter()
+        .map(|s| IpfsPath::try_from(s.as_str()).map_err(StringError::from))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let st = refs_paths(ipfs, paths, max_depth)
         .await
         .map_err(|e| { log::warn!("refs path on {:?} failed with {}", &opts.arg, e); e })
         .map_err(StringError::from)?;
@@ -654,13 +657,23 @@ impl ExactSizeIterator for IpfsPath {
 
 /// Refs similar to go-ipfs `refs` which will first walk the path and then continue streaming the
 /// results after first walking the path.
-async fn refs_path<T: IpfsTypes>(
+async fn refs_paths<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    path: IpfsPath,
+    paths: Vec<IpfsPath>,
     max_depth: Option<u64>,
 ) -> Result<impl Stream<Item = Result<(Cid, Cid), String>> + Send + 'static, Error> {
-    let (origin, ipld) = walk_path(&ipfs, path).await?;
-    Ok(ipld_refs(ipfs, origin, ipld, max_depth))
+    use futures::stream::FuturesOrdered;
+    use futures::stream::TryStreamExt;
+
+    let mut walks = FuturesOrdered::new(); // Vec::with_capacity(paths.len());
+
+    for path in paths {
+        walks.push(walk_path(&ipfs, path));
+    }
+
+    let iplds = walks.try_collect().await?;
+
+    Ok(iplds_refs(ipfs, iplds, max_depth))
 }
 
 async fn walk_path<T: IpfsTypes>(ipfs: &Ipfs<T>, mut path: IpfsPath) -> Result<(Cid, Ipld), Error> {
@@ -679,10 +692,9 @@ async fn walk_path<T: IpfsTypes>(ipfs: &Ipfs<T>, mut path: IpfsPath) -> Result<(
     }
 }
 
-fn ipld_refs<T: IpfsTypes>(
+fn iplds_refs<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    origin: Cid,
-    ipld: Ipld,
+    iplds: Vec<(Cid, Ipld)>,
     max_depth: Option<u64>,
 ) -> impl Stream<Item = Result<(Cid, Cid), String>> + Send + 'static {
     use async_stream::stream;
@@ -694,8 +706,10 @@ fn ipld_refs<T: IpfsTypes>(
 
         let mut work = VecDeque::new();
 
-        for next_cid in ipld_links(ipld) {
-            work.push_back((1, next_cid, origin.clone()));
+        for (origin, ipld) in iplds {
+            for next_cid in ipld_links(ipld) {
+                work.push_back((1, next_cid, origin.clone()));
+            }
         }
 
         while let Some((depth, cid, source)) = work.pop_front() {
@@ -837,10 +851,10 @@ async fn all_refs_from_root() {
         "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
     );
 
-    let all_edges: Vec<_> = refs_path(ipfs, IpfsPath::try_from(root).unwrap(), None)
+    let all_edges: Vec<_> = refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, false)
         .await
         .unwrap()
-        .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
+        .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
         .try_collect()
         .await
         .unwrap();
@@ -879,13 +893,15 @@ async fn all_unique_refs_from_root() {
         "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
     );
 
-    let all_edges: Vec<_> = refs_path(ipfs, IpfsPath::try_from(root).unwrap(), None)
+    let all_edges: Vec<_> = refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, false)
         .await
         .unwrap()
-        .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
+        .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
         .try_collect()
         .await
         .unwrap();
+
+    // if this test would have only the <dst> it might work?
 
     // go-ipfs output:
     // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
@@ -914,10 +930,10 @@ async fn refs_with_path() {
 
     for path in paths.iter() {
         let path = IpfsPath::try_from(*path).unwrap();
-        let all_edges: Vec<_> = refs_path(ipfs.clone(), path, None)
+        let all_edges: Vec<_> = refs_paths(ipfs.clone(), vec![path], None, false)
             .await
             .unwrap()
-            .map_ok(|(source, dest)| (source.to_string(), dest.to_string()))
+            .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
             .try_collect()
             .await
             .unwrap();
