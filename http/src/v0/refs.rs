@@ -3,8 +3,7 @@ use ipfs::{Ipfs, IpfsTypes};
 use warp::hyper::Body;
 use futures::stream::Stream;
 use ipfs::{Block, Error};
-use ipfs::{Ipfs, IpfsTypes};
-use libipld::cid::Cid;
+use libipld::cid::{Cid, Codec as CidCodec};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 use std::borrow::Cow;
@@ -547,11 +546,66 @@ impl IpfsPath {
         self.root.take()
     }
 
-    pub fn walk(&mut self, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
+    pub fn walk(&mut self, current: &Cid, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
         if self.len() == 0 {
             return Ok(WalkSuccess::EmptyPath(ipld));
         }
         while let Some(key) = self.next() {
+
+            if current.codec() == CidCodec::DagProtobuf {
+                // this "specialization" serves as a workaround until the dag-pb
+                // as Ipld is up to speed with {go,js}-ipfs counterparts
+
+                // the current dag-pb represents the links of dag-pb nodes under "/Links"
+                // panicking instead of errors since we want to change this is dag-pb2ipld
+                // structure changes.
+
+                let (map, links) = match ipld {
+                    Ipld::Map(mut m) => { let links = m.remove("Links"); (m, links) },
+                    x => panic!("Expected dag-pb2ipld have top-level \"Links\", was: {:?}", x),
+                };
+
+                let mut links = match links {
+                    Some(Ipld::List(vec)) => vec,
+                    Some(x) => panic!("Expected dag-pb2ipld top-level \"Links\" to be List, was: {:?}", x),
+                    // assume this means that the list was empty, and as such wasn't created
+                    None => return Err(WalkFailed::UnmatchableSegment(Ipld::Map(map), key)),
+                };
+
+                let index = if let Ok(index) = key.parse::<usize>() {
+                    if index >= links.len() {
+                        return Err(WalkFailed::ListIndexOutOfRange(links, index));
+                    }
+                    index
+                } else {
+                    let index = links.iter().enumerate().position(|(i, link)| match link.get("Name") {
+                        Some(Ipld::String(s)) => s == &key,
+                        Some(x) => panic!("Expected dag-pb2ipld \"Links[{}]/Name\" to be an optional String, was: {:?}", i, x),
+                        None => false,
+                    });
+
+                    match index {
+                        Some(index) => index,
+                        None => return Err(WalkFailed::UnmatchableSegment(Ipld::List(links), key)),
+                    }
+                };
+
+                let link = links.swap_remove(index);
+
+                match link {
+                    Ipld::Map(mut m) => {
+                        let link = match m.remove("Hash") {
+                            Some(Ipld::Link(link)) => link,
+                            Some(x) => panic!("Expected dag-pb2ipld \"Links[{}]/Hash\" to be a link, was: {:?}", index, x),
+                            None => panic!("Expected dag-pb2ipld \"Links[{}]/Hash\" to exist", index),
+                        };
+
+                        return Ok(WalkSuccess::Link(key, link));
+                    }
+                    x => panic!("Expected dag-pb2ipld \"Links[{}]\" to be a Map, was: {:?}", index, x),
+                }
+            }
+
             ipld = match ipld {
                 Ipld::Link(cid) if key == "." => {
                     // go-ipfs: allows this to be skipped. lets require the dot for now.
@@ -683,7 +737,7 @@ async fn walk_path<T: IpfsTypes>(ipfs: &Ipfs<T>, mut path: IpfsPath) -> Result<(
         let Block { data, .. } = ipfs.get_block(&current).await?;
         let ipld = decode_ipld(&current, &data)?;
 
-        match path.walk(ipld)? {
+        match path.walk(&current, ipld)? {
             WalkSuccess::EmptyPath(ipld) | WalkSuccess::AtDestination(ipld) => {
                 return Ok((current, ipld))
             }
