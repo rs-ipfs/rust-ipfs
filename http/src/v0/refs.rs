@@ -478,6 +478,7 @@ impl fmt::Display for PathError {
 impl std::error::Error for PathError {}
 
 /// Following https://github.com/ipfs/go-path/
+#[derive(Debug)]
 struct IpfsPath {
     /// Option to support moving the cid
     root: Option<Cid>,
@@ -640,7 +641,34 @@ impl IpfsPath {
 
         Ok(WalkSuccess::AtDestination(ipld))
     }
+
+    fn debug<'a>(&'a self, current: &'a Cid) -> DebuggableIpfsPath<'a> {
+        DebuggableIpfsPath {
+            current,
+            segments: self.path.as_slice(),
+        }
+    }
 }
+
+struct DebuggableIpfsPath<'a> {
+    current: &'a Cid,
+    segments: &'a [String],
+}
+
+impl<'a> fmt::Debug for DebuggableIpfsPath<'a> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "{}", self.current)?;
+        if !self.segments.is_empty() {
+            write!(fmt, "/...")?;
+        }
+
+        for seg in self.segments {
+            write!(fmt, "/{}", seg)?;
+        }
+        Ok(())
+    }
+}
+
 
 pub enum WalkSuccess {
     /// IpfsPath was already empty, or became empty during previous walk
