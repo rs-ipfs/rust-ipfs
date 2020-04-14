@@ -47,7 +47,7 @@ async fn refs_inner<T: IpfsTypes>(
         .map(|s| IpfsPath::try_from(s.as_str()).map_err(StringError::from))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let st = refs_paths(ipfs, paths, max_depth)
+    let st = refs_paths(ipfs, paths, max_depth, opts.unique)
         .await
         .map_err(|e| { log::warn!("refs path on {:?} failed with {}", &opts.arg, e); e })
         .map_err(StringError::from)?;
@@ -745,6 +745,7 @@ async fn refs_paths<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     paths: Vec<IpfsPath>,
     max_depth: Option<u64>,
+    unique: bool,
 ) -> Result<impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static, Error> {
     use futures::stream::FuturesOrdered;
     use futures::stream::TryStreamExt;
@@ -757,7 +758,7 @@ async fn refs_paths<T: IpfsTypes>(
 
     let iplds = walks.try_collect().await?;
 
-    Ok(iplds_refs(ipfs, iplds, max_depth))
+    Ok(iplds_refs(ipfs, iplds, max_depth, unique))
 }
 
 async fn walk_path<T: IpfsTypes>(ipfs: &Ipfs<T>, mut path: IpfsPath) -> Result<(Cid, Ipld), Error> {
@@ -780,14 +781,17 @@ fn iplds_refs<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     iplds: Vec<(Cid, Ipld)>,
     max_depth: Option<u64>,
+    unique: bool,
 ) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static {
     use async_stream::stream;
+    use std::collections::HashSet;
 
     stream! {
         if let Some(0) = max_depth {
             return;
         }
 
+        let mut visited = HashSet::new();
         let mut work = VecDeque::new();
 
         for (origin, ipld) in iplds {
@@ -802,6 +806,11 @@ fn iplds_refs<T: IpfsTypes>(
                     return;
                 },
                 _ => {}
+            }
+
+            if unique && !visited.insert(cid.clone()) {
+                log::trace!("skipping already visited {}", cid);
+                continue;
             }
 
             let data = match ipfs.get_block(&cid).await {
