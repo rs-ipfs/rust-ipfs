@@ -30,6 +30,7 @@ tokio = { version = "0.2.16", features = ["full"] }
 warp = "0.2.2"
 async-stream = "0.2.1"
 pin-project = "0.4.8"
+url = "2.1.1"
 
 [dev-dependencies]
 hex = "0.4.2"
