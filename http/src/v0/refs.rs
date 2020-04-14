@@ -679,6 +679,8 @@ pub enum WalkSuccess {
     Link(String, Cid),
 }
 
+// FIXME: this probably needs to result in http 40x error? Currently converted to a stringerror
+// which is 500.
 #[derive(Debug)]
 pub enum WalkFailed {
     /// Map key was not found
