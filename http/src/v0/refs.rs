@@ -819,6 +819,7 @@ fn iplds_refs<T: IpfsTypes>(
             let mut ipld = match decode_ipld(&cid, &data) {
                 Ok(ipld) => ipld,
                 Err(e) => {
+                    log::warn!("failed to parse {}, linked from {}: {}", cid, source, e);
                     // TODO: yield error msg
                     // go-ipfs on raw Qm hash:
                     // > failed to decode Protocol Buffers: incorrectly formatted merkledag node: unmarshal failed. proto: illegal wireType 6
@@ -827,9 +828,6 @@ fn iplds_refs<T: IpfsTypes>(
             };
 
             for (link_name, next_cid) in ipld_links(ipld) {
-                if cid.codec() == CidCodec::DagProtobuf {
-                    log::trace!("dag-pb link: {} -> {}", cid, next_cid);
-                }
                 work.push_back((depth + 1, next_cid, cid.clone(), link_name));
             }
 
