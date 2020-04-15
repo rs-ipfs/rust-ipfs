@@ -10,10 +10,7 @@ pub struct GetQuery {
     arg: String,
 }
 
-async fn get_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    query: GetQuery,
-) -> Result<impl Reply, Rejection> {
+async fn get_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: GetQuery) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
     let data = ipfs
         .get_block(&cid)
@@ -120,10 +117,7 @@ pub struct RmQuery {
 #[serde(rename_all = "PascalCase")]
 pub struct RmResponse {}
 
-async fn rm_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    query: RmQuery,
-) -> Result<impl Reply, Rejection> {
+async fn rm_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: RmQuery) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
     ipfs.remove_block(&cid).await.map_err(StringError::from)?;
     let response = RmResponse {};
