@@ -267,8 +267,8 @@ pub enum WalkSuccess {
     Link(String, Cid),
 }
 
-// FIXME: this probably needs to result in http 40x error? Currently converted to a stringerror
-// which is 500.
+/// These errors correspond to ones given out by go-ipfs 0.4.23 if the walk cannot be completed.
+/// go-ipfs reports these as 500 Internal Errors.
 #[derive(Debug)]
 pub enum WalkFailed {
     /// Map key was not found
