@@ -355,7 +355,7 @@ pub fn local<T: IpfsTypes>(
 }
 
 async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
-    let refs: Vec<Result<String, Error>> = ipfs
+    let refs = ipfs
         .refs_local()
         .await
         .map_err(StringError::from)?
@@ -367,14 +367,15 @@ async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejectio
         })
         .map(|response| {
             serde_json::to_string(&response)
+                .map(|mut s| {
+                    s.push('\n');
+                    s
+                })
                 .map_err(|e| {
                     eprintln!("error from serde_json: {}", e);
                     HandledErr
                 })
-                .unwrap()
-        })
-        .map(|ref_json| Ok(format!("{}{}", ref_json, "\n")))
-        .collect();
+        });
 
     let stream = stream::iter(refs);
     Ok(warp::reply::Response::new(Body::wrap_stream(stream)))
