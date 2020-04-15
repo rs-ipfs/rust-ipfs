@@ -3,7 +3,7 @@ use ipfs::{Ipfs, IpfsTypes};
 use warp::hyper::Body;
 use futures::stream::Stream;
 use ipfs::{Block, Error};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use libipld::cid::{self, Cid};
 use libipld::{block::decode_ipld, Ipld};
 use std::borrow::Cow;
@@ -101,7 +101,7 @@ async fn refs_inner<T: IpfsTypes>(
     Ok(StreamResponse(Unshared::new(st)))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Edge {
     #[serde(rename = "Ref")]
     ok: Cow<'static, str>,
@@ -346,196 +346,6 @@ fn dagpb_links(ipld: Ipld) -> Vec<(Option<String>, Cid)> {
         .collect()
 }
 
-#[cfg(test)]
-async fn preloaded_testing_ipfs() -> Ipfs<ipfs::TestTypes> {
-    use libipld::block::validate;
-
-    let options = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
-    let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
-        .await
-        .start()
-        .await
-        .unwrap();
-
-    let blocks = [
-        (
-            // echo -n '{ "foo": { "/": "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily" }, "bar": { "/": "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy" } }' | /ipfs dag put
-            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-            "a263626172d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c6537463666f6fd82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885e"
-        ),
-        (
-            // echo barfoo > file2 && ipfs add file2
-            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
-            "0a0d08021207626172666f6f0a1807"
-        ),
-        (
-            // echo -n '{ "foo": { "/": "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL" } }' | ipfs dag put
-            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-            "a163666f6fd82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33"),
-        (
-            // echo foobar > file1 && ipfs add file1
-            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-            "0a0d08021207666f6f6261720a1807"
-        ),
-        (
-            // echo -e '[{"/":"bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44"},{"/":"QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy"},{"/":"bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily"},{"/":"QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL"}]' | ./ipfs dag put
-            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
-            "84d82a5825000171122070a20db04672d858427771a4e7cf6ce3c53c52f32404b4499747d38fc19592e7d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c65374d82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885ed82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33"
-        )
-    ];
-
-    for (cid_str, hex_str) in blocks.iter() {
-        let cid = Cid::try_from(*cid_str).unwrap();
-        let data = hex::decode(hex_str).unwrap();
-
-        validate(&cid, &data).unwrap();
-        decode_ipld(&cid, &data).unwrap();
-
-        let block = Block {
-            cid,
-            data: data.into(),
-        };
-
-        ipfs.put_block(block).await.unwrap();
-    }
-
-    ipfs
-}
-
-#[cfg(test)]
-fn assert_edges(expected: &[(&str, &str)], actual: &[(String, String)]) {
-    use std::collections::HashSet;
-    let expected: HashSet<_> = expected.iter().map(|&(a, b)| (a, b)).collect();
-
-    let actual: HashSet<_> = actual
-        .iter()
-        .map(|(a, b)| (a.as_str(), b.as_str()))
-        .collect();
-
-    let diff: Vec<_> = expected.symmetric_difference(&actual).collect();
-
-    assert!(diff.is_empty(), "{:#?}", diff);
-}
-
-#[tokio::test]
-async fn all_refs_from_root() {
-    use futures::stream::TryStreamExt;
-    let ipfs = preloaded_testing_ipfs().await;
-
-    let (root, dag0, unixfs0, dag1, unixfs1) = (
-        // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
-        "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
-        // {foo: dag1, bar: unixfs0}
-        "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-        "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
-        // {foo: unixfs1}
-        "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-        "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-    );
-
-    let all_edges: Vec<_> = refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, false)
-        .await
-        .unwrap()
-        .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
-        .try_collect()
-        .await
-        .unwrap();
-
-    // not sure why go-ipfs outputs this order, this is more like dfs?
-    let expected = [
-        (root, dag0),
-        (dag0, unixfs0),
-        (dag0, dag1),
-        (dag1, unixfs1),
-        (root, unixfs0),
-        (root, dag1),
-        (dag1, unixfs1),
-        (root, unixfs1),
-    ];
-
-    println!("found edges:\n{:#?}", all_edges);
-
-    assert_edges(&expected, all_edges.as_slice());
-}
-
-#[tokio::test]
-async fn all_unique_refs_from_root() {
-    use futures::stream::TryStreamExt;
-    use std::collections::HashSet;
-    let ipfs = preloaded_testing_ipfs().await;
-
-    let (root, dag0, unixfs0, dag1, unixfs1) = (
-        // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
-        "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
-        // {foo: dag1, bar: unixfs0}
-        "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-        "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
-        // {foo: unixfs1}
-        "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-        "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-    );
-
-    let destinations: HashSet<_> = refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, true)
-        .await
-        .unwrap()
-        .map_ok(|(_, dest, _)| dest.to_string())
-        .try_collect()
-        .await
-        .unwrap();
-
-    // if this test would have only the <dst> it might work?
-
-    // go-ipfs output:
-    // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
-    // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy
-    // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily
-    // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL
-    //
-    // conformance tests test this with <linkname> rendering on dagpb, on dagcbor linknames are
-    // always empty?
-
-    let expected = [dag0, unixfs0, dag1, unixfs1]
-        .iter()
-        .map(|&s| String::from(s))
-        .collect::<HashSet<_>>();
-
-    let diff = destinations.symmetric_difference(&expected).map(|s| s.as_str()).collect::<Vec<&str>>();
-
-    assert!(diff.is_empty(), "{:?}", diff);
-}
-
-#[tokio::test]
-async fn refs_with_path() {
-    use futures::stream::TryStreamExt;
-
-    let ipfs = preloaded_testing_ipfs().await;
-
-    let paths = [
-        "/ipfs/bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44/foo",
-        "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44/foo",
-        "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64/0/foo",
-        "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64/0/foo/",
-    ];
-
-    for path in paths.iter() {
-        let path = IpfsPath::try_from(*path).unwrap();
-        let all_edges: Vec<_> = refs_paths(ipfs.clone(), vec![path], None, false)
-            .await
-            .unwrap()
-            .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
-            .try_collect()
-            .await
-            .unwrap();
-
-        let expected = [(
-            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-        )];
-
-        assert_edges(&expected, &all_edges);
-    }
-}
-
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs-local
 pub fn local<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
@@ -573,29 +383,232 @@ async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejectio
 
 #[cfg(test)]
 mod tests {
-    use super::inner_local;
-    use ipfs::Block;
+    use std::convert::TryFrom;
+    use std::collections::HashSet;
+    use futures::stream::TryStreamExt;
+    use ipfs::{Ipfs, Block};
     use libipld::cid::Cid;
-    use libipld::cid::Codec;
-    use multihash::Sha2_256;
+    use libipld::block::{validate, decode_ipld};
+    use super::{refs_paths, IpfsPath};
 
     #[tokio::test]
     async fn test_inner_local() {
-        use ipfs::{IpfsOptions, UninitializedIpfs};
+        use super::Edge;
+        use std::collections::HashSet;
+        let ipfs = preloaded_testing_ipfs().await;
 
-        let options = IpfsOptions::inmemory_with_generated_keys(false);
+        let filter = super::local(&ipfs);
 
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        drop(fut);
+        let response = warp::test::request()
+            .path("/refs/local")
+            .reply(&filter)
+            .await;
 
-        for data in &[b"1", b"2", b"3"] {
-            let data_slice = data.to_vec().into_boxed_slice();
-            let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data_slice));
-            let block = Block::new(data_slice, cid);
-            ipfs.put_block(block.clone()).await.unwrap();
+        assert_eq!(response.status(), 200);
+        let body = response.body().as_ref();
+
+        let destinations = body.split(|&byte| byte == b'\n')
+            .filter(|bytes| !bytes.is_empty())
+            .map(|bytes| match serde_json::from_slice::<Edge>(bytes) {
+                Ok(Edge { ok, err }) if err.is_empty() => Ok(ok.into_owned()),
+                Ok(Edge { err, .. }) => panic!("a block failed to list: {:?}", err),
+                Err(x) => {
+                    println!("failed to parse: {:02x?}", bytes);
+                    Err(x)
+                }
+            })
+            .collect::<Result<HashSet<_>, _>>()
+            .unwrap();
+
+        let expected = [
+            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
+            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
+            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+        ].iter().map(|&s| String::from(s)).collect::<HashSet<_>>();
+
+        let diff = destinations
+            .symmetric_difference(&expected)
+            .collect::<Vec<_>>();
+
+        assert!(diff.is_empty(), "{:?}", diff);
+    }
+
+    #[cfg(test)]
+    async fn preloaded_testing_ipfs() -> Ipfs<ipfs::TestTypes> {
+        let options = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
+        let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
+            .await
+            .start()
+            .await
+            .unwrap();
+
+        let blocks = [
+            (
+                // echo -n '{ "foo": { "/": "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily" }, "bar": { "/": "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy" } }' | /ipfs dag put
+                "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
+                "a263626172d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c6537463666f6fd82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885e"
+            ),
+            (
+                // echo barfoo > file2 && ipfs add file2
+                "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
+                "0a0d08021207626172666f6f0a1807"
+            ),
+            (
+                // echo -n '{ "foo": { "/": "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL" } }' | ipfs dag put
+                "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+                "a163666f6fd82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33"),
+            (
+                // echo foobar > file1 && ipfs add file1
+                "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+                "0a0d08021207666f6f6261720a1807"
+            ),
+            (
+                // echo -e '[{"/":"bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44"},{"/":"QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy"},{"/":"bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily"},{"/":"QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL"}]' | ./ipfs dag put
+                "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+                "84d82a5825000171122070a20db04672d858427771a4e7cf6ce3c53c52f32404b4499747d38fc19592e7d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c65374d82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885ed82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33"
+            )
+        ];
+
+        for (cid_str, hex_str) in blocks.iter() {
+            let cid = Cid::try_from(*cid_str).unwrap();
+            let data = hex::decode(hex_str).unwrap();
+
+            validate(&cid, &data).unwrap();
+            decode_ipld(&cid, &data).unwrap();
+
+            let block = Block {
+                cid,
+                data: data.into(),
+            };
+
+            ipfs.put_block(block).await.unwrap();
         }
 
-        let _result = inner_local(ipfs).await;
-        // println!("{:?}", result.unwrap());
+        ipfs
+    }
+
+    #[cfg(test)]
+    fn assert_edges(expected: &[(&str, &str)], actual: &[(String, String)]) {
+        let expected: HashSet<_> = expected.iter().map(|&(a, b)| (a, b)).collect();
+
+        let actual: HashSet<_> = actual
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
+
+        let diff: Vec<_> = expected.symmetric_difference(&actual).collect();
+
+        assert!(diff.is_empty(), "{:#?}", diff);
+    }
+
+    #[tokio::test]
+    async fn all_refs_from_root() {
+        let ipfs = preloaded_testing_ipfs().await;
+
+        let (root, dag0, unixfs0, dag1, unixfs1) = (
+            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+            // {foo: dag1, bar: unixfs0}
+            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
+            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
+            // {foo: unixfs1}
+            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+        );
+
+        let all_edges: Vec<_> = refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, false)
+            .await
+            .unwrap()
+            .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
+            .try_collect()
+            .await
+            .unwrap();
+
+        // not sure why go-ipfs outputs this order, this is more like dfs?
+        let expected = [
+            (root, dag0),
+            (dag0, unixfs0),
+            (dag0, dag1),
+            (dag1, unixfs1),
+            (root, unixfs0),
+            (root, dag1),
+            (dag1, unixfs1),
+            (root, unixfs1),
+        ];
+
+        println!("found edges:\n{:#?}", all_edges);
+
+        assert_edges(&expected, all_edges.as_slice());
+    }
+
+    #[tokio::test]
+    async fn all_unique_refs_from_root() {
+        let ipfs = preloaded_testing_ipfs().await;
+
+        let (root, dag0, unixfs0, dag1, unixfs1) = (
+            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+            // {foo: dag1, bar: unixfs0}
+            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
+            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
+            // {foo: unixfs1}
+            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+        );
+
+        let destinations: HashSet<_> = refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, true)
+            .await
+            .unwrap()
+            .map_ok(|(_, dest, _)| dest.to_string())
+            .try_collect()
+            .await
+            .unwrap();
+
+        // go-ipfs output:
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL
+
+        let expected = [dag0, unixfs0, dag1, unixfs1]
+            .iter()
+            .map(|&s| String::from(s))
+            .collect::<HashSet<_>>();
+
+        let diff = destinations.symmetric_difference(&expected).map(|s| s.as_str()).collect::<Vec<&str>>();
+
+        assert!(diff.is_empty(), "{:?}", diff);
+    }
+
+    #[tokio::test]
+    async fn refs_with_path() {
+        let ipfs = preloaded_testing_ipfs().await;
+
+        let paths = [
+            "/ipfs/bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44/foo",
+            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44/foo",
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64/0/foo",
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64/0/foo/",
+        ];
+
+        for path in paths.iter() {
+            let path = IpfsPath::try_from(*path).unwrap();
+            let all_edges: Vec<_> = refs_paths(ipfs.clone(), vec![path], None, false)
+                .await
+                .unwrap()
+                .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
+                .try_collect()
+                .await
+                .unwrap();
+
+            let expected = [(
+                "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+                "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+            )];
+
+            assert_edges(&expected, &all_edges);
+        }
     }
 }
