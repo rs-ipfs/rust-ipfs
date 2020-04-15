@@ -37,10 +37,12 @@ async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejectio
             err: "".to_string(),
         })
         .map(|response| {
-            serde_json::to_string(&response).map_err(|e| {
-                eprintln!("error from serde_json: {}", e);
-                HandledErr
-            }).unwrap()
+            serde_json::to_string(&response)
+                .map_err(|e| {
+                    eprintln!("error from serde_json: {}", e);
+                    HandledErr
+                })
+                .unwrap()
         })
         .map(|ref_json| Ok(format!("{}{}", ref_json, "\n")))
         .collect();
