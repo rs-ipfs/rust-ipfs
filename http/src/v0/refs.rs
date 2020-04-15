@@ -13,15 +13,6 @@ use std::convert::TryFrom;
 use crate::v0::support::{with_ipfs, StringError};
 use serde::Deserialize;
 
-#[derive(Serialize, Debug)]
-struct RefsResponseItem {
-    #[serde(rename = "Err")]
-    err: String,
-
-    #[serde(rename = "Ref")]
-    refs: String,
-}
-
 mod options;
 use options::RefsOptions;
 
@@ -561,9 +552,9 @@ async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejectio
         .map_err(StringError::from)?
         .into_iter()
         .map(|cid| cid.to_string())
-        .map(|refs| RefsResponseItem {
-            refs,
-            err: "".to_string(),
+        .map(|refs| Edge {
+            ok: refs.into(),
+            err: "".into(),
         })
         .map(|response| {
             serde_json::to_string(&response)
