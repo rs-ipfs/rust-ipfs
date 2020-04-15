@@ -3,13 +3,12 @@ use ipfs::{Ipfs, IpfsTypes};
 use warp::hyper::Body;
 use futures::stream::Stream;
 use ipfs::{Block, Error};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use libipld::cid::{self, Cid};
 use libipld::{block::decode_ipld, Ipld};
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use warp::{query, Filter, Rejection, Reply};
-use std::fmt;
+use warp::{Filter, Rejection, Reply};
 use std::convert::TryFrom;
 use crate::v0::support::{with_ipfs, StringError};
 use serde::Deserialize;
@@ -144,6 +143,8 @@ async fn refs_paths<T: IpfsTypes>(
     use futures::stream::FuturesOrdered;
     use futures::stream::TryStreamExt;
 
+    // the assumption is that futuresordered will poll the first N items until the first completes,
+    // buffering the others. it might not be 100% parallel but it's probably enough.
     let mut walks = FuturesOrdered::new();
 
     for path in paths {
@@ -178,6 +179,14 @@ async fn walk_path<T: IpfsTypes>(ipfs: &Ipfs<T>, mut path: IpfsPath) -> Result<(
 
 /// Gather links as edges between two documents from all of the `iplds` which represent the
 /// document and it's original `Cid`, as the `Ipld` can be a subtree of the document.
+///
+/// # Differences from other implementations
+///
+/// `js-ipfs` does seem to do a recursive descent on all links. Looking at the tests it would
+/// appear that `go-ipfs` implements this in similar fashion. This implementation is breadth-first
+/// to be simpler at least.
+///
+/// Related: https://github.com/ipfs/js-ipfs/pull/2982
 ///
 /// # Panics
 ///
