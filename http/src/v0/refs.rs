@@ -1,17 +1,16 @@
+use crate::v0::support::{with_ipfs, StringError};
 use futures::stream;
-use ipfs::{Ipfs, IpfsTypes};
-use warp::hyper::Body;
 use futures::stream::Stream;
 use ipfs::{Block, Error};
-use serde::{Serialize, Deserialize};
+use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::{self, Cid};
 use libipld::{block::decode_ipld, Ipld};
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use warp::{Filter, Rejection, Reply};
 use std::convert::TryFrom;
-use crate::v0::support::{with_ipfs, StringError};
-use serde::Deserialize;
+use warp::hyper::Body;
+use warp::{Filter, Rejection, Reply};
 
 mod options;
 use options::RefsOptions;
@@ -383,21 +382,17 @@ async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejectio
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryFrom;
-    use std::collections::HashSet;
+    use super::{local, refs_paths, Edge, IpfsPath};
     use futures::stream::TryStreamExt;
-    use ipfs::{Ipfs, Block};
+    use ipfs::{Block, Ipfs};
+    use libipld::block::{decode_ipld, validate};
     use libipld::cid::Cid;
-    use libipld::block::{validate, decode_ipld};
-    use super::{refs_paths, IpfsPath};
+    use std::collections::HashSet;
+    use std::convert::TryFrom;
 
     #[tokio::test]
     async fn test_inner_local() {
-        use super::Edge;
-        use std::collections::HashSet;
-        let ipfs = preloaded_testing_ipfs().await;
-
-        let filter = super::local(&ipfs);
+        let filter = local(&preloaded_testing_ipfs().await);
 
         let response = warp::test::request()
             .path("/refs/local")
@@ -407,7 +402,8 @@ mod tests {
         assert_eq!(response.status(), 200);
         let body = response.body().as_ref();
 
-        let destinations = body.split(|&byte| byte == b'\n')
+        let destinations = body
+            .split(|&byte| byte == b'\n')
             .filter(|bytes| !bytes.is_empty())
             .map(|bytes| match serde_json::from_slice::<Edge>(bytes) {
                 Ok(Edge { ok, err }) if err.is_empty() => Ok(ok.into_owned()),
@@ -426,7 +422,10 @@ mod tests {
             "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
             "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
             "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
-        ].iter().map(|&s| String::from(s)).collect::<HashSet<_>>();
+        ]
+        .iter()
+        .map(|&s| String::from(s))
+        .collect::<HashSet<_>>();
 
         let diff = destinations
             .symmetric_difference(&expected)
@@ -435,7 +434,133 @@ mod tests {
         assert!(diff.is_empty(), "{:?}", diff);
     }
 
-    #[cfg(test)]
+    #[tokio::test]
+    async fn all_refs_from_root() {
+        let ipfs = preloaded_testing_ipfs().await;
+
+        let (root, dag0, unixfs0, dag1, unixfs1) = (
+            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+            // {foo: dag1, bar: unixfs0}
+            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
+            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
+            // {foo: unixfs1}
+            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+        );
+
+        let all_edges: Vec<_> =
+            refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, false)
+                .await
+                .unwrap()
+                .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
+                .try_collect()
+                .await
+                .unwrap();
+
+        // not sure why go-ipfs outputs this order, this is more like dfs?
+        let expected = [
+            (root, dag0),
+            (dag0, unixfs0),
+            (dag0, dag1),
+            (dag1, unixfs1),
+            (root, unixfs0),
+            (root, dag1),
+            (dag1, unixfs1),
+            (root, unixfs1),
+        ];
+
+        println!("found edges:\n{:#?}", all_edges);
+
+        assert_edges(&expected, all_edges.as_slice());
+    }
+
+    #[tokio::test]
+    async fn all_unique_refs_from_root() {
+        let ipfs = preloaded_testing_ipfs().await;
+
+        let (root, dag0, unixfs0, dag1, unixfs1) = (
+            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+            // {foo: dag1, bar: unixfs0}
+            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
+            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
+            // {foo: unixfs1}
+            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+        );
+
+        let destinations: HashSet<_> =
+            refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, true)
+                .await
+                .unwrap()
+                .map_ok(|(_, dest, _)| dest.to_string())
+                .try_collect()
+                .await
+                .unwrap();
+
+        // go-ipfs output:
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL
+
+        let expected = [dag0, unixfs0, dag1, unixfs1]
+            .iter()
+            .map(|&s| String::from(s))
+            .collect::<HashSet<_>>();
+
+        let diff = destinations
+            .symmetric_difference(&expected)
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>();
+
+        assert!(diff.is_empty(), "{:?}", diff);
+    }
+
+    #[tokio::test]
+    async fn refs_with_path() {
+        let ipfs = preloaded_testing_ipfs().await;
+
+        let paths = [
+            "/ipfs/bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44/foo",
+            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44/foo",
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64/0/foo",
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64/0/foo/",
+        ];
+
+        for path in paths.iter() {
+            let path = IpfsPath::try_from(*path).unwrap();
+            let all_edges: Vec<_> = refs_paths(ipfs.clone(), vec![path], None, false)
+                .await
+                .unwrap()
+                .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
+                .try_collect()
+                .await
+                .unwrap();
+
+            let expected = [(
+                "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+                "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+            )];
+
+            assert_edges(&expected, &all_edges);
+        }
+    }
+
+    fn assert_edges(expected: &[(&str, &str)], actual: &[(String, String)]) {
+        let expected: HashSet<_> = expected.iter().map(|&(a, b)| (a, b)).collect();
+
+        let actual: HashSet<_> = actual
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
+
+        let diff: Vec<_> = expected.symmetric_difference(&actual).collect();
+
+        assert!(diff.is_empty(), "{:#?}", diff);
+    }
+
     async fn preloaded_testing_ipfs() -> Ipfs<ipfs::TestTypes> {
         let options = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
         let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
@@ -487,128 +612,5 @@ mod tests {
         }
 
         ipfs
-    }
-
-    #[cfg(test)]
-    fn assert_edges(expected: &[(&str, &str)], actual: &[(String, String)]) {
-        let expected: HashSet<_> = expected.iter().map(|&(a, b)| (a, b)).collect();
-
-        let actual: HashSet<_> = actual
-            .iter()
-            .map(|(a, b)| (a.as_str(), b.as_str()))
-            .collect();
-
-        let diff: Vec<_> = expected.symmetric_difference(&actual).collect();
-
-        assert!(diff.is_empty(), "{:#?}", diff);
-    }
-
-    #[tokio::test]
-    async fn all_refs_from_root() {
-        let ipfs = preloaded_testing_ipfs().await;
-
-        let (root, dag0, unixfs0, dag1, unixfs1) = (
-            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
-            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
-            // {foo: dag1, bar: unixfs0}
-            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
-            // {foo: unixfs1}
-            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-        );
-
-        let all_edges: Vec<_> = refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, false)
-            .await
-            .unwrap()
-            .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
-            .try_collect()
-            .await
-            .unwrap();
-
-        // not sure why go-ipfs outputs this order, this is more like dfs?
-        let expected = [
-            (root, dag0),
-            (dag0, unixfs0),
-            (dag0, dag1),
-            (dag1, unixfs1),
-            (root, unixfs0),
-            (root, dag1),
-            (dag1, unixfs1),
-            (root, unixfs1),
-        ];
-
-        println!("found edges:\n{:#?}", all_edges);
-
-        assert_edges(&expected, all_edges.as_slice());
-    }
-
-    #[tokio::test]
-    async fn all_unique_refs_from_root() {
-        let ipfs = preloaded_testing_ipfs().await;
-
-        let (root, dag0, unixfs0, dag1, unixfs1) = (
-            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
-            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
-            // {foo: dag1, bar: unixfs0}
-            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
-            // {foo: unixfs1}
-            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-        );
-
-        let destinations: HashSet<_> = refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, true)
-            .await
-            .unwrap()
-            .map_ok(|(_, dest, _)| dest.to_string())
-            .try_collect()
-            .await
-            .unwrap();
-
-        // go-ipfs output:
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL
-
-        let expected = [dag0, unixfs0, dag1, unixfs1]
-            .iter()
-            .map(|&s| String::from(s))
-            .collect::<HashSet<_>>();
-
-        let diff = destinations.symmetric_difference(&expected).map(|s| s.as_str()).collect::<Vec<&str>>();
-
-        assert!(diff.is_empty(), "{:?}", diff);
-    }
-
-    #[tokio::test]
-    async fn refs_with_path() {
-        let ipfs = preloaded_testing_ipfs().await;
-
-        let paths = [
-            "/ipfs/bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44/foo",
-            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44/foo",
-            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64/0/foo",
-            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64/0/foo/",
-        ];
-
-        for path in paths.iter() {
-            let path = IpfsPath::try_from(*path).unwrap();
-            let all_edges: Vec<_> = refs_paths(ipfs.clone(), vec![path], None, false)
-                .await
-                .unwrap()
-                .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
-                .try_collect()
-                .await
-                .unwrap();
-
-            let expected = [(
-                "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-                "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-            )];
-
-            assert_edges(&expected, &all_edges);
-        }
     }
 }
