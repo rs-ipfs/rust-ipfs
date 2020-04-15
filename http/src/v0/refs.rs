@@ -428,7 +428,7 @@ fn assert_edges(expected: &[(&str, &str)], actual: &[(String, String)]) {
 
 #[tokio::test]
 async fn all_refs_from_root() {
-    use futures::stream::{StreamExt, TryStreamExt};
+    use futures::stream::TryStreamExt;
     let ipfs = preloaded_testing_ipfs().await;
 
     let (root, dag0, unixfs0, dag1, unixfs1) = (
@@ -468,9 +468,9 @@ async fn all_refs_from_root() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn all_unique_refs_from_root() {
-    use futures::stream::{StreamExt, TryStreamExt};
+    use futures::stream::TryStreamExt;
+    use std::collections::HashSet;
     let ipfs = preloaded_testing_ipfs().await;
 
     let (root, dag0, unixfs0, dag1, unixfs1) = (
@@ -484,10 +484,10 @@ async fn all_unique_refs_from_root() {
         "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
     );
 
-    let all_edges: Vec<_> = refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, false)
+    let destinations: HashSet<_> = refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, true)
         .await
         .unwrap()
-        .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
+        .map_ok(|(_, dest, _)| dest.to_string())
         .try_collect()
         .await
         .unwrap();
@@ -502,13 +502,20 @@ async fn all_unique_refs_from_root() {
     //
     // conformance tests test this with <linkname> rendering on dagpb, on dagcbor linknames are
     // always empty?
-    todo!("this test needs all fixtures in dagpb format as <linkname> from cbor is empty str for go-ipfs?")
+
+    let expected = [dag0, unixfs0, dag1, unixfs1]
+        .iter()
+        .map(|&s| String::from(s))
+        .collect::<HashSet<_>>();
+
+    let diff = destinations.symmetric_difference(&expected).map(|s| s.as_str()).collect::<Vec<&str>>();
+
+    assert!(diff.is_empty(), "{:?}", diff);
 }
 
 #[tokio::test]
 async fn refs_with_path() {
-    use futures::stream::{StreamExt, TryStreamExt};
-    env_logger::init();
+    use futures::stream::TryStreamExt;
 
     let ipfs = preloaded_testing_ipfs().await;
 
