@@ -326,3 +326,65 @@ impl ExactSizeIterator for IpfsPath {
         self.path.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::IpfsPath;
+    use std::convert::TryFrom;
+
+    // good_paths, good_but_unsupported, bad_paths from https://github.com/ipfs/go-path/blob/master/path_test.go
+
+    #[test]
+    fn good_paths() {
+        let good = [
+            ("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n", 0),
+            ("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a", 1),
+            (
+                "/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a/b/c/d/e/f",
+                6,
+            ),
+            (
+                "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a/b/c/d/e/f",
+                6,
+            ),
+            ("QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n", 0),
+        ];
+
+        for &(good, len) in &good {
+            let p = IpfsPath::try_from(good).unwrap();
+            assert_eq!(p.len(), len);
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn good_but_unsupported() {
+        let _unsupported = [
+            "/ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+            "/ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a",
+            "/ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a/b/c/d/e/f",
+            "/ipns/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a/b/c/d/e/f",
+            "/ipns/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+        ];
+    }
+
+    #[test]
+    fn bad_paths() {
+        let bad = [
+            "/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+            "/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a",
+            "/ipfs/foo",
+            "/ipfs/",
+            "ipfs/",
+            "ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+            "/ipld/foo",
+            "/ipld/",
+            "ipld/",
+            "ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+        ];
+
+        for &bad in &bad {
+            IpfsPath::try_from(bad).unwrap_err();
+        }
+    }
+}
