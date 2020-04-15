@@ -822,7 +822,7 @@ dependencies = [
 [[package]]
 name = "domain"
 version = "0.4.1"
-source = "git+https://github.com/nlnetlabs/domain#08496417cd2315970fdfb43201e619cac5e7a319"
+source = "git+https://github.com/nlnetlabs/domain?rev=084964#08496417cd2315970fdfb43201e619cac5e7a319"
 dependencies = [
  "domain-core",
  "domain-resolv",
@@ -831,7 +831,7 @@ dependencies = [
 [[package]]
 name = "domain-core"
 version = "0.4.1"
-source = "git+https://github.com/nlnetlabs/domain#08496417cd2315970fdfb43201e619cac5e7a319"
+source = "git+https://github.com/nlnetlabs/domain?rev=084964#08496417cd2315970fdfb43201e619cac5e7a319"
 dependencies = [
  "bytes 0.4.12",
  "chrono",
@@ -844,7 +844,7 @@ dependencies = [
 [[package]]
 name = "domain-resolv"
 version = "0.4.1"
-source = "git+https://github.com/nlnetlabs/domain#08496417cd2315970fdfb43201e619cac5e7a319"
+source = "git+https://github.com/nlnetlabs/domain?rev=084964#08496417cd2315970fdfb43201e619cac5e7a319"
 dependencies = [
  "domain-core",
  "futures 0.1.29",
