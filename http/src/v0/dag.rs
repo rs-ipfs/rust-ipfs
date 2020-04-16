@@ -9,7 +9,7 @@ use warp::{multipart, path, query, reply, Buf, Filter, Rejection, Reply};
 #[derive(Debug, Deserialize)]
 pub struct PutQuery {
     format: Option<String>,
-    hash_alg: Option<String>,
+    hash: Option<String>,
 }
 
 async fn put_query<T: IpfsTypes>(
@@ -24,7 +24,7 @@ async fn put_query<T: IpfsTypes>(
         "raw" => Codec::Raw,
         _ => return Err(StringError::from("unknown codec").into()),
     };
-    let hasher = match query.hash_alg.as_deref().unwrap_or("sha2-256") {
+    let hasher = match query.hash.as_deref().unwrap_or("sha2-256") {
         "sha2-256" => multihash::Sha2_256::digest,
         "sha2-512" => multihash::Sha2_512::digest,
         "sha3-512" => multihash::Sha3_512::digest,
