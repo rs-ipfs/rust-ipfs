@@ -258,6 +258,7 @@ fn walk_dagpb(ipld: Ipld, key: String) -> Result<WalkSuccess, WalkFailed> {
 }
 
 /// The success values walking an `IpfsPath` can result to.
+#[derive(Debug, PartialEq)]
 pub enum WalkSuccess {
     /// IpfsPath was already empty, or became empty during previous walk
     EmptyPath(Ipld),
@@ -269,7 +270,7 @@ pub enum WalkSuccess {
 
 /// These errors correspond to ones given out by go-ipfs 0.4.23 if the walk cannot be completed.
 /// go-ipfs reports these as 500 Internal Errors.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum WalkFailed {
     /// Map key was not found
     UnmatchedMapProperty(BTreeMap<String, Ipld>, String),
@@ -329,7 +330,8 @@ impl ExactSizeIterator for IpfsPath {
 
 #[cfg(test)]
 mod tests {
-    use super::IpfsPath;
+    use super::{IpfsPath, WalkSuccess};
+    use libipld::{cid::Cid, ipld, Ipld};
     use std::convert::TryFrom;
 
     // good_paths, good_but_unsupported, bad_paths from https://github.com/ipfs/go-path/blob/master/path_test.go
@@ -408,7 +410,104 @@ mod tests {
     fn multiple_slashes_are_deduplicated() {
         // this is similar to behaviour in js-ipfs, as of
         // https://github.com/ipfs-rust/rust-ipfs/pull/147/files#r408939850
-        let p = IpfsPath::try_from("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n///a").unwrap();
+        let p =
+            IpfsPath::try_from("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n///a").unwrap();
         assert_eq!(p.len(), 1);
+    }
+
+    fn example_doc_and_a_cid() -> (Ipld, Cid) {
+        let cid = Cid::try_from("QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n").unwrap();
+        let doc = ipld!({
+            "nested": {
+                "even": [
+                    {
+                        "more": 5
+                    },
+                    {
+                        "or": "this",
+                    },
+                    {
+                        "or": cid.clone(),
+                    },
+                    {
+                        "5": "or",
+                    }
+                ],
+            }
+        });
+        (doc, cid)
+    }
+
+    #[test]
+    fn good_walks_on_ipld() {
+        let (example_doc, _) = example_doc_and_a_cid();
+
+        let good_examples = [
+            (
+                "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/0/more",
+                Ipld::Integer(5),
+            ),
+            (
+                "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/1/or",
+                Ipld::from("this"),
+            ),
+            (
+                "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/3/5",
+                Ipld::from("or"),
+            ),
+        ];
+
+        for (path, expected) in &good_examples {
+            let mut p = IpfsPath::try_from(*path).unwrap();
+
+            // not really the document cid but it doesn't matter; it just needs to be !dag-pb
+            let doc_cid = p.take_root().unwrap();
+
+            // projection
+            assert_eq!(
+                p.walk(&doc_cid, example_doc.clone()),
+                Ok(WalkSuccess::AtDestination(expected.clone()))
+            );
+
+            // after walk the iterator has been exhausted and the path is always empty and returns
+            // the given value
+            assert_eq!(
+                p.walk(&doc_cid, example_doc.clone()),
+                Ok(WalkSuccess::EmptyPath(example_doc.clone()))
+            );
+        }
+    }
+
+    #[test]
+    fn good_walk_to_link() {
+        let (example_doc, cid) = example_doc_and_a_cid();
+
+        let path = "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/2/or/something_on_the_next_block";
+        let mut p = IpfsPath::try_from(path).unwrap();
+        let doc_cid = p.take_root().unwrap();
+
+        assert_eq!(
+            p.walk(&doc_cid, example_doc),
+            Ok(WalkSuccess::Link("or".into(), cid))
+        );
+        assert_eq!(p.next(), Some("something_on_the_next_block".into()));
+    }
+
+    #[test]
+    fn walk_mismatches() {
+        let (example_doc, _) = example_doc_and_a_cid();
+
+        let mismatches = [
+            "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/0/more",
+            "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/-1",
+            "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/1000",
+        ];
+
+        for path in &mismatches {
+            let mut p = IpfsPath::try_from(*path).unwrap();
+            let doc_cid = p.take_root().unwrap();
+            // using just unwrap_err as the context would be quite troublesome to write
+            p.walk(&doc_cid, example_doc.clone()).unwrap_err();
+        }
     }
 }
