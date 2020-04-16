@@ -17,7 +17,6 @@ async fn put_query<T: IpfsTypes>(
     query: PutQuery,
     mut form: multipart::FormData,
 ) -> Result<impl Reply, Rejection> {
-
     use multihash::{Multihash, Sha2_256, Sha2_512, Sha3_512};
 
     let (format, v0_fmt) = match query.format.as_deref().unwrap_or("dag-cbor") {
@@ -116,6 +115,7 @@ async fn inner_resolve<T: IpfsTypes>(
         .collect::<VecDeque<_>>();
 
     loop {
+        // FIXME: this should only get blocks which exist already; not start fetching the block
         let Block { data, .. } = ipfs.get_block(&current).await.map_err(StringError::from)?;
 
         let ipld = decode_ipld(&current, &data).map_err(StringError::from)?;
@@ -124,23 +124,7 @@ async fn inner_resolve<T: IpfsTypes>(
 
         match res {
             WalkSuccess::EmptyPath(_) | WalkSuccess::AtDestination(_) => {
-                let remaining = {
-                    let mut buf = String::with_capacity(
-                        remaining.iter().map(|s| s.len()).sum::<usize>() + remaining.len(),
-                    );
-                    while let Some(piece) = remaining.pop_front() {
-                        if !buf.is_empty() {
-                            buf.push('/');
-                        }
-                        buf.push_str(&piece);
-                    }
-                    buf
-                };
-                let response = json!({
-                    "Cid": { "/": current.to_string() },
-                    "RemPath": remaining,
-                });
-                return Ok(reply::json(&response));
+                break;
             }
             WalkSuccess::Link(_key, next_cid) => {
                 while remaining.len() > path.len() {
@@ -151,4 +135,22 @@ async fn inner_resolve<T: IpfsTypes>(
             }
         };
     }
+
+    let remaining = {
+        let mut buf = String::with_capacity(
+            remaining.iter().map(|s| s.len()).sum::<usize>() + remaining.len(),
+        );
+        while let Some(piece) = remaining.pop_front() {
+            if !buf.is_empty() {
+                buf.push('/');
+            }
+            buf.push_str(&piece);
+        }
+        buf
+    };
+
+    Ok(reply::json(&json!({
+        "Cid": { "/": current.to_string() },
+        "RemPath": remaining,
+    })))
 }
