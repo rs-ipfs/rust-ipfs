@@ -68,3 +68,87 @@ pub fn put<T: IpfsTypes>(
         .and(multipart::form())
         .and_then(put_query)
 }
+
+/// Per https://docs-beta.ipfs.io/reference/http/api/#api-v0-block-resolve this endpoint takes in a
+/// path and resolves it to the last block (the cid), and to the path inside the final block
+/// (rempath).
+pub fn resolve<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    path!("dag" / "resolve")
+        .and(with_ipfs(ipfs))
+        .and(query::<ResolveOptions>())
+        .and_then(inner_resolve)
+}
+
+#[derive(Debug, Deserialize)]
+struct ResolveOptions {
+    arg: String,
+    cid_base: Option<String>,
+}
+
+async fn inner_resolve<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    opts: ResolveOptions,
+) -> Result<impl Reply, Rejection> {
+    use crate::v0::refs::{IpfsPath, WalkSuccess};
+    use ipfs::Block;
+    use libipld::block::decode_ipld;
+    use std::collections::VecDeque;
+    use std::convert::TryFrom;
+
+    let mut path = IpfsPath::try_from(opts.arg.as_str()).map_err(StringError::from)?;
+
+    let root = path.take_root().unwrap();
+
+    if path.len() == 0 {
+        return Ok(reply::json(&json!({
+            "Cid": { "/": root.to_string() },
+            "RemPath": "",
+        })));
+    }
+
+    let mut current = root;
+    let mut remaining = path
+        .remaining_path()
+        .iter()
+        .cloned()
+        .collect::<VecDeque<_>>();
+
+    loop {
+        let Block { data, .. } = ipfs.get_block(&current).await.map_err(StringError::from)?;
+
+        let ipld = decode_ipld(&current, &data).map_err(StringError::from)?;
+
+        let res = path.walk(&current, ipld).map_err(StringError::from)?;
+
+        match res {
+            WalkSuccess::EmptyPath(_) | WalkSuccess::AtDestination(_) => {
+                let remaining = {
+                    let mut buf = String::with_capacity(
+                        remaining.iter().map(|s| s.len()).sum::<usize>() + remaining.len(),
+                    );
+                    while let Some(piece) = remaining.pop_front() {
+                        if !buf.is_empty() {
+                            buf.push('/');
+                        }
+                        buf.push_str(&piece);
+                    }
+                    buf
+                };
+                let response = json!({
+                    "Cid": { "/": current.to_string() },
+                    "RemPath": remaining,
+                });
+                return Ok(reply::json(&response));
+            }
+            WalkSuccess::Link(_key, next_cid) => {
+                while remaining.len() > path.len() {
+                    remaining.pop_front();
+                }
+
+                current = next_cid;
+            }
+        };
+    }
+}
