@@ -193,19 +193,27 @@ fn walk_dagpb(ipld: Ipld, key: String) -> Result<WalkSuccess, WalkFailed> {
     // the current dag-pb represents the links of dag-pb nodes under "/Links"
     // panicking instead of errors since we want to change this is dag-pb2ipld
     // structure changes.
+    //
+    // this would be much better done at codec level, as is in js-ipld
 
-    let (map, links) = match ipld {
+    let property = if key == "Data" { "Data" } else { "Links" };
+
+    let (map, toplevel) = match ipld {
         Ipld::Map(mut m) => {
-            let links = m.remove("Links");
+            let links = m.remove(property);
             (m, links)
         }
         x => panic!(
-            "Expected dag-pb2ipld have top-level \"Links\", was: {:?}",
-            x
+            "Expected dag-pb2ipld have top-level {:?}, was: {:?}",
+            property, x
         ),
     };
 
-    let mut links = match links {
+    if key == "Data" {
+        return Ok(WalkSuccess::AtDestination(toplevel.unwrap_or(Ipld::Null)));
+    }
+
+    let mut links = match toplevel {
         Some(Ipld::List(vec)) => vec,
         Some(x) => panic!(
             "Expected dag-pb2ipld top-level \"Links\" to be List, was: {:?}",
