@@ -479,6 +479,35 @@ mod tests {
     }
 
     #[test]
+    fn walk_link_with_dot() {
+        let cid = Cid::try_from("QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n").unwrap();
+        let doc = ipld!(cid.clone());
+        let path = "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/./foobar";
+
+        let mut p = IpfsPath::try_from(path).unwrap();
+        let doc_cid = p.take_root().unwrap();
+
+        assert_eq!(
+            p.walk(&doc_cid, doc),
+            Ok(WalkSuccess::Link(".".into(), cid))
+        );
+    }
+
+    #[test]
+    fn walk_link_without_dot_is_unsupported() {
+        let cid = Cid::try_from("QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n").unwrap();
+        let doc = ipld!(cid.clone());
+        let path = "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/foobar";
+
+        let mut p = IpfsPath::try_from(path).unwrap();
+        let doc_cid = p.take_root().unwrap();
+
+        // go-ipfs would walk over the link even without a dot, this will probably come up with
+        // dag/get
+        p.walk(&doc_cid, doc).unwrap_err();
+    }
+
+    #[test]
     fn good_walk_to_link() {
         let (example_doc, cid) = example_doc_and_a_cid();
 
