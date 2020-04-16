@@ -391,4 +391,24 @@ mod tests {
             IpfsPath::try_from(bad).unwrap_err();
         }
     }
+
+    #[test]
+    fn trailing_slash_is_ignored() {
+        let paths = [
+            "/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/",
+            "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/",
+        ];
+        for &path in &paths {
+            let p = IpfsPath::try_from(path).unwrap();
+            assert_eq!(p.len(), 0);
+        }
+    }
+
+    #[test]
+    fn multiple_slashes_are_deduplicated() {
+        // this is similar to behaviour in js-ipfs, as of
+        // https://github.com/ipfs-rust/rust-ipfs/pull/147/files#r408939850
+        let p = IpfsPath::try_from("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n///a").unwrap();
+        assert_eq!(p.len(), 1);
+    }
 }
