@@ -357,15 +357,19 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn good_but_unsupported() {
-        let _unsupported = [
+        let unsupported = [
             "/ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
             "/ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a",
             "/ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a/b/c/d/e/f",
             "/ipns/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a/b/c/d/e/f",
             "/ipns/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
         ];
+
+        for &unsupported in &unsupported {
+            // these fail from failing to parse "ipld" or "ipns" as cid
+            IpfsPath::try_from(unsupported).unwrap_err();
+        }
     }
 
     #[test]
