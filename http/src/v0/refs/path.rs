@@ -496,7 +496,7 @@ mod tests {
     #[test]
     fn walk_link_without_dot_is_unsupported() {
         let cid = Cid::try_from("QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n").unwrap();
-        let doc = ipld!(cid.clone());
+        let doc = ipld!(cid);
         let path = "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/foobar";
 
         let mut p = IpfsPath::try_from(path).unwrap();

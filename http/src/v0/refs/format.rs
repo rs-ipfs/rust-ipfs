@@ -39,10 +39,10 @@ pub enum FormatError<'a> {
 }
 
 impl EdgeFormatter {
-    pub fn from_options<'a>(
+    pub fn from_options(
         edges: bool,
-        format: Option<&'a str>,
-    ) -> Result<Self, InvalidFormat<'a>> {
+        format: Option<&str>,
+    ) -> Result<Self, InvalidFormat> {
         if edges && format.is_some() {
             return Err(InvalidFormat::EdgesWithCustomFormat);
         }
