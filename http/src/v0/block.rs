@@ -52,8 +52,7 @@ async fn put_query<T: IpfsTypes>(
 ) -> Result<impl Reply, Rejection> {
     let format = match query
         .format
-        .as_ref()
-        .map(|s| s.as_str())
+        .as_deref()
         .unwrap_or("dag-pb")
     {
         "dag-cbor" => Codec::DagCBOR,
@@ -64,8 +63,7 @@ async fn put_query<T: IpfsTypes>(
     };
     let hasher = match query
         .mhtype
-        .as_ref()
-        .map(|s| s.as_str())
+        .as_deref()
         .unwrap_or("sha2-256")
     {
         "sha2-256" => multihash::Sha2_256::digest,

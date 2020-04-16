@@ -45,6 +45,7 @@ async fn can_publish_without_subscribing() {
 }
 
 #[async_std::test]
+#[allow(clippy::mutable_key_type)] // clippy doesn't like Vec inside HashSet
 async fn publish_between_two_nodes() {
     use futures::stream::StreamExt;
     use std::collections::HashSet;
@@ -84,7 +85,7 @@ async fn publish_between_two_nodes() {
         .cloned()
         .map(|(topics, id, data)| {
             (
-                topics.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                topics.iter().map(|&s| s.to_string()).collect::<Vec<_>>(),
                 id.clone(),
                 data.to_vec(),
             )
