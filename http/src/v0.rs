@@ -55,7 +55,7 @@ where
             .or(warp::path!("ping" / ..).and_then(not_implemented))
             .or(pubsub::routes(ipfs))
             .or(refs::local(ipfs))
-            // .or(warp::path!("refs").and_then(refs::of_path))
+            .or(refs::refs(ipfs))
             .or(warp::path!("repo" / ..).and_then(not_implemented))
             .or(warp::path!("stats" / ..).and_then(not_implemented))
             .or(swarm::connect(ipfs))

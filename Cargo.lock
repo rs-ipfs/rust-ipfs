@@ -156,6 +156,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-stream"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22068c0c19514942eefcfd4daf8976ef1aad84e61539f95cd200c35202f80af5"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25f9db3b38af870bf7e5cc649167533b493928e50744e2c30ae350230b414670"
+dependencies = [
+ "proc-macro2 1.0.10",
+ "quote 1.0.3",
+ "syn 1.0.17",
+]
+
+[[package]]
 name = "async-task"
 version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -675,10 +696,10 @@ dependencies = [
 [[package]]
 name = "dag-cbor"
 version = "0.1.0"
-source = "git+https://github.com/ipfs-rust/rust-ipld#f6bb3b2e993afc7b4562a9601007e19c5f53d570"
+source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
 dependencies = [
  "byteorder 1.3.4",
- "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
+ "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "thiserror",
 ]
 
@@ -696,7 +717,7 @@ dependencies = [
 [[package]]
 name = "dag-cbor-derive"
 version = "0.1.0"
-source = "git+https://github.com/ipfs-rust/rust-ipld#f6bb3b2e993afc7b4562a9601007e19c5f53d570"
+source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
 dependencies = [
  "proc-macro2 1.0.10",
  "quote 1.0.3",
@@ -719,10 +740,10 @@ dependencies = [
 [[package]]
 name = "dag-json"
 version = "0.1.0"
-source = "git+https://github.com/ipfs-rust/rust-ipld#f6bb3b2e993afc7b4562a9601007e19c5f53d570"
+source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
 dependencies = [
  "base64 0.12.0",
- "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
+ "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "serde",
  "serde_json",
 ]
@@ -730,9 +751,9 @@ dependencies = [
 [[package]]
 name = "dag-pb"
 version = "0.1.0"
-source = "git+https://github.com/ipfs-rust/rust-ipld#f6bb3b2e993afc7b4562a9601007e19c5f53d570"
+source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
 dependencies = [
- "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
+ "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "prost",
  "prost-build",
  "thiserror",
@@ -1208,6 +1229,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "644f9158b2f133fd50f5fb3242878846d9eb792e445c893805ff0e3824006e35"
+
+[[package]]
 name = "hmac"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1339,7 +1366,7 @@ dependencies = [
  "domain",
  "env_logger",
  "futures 0.3.4",
- "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
+ "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "libp2p",
  "log 0.4.8",
  "multibase",
@@ -1362,7 +1389,7 @@ dependencies = [
  "env_logger",
  "futures 0.3.4",
  "ipfs",
- "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
+ "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "multihash",
 ]
 
@@ -1370,16 +1397,19 @@ dependencies = [
 name = "ipfs-http"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
  "base64 0.12.0",
  "env_logger",
  "futures 0.3.4",
+ "hex",
  "ipfs",
- "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
+ "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "log 0.4.8",
  "multibase",
  "multihash",
  "openssl",
  "percent-encoding",
+ "pin-project",
  "prost",
  "prost-build",
  "serde",
@@ -1387,6 +1417,7 @@ dependencies = [
  "structopt",
  "thiserror",
  "tokio 0.2.16",
+ "url",
  "vergen",
  "warp",
 ]
@@ -1476,19 +1507,19 @@ checksum = "eb147597cdf94ed43ab7a9038716637d2d1bf2bc571da995d0028dec06bd3018"
 [[package]]
 name = "libipld"
 version = "0.1.0"
-source = "git+https://github.com/ipfs-rust/rust-ipld#f6bb3b2e993afc7b4562a9601007e19c5f53d570"
+source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
 dependencies = [
  "async-std",
  "async-trait",
  "byteorder 1.3.4",
  "cid",
- "dag-cbor 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
- "dag-cbor-derive 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
+ "dag-cbor 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
+ "dag-cbor-derive 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "dag-json",
  "dag-pb",
  "futures 0.3.4",
- "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
- "libipld-macro 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
+ "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
+ "libipld-macro 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "multibase",
  "multihash",
  "thiserror",
@@ -1517,7 +1548,7 @@ dependencies = [
 [[package]]
 name = "libipld-base"
 version = "0.1.0"
-source = "git+https://github.com/ipfs-rust/rust-ipld#f6bb3b2e993afc7b4562a9601007e19c5f53d570"
+source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
 dependencies = [
  "cid",
  "multibase",
@@ -1539,9 +1570,9 @@ dependencies = [
 [[package]]
 name = "libipld-macro"
 version = "0.1.0"
-source = "git+https://github.com/ipfs-rust/rust-ipld#f6bb3b2e993afc7b4562a9601007e19c5f53d570"
+source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
 dependencies = [
- "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld)",
+ "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "multihash",
 ]
 

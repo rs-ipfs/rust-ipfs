@@ -19,7 +19,7 @@ byteorder = "1.3.4"
 dirs = "2.0.2"
 domain = { git = "https://github.com/nlnetlabs/domain", rev="084964", features = ["resolv"] }
 futures = { version = "0.3.4", features = ["compat", "io-compat"] }
-libipld = { git = "https://github.com/ipfs-rust/rust-ipld", features = ["dag-pb"] }
+libipld = { git = "https://github.com/ipfs-rust/rust-ipld", rev = "b2286c53c13f3eeec2a3766387f2926838e8e4c9", features = ["dag-pb", "dag-json"] }
 libp2p = "0.16.2"
 log = "0.4.8"
 multibase = "0.8.0"
