@@ -19,7 +19,7 @@ mod format;
 use format::EdgeFormatter;
 
 mod path;
-use path::{IpfsPath, WalkSuccess};
+pub use path::{IpfsPath, WalkSuccess};
 
 mod unshared;
 use unshared::Unshared;
@@ -151,7 +151,10 @@ async fn refs_paths<T: IpfsTypes>(
 /// # Panics
 ///
 /// If there are dag-pb nodes and the libipld has changed it's dag-pb tree structure.
-async fn walk_path<T: IpfsTypes>(ipfs: &Ipfs<T>, mut path: IpfsPath) -> Result<(Cid, Ipld), Error> {
+pub async fn walk_path<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+    mut path: IpfsPath,
+) -> Result<(Cid, Ipld), Error> {
     let mut current = path.take_root().unwrap();
 
     loop {

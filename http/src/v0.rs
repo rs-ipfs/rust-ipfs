@@ -45,7 +45,7 @@ where
             .or(warp::path!("bootstrap" / ..).and_then(not_implemented))
             .or(warp::path!("config" / ..).and_then(not_implemented))
             .or(dag::put(ipfs))
-            //.or(dag::get(ipfs))
+            .or(dag::resolve(ipfs))
             .or(warp::path!("dht" / ..).and_then(not_implemented))
             .or(warp::path!("get").and_then(not_implemented))
             .or(warp::path!("key" / ..).and_then(not_implemented))
