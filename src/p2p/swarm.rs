@@ -177,10 +177,10 @@ mod tests {
         env_logger::init();
 
         let (peer1_id, trans) = mk_transport();
-        let mut swarm1 = Swarm::new(trans, SwarmApi::new(), peer1_id.clone());
+        let mut swarm1 = Swarm::new(trans, SwarmApi::new(), peer1_id);
 
         let (peer2_id, trans) = mk_transport();
-        let mut swarm2 = Swarm::new(trans, SwarmApi::new(), peer2_id.clone());
+        let mut swarm2 = Swarm::new(trans, SwarmApi::new(), peer2_id);
 
         let (mut tx, mut rx) = mpsc::channel::<Multiaddr>(1);
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
