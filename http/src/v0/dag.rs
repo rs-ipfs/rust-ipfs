@@ -17,22 +17,14 @@ async fn put_query<T: IpfsTypes>(
     query: PutQuery,
     mut form: multipart::FormData,
 ) -> Result<impl Reply, Rejection> {
-    let format = match query
-        .format
-        .as_deref()
-        .unwrap_or("dag-cbor")
-    {
+    let format = match query.format.as_deref().unwrap_or("dag-cbor") {
         "dag-cbor" => Codec::DagCBOR,
         "dag-pb" => Codec::DagProtobuf,
         "dag-json" => Codec::DagJSON,
         "raw" => Codec::Raw,
         _ => return Err(StringError::from("unknown codec").into()),
     };
-    let hasher = match query
-        .hash_alg
-        .as_deref()
-        .unwrap_or("sha2-256")
-    {
+    let hasher = match query.hash_alg.as_deref().unwrap_or("sha2-256") {
         "sha2-256" => multihash::Sha2_256::digest,
         "sha2-512" => multihash::Sha2_512::digest,
         "sha3-512" => multihash::Sha3_512::digest,
