@@ -189,34 +189,42 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Puts a block into the block store.
     pub async fn put_block(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
+        let original_cid = block.cid.clone();
         let block = block.with_upgraded_cid();
         let (cid, res) = self.block_store.put(block.clone()).await?;
         self.subscriptions
             .lock()
             .await
+            // subscriptions are per cidv1
             .finish_subscription(&cid, block);
         // sending only fails if no one is listening anymore
         // and that is okay with us.
         self.events
             .clone()
+            // provide only cidv1
             .send(RepoEvent::ProvideBlock(cid.clone()))
             .await
             .ok();
-        Ok((cid, res))
+        Ok((original_cid, res))
     }
 
     /// Retrives a block from the block store, or starts fetching it from the network and awaits
     /// until it has been fetched.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
-        let cid = cid.as_upgraded_cid();
-        if let Some(block) = self.block_store.get(&cid).await? {
-            Ok(block)
+        let upgraded = cid.as_upgraded_cid();
+        if let Some(Block { data, .. }) = self.block_store.get(&upgraded).await? {
+            Ok(Block {
+                data,
+                // give back using the requested cid which may have been cidv0
+                cid: cid.clone(),
+            })
         } else {
             let subscription = self
                 .subscriptions
                 .lock()
                 .await
-                .create_subscription(cid.clone());
+                // subscribe always by using the cidv1
+                .create_subscription(upgraded.clone());
             // sending only fails if no one is listening anymore
             // and that is okay with us.
             self.events
@@ -241,6 +249,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         // sending only fails if the background task has exited
         self.events
             .clone()
+            // unprovide only cidv1
             .send(RepoEvent::UnprovideBlock(cid.clone()))
             .await
             .ok();
@@ -327,12 +336,10 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 #[async_trait]
 impl<T: RepoTypes> bitswap::BitswapStore for Repo<T> {
     async fn get_block(&self, cid: &Cid) -> Result<Option<Block>, anyhow::Error> {
-        let cid = cid.as_upgraded_cid();
-        self.block_store.get(&cid).await
+        self.block_store.get(cid).await
     }
 
     async fn put_block(&self, block: Block) -> Result<bitswap::BlockPut, anyhow::Error> {
-        let block = block.with_upgraded_cid();
         let (_, res) = self.put_block(block).await?;
         let res = match res {
             BlockPut::NewBlock => bitswap::BlockPut::Stored,
