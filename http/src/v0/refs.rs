@@ -390,7 +390,7 @@ mod tests {
     use futures::stream::TryStreamExt;
     use ipfs::{Block, Ipfs};
     use libipld::block::{decode_ipld, validate};
-    use libipld::cid::Cid;
+    use libipld::cid::{self, Cid};
     use std::collections::HashSet;
     use std::convert::TryFrom;
 
@@ -420,6 +420,9 @@ mod tests {
             .collect::<Result<HashSet<_>, _>>()
             .unwrap();
 
+        // this is no longer the *real* expected since we now store everything internally as cidv1
+        // so these cidv0 will not show up in the list() result. that doesn't trigger any failures
+        // from interface-ipfs-core so hopefully it'll be ok.
         let expected = [
             "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
             "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
@@ -428,7 +431,18 @@ mod tests {
             "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
         ]
         .iter()
-        .map(|&s| String::from(s))
+        .map(|&s| {
+            let cid = Cid::try_from(s).expect("they are good cids");
+
+            let cid = if cid.version() == cid::Version::V0 {
+                // a bit strange that it cannot be deconstructed
+                Cid::new_v1(cid.codec(), cid.hash().to_owned())
+            } else {
+                cid
+            };
+
+            cid.to_string()
+        })
         .collect::<HashSet<_>>();
 
         let diff = destinations
