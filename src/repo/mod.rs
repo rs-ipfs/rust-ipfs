@@ -98,11 +98,18 @@ pub enum RepoEvent {
     UnprovideBlock(Cid),
 }
 
+/// Extension trait to easily upgrade owned values from possibly cidv0 to cidv1. The Cid version
+/// upgrade is done to support the "put as cidv0, get as cidv1" tests. The change is not
+/// communicated outside of the [`Repo`], as the "end user" doesn't need to know the Cid version
+/// may have been upgraded.
 trait CidUpgrade: Sized {
+    /// Returns the otherwise the equivalent value from `self` but with Cid version 1
     fn with_upgraded_cid(self) -> Self;
 }
 
+/// Extension trait similar to [`CidUpgrade`] but for non-owned types.
 trait CidUpgradedRef: Sized {
+    /// Returns the otherwise the equivalent value from `&self` but with Cid version 1
     fn as_upgraded_cid(&self) -> Self;
 }
 
