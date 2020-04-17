@@ -83,7 +83,9 @@ pub fn resolve<T: IpfsTypes>(
 #[derive(Debug, Deserialize)]
 struct ResolveOptions {
     arg: String,
-    cid_base: Option<String>,
+    // with local_resolve, we should not start to fetch the block ever, this is available in
+    // (js-)ipfs-http-client >= 44.0.0 and the last failing test.
+    // TODO: #[serde(rename = "localResolve")] local_resolve: bool
 }
 
 async fn inner_resolve<T: IpfsTypes>(
