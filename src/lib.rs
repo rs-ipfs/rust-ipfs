@@ -327,7 +327,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(self.repo.put_block(block).await?.0)
     }
 
-    /// Retrives a block from the ipfs repo.
+    /// Retrieves a block from the local blockstore, or starts fetching from the network or join an
+    /// already started fetch.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
         Ok(self.repo.get_block(cid).await?)
     }
