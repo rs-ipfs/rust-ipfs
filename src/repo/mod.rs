@@ -11,7 +11,7 @@ use core::fmt::Debug;
 use core::marker::PhantomData;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::sink::SinkExt;
-use libipld::cid::Cid;
+use libipld::cid::{self, Cid};
 use libp2p::core::PeerId;
 
 pub mod fs;
@@ -98,6 +98,40 @@ pub enum RepoEvent {
     UnprovideBlock(Cid),
 }
 
+trait CidUpgrade: Sized {
+    fn with_upgraded_cid(self) -> Self;
+}
+
+trait CidUpgradedRef: Sized {
+    fn as_upgraded_cid(&self) -> Self;
+}
+
+impl CidUpgrade for Cid {
+    fn with_upgraded_cid(self) -> Cid {
+        self.as_upgraded_cid()
+    }
+}
+
+impl CidUpgradedRef for Cid {
+    fn as_upgraded_cid(&self) -> Cid {
+        if self.version() == cid::Version::V0 {
+            Cid::new_v1(self.codec(), self.hash().to_owned())
+        } else {
+            self.clone()
+        }
+    }
+}
+
+impl CidUpgrade for Block {
+    fn with_upgraded_cid(self) -> Block {
+        let Block { cid, data } = self;
+        Block {
+            cid: cid.with_upgraded_cid(),
+            data,
+        }
+    }
+}
+
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub fn new(options: RepoOptions<TRepoTypes>) -> (Self, Receiver<RepoEvent>) {
         let mut blockstore_path = options.path.clone();
@@ -148,6 +182,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Puts a block into the block store.
     pub async fn put_block(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
+        let block = block.with_upgraded_cid();
         let (cid, res) = self.block_store.put(block.clone()).await?;
         self.subscriptions
             .lock()
@@ -163,8 +198,10 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         Ok((cid, res))
     }
 
-    /// Retrives a block from the block store.
+    /// Retrives a block from the block store, or starts fetching it from the network and awaits
+    /// until it has been fetched.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
+        let cid = cid.as_upgraded_cid();
         if let Some(block) = self.block_store.get(&cid).await? {
             Ok(block)
         } else {
@@ -190,16 +227,17 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Remove block from the block store.
     pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error> {
-        if self.is_pinned(cid).await? {
+        let cid = cid.as_upgraded_cid();
+        if self.is_pinned(&cid).await? {
             return Err(anyhow::anyhow!("block to remove is pinned"));
         }
         // sending only fails if the background task has exited
         self.events
             .clone()
-            .send(RepoEvent::UnprovideBlock(cid.to_owned()))
+            .send(RepoEvent::UnprovideBlock(cid.clone()))
             .await
             .ok();
-        self.block_store.remove(cid).await?;
+        self.block_store.remove(&cid).await?;
         Ok(())
     }
 
@@ -235,6 +273,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
+        let cid = cid.as_upgraded_cid();
         let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
 
         match pin_value {
@@ -255,10 +294,12 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
+        let cid = cid.as_upgraded_cid();
         self.data_store.contains(Column::Pin, &cid.to_bytes()).await
     }
 
     pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
+        let cid = cid.as_upgraded_cid();
         let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
 
         match pin_value {
@@ -279,10 +320,12 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 #[async_trait]
 impl<T: RepoTypes> bitswap::BitswapStore for Repo<T> {
     async fn get_block(&self, cid: &Cid) -> Result<Option<Block>, anyhow::Error> {
-        self.block_store.get(cid).await
+        let cid = cid.as_upgraded_cid();
+        self.block_store.get(&cid).await
     }
 
     async fn put_block(&self, block: Block) -> Result<bitswap::BlockPut, anyhow::Error> {
+        let block = block.with_upgraded_cid();
         let (_, res) = self.put_block(block).await?;
         let res = match res {
             BlockPut::NewBlock => bitswap::BlockPut::Stored,
