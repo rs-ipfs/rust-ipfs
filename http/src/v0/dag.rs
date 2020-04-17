@@ -100,13 +100,7 @@ async fn inner_resolve<T: IpfsTypes>(
 
     let root = path.take_root().unwrap();
 
-    if path.len() == 0 {
-        return Ok(reply::json(&json!({
-            "Cid": { "/": root.to_string() },
-            "RemPath": "",
-        })));
-    }
-
+    // the walk api and path owning the strings doesn't really work so nicely here
     let mut current = root;
     let mut remaining = path
         .remaining_path()
@@ -115,11 +109,8 @@ async fn inner_resolve<T: IpfsTypes>(
         .collect::<VecDeque<_>>();
 
     loop {
-        // FIXME: this should only get blocks which exist already; not start fetching the block
         let Block { data, .. } = ipfs.get_block(&current).await.map_err(StringError::from)?;
-
         let ipld = decode_ipld(&current, &data).map_err(StringError::from)?;
-
         let res = path.walk(&current, ipld).map_err(StringError::from)?;
 
         match res {
@@ -127,6 +118,9 @@ async fn inner_resolve<T: IpfsTypes>(
                 break;
             }
             WalkSuccess::Link(_key, next_cid) => {
+                // the return value of RemPath needs to be the path inside the last document
+                // but our walk will eventually exhaust the items of IpfsPath. update the backup
+                // in `remaining` only while traversing links
                 while remaining.len() > path.len() {
                     remaining.pop_front();
                 }
