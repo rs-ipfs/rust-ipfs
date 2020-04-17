@@ -171,12 +171,12 @@ async fn rm_query<T: IpfsTypes>(
                 if force {
                     RmResponse {
                         hash: cid.to_string(),
-                        error: e.to_string(),
+                        error: "".to_string(),
                     }
                 } else {
                     RmResponse {
                         hash: cid.to_string(),
-                        error: "".to_string(),
+                        error: e.to_string(),
                     }
                 }
             }
