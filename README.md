@@ -102,18 +102,19 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
 
 ### Devgrant Phase 1 - `Complete`
 
-- Project Setup
-- Testing Setup
-    - Conformance testing
-- HTTP API Scaffolding
-- /pubsub
-- /swarm
-- /version
-- /id
-- /block
-- /dag
-- /refs
-- /bitswap
+* Project Setup
+* Testing Setup
+    * Conformance testing
+* HTTP API Scaffolding
+* `/pubsub/{ publish, subscribe, unsubscribe, peers, ls }`
+* `/swarm/{connect, peers, addrs, localAddrs, disconnect }`
+* `/id`
+* `/version`
+* `/stop`
+* `/block/{ get, add, rm, stat }`
+* `/dag/{ put, resolve }`
+* `/refs` and `/refs/local`
+* `/bitswap/{ stat, wantlist }`
 
 ### Work still required (APIs)
 
