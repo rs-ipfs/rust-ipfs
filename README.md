@@ -128,7 +128,7 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
 - /config
 - /stats
 - /files (regular and mfs)
-- a few othrer miscellaneous endpoints not enumerated here
+- a few other miscellaneous endpoints not enumerated here
 
 ## Maintainers
 
