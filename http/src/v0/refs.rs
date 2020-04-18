@@ -364,14 +364,6 @@ async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejectio
         .await
         .map_err(StringError::from)?
         .into_iter()
-        .map(|cid| {
-            if cid.version() != cid::Version::V0 {
-                Cid::new_v0(cid.hash().to_owned())
-            } else {
-                Ok(cid)
-            }
-        })
-        .map(|cid| cid.unwrap())
         .map(|cid| cid.to_string())
         .map(|refs| Edge {
             ok: refs.into(),
