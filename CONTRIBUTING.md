@@ -16,6 +16,25 @@ Welcome, and thank you for your interest in contributing to Rust IPFS. Issues an
 
 Rust IPFS will always target the current _stable_ version of Rust that is released. Our CI/CD tests will reflect this. See [instructions here on how to install the rust toolchain](https://doc.rust-lang.org/book/ch01-01-installation.html).
 
+### Compilation is slow, help!
+
+We are still actively developing Rust IPFS, and as such compilation + linking times will vary and in many cases, worsen. This can be mitigated locally by installing the `lld` linker using your system's package manager.
+
+For example, on Debian systems:
+
+```bash
+sudo apt install lld
+```
+
+Then in your `~/.cargo/config` file:
+
+```toml
+[build]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+```
+
+Including this in the project root would cause the compiler to error out on systems that don't have `lld` installed, so we have not checked this into source yet.
+
 ## Contributing
 
 We welcome all forms of contribution. Please open issues and PRs for:
