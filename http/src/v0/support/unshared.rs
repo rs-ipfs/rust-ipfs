@@ -27,13 +27,13 @@ pub struct Unshared<T> {
     inner: T,
 }
 
-impl<T> Unshared<T> {
+impl<T: Send> Unshared<T> {
     pub fn new(inner: T) -> Self {
         Unshared { inner }
     }
 }
 
-unsafe impl<T> Sync for Unshared<T> {}
+unsafe impl<T: Send> Sync for Unshared<T> {}
 
 impl<T> fmt::Debug for Unshared<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -41,7 +41,7 @@ impl<T> fmt::Debug for Unshared<T> {
     }
 }
 
-impl<S: Stream> Stream for Unshared<S> {
+impl<S: Stream + Send> Stream for Unshared<S> {
     type Item = S::Item;
 
     fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
