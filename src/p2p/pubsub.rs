@@ -7,8 +7,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use libp2p::core::{ConnectedPoint, Multiaddr, PeerId};
-use libp2p::floodsub::{Floodsub, FloodsubEvent, FloodsubMessage, FloodsubOptions, Topic};
+use libp2p::core::{connection::ConnectionId, Multiaddr, PeerId};
+use libp2p::floodsub::{Floodsub, FloodsubConfig, FloodsubEvent, FloodsubMessage, Topic};
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
 
 /// Currently a thin wrapper around Floodsub, perhaps supporting both Gossipsub and Floodsub later.
@@ -125,12 +125,12 @@ impl Pubsub {
     /// top of the floodsub.
     pub fn new(peer_id: PeerId) -> Self {
         let (tx, rx) = channel::unbounded();
-        let mut opts = FloodsubOptions::new(peer_id);
-        opts.subscribe_local_messages = true;
+        let mut config = FloodsubConfig::new(peer_id);
+        config.subscribe_local_messages = true;
         Pubsub {
             streams: HashMap::new(),
             peers: HashMap::new(),
-            floodsub: Floodsub::from_options(opts),
+            floodsub: Floodsub::from_config(config),
             unsubscriptions: (tx, rx),
         }
     }
@@ -243,20 +243,21 @@ impl NetworkBehaviour for Pubsub {
         self.floodsub.addresses_of_peer(peer_id)
     }
 
-    fn inject_connected(&mut self, peer_id: PeerId, cp: ConnectedPoint) {
-        self.floodsub.inject_connected(peer_id, cp)
+    fn inject_connected(&mut self, peer_id: &PeerId) {
+        self.floodsub.inject_connected(peer_id)
     }
 
-    fn inject_disconnected(&mut self, peer_id: &PeerId, cp: ConnectedPoint) {
-        self.floodsub.inject_disconnected(peer_id, cp)
+    fn inject_disconnected(&mut self, peer_id: &PeerId) {
+        self.floodsub.inject_disconnected(peer_id)
     }
 
-    fn inject_node_event(
+    fn inject_event(
         &mut self,
         peer_id: PeerId,
+        connection: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
-        self.floodsub.inject_node_event(peer_id, event)
+        self.floodsub.inject_event(peer_id, connection, event)
     }
 
     fn inject_addr_reach_failure(
@@ -363,11 +364,19 @@ impl NetworkBehaviour for Pubsub {
                 NetworkBehaviourAction::DialAddress { address } => {
                     return Poll::Ready(NetworkBehaviourAction::DialAddress { address });
                 }
-                NetworkBehaviourAction::DialPeer { peer_id } => {
-                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id });
+                NetworkBehaviourAction::DialPeer { peer_id, condition } => {
+                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition });
                 }
-                NetworkBehaviourAction::SendEvent { peer_id, event } => {
-                    return Poll::Ready(NetworkBehaviourAction::SendEvent { peer_id, event });
+                NetworkBehaviourAction::NotifyHandler {
+                    peer_id,
+                    event,
+                    handler,
+                } => {
+                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                        peer_id,
+                        event,
+                        handler,
+                    });
                 }
                 NetworkBehaviourAction::ReportObservedAddr { address } => {
                     return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address });
