@@ -17,7 +17,7 @@ use futures::stream::Fuse;
 pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
-pub use libp2p::core::{ConnectedPoint, Multiaddr, PeerId, PublicKey};
+pub use libp2p::core::{ConnectedPoint, Multiaddr, PeerId, PublicKey, connection::ListenerId};
 pub use libp2p::identity::Keypair;
 
 use std::borrow::Borrow;
@@ -27,6 +27,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::collections::HashMap;
 
 mod config;
 mod dag;
@@ -245,6 +246,8 @@ enum IpfsEvent {
     PubsubSubscribed(OneshotSender<Vec<String>>),
     WantList(Option<PeerId>, OneshotSender<Vec<(Cid, bitswap::Priority)>>),
     BitswapStats(OneshotSender<BitswapStats>),
+    AddListeningAddress(Multiaddr, Channel<()>),
+    RemoveListeningAddress(Multiaddr, Channel<()>),
     Exit,
 }
 
@@ -298,6 +301,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             repo_events: repo_events.fuse(),
             from_facade: receiver.fuse(),
             swarm,
+            listening_addresses: HashMap::new(),
         };
 
         let UninitializedIpfs {
@@ -538,6 +542,33 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(rx.await?)
     }
 
+    /// Add a given multiaddr as a listening address. Will fail if the address is unsupported, or
+    /// if it is already being listened on. Currently will invoke `Swarm::listen_on` internally,
+    /// keep the ListenerId for later `remove_listening_address` use in a HashMap.
+    pub async fn add_listening_address(&self, addr: Multiaddr) -> Result<(), Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::AddListeningAddress(addr, tx))
+            .await?;
+
+        rx.await?
+    }
+
+    /// Stop listening on a previously added listening address. Fails if the address is not being
+    /// listened to.
+    pub async fn remove_listening_address(&self, addr: Multiaddr) -> Result<(), Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::RemoveListeningAddress(addr, tx))
+            .await?;
+
+        rx.await?
+    }
+
     /// Exit daemon.
     pub async fn exit_daemon(mut self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
@@ -556,6 +587,7 @@ struct IpfsFuture<Types: SwarmTypes> {
     swarm: TSwarm<Types>,
     repo_events: Fuse<Receiver<RepoEvent>>,
     from_facade: Fuse<Receiver<IpfsEvent>>,
+    listening_addresses: HashMap<Multiaddr, ListenerId>,
 }
 
 impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
@@ -663,6 +695,27 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                         let peers = self.swarm.bitswap().peers();
                         let wantlist = self.swarm.bitswap().local_wantlist();
                         let _ = ret.send((stats, peers, wantlist).into());
+                    }
+                    IpfsEvent::AddListeningAddress(addr, ret) => {
+                        let added = match Swarm::listen_on(&mut self.swarm, addr.clone()) {
+                            Ok(id) => {
+                                self.listening_addresses.insert(addr, id);
+                                Ok(())
+                            }
+                            Err(e) => Err(Error::from(e)),
+                        };
+
+                        let _ = ret.send(added);
+                    }
+                    IpfsEvent::RemoveListeningAddress(addr, ret) => {
+                        let removed = if let Some(id) = self.listening_addresses.remove(&addr) {
+                            Swarm::remove_listener(&mut self.swarm, id)
+                                .map_err(|_: ()| format_err!("Failed to remove previously added listening address: {}", addr))
+                        } else {
+                            Err(format_err!("Address was not listened to before: {}", addr))
+                        };
+
+                        let _ = ret.send(removed);
                     }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
