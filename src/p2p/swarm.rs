@@ -20,7 +20,9 @@ pub struct Disconnector {
 }
 
 impl Disconnector {
-    pub fn disconnect<T: NetworkBehaviour>(self, swarm: &mut Swarm<T>) {
+    pub fn disconnect<T: NetworkBehaviour>(self, swarm: &mut Swarm<T>)
+        where <<<T as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent: std::clone::Clone
+    {
         Swarm::ban_peer_id(swarm, self.peer_id.clone());
         Swarm::unban_peer_id(swarm, self.peer_id);
     }
