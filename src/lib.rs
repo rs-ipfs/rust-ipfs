@@ -17,17 +17,17 @@ use futures::stream::Fuse;
 pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
-pub use libp2p::core::{ConnectedPoint, Multiaddr, PeerId, PublicKey, connection::ListenerId};
+pub use libp2p::core::{connection::ListenerId, ConnectedPoint, Multiaddr, PeerId, PublicKey};
 pub use libp2p::identity::Keypair;
 
 use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::collections::HashMap;
 
 mod config;
 mod dag;
@@ -709,8 +709,12 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     }
                     IpfsEvent::RemoveListeningAddress(addr, ret) => {
                         let removed = if let Some(id) = self.listening_addresses.remove(&addr) {
-                            Swarm::remove_listener(&mut self.swarm, id)
-                                .map_err(|_: ()| format_err!("Failed to remove previously added listening address: {}", addr))
+                            Swarm::remove_listener(&mut self.swarm, id).map_err(|_: ()| {
+                                format_err!(
+                                    "Failed to remove previously added listening address: {}",
+                                    addr
+                                )
+                            })
                         } else {
                             Err(format_err!("Address was not listened to before: {}", addr))
                         };

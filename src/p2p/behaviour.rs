@@ -113,13 +113,13 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<PingEvent> for Behavi
                 peer,
                 result: Result::Ok(PingSuccess::Pong),
             } => {
-                log::trace!("ping: pong from {}", peer.to_base58());
+                log::trace!("ping: pong from {}", peer);
             }
             PingEvent {
                 peer,
                 result: Result::Err(PingFailure::Timeout),
             } => {
-                log::trace!("ping: timeout to {}", peer.to_base58());
+                log::trace!("ping: timeout to {}", peer);
                 self.remove_peer(&peer);
             }
             PingEvent {
