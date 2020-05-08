@@ -69,3 +69,44 @@ fn connect_two_nodes() {
         jh.await;
     });
 }
+
+/// More complicated one to the above; first node will have two listening addresses and the second
+/// one should dial both of the addresses, resulting in two connections.
+#[test]
+fn connect_two_nodes_with_two_connections_doesnt_panic() {
+    const MDNS: bool = false;
+
+    task::block_on(async move {
+        let node_a = ipfs::Node::new(MDNS).await;
+        let node_b = ipfs::Node::new(MDNS).await;
+
+        node_a
+            .add_listening_address(libp2p::build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16)))
+            .await
+            .unwrap();
+
+        let addresses = node_a.addrs_local().await.unwrap();
+        assert_eq!(addresses.len(), 2);
+
+        for addr in addresses {
+            node_b.connect(addr).await.unwrap();
+        }
+
+        // not too sure on this, since there'll be a single peer but two connections; the return
+        // type is `Vec<Connection>` but it's peer with any connection.
+        let mut peers = node_a.peers().await.unwrap();
+        assert_eq!(peers.len(), 1);
+
+        // sadly we are unable to currently verify that there exists two connections for the node_b
+        // peer..
+
+        node_a.disconnect(peers.remove(0).address).await.unwrap();
+
+        let peers = node_a.peers().await.unwrap();
+        assert!(
+            peers.is_empty(),
+            "node_b was still connected after disconnect: {:?}",
+            peers
+        );
+    });
+}
