@@ -8,10 +8,14 @@ use libp2p::swarm::{self, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
+/// A description of currently active connection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Connection {
+    /// The connected peer.
     pub peer_id: PeerId,
+    /// Any connecting address of the peer as peers can have multiple connections to
     pub address: Multiaddr,
+    /// Latest ping report on any of the connections
     pub rtt: Option<Duration>,
 }
 
