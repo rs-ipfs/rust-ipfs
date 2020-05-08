@@ -109,7 +109,12 @@ impl NetworkBehaviour for SwarmApi {
         }
     }
 
-    fn inject_connection_established(&mut self, peer_id: &PeerId, _id: &ConnectionId, cp: &ConnectedPoint) {
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        _id: &ConnectionId,
+        cp: &ConnectedPoint,
+    ) {
         log::trace!("inject_connected {} {:?}", peer_id.to_string(), cp);
         let addr = connection_point_addr(cp);
         let conn = Connection {
@@ -118,7 +123,11 @@ impl NetworkBehaviour for SwarmApi {
             rtt: None,
         };
         self.peers.insert(peer_id.clone());
-        if self.connected_peers.insert(peer_id.clone(), addr.clone()).is_some() {
+        if self
+            .connected_peers
+            .insert(peer_id.clone(), addr.clone())
+            .is_some()
+        {
             // probably would need to keep a list of connectedpoints and their ids? the amount will
             // always be on the lower end hopefully.
             unimplemented!("multiple connections to peer")
@@ -131,7 +140,12 @@ impl NetworkBehaviour for SwarmApi {
         // we have at least one fully open connection and handler is running
     }
 
-    fn inject_connection_closed(&mut self, peer_id: &PeerId, _id: &ConnectionId, cp: &ConnectedPoint) {
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        _id: &ConnectionId,
+        cp: &ConnectedPoint,
+    ) {
         log::trace!("inject_disconnected {} {:?}", peer_id.to_string(), cp);
         self.connected_peers.remove(peer_id);
         self.connections.remove(connection_point_addr(cp));
