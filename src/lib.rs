@@ -563,7 +563,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         use futures::Stream;
-        use libp2p::{swarm::SwarmEvent, Swarm};
+        use libp2p::Swarm;
 
         // begin by polling the swarm so that initially it'll first have chance to bind listeners
         // and such. TODO: this no longer needs to be a swarm event but perhaps we should
@@ -583,19 +583,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     }
                 };
                 done = false;
-                match inner {
-                    SwarmEvent::Behaviour(()) => {}
-                    SwarmEvent::Connected(_peer_id) => {}
-                    SwarmEvent::Disconnected(_peer_id) => {}
-                    SwarmEvent::NewListenAddr(_addr) => {}
-                    SwarmEvent::ExpiredListenAddr(_addr) => {}
-                    SwarmEvent::UnreachableAddr {
-                        peer_id: _peer_id,
-                        address: _address,
-                        error: _error,
-                    } => {}
-                    SwarmEvent::StartConnect(_peer_id) => {}
-                }
+                // the inner can be useful for debugging
             }
 
             // temporary pinning of the receivers should be safe as we are pinning through the
