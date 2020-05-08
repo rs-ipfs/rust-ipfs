@@ -573,7 +573,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 
         loop {
             loop {
-                let inner = {
+                let _inner = {
                     let next = self.swarm.next_event();
                     futures::pin_mut!(next);
                     match next.poll(ctx) {
@@ -583,7 +583,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     }
                 };
                 done = false;
-                // the inner can be useful for debugging
+                // the _inner can be useful for debugging
             }
 
             // temporary pinning of the receivers should be safe as we are pinning through the

@@ -109,7 +109,7 @@ impl NetworkBehaviour for SwarmApi {
         }
     }
 
-    fn inject_connection_established(&mut self, peer_id: &PeerId, id: &ConnectionId, cp: &ConnectedPoint) {
+    fn inject_connection_established(&mut self, peer_id: &PeerId, _id: &ConnectionId, cp: &ConnectedPoint) {
         log::trace!("inject_connected {} {:?}", peer_id.to_string(), cp);
         let addr = connection_point_addr(cp);
         let conn = Connection {
@@ -127,17 +127,17 @@ impl NetworkBehaviour for SwarmApi {
         self.connect_registry.finish_subscription(&addr, Ok(()));
     }
 
-    fn inject_connected(&mut self, peer_id: &PeerId) {
+    fn inject_connected(&mut self, _peer_id: &PeerId) {
         // we have at least one fully open connection and handler is running
     }
 
-    fn inject_connection_closed(&mut self, peer_id: &PeerId, id: &ConnectionId, cp: &ConnectedPoint) {
+    fn inject_connection_closed(&mut self, peer_id: &PeerId, _id: &ConnectionId, cp: &ConnectedPoint) {
         log::trace!("inject_disconnected {} {:?}", peer_id.to_string(), cp);
         self.connected_peers.remove(peer_id);
         self.connections.remove(connection_point_addr(cp));
     }
 
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
+    fn inject_disconnected(&mut self, _peer_id: &PeerId) {
         // all connections closed, handler no longer exists
     }
 
