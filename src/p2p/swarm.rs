@@ -1,6 +1,6 @@
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use core::task::{Context, Poll};
-use libp2p::core::{ConnectedPoint, Multiaddr, PeerId};
+use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::swarm::protocols_handler::{
     DummyProtocolsHandler, IntoProtocolsHandler, ProtocolsHandler,
 };
@@ -107,34 +107,39 @@ impl NetworkBehaviour for SwarmApi {
         }
     }
 
-    fn inject_connected(&mut self, peer_id: PeerId, cp: ConnectedPoint) {
+    fn inject_connection_established(&mut self, peer_id: &PeerId, id: &ConnectionId, cp: &ConnectedPoint) {
         log::trace!("inject_connected {} {:?}", peer_id.to_string(), cp);
-        let addr = match cp {
-            ConnectedPoint::Dialer { address } => address,
-            ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
-        };
+        let addr = connection_point_addr(cp);
         let conn = Connection {
             peer_id: peer_id.clone(),
             address: addr.clone(),
             rtt: None,
         };
         self.peers.insert(peer_id.clone());
-        self.connected_peers.insert(peer_id, addr.clone());
+        if self.connected_peers.insert(peer_id.clone(), addr.clone()).is_some() {
+            // probably would need to keep a list of connectedpoints and their ids? the amount will
+            // always be on the lower end hopefully.
+            unimplemented!("multiple connections to peer")
+        }
         self.connections.insert(addr.clone(), conn);
         self.connect_registry.finish_subscription(&addr, Ok(()));
     }
 
-    fn inject_disconnected(&mut self, peer_id: &PeerId, cp: ConnectedPoint) {
-        log::trace!("inject_disconnected {} {:?}", peer_id.to_string(), cp);
-        let addr = match cp {
-            ConnectedPoint::Dialer { address } => address,
-            ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
-        };
-        self.connected_peers.remove(peer_id);
-        self.connections.remove(&addr);
+    fn inject_connected(&mut self, peer_id: &PeerId) {
+        // we have at least one fully open connection and handler is running
     }
 
-    fn inject_node_event(&mut self, _peer_id: PeerId, _event: void::Void) {}
+    fn inject_connection_closed(&mut self, peer_id: &PeerId, id: &ConnectionId, cp: &ConnectedPoint) {
+        log::trace!("inject_disconnected {} {:?}", peer_id.to_string(), cp);
+        self.connected_peers.remove(peer_id);
+        self.connections.remove(connection_point_addr(cp));
+    }
+
+    fn inject_disconnected(&mut self, peer_id: &PeerId) {
+        // all connections closed, handler no longer exists
+    }
+
+    fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: void::Void) {}
 
     fn inject_addr_reach_failure(
         &mut self,
@@ -157,6 +162,13 @@ impl NetworkBehaviour for SwarmApi {
         } else {
             Poll::Pending
         }
+    }
+}
+
+fn connection_point_addr(cp: &ConnectedPoint) -> &Multiaddr {
+    match cp {
+        ConnectedPoint::Dialer { address } => address,
+        ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
     }
 }
 
