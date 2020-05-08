@@ -8,13 +8,15 @@ use libp2p::swarm::{self, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Connection {
     pub peer_id: PeerId,
     pub address: Multiaddr,
     pub rtt: Option<Duration>,
 }
 
+/// Disconnected will use banning to disconnect a node. Disconnecting a single peer connection is
+/// not supported at the moment.
 pub struct Disconnector {
     peer_id: PeerId,
 }
@@ -36,8 +38,9 @@ pub struct SwarmApi {
     events: VecDeque<NetworkBehaviourAction>,
     peers: HashSet<PeerId>,
     connect_registry: SubscriptionRegistry<Multiaddr, Result<(), String>>,
-    connections: HashMap<Multiaddr, Connection>,
-    connected_peers: HashMap<PeerId, Multiaddr>,
+    connections: HashMap<Multiaddr, PeerId>,
+    stats: HashMap<PeerId, Duration>,
+    connected_peers: HashMap<PeerId, Vec<Multiaddr>>,
 }
 
 impl SwarmApi {
@@ -57,16 +60,28 @@ impl SwarmApi {
         self.peers.remove(peer_id);
     }
 
-    pub fn connections(&self) -> impl Iterator<Item = &Connection> {
-        self.connections.iter().map(|(_, conn)| conn)
+    pub fn connections(&self) -> Vec<Connection> {
+        self.connected_peers
+            .iter()
+            .filter_map(|(peer, conns)| {
+                let rtt = self.stats.get(peer).cloned();
+
+                if let Some(any) = conns.first() {
+                    Some(Connection {
+                        peer_id: peer.clone(),
+                        address: any.clone(),
+                        rtt,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     pub fn set_rtt(&mut self, peer_id: &PeerId, rtt: Duration) {
-        if let Some(addr) = self.connected_peers.get(peer_id) {
-            if let Some(mut conn) = self.connections.get_mut(addr) {
-                conn.rtt = Some(rtt);
-            }
-        }
+        // FIXME: this is for any connection
+        self.stats.insert(peer_id.clone(), rtt);
     }
 
     pub fn connect(&mut self, address: Multiaddr) -> SubscriptionFuture<Result<(), String>> {
@@ -79,15 +94,15 @@ impl SwarmApi {
 
     pub fn disconnect(&mut self, address: Multiaddr) -> Option<Disconnector> {
         log::trace!("disconnect {}", address);
-        self.connections.remove(&address);
-        let peer_id = self
-            .connections
-            .get(&address)
-            .map(|conn| conn.peer_id.clone());
-        if let Some(peer_id) = &peer_id {
-            self.connected_peers.remove(peer_id);
+        // FIXME: closing a single specific connection would be allowed for ProtocolHandlers
+        let peer_id = self.connections.get(&address).cloned();
+
+        if let Some(peer_id) = peer_id {
+            self.connected_peers.remove(&peer_id);
+            Some(Disconnector { peer_id })
+        } else {
+            None
         }
-        peer_id.map(|peer_id| Disconnector { peer_id })
     }
 }
 
@@ -103,7 +118,7 @@ impl NetworkBehaviour for SwarmApi {
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
         log::trace!("addresses_of_peer {}", peer_id);
         if let Some(addr) = self.connected_peers.get(peer_id).cloned() {
-            vec![addr]
+            addr
         } else {
             Default::default()
         }
@@ -115,24 +130,18 @@ impl NetworkBehaviour for SwarmApi {
         _id: &ConnectionId,
         cp: &ConnectedPoint,
     ) {
+        // TODO: could be that the connection is not yet fully established at this point
         log::trace!("inject_connected {} {:?}", peer_id.to_string(), cp);
         let addr = connection_point_addr(cp);
-        let conn = Connection {
-            peer_id: peer_id.clone(),
-            address: addr.clone(),
-            rtt: None,
-        };
         self.peers.insert(peer_id.clone());
-        if self
+        let connections = self
             .connected_peers
-            .insert(peer_id.clone(), addr.clone())
-            .is_some()
-        {
-            // probably would need to keep a list of connectedpoints and their ids? the amount will
-            // always be on the lower end hopefully.
-            unimplemented!("multiple connections to peer")
-        }
-        self.connections.insert(addr.clone(), conn);
+            .entry(peer_id.clone())
+            .or_insert_with(Vec::new);
+
+        connections.push(addr.clone());
+
+        self.connections.insert(addr.clone(), peer_id.clone());
         self.connect_registry.finish_subscription(&addr, Ok(()));
     }
 
@@ -147,12 +156,34 @@ impl NetworkBehaviour for SwarmApi {
         cp: &ConnectedPoint,
     ) {
         log::trace!("inject_disconnected {} {:?}", peer_id.to_string(), cp);
-        self.connected_peers.remove(peer_id);
-        self.connections.remove(connection_point_addr(cp));
+        let closed_addr = connection_point_addr(cp);
+        let became_empty = if let Some(connections) = self.connected_peers.get_mut(peer_id) {
+            if let Some(index) = connections.iter().position(|addr| addr == closed_addr) {
+                connections.swap_remove(index);
+            }
+            connections.is_empty()
+        } else {
+            false
+        };
+        if became_empty {
+            self.connected_peers.remove(peer_id);
+        }
+        self.connections.remove(closed_addr);
+        // FIXME: should be an error
+        self.connect_registry
+            .finish_subscription(closed_addr, Ok(()));
     }
 
-    fn inject_disconnected(&mut self, _peer_id: &PeerId) {
-        // all connections closed, handler no longer exists
+    fn inject_disconnected(&mut self, peer_id: &PeerId) {
+        for address in self
+            .connected_peers
+            .remove(peer_id)
+            .into_iter()
+            .flat_map(|i| i.into_iter())
+        {
+            self.connections.remove(&address);
+        }
+        self.stats.remove(peer_id);
     }
 
     fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: void::Void) {}

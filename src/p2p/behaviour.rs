@@ -203,7 +203,7 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
     }
 
     pub fn connections(&self) -> Vec<Connection> {
-        self.swarm.connections().cloned().collect()
+        self.swarm.connections()
     }
 
     pub fn connect(&mut self, addr: Multiaddr) -> SubscriptionFuture<Result<(), String>> {
