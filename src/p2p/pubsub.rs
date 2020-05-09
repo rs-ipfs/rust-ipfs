@@ -7,7 +7,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use libp2p::core::{connection::ConnectionId, Multiaddr, PeerId};
+use libp2p::core::{connection::{ConnectionId, ConnectedPoint, ListenerId}, Multiaddr, PeerId};
 use libp2p::floodsub::{Floodsub, FloodsubConfig, FloodsubEvent, FloodsubMessage, Topic};
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
 
@@ -251,6 +251,14 @@ impl NetworkBehaviour for Pubsub {
         self.floodsub.inject_disconnected(peer_id)
     }
 
+    fn inject_connection_established(&mut self, peer_id: &PeerId, connection_id: &ConnectionId, connected_point: &ConnectedPoint) {
+        self.floodsub.inject_connection_established(peer_id, connection_id, connected_point)
+    }
+
+    fn inject_connection_closed(&mut self, peer_id: &PeerId, connection_id: &ConnectionId, connected_point: &ConnectedPoint) {
+        self.floodsub.inject_connection_closed(peer_id, connection_id, connected_point)
+    }
+
     fn inject_event(
         &mut self,
         peer_id: PeerId,
@@ -268,6 +276,26 @@ impl NetworkBehaviour for Pubsub {
     ) {
         self.floodsub
             .inject_addr_reach_failure(peer_id, addr, error)
+    }
+
+    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
+        self.floodsub.inject_dial_failure(peer_id)
+    }
+
+    fn inject_new_listen_addr(&mut self, addr: &Multiaddr) {
+        self.floodsub.inject_new_listen_addr(addr)
+    }
+
+    fn inject_expired_listen_addr(&mut self, addr: &Multiaddr) {
+        self.floodsub.inject_expired_listen_addr(addr)
+    }
+
+    fn inject_new_external_addr(&mut self, addr: &Multiaddr) {
+        self.floodsub.inject_new_external_addr(addr)
+    }
+
+    fn inject_listener_error(&mut self, id: ListenerId, err: &(dyn std::error::Error + 'static)) {
+        self.floodsub.inject_listener_error(id, err)
     }
 
     fn poll(
