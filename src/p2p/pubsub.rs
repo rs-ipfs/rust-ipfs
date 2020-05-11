@@ -7,7 +7,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use libp2p::core::{connection::{ConnectionId, ConnectedPoint, ListenerId}, Multiaddr, PeerId};
+use libp2p::core::{
+    connection::{ConnectedPoint, ConnectionId, ListenerId},
+    Multiaddr, PeerId,
+};
 use libp2p::floodsub::{Floodsub, FloodsubConfig, FloodsubEvent, FloodsubMessage, Topic};
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
 
@@ -251,12 +254,24 @@ impl NetworkBehaviour for Pubsub {
         self.floodsub.inject_disconnected(peer_id)
     }
 
-    fn inject_connection_established(&mut self, peer_id: &PeerId, connection_id: &ConnectionId, connected_point: &ConnectedPoint) {
-        self.floodsub.inject_connection_established(peer_id, connection_id, connected_point)
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        connection_id: &ConnectionId,
+        connected_point: &ConnectedPoint,
+    ) {
+        self.floodsub
+            .inject_connection_established(peer_id, connection_id, connected_point)
     }
 
-    fn inject_connection_closed(&mut self, peer_id: &PeerId, connection_id: &ConnectionId, connected_point: &ConnectedPoint) {
-        self.floodsub.inject_connection_closed(peer_id, connection_id, connected_point)
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        connection_id: &ConnectionId,
+        connected_point: &ConnectedPoint,
+    ) {
+        self.floodsub
+            .inject_connection_closed(peer_id, connection_id, connected_point)
     }
 
     fn inject_event(
