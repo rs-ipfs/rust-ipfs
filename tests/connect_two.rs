@@ -86,7 +86,12 @@ fn connect_two_nodes_with_two_connections_doesnt_panic() {
             .unwrap();
 
         let addresses = node_a.addrs_local().await.unwrap();
-        assert_eq!(addresses.len(), 2);
+        assert_eq!(
+            addresses.len(),
+            2,
+            "there should had been two local addresses, found {:?}",
+            addresses
+        );
 
         for addr in addresses {
             node_b.connect(addr).await.unwrap();
@@ -95,12 +100,20 @@ fn connect_two_nodes_with_two_connections_doesnt_panic() {
         // not too sure on this, since there'll be a single peer but two connections; the return
         // type is `Vec<Connection>` but it's peer with any connection.
         let mut peers = node_a.peers().await.unwrap();
-        assert_eq!(peers.len(), 1);
+        assert_eq!(
+            peers.len(),
+            1,
+            "there should had been one peer, found {:?}",
+            peers
+        );
 
         // sadly we are unable to currently verify that there exists two connections for the node_b
         // peer..
 
-        node_a.disconnect(peers.remove(0).address).await.unwrap();
+        node_a
+            .disconnect(peers.remove(0).address)
+            .await
+            .expect("failed to disconnect peer_b at peer_a");
 
         let peers = node_a.peers().await.unwrap();
         assert!(
