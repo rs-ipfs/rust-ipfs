@@ -140,7 +140,7 @@ impl NetworkBehaviour for SwarmApi {
         let connections = self
             .connected_peers
             .entry(peer_id.clone())
-            .or_insert_with(Vec::new);
+            .or_default();
 
         connections.push(addr.clone());
 
@@ -182,7 +182,7 @@ impl NetworkBehaviour for SwarmApi {
             .connected_peers
             .remove(peer_id)
             .into_iter()
-            .flat_map(|i| i.into_iter())
+            .flatten()
         {
             self.connections.remove(&address);
         }
