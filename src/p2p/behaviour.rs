@@ -202,7 +202,7 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
         addrs
     }
 
-    pub fn connections(&self) -> Vec<Connection> {
+    pub fn connections(&self) -> impl Iterator<Item = Connection> + '_ {
         self.swarm.connections()
     }
 

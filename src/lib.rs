@@ -643,7 +643,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     }
                     IpfsEvent::Connections(ret) => {
                         let connections = self.swarm.connections();
-                        ret.send(Ok(connections)).ok();
+                        ret.send(Ok(connections.collect())).ok();
                     }
                     IpfsEvent::Disconnect(addr, ret) => {
                         if let Some(disconnector) = self.swarm.disconnect(addr) {

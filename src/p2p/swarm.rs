@@ -64,10 +64,10 @@ impl SwarmApi {
         self.peers.remove(peer_id);
     }
 
-    pub fn connections(&self) -> Vec<Connection> {
+    pub fn connections(&self) -> impl Iterator<Item = Connection> + '_ {
         self.connected_peers
             .iter()
-            .filter_map(|(peer, conns)| {
+            .filter_map(move |(peer, conns)| {
                 let rtt = self.stats.get(peer).cloned();
 
                 if let Some(any) = conns.first() {
@@ -80,7 +80,6 @@ impl SwarmApi {
                     None
                 }
             })
-            .collect()
     }
 
     pub fn set_rtt(&mut self, peer_id: &PeerId, rtt: Duration) {
