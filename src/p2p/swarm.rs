@@ -43,7 +43,7 @@ pub struct SwarmApi {
     peers: HashSet<PeerId>,
     connect_registry: SubscriptionRegistry<Multiaddr, Result<(), String>>,
     connections: HashMap<Multiaddr, PeerId>,
-    stats: HashMap<PeerId, Duration>,
+    roundtrip_times: HashMap<PeerId, Duration>,
     connected_peers: HashMap<PeerId, Vec<Multiaddr>>,
 }
 
@@ -68,7 +68,7 @@ impl SwarmApi {
         self.connected_peers
             .iter()
             .filter_map(move |(peer, conns)| {
-                let rtt = self.stats.get(peer).cloned();
+                let rtt = self.roundtrip_times.get(peer).cloned();
 
                 if let Some(any) = conns.first() {
                     Some(Connection {
@@ -84,7 +84,7 @@ impl SwarmApi {
 
     pub fn set_rtt(&mut self, peer_id: &PeerId, rtt: Duration) {
         // FIXME: this is for any connection
-        self.stats.insert(peer_id.clone(), rtt);
+        self.roundtrip_times.insert(peer_id.clone(), rtt);
     }
 
     pub fn connect(&mut self, address: Multiaddr) -> SubscriptionFuture<Result<(), String>> {
@@ -186,7 +186,7 @@ impl NetworkBehaviour for SwarmApi {
         {
             self.connections.remove(&address);
         }
-        self.stats.remove(peer_id);
+        self.roundtrip_times.remove(peer_id);
     }
 
     fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: void::Void) {}
