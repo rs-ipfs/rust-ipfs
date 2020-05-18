@@ -101,7 +101,7 @@ impl SwarmApi {
         let peer_id = self.connections.get(&address).cloned();
 
         if let Some(peer_id) = peer_id {
-            self.connected_peers.remove(&peer_id);
+            // don't remove the peer yet, but only handle it through callbacks
             Some(Disconnector { peer_id })
         } else {
             None
