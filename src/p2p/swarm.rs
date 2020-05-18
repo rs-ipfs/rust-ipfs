@@ -120,11 +120,7 @@ impl NetworkBehaviour for SwarmApi {
 
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
         log::trace!("addresses_of_peer {}", peer_id);
-        if let Some(addr) = self.connected_peers.get(peer_id).cloned() {
-            addr
-        } else {
-            Default::default()
-        }
+        self.connected_peers.get(peer_id).cloned().unwrap_or_default()
     }
 
     fn inject_connection_established(
