@@ -137,10 +137,7 @@ impl NetworkBehaviour for SwarmApi {
         log::trace!("inject_connected {} {:?}", peer_id.to_string(), cp);
         let addr = connection_point_addr(cp);
         self.peers.insert(peer_id.clone());
-        let connections = self
-            .connected_peers
-            .entry(peer_id.clone())
-            .or_default();
+        let connections = self.connected_peers.entry(peer_id.clone()).or_default();
 
         connections.push(addr.clone());
 
@@ -178,12 +175,7 @@ impl NetworkBehaviour for SwarmApi {
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        for address in self
-            .connected_peers
-            .remove(peer_id)
-            .into_iter()
-            .flatten()
-        {
+        for address in self.connected_peers.remove(peer_id).into_iter().flatten() {
             self.connections.remove(&address);
         }
         self.roundtrip_times.remove(peer_id);
