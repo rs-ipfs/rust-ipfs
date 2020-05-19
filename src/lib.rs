@@ -706,8 +706,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
         use libp2p::{swarm::SwarmEvent, Swarm};
 
         // begin by polling the swarm so that initially it'll first have chance to bind listeners
-        // and such. TODO: this no longer needs to be a swarm event but perhaps we should
-        // consolidate logging of these events here, if necessary?
+        // and such.
 
         let mut done = false;
 
@@ -722,12 +721,13 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                         Poll::Pending => break,
                     }
                 };
+                // as a swarm event was returned, we need to do at least one more round to fully
+                // exhaust the swarm before possibly causing the swarm to do more work by popping
+                // off the events from Ipfs and ... this looping goes on for a while.
                 done = false;
-                match inner {
-                    SwarmEvent::NewListenAddr(addr) => self.complete_listening_address_adding(addr),
-                    _ => {}
+                if let SwarmEvent::NewListenAddr(addr) = inner {
+                    self.complete_listening_address_adding(addr);
                 }
-                // the _inner can be useful for debugging
             }
 
             // temporary pinning of the receivers should be safe as we are pinning through the
