@@ -20,7 +20,7 @@ dirs = "2.0.2"
 domain = { git = "https://github.com/nlnetlabs/domain", rev="084964", features = ["resolv"] }
 futures = { version = "0.3.4", features = ["compat", "io-compat"] }
 libipld = { git = "https://github.com/ipfs-rust/rust-ipld", rev = "b2286c53c13f3eeec2a3766387f2926838e8e4c9", features = ["dag-pb", "dag-json"] }
-libp2p = "0.16.2"
+libp2p = "0.19.0"
 log = "0.4.8"
 multibase = "0.8.0"
 multihash = "0.10.1"
@@ -44,8 +44,8 @@ members = [ "bitswap", "http", "examples" ]
 [patch.crates-io]
 ctr = { git = "https://github.com/koivunej/stream-ciphers.git", branch = "ctr128-64to128" }
 
-# these are needed for the floodsub local originated messages to be seen by subscribers
-libp2p = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
-libp2p-core = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
-libp2p-swarm = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
-libp2p-floodsub = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
+# at least these libp2p components need to be patched if you want to use a local version
+# libp2p = { path = "../libp2p" }
+# libp2p-core = { path = "../libp2p" }
+# libp2p-swarm = { path = "../libp2p" }
+# libp2p-floodsub = { path = "../libp2p" }
