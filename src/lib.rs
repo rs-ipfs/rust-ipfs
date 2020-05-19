@@ -677,6 +677,25 @@ impl<Types: SwarmTypes> IpfsFuture<Types> {
             let _ = sender.send(Ok(addr));
         }
     }
+
+    fn start_add_listener_address(&mut self, addr: Multiaddr, ret: Channel<Multiaddr>) {
+        use libp2p::Swarm;
+        use std::collections::hash_map::Entry;
+
+        match self.listening_addresses.entry(addr) {
+            Entry::Occupied(oe) => {
+                let _ = ret.send(Err(format_err!("Already adding a possibly ephemeral multiaddr, wait first one to resolve before adding next: {}", oe.key())));
+            }
+            Entry::Vacant(ve) => match Swarm::listen_on(&mut self.swarm, ve.key().to_owned()) {
+                Ok(id) => {
+                    ve.insert((id, Some(ret)));
+                }
+                Err(e) => {
+                    let _ = ret.send(Err(Error::from(e)));
+                }
+            },
+        }
+    }
 }
 
 impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
@@ -790,18 +809,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                         let _ = ret.send((stats, peers, wantlist).into());
                     }
                     IpfsEvent::AddListeningAddress(addr, ret) => {
-                        if self.listening_addresses.contains_key(&addr) {
-                            let _ = ret.send(Err(format_err!("Already adding a possibly ephemeral multiaddr, wait first one to resolve before adding next: {}", addr)));
-                        } else {
-                            match Swarm::listen_on(&mut self.swarm, addr.clone()) {
-                                Ok(id) => {
-                                    self.listening_addresses.insert(addr, (id, Some(ret)));
-                                }
-                                Err(e) => {
-                                    let _ = ret.send(Err(Error::from(e)));
-                                }
-                            }
-                        }
+                        self.start_add_listener_address(addr, ret);
                     }
                     IpfsEvent::RemoveListeningAddress(addr, ret) => {
                         let removed = if let Some((id, _)) = self.listening_addresses.remove(&addr)
