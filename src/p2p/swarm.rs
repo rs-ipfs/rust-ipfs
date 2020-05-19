@@ -98,14 +98,27 @@ impl SwarmApi {
     pub fn disconnect(&mut self, address: Multiaddr) -> Option<Disconnector> {
         log::trace!("disconnect {}", address);
         // FIXME: closing a single specific connection would be allowed for ProtocolHandlers
-        let peer_id = self.connections.get(&address).cloned();
+        let peer_id = self.connections.remove(&address);
 
         if let Some(peer_id) = peer_id {
-            // don't remove the peer yet, but only handle it through callbacks
+            // wasted some time wondering if the peer should be removed here or not; it should. the
+            // API is a bit ackward since we can't tolerate the Disconnector::disconnect **not**
+            // being called.
+            //
+            // there are currently no events being fired from the closing of connections to banned
+            // peer, so we need to modify the accounting even before the banning happens.
+            self.mark_disconnected(&peer_id);
             Some(Disconnector { peer_id })
         } else {
             None
         }
+    }
+
+    fn mark_disconnected(&mut self, peer_id: &PeerId) {
+        for address in self.connected_peers.remove(peer_id).into_iter().flatten() {
+            self.connections.remove(&address);
+        }
+        self.roundtrip_times.remove(peer_id);
     }
 }
 
@@ -171,10 +184,9 @@ impl NetworkBehaviour for SwarmApi {
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        for address in self.connected_peers.remove(peer_id).into_iter().flatten() {
-            self.connections.remove(&address);
-        }
-        self.roundtrip_times.remove(peer_id);
+        // in rust-libp2p 0.19 this at least will not be invoked for a peer we boot by banning it.
+        log::trace!("inject_disconnected: {}", peer_id);
+        self.mark_disconnected(peer_id);
     }
 
     fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: void::Void) {}
