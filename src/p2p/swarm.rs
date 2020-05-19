@@ -133,7 +133,10 @@ impl NetworkBehaviour for SwarmApi {
 
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
         log::trace!("addresses_of_peer {}", peer_id);
-        self.connected_peers.get(peer_id).cloned().unwrap_or_default()
+        self.connected_peers
+            .get(peer_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn inject_connection_established(
@@ -143,7 +146,7 @@ impl NetworkBehaviour for SwarmApi {
         cp: &ConnectedPoint,
     ) {
         // TODO: could be that the connection is not yet fully established at this point
-        log::trace!("inject_connected {} {:?}", peer_id.to_string(), cp);
+        log::trace!("inject_connected {} {:?}", peer_id, cp);
         let addr = connection_point_addr(cp);
         self.peers.insert(peer_id.clone());
         let connections = self.connected_peers.entry(peer_id.clone()).or_default();
@@ -164,7 +167,7 @@ impl NetworkBehaviour for SwarmApi {
         _id: &ConnectionId,
         cp: &ConnectedPoint,
     ) {
-        log::trace!("inject_disconnected {} {:?}", peer_id.to_string(), cp);
+        log::trace!("inject_connection_closed {} {:?}", peer_id, cp);
         let closed_addr = connection_point_addr(cp);
         let became_empty = if let Some(connections) = self.connected_peers.get_mut(peer_id) {
             if let Some(index) = connections.iter().position(|addr| addr == closed_addr) {
