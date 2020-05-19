@@ -8,15 +8,11 @@ fn multiple_consecutive_ephemeral_listening_addresses() {
 
         let target = libp2p::build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16));
 
-        let first = node.add_listening_address(target.clone())
-            .await
-            .unwrap();
+        let first = node.add_listening_address(target.clone()).await.unwrap();
 
         assert_ne!(target, first);
 
-        let second = node.add_listening_address(target.clone())
-            .await
-            .unwrap();
+        let second = node.add_listening_address(target.clone()).await.unwrap();
 
         assert_ne!(target, second);
 
@@ -49,8 +45,10 @@ fn multiple_concurrent_ephemeral_listening_addresses_on_different_ip() {
         let node = ipfs::Node::new(MDNS).await;
 
         // hopefully this will work on all platforms
-        let first = node.add_listening_address(libp2p::build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16)));
-        let second = node.add_listening_address(libp2p::build_multiaddr!(Ip4([127, 0, 0, 2]), Tcp(0u16)));
+        let first =
+            node.add_listening_address(libp2p::build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16)));
+        let second =
+            node.add_listening_address(libp2p::build_multiaddr!(Ip4([127, 0, 0, 2]), Tcp(0u16)));
 
         let (first, second) = futures::future::join(first, second).await;
 
@@ -59,7 +57,6 @@ fn multiple_concurrent_ephemeral_listening_addresses_on_different_ip() {
         second.unwrap();
     });
 }
-
 
 #[test]
 fn remove_listening_address() {
@@ -70,7 +67,9 @@ fn remove_listening_address() {
         let unbound = libp2p::build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16));
         let first = node.add_listening_address(unbound.clone()).await.unwrap();
 
-        node.remove_listening_address(unbound.clone()).await.unwrap_err();
+        node.remove_listening_address(unbound.clone())
+            .await
+            .unwrap_err();
         node.remove_listening_address(first).await.unwrap();
     });
 }

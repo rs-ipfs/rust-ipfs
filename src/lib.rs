@@ -605,7 +605,9 @@ impl<Types: SwarmTypes> IpfsFuture<Types> {
             Some((_, maybe_sender)) => maybe_sender.take(),
             None => {
                 // try finding an ephemeral binding on the same prefix
-                let mut matching_keys = self.listening_addresses.keys()
+                let mut matching_keys = self
+                    .listening_addresses
+                    .keys()
                     .filter(|right| {
                         // try finding a matching (allowing a port number change from 0 to something
                         // non-zero)
@@ -618,20 +620,18 @@ impl<Types: SwarmTypes> IpfsFuture<Types> {
                             // give us issues in the long future?
                             addr.iter()
                                 .zip(right.iter())
-                                .all(|(left, right)| {
-                                    match (right, left) {
-                                        (Protocol::Tcp(0), Protocol::Tcp(x))
-                                        | (Protocol::Udp(0), Protocol::Udp(x))
-                                        | (Protocol::Sctp(0), Protocol::Sctp(x)) => {
-                                            assert_ne!(x, 0, "cannot have bound to port 0");
-                                            true
-                                        },
-                                        (Protocol::Memory(0), Protocol::Memory(x)) => {
-                                            assert_ne!(x, 0, "cannot have bound to port 0");
-                                            true
-                                        },
-                                        (right, left) => right == left,
+                                .all(|(left, right)| match (right, left) {
+                                    (Protocol::Tcp(0), Protocol::Tcp(x))
+                                    | (Protocol::Udp(0), Protocol::Udp(x))
+                                    | (Protocol::Sctp(0), Protocol::Sctp(x)) => {
+                                        assert_ne!(x, 0, "cannot have bound to port 0");
+                                        true
                                     }
+                                    (Protocol::Memory(0), Protocol::Memory(x)) => {
+                                        assert_ne!(x, 0, "cannot have bound to port 0");
+                                        true
+                                    }
+                                    (right, left) => right == left,
                                 })
                         }
                     })
@@ -644,17 +644,25 @@ impl<Types: SwarmTypes> IpfsFuture<Types> {
 
                     match (first, second) {
                         (first, None) => {
-                            if let Some((id, maybe_sender)) = self.listening_addresses.remove(&first) {
+                            if let Some((id, maybe_sender)) =
+                                self.listening_addresses.remove(&first)
+                            {
                                 self.listening_addresses.insert(addr.clone(), (id, None));
                                 maybe_sender
                             } else {
                                 unreachable!("We found a matching ephemeral key already, it must be in the listening_addresses")
                             }
-                        },
+                        }
                         (first, Some(second)) => {
                             // this is more complicated, but we are guarding
                             // against this in the from_facade match below
-                            unreachable!("More than one matching [{}, {}] and {:?} for {}", first, second, matching_keys.collect::<Vec<_>>(), addr);
+                            unreachable!(
+                                "More than one matching [{}, {}] and {:?} for {}",
+                                first,
+                                second,
+                                matching_keys.collect::<Vec<_>>(),
+                                addr
+                            );
                         }
                     }
                 } else {
@@ -676,7 +684,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         use futures::Stream;
-        use libp2p::{Swarm, swarm::SwarmEvent};
+        use libp2p::{swarm::SwarmEvent, Swarm};
 
         // begin by polling the swarm so that initially it'll first have chance to bind listeners
         // and such. TODO: this no longer needs to be a swarm event but perhaps we should
@@ -796,7 +804,8 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                         }
                     }
                     IpfsEvent::RemoveListeningAddress(addr, ret) => {
-                        let removed = if let Some((id, _)) = self.listening_addresses.remove(&addr) {
+                        let removed = if let Some((id, _)) = self.listening_addresses.remove(&addr)
+                        {
                             Swarm::remove_listener(&mut self.swarm, id).map_err(|_: ()| {
                                 format_err!(
                                     "Failed to remove previously added listening address: {}",
