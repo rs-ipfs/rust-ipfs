@@ -546,6 +546,13 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// if it is already being listened on. Currently will invoke `Swarm::listen_on` internally,
     /// keep the ListenerId for later `remove_listening_address` use in a HashMap.
     ///
+    /// The returned future will resolve on the first bound listening address when this is called
+    /// with `/ip4/0.0.0.0/...` or anything similar which will bound through multiple concrete
+    /// listening addresses.
+    ///
+    /// Trying to add an unspecified listening address while any other listening address adding is
+    /// in progress will result in error.
+    ///
     /// Returns the bound multiaddress, which in the case of original containing an ephemeral port
     /// has now been changed.
     pub async fn add_listening_address(&self, addr: Multiaddr) -> Result<Multiaddr, Error> {
@@ -561,6 +568,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Stop listening on a previously added listening address. Fails if the address is not being
     /// listened to.
+    ///
+    /// The removal of all listening addresses added through unspecified addresses is not supported.
     pub async fn remove_listening_address(&self, addr: Multiaddr) -> Result<(), Error> {
         let (tx, rx) = oneshot_channel();
 
@@ -598,8 +607,6 @@ impl<Types: SwarmTypes> IpfsFuture<Types> {
     /// the `self.listening_addresses` so that we can detect even the multiaddresses with ephemeral
     /// ports.
     fn complete_listening_address_adding(&mut self, addr: Multiaddr) {
-        use libp2p::core::multiaddr::Protocol;
-
         let maybe_sender = match self.listening_addresses.get_mut(&addr) {
             // matching a non-ephemeral is simpler
             Some((_, maybe_sender)) => maybe_sender.take(),
@@ -608,33 +615,7 @@ impl<Types: SwarmTypes> IpfsFuture<Types> {
                 let mut matching_keys = self
                     .listening_addresses
                     .keys()
-                    .filter(|right| {
-                        // try finding a matching (allowing a port number change from 0 to something
-                        // non-zero)
-                        if right.len() != addr.len() {
-                            // no zip_longest in std
-                            false
-                        } else {
-                            // this is could be wrong at least in the future; /p2p/peerid is not a
-                            // valid suffix but I could imagine some kind of ws or webrtc could
-                            // give us issues in the long future?
-                            addr.iter()
-                                .zip(right.iter())
-                                .all(|(left, right)| match (right, left) {
-                                    (Protocol::Tcp(0), Protocol::Tcp(x))
-                                    | (Protocol::Udp(0), Protocol::Udp(x))
-                                    | (Protocol::Sctp(0), Protocol::Sctp(x)) => {
-                                        assert_ne!(x, 0, "cannot have bound to port 0");
-                                        true
-                                    }
-                                    (Protocol::Memory(0), Protocol::Memory(x)) => {
-                                        assert_ne!(x, 0, "cannot have bound to port 0");
-                                        true
-                                    }
-                                    (right, left) => right == left,
-                                })
-                        }
-                    })
+                    .filter(|right| could_be_bound_from_ephemeral(0, &addr, right))
                     .cloned();
 
                 let first = matching_keys.next();
@@ -666,9 +647,34 @@ impl<Types: SwarmTypes> IpfsFuture<Types> {
                         }
                     }
                 } else {
-                    // TODO: once we remove the "listen to ephemeral localhost port
-                    // by default" we can make this unreachable! as well.. likely
-                    None
+                    // this case is hit when user asks for /ip4/0.0.0.0/tcp/0 for example, the
+                    // libp2p will bound to multiple addresses but we will not get access in 0.19
+                    // to their ListenerIds.
+
+                    let first = self
+                        .listening_addresses
+                        .iter()
+                        .filter(|(addr, _)| starts_unspecified(addr))
+                        .filter(|(could_have_ephemeral, _)| {
+                            could_be_bound_from_ephemeral(1, &addr, could_have_ephemeral)
+                        })
+                        // finally we want to make sure we only match on addresses which are yet to
+                        // be reported back
+                        .filter(|(_, (_, maybe_sender))| maybe_sender.is_some())
+                        .map(|(addr, _)| addr.to_owned())
+                        .next();
+
+                    if let Some(first) = first {
+                        let (id, maybe_sender) = self
+                            .listening_addresses
+                            .remove(&first)
+                            .expect("just filtered this key out");
+                        self.listening_addresses.insert(addr.clone(), (id, None));
+                        log::trace!("guessing the first match for {} to be {}", first, addr);
+                        maybe_sender
+                    } else {
+                        None
+                    }
                 }
             }
         };
@@ -681,6 +687,18 @@ impl<Types: SwarmTypes> IpfsFuture<Types> {
     fn start_add_listener_address(&mut self, addr: Multiaddr, ret: Channel<Multiaddr>) {
         use libp2p::Swarm;
         use std::collections::hash_map::Entry;
+
+        if starts_unspecified(&addr)
+            && self
+                .listening_addresses
+                .values()
+                .filter(|(_, maybe_sender)| maybe_sender.is_some())
+                .count()
+                > 0
+        {
+            let _ = ret.send(Err(format_err!("Cannot start listening to unspecified address when there are pending specified addresses awaiting")));
+            return;
+        }
 
         match self.listening_addresses.entry(addr) {
             Entry::Occupied(oe) => {
@@ -928,14 +946,125 @@ mod node {
     }
 }
 
+// Checks if the multiaddr starts with ip4 or ip6 unspecified address, like 0.0.0.0
+fn starts_unspecified(addr: &Multiaddr) -> bool {
+    use libp2p::core::multiaddr::Protocol;
+
+    match addr.iter().next() {
+        Some(Protocol::Ip4(ip4)) if ip4.is_unspecified() => true,
+        Some(Protocol::Ip6(ip6)) if ip6.is_unspecified() => true,
+        _ => false,
+    }
+}
+
+fn could_be_bound_from_ephemeral(
+    skip: usize,
+    bound: &Multiaddr,
+    may_have_ephemeral: &Multiaddr,
+) -> bool {
+    use libp2p::core::multiaddr::Protocol;
+
+    if bound.len() != may_have_ephemeral.len() {
+        // no zip_longest in std
+        false
+    } else {
+        // this is could be wrong at least in the future; /p2p/peerid is not a
+        // valid suffix but I could imagine some kind of ws or webrtc could
+        // give us issues in the long future?
+        bound
+            .iter()
+            .skip(skip)
+            .zip(may_have_ephemeral.iter().skip(skip))
+            .all(|(left, right)| match (right, left) {
+                (Protocol::Tcp(0), Protocol::Tcp(x))
+                | (Protocol::Udp(0), Protocol::Udp(x))
+                | (Protocol::Sctp(0), Protocol::Sctp(x)) => {
+                    assert_ne!(x, 0, "cannot have bound to port 0");
+                    true
+                }
+                (Protocol::Memory(0), Protocol::Memory(x)) => {
+                    assert_ne!(x, 0, "cannot have bound to port 0");
+                    true
+                }
+                (right, left) => right == left,
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use async_std::task;
     use libipld::ipld;
+    use libp2p::build_multiaddr;
     use multihash::Sha2_256;
 
     const MDNS: bool = false;
+
+    #[test]
+    fn unspecified_multiaddrs() {
+        assert!(starts_unspecified(&build_multiaddr!(
+            Ip4([0, 0, 0, 0]),
+            Tcp(1u16)
+        )));
+        assert!(starts_unspecified(&build_multiaddr!(
+            Ip6([0, 0, 0, 0, 0, 0, 0, 0]),
+            Tcp(1u16)
+        )));
+    }
+
+    #[test]
+    fn localhost_multiaddrs_are_not_unspecified() {
+        assert!(!starts_unspecified(&build_multiaddr!(
+            Ip4([127, 0, 0, 1]),
+            Tcp(1u16)
+        )));
+        assert!(!starts_unspecified(&build_multiaddr!(
+            Ip6([0, 0, 0, 0, 0, 0, 0, 1]),
+            Tcp(1u16)
+        )));
+    }
+
+    #[test]
+    fn bound_ephemerals() {
+        assert!(could_be_bound_from_ephemeral(
+            0,
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16))
+        ));
+        assert!(could_be_bound_from_ephemeral(
+            1,
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16))
+        ));
+        assert!(could_be_bound_from_ephemeral(
+            1,
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([0, 0, 0, 0]), Tcp(0u16))
+        ));
+        assert!(could_be_bound_from_ephemeral(
+            1,
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([0, 0, 0, 0]), Tcp(0u16))
+        ));
+
+        assert!(!could_be_bound_from_ephemeral(
+            0,
+            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16))
+        ));
+        assert!(could_be_bound_from_ephemeral(
+            1,
+            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16))
+        ));
+
+        assert!(!could_be_bound_from_ephemeral(
+            1,
+            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(44444u16))
+        ));
+    }
 
     #[async_std::test]
     async fn test_put_and_get_block() {
