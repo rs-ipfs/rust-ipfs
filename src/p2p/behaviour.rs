@@ -58,18 +58,22 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<KademliaEvent>
     for Behaviour<TSwarmTypes>
 {
     fn inject_event(&mut self, event: KademliaEvent) {
-        use libp2p::kad::{GetProvidersError, GetProvidersOk};
+        use libp2p::kad::{GetProvidersError, GetProvidersOk, QueryResult};
 
         match event {
             KademliaEvent::Discovered { peer_id, ty, .. } => {
                 log::trace!("kad: Discovered peer {} {:?}", peer_id.to_base58(), ty);
                 self.add_peer(peer_id);
             }
-            KademliaEvent::GetProvidersResult(Ok(GetProvidersOk {
-                key,
-                providers,
-                closest_peers,
-            })) => {
+            KademliaEvent::QueryResult {
+                result:
+                    QueryResult::GetProviders(Ok(GetProvidersOk {
+                        key,
+                        providers,
+                        closest_peers,
+                    })),
+                ..
+            } => {
                 // FIXME: really wasteful to run this through Vec
                 let cid = PeerId::from_bytes(key.to_vec()).unwrap().to_base58();
                 if providers.is_empty() {
@@ -82,7 +86,10 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<KademliaEvent>
                     }
                 }
             }
-            KademliaEvent::GetProvidersResult(Err(GetProvidersError::Timeout { key, .. })) => {
+            KademliaEvent::QueryResult {
+                result: QueryResult::GetProviders(Err(GetProvidersError::Timeout { key, .. })),
+                ..
+            } => {
                 // FIXME: really wasteful to run this through Vec
                 let cid = PeerId::from_bytes(key.to_vec()).unwrap().to_base58();
                 warn!("kad: timed out get providers query for {}", cid);
