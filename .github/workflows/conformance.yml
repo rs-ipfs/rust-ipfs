@@ -20,9 +20,9 @@ jobs:
           host: ubuntu-latest
           cross: false
 
-        - target: x86_64-apple-darwin
-          host: macos-latest
-          cross: false
+#         - target: x86_64-apple-darwin
+#           host: macos-latest
+#           cross: false
 
 #         - target: x86_64-pc-windows-msvc
 #           host: windows-latest
