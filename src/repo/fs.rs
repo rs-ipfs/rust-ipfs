@@ -15,6 +15,8 @@ use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::sync::{Arc, Mutex};
 
+use super::{BlockRm, BlockRmError};
+
 #[derive(Clone, Debug)]
 pub struct FsBlockStore {
     path: PathBuf,
@@ -106,14 +108,24 @@ impl BlockStore for FsBlockStore {
         Ok((block.cid().to_owned(), retval))
     }
 
-    async fn remove(&self, cid: &Cid) -> Result<(), Error> {
+    async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
         let path = block_path(self.path.clone(), cid);
-        let cid = cid.to_owned();
         let cids = self.cids.clone();
+
+        // We want to panic if there's a mutex unlock error
+        // TODO: Check for pinned blocks here? Instead of repo?
         if cids.lock().unwrap().remove(&cid) {
             fs::remove_file(path).await?;
+            Ok(Ok(BlockRm::Removed(cid.clone())))
+        } else {
+            Ok(Err(BlockRmError::NotFound(cid.clone())))
         }
-        Ok(())
+    }
+
+    async fn list(&self) -> Result<Vec<Cid>, Error> {
+        // unwrapping as we want to panic on poisoned lock
+        let guard = self.cids.lock().unwrap();
+        Ok(guard.iter().cloned().collect())
     }
 }
 
@@ -238,15 +250,16 @@ mod tests {
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
         let block = Block::new(data, cid.clone());
 
-        assert_eq!(store.init().await.unwrap(), ());
-        assert_eq!(store.open().await.unwrap(), ());
+        store.init().await.unwrap();
+        store.open().await.unwrap();
 
         let contains = store.contains(&cid);
         assert_eq!(contains.await.unwrap(), false);
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), None);
-        let remove = store.remove(&cid);
-        assert_eq!(remove.await.unwrap(), ());
+        if store.remove(&cid).await.unwrap().is_ok() {
+            panic!("block should not be found")
+        }
 
         let put = store.put(block.clone());
         assert_eq!(put.await.unwrap().0, cid.to_owned());
@@ -255,8 +268,7 @@ mod tests {
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), Some(block.clone()));
 
-        let remove = store.remove(&cid);
-        assert_eq!(remove.await.unwrap(), ());
+        store.remove(&cid).await.unwrap().unwrap();
         let contains = store.contains(&cid);
         assert_eq!(contains.await.unwrap(), false);
         let get = store.get(&cid);
@@ -291,6 +303,30 @@ mod tests {
     }
 
     #[async_std::test]
+    async fn test_fs_blockstore_list() {
+        let mut tmp = temp_dir();
+        tmp.push("blockstore_list");
+        std::fs::remove_dir_all(&tmp).ok();
+
+        let block_store = FsBlockStore::new(tmp.clone().into());
+        block_store.init().await.unwrap();
+        block_store.open().await.unwrap();
+
+        for data in &[b"1", b"2", b"3"] {
+            let data_slice = data.to_vec().into_boxed_slice();
+            let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data_slice));
+            let block = Block::new(data_slice, cid);
+            block_store.put(block.clone()).await.unwrap();
+        }
+
+        let cids = block_store.list().await.unwrap();
+        assert_eq!(cids.len(), 3);
+        for cid in cids.iter() {
+            assert!(block_store.contains(cid).await.unwrap());
+        }
+    }
+
+    #[async_std::test]
     #[cfg(feature = "rocksdb")]
     fn test_rocks_datastore() {
         let mut tmp = temp_dir();
@@ -302,25 +338,22 @@ mod tests {
         let key = [1, 2, 3, 4];
         let value = [5, 6, 7, 8];
 
-        assert_eq!(store.init().await.unwrap(), ());
-        assert_eq!(store.open().await.unwrap(), ());
+        store.init().await.unwrap();
+        store.open().await.unwrap();
 
         let contains = store.contains(col, &key);
         assert_eq!(contains.await.unwrap(), false);
         let get = store.get(col, &key);
         assert_eq!(get.await.unwrap(), None);
-        let remove = store.remove(col, &key);
-        assert_eq!(remove.await.unwrap(), ());
+        store.remove(col, &key).await.unwrap();
 
-        let put = store.put(col, &key, &value);
-        assert_eq!(put.await.unwrap(), ());
+        store.put(col, &key, &value).await.unwrap();
         let contains = store.contains(col, &key);
         assert_eq!(contains.await.unwrap(), true);
         let get = store.get(col, &key);
         assert_eq!(get.await.unwrap(), Some(value.to_vec()));
 
-        let remove = store.remove(col, &key);
-        assert_eq!(remove.await.unwrap(), ());
+        store.remove(col, &key).await.unwrap();
         let contains = store.contains(col, &key);
         assert_eq!(contains.await.unwrap(), false);
         let get = store.get(col, &key);

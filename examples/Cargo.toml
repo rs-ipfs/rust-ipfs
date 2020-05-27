@@ -10,5 +10,5 @@ async-std = "1.5.0"
 env_logger = "0.7.1"
 futures = "0.3.4"
 ipfs = { path = ".." }
-libipld = "0.1.0"
+libipld = { git = "https://github.com/ipfs-rust/rust-ipld", rev = "b2286c53c13f3eeec2a3766387f2926838e8e4c9", features = ["dag-pb", "dag-json"] }
 multihash = "0.10.1"

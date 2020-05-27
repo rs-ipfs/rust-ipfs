@@ -5,7 +5,7 @@
 
 > The Interplanetary File System (IPFS), implemented in Rust
 
-[![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme) [![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/ipfs-rust) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW)
+[![Financial Contributors on Open Collective](https://opencollective.com/rs-ipfs/all/badge.svg?label=financial+contributors)](https://opencollective.com/rs-ipfs) [![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme) [![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/rs-ipfs) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW)
 
 
 ## Description
@@ -14,13 +14,13 @@ This repository contains the crates for the IPFS core implementation which inclu
 
 ### Project Status - `Pre-Alpha`
 
-There's a lot of great work in here, and a lot more coming that isn't implemented yet. Recently, this project was awarded a [dev grant from Protocol Labs](https://github.com/ipfs/devgrants/tree/master/open-grants/ipfs-rust), empowering us to raise our level of conformance. After the grant work is complete the project will achieve alpha stage.
+There's a lot of great work in here, and a lot more coming that isn't implemented yet. Recently, this project was awarded a [dev grant from Protocol Labs](https://github.com/ipfs/devgrants/tree/master/open-grants/rs-ipfs), empowering us to raise our level of conformance. After the grant work is complete the project will achieve alpha stage.
 
 ### You can help.
 
 PRs and Issues accepted for any of the following. See [the contributing docs](./CONTRIBUTING.md) for more info.
 * Implement endpoints not covered by the devgrant proposal. See the [roadmap section](#roadmap) below
-* Back the project financially by reaching out or by becoming a backer on [OpenCollective](https://opencollective.com/ipfs-rust)
+* Back the project financially by reaching out or by becoming a backer on [OpenCollective](https://opencollective.com/rs-ipfs)
 
 ### What is IPFS?
 
@@ -47,7 +47,7 @@ For more info see: https://docs.ipfs.io/introduction/overview/
 The `rust-ipfs` binaries can be built from source. Our goal is to always be compatible with the **stable** release of Rust.
 
 ```bash
-$ git clone https://github.com/ipfs-rust/rust-ipfs && cd rust-ipfs
+$ git clone https://github.com/rs-ipfs/rust-ipfs && cd rust-ipfs
 $ cargo build --workspace
 ```
 
@@ -100,33 +100,25 @@ More usage examples coming soon :+1:
 
 A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs](https://github.com/ipfs/devgrants/tree/master/open-grants/ipfs-rust). In the proposal, we discussed using implemented HTTP API endpoints as a metric to determine progress. _There are always opportunities for community members to contribute by helping out with endpoints not covered in the grant._
 
-### Devgrant Phase 1.0 - `Complete`
+### Devgrant Phase 1 - `Complete`
 
-- Project Setup
-- Testing Setup
-    - Conformance testing
-    - Interop testing
-- HTTP API Scaffolding
+* Project Setup
+* Testing Setup
+    * Conformance testing
+* HTTP API Scaffolding
+* `/pubsub/{ publish, subscribe, unsubscribe, peers, ls }`
+* `/swarm/{connect, peers, addrs, localAddrs, disconnect }`
+* `/id`
+* `/version`
+* `/stop`
+* `/block/{ get, add, rm, stat }`
+* `/dag/{ put, resolve }`
+* `/refs` and `/refs/local`
+* `/bitswap/{ stat, wantlist }`
 
-### Devgrant Phase 1.1 - `Complete`
+### Work still required (APIs)
 
-- Blockstore implementation
-- /pubsub
-- /swarm
-- /version
-- /id
-
-### Devgrant Phase 1.2 - `In Progress`
-
-- Bitswap updates
-- /block
-- /dag
-- /refs
-- /bitswap
-
-### Work not covered by the grant
-
-- /object
+- Interop testing
 - /pin
 - /bootstrap
 - /dht
@@ -136,11 +128,41 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
 - /config
 - /stats
 - /files (regular and mfs)
-- a few othrer miscellaneous endpoints as well not enumerated here
+- a few other miscellaneous endpoints not enumerated here
 
 ## Maintainers
 
-Rust IPFS is currently actively maintained by @dvc94ch, @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol), [Equilibrium Labs](https://github.com/eqlabs), and [MRH.io](https://mrh.io).
+Rust IPFS is actively maintained by @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol), [Equilibrium Labs](https://github.com/eqlabs), and [MRH.io](https://mrh.io).
+
+## Contributors
+
+### Code Contributors
+
+This project exists thanks to all the people who contribute. [[Contribute](CONTRIBUTING.md)].
+<a href="https://github.com/rs-ipfs/rust-ipfs/graphs/contributors"><img src="https://opencollective.com/rs-ipfs/contributors.svg?width=890&button=false" /></a>
+
+### Financial Contributors
+
+Become a financial contributor and help us sustain our community. [[Contribute](https://opencollective.com/rs-ipfs/contribute)]
+
+#### Individuals
+
+<a href="https://opencollective.com/rs-ipfs"><img src="https://opencollective.com/rs-ipfs/individuals.svg?width=890"></a>
+
+#### Organizations
+
+Support this project with your organization. Your logo will show up here with a link to your website. [[Contribute](https://opencollective.com/rs-ipfs/contribute)]
+
+<a href="https://opencollective.com/rs-ipfs/organization/0/website"><img src="https://opencollective.com/rs-ipfs/organization/0/avatar.svg"></a>
+<a href="https://opencollective.com/rs-ipfs/organization/1/website"><img src="https://opencollective.com/rs-ipfs/organization/1/avatar.svg"></a>
+<a href="https://opencollective.com/rs-ipfs/organization/2/website"><img src="https://opencollective.com/rs-ipfs/organization/2/avatar.svg"></a>
+<a href="https://opencollective.com/rs-ipfs/organization/3/website"><img src="https://opencollective.com/rs-ipfs/organization/3/avatar.svg"></a>
+<a href="https://opencollective.com/rs-ipfs/organization/4/website"><img src="https://opencollective.com/rs-ipfs/organization/4/avatar.svg"></a>
+<a href="https://opencollective.com/rs-ipfs/organization/5/website"><img src="https://opencollective.com/rs-ipfs/organization/5/avatar.svg"></a>
+<a href="https://opencollective.com/rs-ipfs/organization/6/website"><img src="https://opencollective.com/rs-ipfs/organization/6/avatar.svg"></a>
+<a href="https://opencollective.com/rs-ipfs/organization/7/website"><img src="https://opencollective.com/rs-ipfs/organization/7/avatar.svg"></a>
+<a href="https://opencollective.com/rs-ipfs/organization/8/website"><img src="https://opencollective.com/rs-ipfs/organization/8/avatar.svg"></a>
+<a href="https://opencollective.com/rs-ipfs/organization/9/website"><img src="https://opencollective.com/rs-ipfs/organization/9/avatar.svg"></a>
 
 ## License
 

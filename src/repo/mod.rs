@@ -11,7 +11,7 @@ use core::fmt::Debug;
 use core::marker::PhantomData;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::sink::SinkExt;
-use libipld::cid::Cid;
+use libipld::cid::{self, Cid};
 use libp2p::core::PeerId;
 
 pub mod fs;
@@ -53,6 +53,20 @@ pub enum BlockPut {
     Existed,
 }
 
+#[derive(Debug)]
+pub enum BlockRm {
+    Removed(Cid),
+    // TODO: DownloadCancelled(Cid, Duration),
+}
+
+// pub struct BlockNotFound(Cid);
+
+#[derive(Debug)]
+pub enum BlockRmError {
+    // TODO: Pinned(Cid),
+    NotFound(Cid),
+}
+
 /// This API is being discussed and evolved, which will likely lead to breakage.
 #[async_trait]
 pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
@@ -62,7 +76,8 @@ pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
     async fn contains(&self, cid: &Cid) -> Result<bool, Error>;
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error>;
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error>;
-    async fn remove(&self, cid: &Cid) -> Result<(), Error>;
+    async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error>;
+    async fn list(&self) -> Result<Vec<Cid>, Error>;
 }
 
 #[async_trait]
@@ -95,6 +110,47 @@ pub enum RepoEvent {
     WantBlock(Cid),
     ProvideBlock(Cid),
     UnprovideBlock(Cid),
+}
+
+/// Extension trait to easily upgrade owned values from possibly cidv0 to cidv1. The Cid version
+/// upgrade is done to support the "put as cidv0, get as cidv1" tests. The change is not
+/// communicated outside of the [`Repo`], as the "end user" doesn't need to know the Cid version
+/// may have been upgraded.
+trait CidUpgrade: Sized {
+    /// Returns the otherwise the equivalent value from `self` but with Cid version 1
+    fn with_upgraded_cid(self) -> Self;
+}
+
+/// Extension trait similar to [`CidUpgrade`] but for non-owned types.
+trait CidUpgradedRef: Sized {
+    /// Returns the otherwise the equivalent value from `&self` but with Cid version 1
+    fn as_upgraded_cid(&self) -> Self;
+}
+
+impl CidUpgrade for Cid {
+    fn with_upgraded_cid(self) -> Cid {
+        self.as_upgraded_cid()
+    }
+}
+
+impl CidUpgradedRef for Cid {
+    fn as_upgraded_cid(&self) -> Cid {
+        if self.version() == cid::Version::V0 {
+            Cid::new_v1(self.codec(), self.hash().to_owned())
+        } else {
+            self.clone()
+        }
+    }
+}
+
+impl CidUpgrade for Block {
+    fn with_upgraded_cid(self) -> Block {
+        let Block { cid, data } = self;
+        Block {
+            cid: cid.with_upgraded_cid(),
+            data,
+        }
+    }
 }
 
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
@@ -147,31 +203,42 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Puts a block into the block store.
     pub async fn put_block(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
+        let original_cid = block.cid.clone();
+        let block = block.with_upgraded_cid();
         let (cid, res) = self.block_store.put(block.clone()).await?;
         self.subscriptions
             .lock()
             .await
+            // subscriptions are per cidv1
             .finish_subscription(&cid, block);
         // sending only fails if no one is listening anymore
         // and that is okay with us.
         self.events
             .clone()
+            // provide only cidv1
             .send(RepoEvent::ProvideBlock(cid.clone()))
             .await
             .ok();
-        Ok((cid, res))
+        Ok((original_cid, res))
     }
 
-    /// Retrives a block from the block store.
+    /// Retrives a block from the block store, or starts fetching it from the network and awaits
+    /// until it has been fetched.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
-        if let Some(block) = self.block_store.get(&cid).await? {
-            Ok(block)
+        let upgraded = cid.as_upgraded_cid();
+        if let Some(Block { data, .. }) = self.block_store.get(&upgraded).await? {
+            Ok(Block {
+                data,
+                // give back using the requested cid which may have been cidv0
+                cid: cid.clone(),
+            })
         } else {
             let subscription = self
                 .subscriptions
                 .lock()
                 .await
-                .create_subscription(cid.clone());
+                // subscribe always by using the cidv1
+                .create_subscription(upgraded.clone());
             // sending only fails if no one is listening anymore
             // and that is okay with us.
             self.events
@@ -183,19 +250,37 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         }
     }
 
+    pub async fn list_blocks(&self) -> Result<Vec<Cid>, Error> {
+        Ok(self.block_store.list().await?)
+    }
+
     /// Remove block from the block store.
-    pub async fn remove_block(&self, cid: &Cid) -> Result<(), Error> {
-        if self.is_pinned(cid).await? {
+    pub async fn remove_block(&self, original: &Cid) -> Result<Cid, Error> {
+        let cid = original.as_upgraded_cid();
+        if self.is_pinned(&cid).await? {
             return Err(anyhow::anyhow!("block to remove is pinned"));
         }
+
         // sending only fails if the background task has exited
         self.events
             .clone()
-            .send(RepoEvent::UnprovideBlock(cid.to_owned()))
+            // unprovide only cidv1
+            .send(RepoEvent::UnprovideBlock(cid.clone()))
             .await
             .ok();
-        self.block_store.remove(cid).await?;
-        Ok(())
+
+        // FIXME: Need to change location of pinning logic.
+        // I like this pattern of the repo abstraction being some sort of
+        // "clearing house" for the underlying result enums, but this
+        // could potentially be pushed out out of here up to Ipfs, idk
+        match self.block_store.remove(&cid).await? {
+            Ok(success) => match success {
+                BlockRm::Removed(_cid) => Ok(original.clone()),
+            },
+            Err(err) => match err {
+                BlockRmError::NotFound(_cid) => Err(anyhow::anyhow!("block not found")),
+            },
+        }
     }
 
     /// Get an ipld path from the datastore.
@@ -230,6 +315,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
+        let cid = cid.as_upgraded_cid();
         let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
 
         match pin_value {
@@ -250,10 +336,12 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
+        let cid = cid.as_upgraded_cid();
         self.data_store.contains(Column::Pin, &cid.to_bytes()).await
     }
 
     pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
+        let cid = cid.as_upgraded_cid();
         let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
 
         match pin_value {

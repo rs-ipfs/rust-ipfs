@@ -96,16 +96,16 @@ jobs:
 
     - name: Build
       if: matrix.platform.cross == false
-      run: cargo build --workspace
+      run: cargo build --locked --workspace --tests --examples
 
     - name: Build android
       if: contains(matrix.platform.target, 'android')
-      run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --workspace --exclude ipfs-http
+      run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --locked --workspace --exclude ipfs-http
       # exclude http on android because openssl
 
     - name: Build other cross compilations
       if: contains(matrix.platform.target, 'android') == false && matrix.platform.cross == true
-      run: cargo build --workspace --exclude ipfs-http --target ${{ matrix.platform.target }}
+      run: cargo build --locked --workspace --exclude ipfs-http --target ${{ matrix.platform.target }}
       # exclude http on other cross compilation targets because openssl
 
     - name: Rust tests
@@ -134,7 +134,7 @@ jobs:
       run: cargo fmt --all -- --check
 
     - name: cargo clippy
-      run: cargo clippy -- -D warnings
+      run: cargo clippy --workspace --examples --tests -- -D warnings
 
   readme-doctest:
     runs-on: ubuntu-latest

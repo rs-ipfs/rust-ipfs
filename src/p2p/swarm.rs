@@ -1,6 +1,6 @@
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use core::task::{Context, Poll};
-use libp2p::core::{ConnectedPoint, Multiaddr, PeerId};
+use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::swarm::protocols_handler::{
     DummyProtocolsHandler, IntoProtocolsHandler, ProtocolsHandler,
 };
@@ -8,19 +8,27 @@ use libp2p::swarm::{self, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
-#[derive(Clone, Debug)]
+/// A description of currently active connection.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Connection {
+    /// The connected peer.
     pub peer_id: PeerId,
+    /// Any connecting address of the peer as peers can have multiple connections to
     pub address: Multiaddr,
+    /// Latest ping report on any of the connections
     pub rtt: Option<Duration>,
 }
 
+/// Disconnected will use banning to disconnect a node. Disconnecting a single peer connection is
+/// not supported at the moment.
 pub struct Disconnector {
     peer_id: PeerId,
 }
 
 impl Disconnector {
-    pub fn disconnect<T: NetworkBehaviour>(self, swarm: &mut Swarm<T>) {
+    pub fn disconnect<T: NetworkBehaviour>(self, swarm: &mut Swarm<T>)
+        where <<<T as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent: std::clone::Clone
+    {
         Swarm::ban_peer_id(swarm, self.peer_id.clone());
         Swarm::unban_peer_id(swarm, self.peer_id);
     }
@@ -34,8 +42,9 @@ pub struct SwarmApi {
     events: VecDeque<NetworkBehaviourAction>,
     peers: HashSet<PeerId>,
     connect_registry: SubscriptionRegistry<Multiaddr, Result<(), String>>,
-    connections: HashMap<Multiaddr, Connection>,
-    connected_peers: HashMap<PeerId, Multiaddr>,
+    connections: HashMap<Multiaddr, PeerId>,
+    roundtrip_times: HashMap<PeerId, Duration>,
+    connected_peers: HashMap<PeerId, Vec<Multiaddr>>,
 }
 
 impl SwarmApi {
@@ -55,16 +64,27 @@ impl SwarmApi {
         self.peers.remove(peer_id);
     }
 
-    pub fn connections(&self) -> impl Iterator<Item = &Connection> {
-        self.connections.iter().map(|(_, conn)| conn)
+    pub fn connections(&self) -> impl Iterator<Item = Connection> + '_ {
+        self.connected_peers
+            .iter()
+            .filter_map(move |(peer, conns)| {
+                let rtt = self.roundtrip_times.get(peer).cloned();
+
+                if let Some(any) = conns.first() {
+                    Some(Connection {
+                        peer_id: peer.clone(),
+                        address: any.clone(),
+                        rtt,
+                    })
+                } else {
+                    None
+                }
+            })
     }
 
     pub fn set_rtt(&mut self, peer_id: &PeerId, rtt: Duration) {
-        if let Some(addr) = self.connected_peers.get(peer_id) {
-            if let Some(mut conn) = self.connections.get_mut(addr) {
-                conn.rtt = Some(rtt);
-            }
-        }
+        // FIXME: this is for any connection
+        self.roundtrip_times.insert(peer_id.clone(), rtt);
     }
 
     pub fn connect(&mut self, address: Multiaddr) -> SubscriptionFuture<Result<(), String>> {
@@ -77,15 +97,28 @@ impl SwarmApi {
 
     pub fn disconnect(&mut self, address: Multiaddr) -> Option<Disconnector> {
         log::trace!("disconnect {}", address);
-        self.connections.remove(&address);
-        let peer_id = self
-            .connections
-            .get(&address)
-            .map(|conn| conn.peer_id.clone());
-        if let Some(peer_id) = &peer_id {
-            self.connected_peers.remove(peer_id);
+        // FIXME: closing a single specific connection would be allowed for ProtocolHandlers
+        let peer_id = self.connections.remove(&address);
+
+        if let Some(peer_id) = peer_id {
+            // wasted some time wondering if the peer should be removed here or not; it should. the
+            // API is a bit ackward since we can't tolerate the Disconnector::disconnect **not**
+            // being called.
+            //
+            // there are currently no events being fired from the closing of connections to banned
+            // peer, so we need to modify the accounting even before the banning happens.
+            self.mark_disconnected(&peer_id);
+            Some(Disconnector { peer_id })
+        } else {
+            None
         }
-        peer_id.map(|peer_id| Disconnector { peer_id })
+    }
+
+    fn mark_disconnected(&mut self, peer_id: &PeerId) {
+        for address in self.connected_peers.remove(peer_id).into_iter().flatten() {
+            self.connections.remove(&address);
+        }
+        self.roundtrip_times.remove(peer_id);
     }
 }
 
@@ -100,41 +133,66 @@ impl NetworkBehaviour for SwarmApi {
 
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
         log::trace!("addresses_of_peer {}", peer_id);
-        if let Some(addr) = self.connected_peers.get(peer_id).cloned() {
-            vec![addr]
-        } else {
-            Default::default()
-        }
+        self.connected_peers
+            .get(peer_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
-    fn inject_connected(&mut self, peer_id: PeerId, cp: ConnectedPoint) {
-        log::trace!("inject_connected {} {:?}", peer_id.to_string(), cp);
-        let addr = match cp {
-            ConnectedPoint::Dialer { address } => address,
-            ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
-        };
-        let conn = Connection {
-            peer_id: peer_id.clone(),
-            address: addr.clone(),
-            rtt: None,
-        };
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        _id: &ConnectionId,
+        cp: &ConnectedPoint,
+    ) {
+        // TODO: could be that the connection is not yet fully established at this point
+        log::trace!("inject_connected {} {:?}", peer_id, cp);
+        let addr = connection_point_addr(cp);
         self.peers.insert(peer_id.clone());
-        self.connected_peers.insert(peer_id, addr.clone());
-        self.connections.insert(addr.clone(), conn);
+        let connections = self.connected_peers.entry(peer_id.clone()).or_default();
+
+        connections.push(addr.clone());
+
+        self.connections.insert(addr.clone(), peer_id.clone());
         self.connect_registry.finish_subscription(&addr, Ok(()));
     }
 
-    fn inject_disconnected(&mut self, peer_id: &PeerId, cp: ConnectedPoint) {
-        log::trace!("inject_disconnected {} {:?}", peer_id.to_string(), cp);
-        let addr = match cp {
-            ConnectedPoint::Dialer { address } => address,
-            ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
-        };
-        self.connected_peers.remove(peer_id);
-        self.connections.remove(&addr);
+    fn inject_connected(&mut self, _peer_id: &PeerId) {
+        // we have at least one fully open connection and handler is running
     }
 
-    fn inject_node_event(&mut self, _peer_id: PeerId, _event: void::Void) {}
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        _id: &ConnectionId,
+        cp: &ConnectedPoint,
+    ) {
+        log::trace!("inject_connection_closed {} {:?}", peer_id, cp);
+        let closed_addr = connection_point_addr(cp);
+        let became_empty = if let Some(connections) = self.connected_peers.get_mut(peer_id) {
+            if let Some(index) = connections.iter().position(|addr| addr == closed_addr) {
+                connections.swap_remove(index);
+            }
+            connections.is_empty()
+        } else {
+            false
+        };
+        if became_empty {
+            self.connected_peers.remove(peer_id);
+        }
+        self.connections.remove(closed_addr);
+        // FIXME: should be an error
+        self.connect_registry
+            .finish_subscription(closed_addr, Ok(()));
+    }
+
+    fn inject_disconnected(&mut self, peer_id: &PeerId) {
+        // in rust-libp2p 0.19 this at least will not be invoked for a peer we boot by banning it.
+        log::trace!("inject_disconnected: {}", peer_id);
+        self.mark_disconnected(peer_id);
+    }
+
+    fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: void::Void) {}
 
     fn inject_addr_reach_failure(
         &mut self,
@@ -160,6 +218,13 @@ impl NetworkBehaviour for SwarmApi {
     }
 }
 
+fn connection_point_addr(cp: &ConnectedPoint) -> &Multiaddr {
+    match cp {
+        ConnectedPoint::Dialer { address } => address,
+        ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,10 +242,10 @@ mod tests {
         env_logger::init();
 
         let (peer1_id, trans) = mk_transport();
-        let mut swarm1 = Swarm::new(trans, SwarmApi::new(), peer1_id.clone());
+        let mut swarm1 = Swarm::new(trans, SwarmApi::new(), peer1_id);
 
         let (peer2_id, trans) = mk_transport();
-        let mut swarm2 = Swarm::new(trans, SwarmApi::new(), peer2_id.clone());
+        let mut swarm2 = Swarm::new(trans, SwarmApi::new(), peer2_id);
 
         let (mut tx, mut rx) = mpsc::channel::<Multiaddr>(1);
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();

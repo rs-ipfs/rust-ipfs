@@ -266,7 +266,7 @@ mod tests {
         let s2 = registry.create_subscription(0);
 
         // make sure it timeouted but had time to register the waker
-        drop(s1.await.unwrap_err());
+        s1.await.unwrap_err();
 
         // this will cause a call to waker installed by s1, but it shouldn't be a problem.
         registry.finish_subscription(&0, 0);

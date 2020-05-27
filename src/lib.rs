@@ -17,10 +17,11 @@ use futures::stream::Fuse;
 pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
-pub use libp2p::core::{ConnectedPoint, Multiaddr, PeerId, PublicKey};
+pub use libp2p::core::{connection::ListenerId, ConnectedPoint, Multiaddr, PeerId, PublicKey};
 pub use libp2p::identity::Keypair;
 
 use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -245,6 +246,8 @@ enum IpfsEvent {
     PubsubSubscribed(OneshotSender<Vec<String>>),
     WantList(Option<PeerId>, OneshotSender<Vec<(Cid, bitswap::Priority)>>),
     BitswapStats(OneshotSender<BitswapStats>),
+    AddListeningAddress(Multiaddr, Channel<Multiaddr>),
+    RemoveListeningAddress(Multiaddr, Channel<()>),
     Exit,
 }
 
@@ -298,6 +301,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             repo_events: repo_events.fuse(),
             from_facade: receiver.fuse(),
             swarm,
+            listening_addresses: HashMap::new(),
         };
 
         let UninitializedIpfs {
@@ -323,18 +327,19 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
 impl<Types: IpfsTypes> Ipfs<Types> {
     /// Puts a block into the ipfs repo.
-    pub async fn put_block(&mut self, block: Block) -> Result<Cid, Error> {
+    pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
         Ok(self.repo.put_block(block).await?.0)
     }
 
-    /// Retrives a block from the ipfs repo.
-    pub async fn get_block(&mut self, cid: &Cid) -> Result<Block, Error> {
+    /// Retrieves a block from the local blockstore, or starts fetching from the network or join an
+    /// already started fetch.
+    pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
         Ok(self.repo.get_block(cid).await?)
     }
 
     /// Remove block from the ipfs repo.
-    pub async fn remove_block(&mut self, cid: &Cid) -> Result<(), Error> {
-        Ok(self.repo.remove_block(cid).await?)
+    pub async fn remove_block(&self, cid: Cid) -> Result<Cid, Error> {
+        self.repo.remove_block(&cid).await
     }
 
     /// Pins a given Cid
@@ -522,6 +527,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(rx.await?)
     }
 
+    pub async fn refs_local(&self) -> Result<Vec<Cid>, Error> {
+        Ok(self.repo.list_blocks().await?)
+    }
+
     pub async fn bitswap_stats(&self) -> Result<BitswapStats, Error> {
         let (tx, rx) = oneshot_channel();
 
@@ -531,6 +540,45 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .await?;
 
         Ok(rx.await?)
+    }
+
+    /// Add a given multiaddr as a listening address. Will fail if the address is unsupported, or
+    /// if it is already being listened on. Currently will invoke `Swarm::listen_on` internally,
+    /// keep the ListenerId for later `remove_listening_address` use in a HashMap.
+    ///
+    /// The returned future will resolve on the first bound listening address when this is called
+    /// with `/ip4/0.0.0.0/...` or anything similar which will bound through multiple concrete
+    /// listening addresses.
+    ///
+    /// Trying to add an unspecified listening address while any other listening address adding is
+    /// in progress will result in error.
+    ///
+    /// Returns the bound multiaddress, which in the case of original containing an ephemeral port
+    /// has now been changed.
+    pub async fn add_listening_address(&self, addr: Multiaddr) -> Result<Multiaddr, Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::AddListeningAddress(addr, tx))
+            .await?;
+
+        rx.await?
+    }
+
+    /// Stop listening on a previously added listening address. Fails if the address is not being
+    /// listened to.
+    ///
+    /// The removal of all listening addresses added through unspecified addresses is not supported.
+    pub async fn remove_listening_address(&self, addr: Multiaddr) -> Result<(), Error> {
+        let (tx, rx) = oneshot_channel();
+
+        self.to_task
+            .clone()
+            .send(IpfsEvent::RemoveListeningAddress(addr, tx))
+            .await?;
+
+        rx.await?
     }
 
     /// Exit daemon.
@@ -551,6 +599,121 @@ struct IpfsFuture<Types: SwarmTypes> {
     swarm: TSwarm<Types>,
     repo_events: Fuse<Receiver<RepoEvent>>,
     from_facade: Fuse<Receiver<IpfsEvent>>,
+    listening_addresses: HashMap<Multiaddr, (ListenerId, Option<Channel<Multiaddr>>)>,
+}
+
+impl<Types: SwarmTypes> IpfsFuture<Types> {
+    /// Completes the adding of listening address by matching the new listening address `addr` to
+    /// the `self.listening_addresses` so that we can detect even the multiaddresses with ephemeral
+    /// ports.
+    fn complete_listening_address_adding(&mut self, addr: Multiaddr) {
+        let maybe_sender = match self.listening_addresses.get_mut(&addr) {
+            // matching a non-ephemeral is simpler
+            Some((_, maybe_sender)) => maybe_sender.take(),
+            None => {
+                // try finding an ephemeral binding on the same prefix
+                let mut matching_keys = self
+                    .listening_addresses
+                    .keys()
+                    .filter(|right| could_be_bound_from_ephemeral(0, &addr, right))
+                    .cloned();
+
+                let first = matching_keys.next();
+
+                if let Some(first) = first {
+                    let second = matching_keys.next();
+
+                    match (first, second) {
+                        (first, None) => {
+                            if let Some((id, maybe_sender)) =
+                                self.listening_addresses.remove(&first)
+                            {
+                                self.listening_addresses.insert(addr.clone(), (id, None));
+                                maybe_sender
+                            } else {
+                                unreachable!("We found a matching ephemeral key already, it must be in the listening_addresses")
+                            }
+                        }
+                        (first, Some(second)) => {
+                            // this is more complicated, but we are guarding
+                            // against this in the from_facade match below
+                            unreachable!(
+                                "More than one matching [{}, {}] and {:?} for {}",
+                                first,
+                                second,
+                                matching_keys.collect::<Vec<_>>(),
+                                addr
+                            );
+                        }
+                    }
+                } else {
+                    // this case is hit when user asks for /ip4/0.0.0.0/tcp/0 for example, the
+                    // libp2p will bound to multiple addresses but we will not get access in 0.19
+                    // to their ListenerIds.
+
+                    let first = self
+                        .listening_addresses
+                        .iter()
+                        .filter(|(addr, _)| starts_unspecified(addr))
+                        .filter(|(could_have_ephemeral, _)| {
+                            could_be_bound_from_ephemeral(1, &addr, could_have_ephemeral)
+                        })
+                        // finally we want to make sure we only match on addresses which are yet to
+                        // be reported back
+                        .filter(|(_, (_, maybe_sender))| maybe_sender.is_some())
+                        .map(|(addr, _)| addr.to_owned())
+                        .next();
+
+                    if let Some(first) = first {
+                        let (id, maybe_sender) = self
+                            .listening_addresses
+                            .remove(&first)
+                            .expect("just filtered this key out");
+                        self.listening_addresses.insert(addr.clone(), (id, None));
+                        log::trace!("guessing the first match for {} to be {}", first, addr);
+                        maybe_sender
+                    } else {
+                        None
+                    }
+                }
+            }
+        };
+
+        if let Some(sender) = maybe_sender {
+            let _ = sender.send(Ok(addr));
+        }
+    }
+
+    fn start_add_listener_address(&mut self, addr: Multiaddr, ret: Channel<Multiaddr>) {
+        use libp2p::Swarm;
+        use std::collections::hash_map::Entry;
+
+        if starts_unspecified(&addr)
+            && self
+                .listening_addresses
+                .values()
+                .filter(|(_, maybe_sender)| maybe_sender.is_some())
+                .count()
+                > 0
+        {
+            let _ = ret.send(Err(format_err!("Cannot start listening to unspecified address when there are pending specified addresses awaiting")));
+            return;
+        }
+
+        match self.listening_addresses.entry(addr) {
+            Entry::Occupied(oe) => {
+                let _ = ret.send(Err(format_err!("Already adding a possibly ephemeral multiaddr, wait first one to resolve before adding next: {}", oe.key())));
+            }
+            Entry::Vacant(ve) => match Swarm::listen_on(&mut self.swarm, ve.key().to_owned()) {
+                Ok(id) => {
+                    ve.insert((id, Some(ret)));
+                }
+                Err(e) => {
+                    let _ = ret.send(Err(Error::from(e)));
+                }
+            },
+        }
+    }
 }
 
 impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
@@ -561,8 +724,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
         use libp2p::{swarm::SwarmEvent, Swarm};
 
         // begin by polling the swarm so that initially it'll first have chance to bind listeners
-        // and such. TODO: this no longer needs to be a swarm event but perhaps we should
-        // consolidate logging of these events here, if necessary?
+        // and such.
 
         let mut done = false;
 
@@ -577,19 +739,12 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                         Poll::Pending => break,
                     }
                 };
+                // as a swarm event was returned, we need to do at least one more round to fully
+                // exhaust the swarm before possibly causing the swarm to do more work by popping
+                // off the events from Ipfs and ... this looping goes on for a while.
                 done = false;
-                match inner {
-                    SwarmEvent::Behaviour(()) => {}
-                    SwarmEvent::Connected(_peer_id) => {}
-                    SwarmEvent::Disconnected(_peer_id) => {}
-                    SwarmEvent::NewListenAddr(_addr) => {}
-                    SwarmEvent::ExpiredListenAddr(_addr) => {}
-                    SwarmEvent::UnreachableAddr {
-                        peer_id: _peer_id,
-                        address: _address,
-                        error: _error,
-                    } => {}
-                    SwarmEvent::StartConnect(_peer_id) => {}
+                if let SwarmEvent::NewListenAddr(addr) = inner {
+                    self.complete_listening_address_adding(addr);
                 }
             }
 
@@ -618,7 +773,7 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                     }
                     IpfsEvent::Connections(ret) => {
                         let connections = self.swarm.connections();
-                        ret.send(Ok(connections)).ok();
+                        ret.send(Ok(connections.collect())).ok();
                     }
                     IpfsEvent::Disconnect(addr, ret) => {
                         if let Some(disconnector) = self.swarm.disconnect(addr) {
@@ -670,6 +825,24 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
                         let peers = self.swarm.bitswap().peers();
                         let wantlist = self.swarm.bitswap().local_wantlist();
                         let _ = ret.send((stats, peers, wantlist).into());
+                    }
+                    IpfsEvent::AddListeningAddress(addr, ret) => {
+                        self.start_add_listener_address(addr, ret);
+                    }
+                    IpfsEvent::RemoveListeningAddress(addr, ret) => {
+                        let removed = if let Some((id, _)) = self.listening_addresses.remove(&addr)
+                        {
+                            Swarm::remove_listener(&mut self.swarm, id).map_err(|_: ()| {
+                                format_err!(
+                                    "Failed to remove previously added listening address: {}",
+                                    addr
+                                )
+                            })
+                        } else {
+                            Err(format_err!("Address was not listened to before: {}", addr))
+                        };
+
+                        let _ = ret.send(removed);
                     }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
@@ -773,14 +946,125 @@ mod node {
     }
 }
 
+// Checks if the multiaddr starts with ip4 or ip6 unspecified address, like 0.0.0.0
+fn starts_unspecified(addr: &Multiaddr) -> bool {
+    use libp2p::core::multiaddr::Protocol;
+
+    match addr.iter().next() {
+        Some(Protocol::Ip4(ip4)) if ip4.is_unspecified() => true,
+        Some(Protocol::Ip6(ip6)) if ip6.is_unspecified() => true,
+        _ => false,
+    }
+}
+
+fn could_be_bound_from_ephemeral(
+    skip: usize,
+    bound: &Multiaddr,
+    may_have_ephemeral: &Multiaddr,
+) -> bool {
+    use libp2p::core::multiaddr::Protocol;
+
+    if bound.len() != may_have_ephemeral.len() {
+        // no zip_longest in std
+        false
+    } else {
+        // this is could be wrong at least in the future; /p2p/peerid is not a
+        // valid suffix but I could imagine some kind of ws or webrtc could
+        // give us issues in the long future?
+        bound
+            .iter()
+            .skip(skip)
+            .zip(may_have_ephemeral.iter().skip(skip))
+            .all(|(left, right)| match (right, left) {
+                (Protocol::Tcp(0), Protocol::Tcp(x))
+                | (Protocol::Udp(0), Protocol::Udp(x))
+                | (Protocol::Sctp(0), Protocol::Sctp(x)) => {
+                    assert_ne!(x, 0, "cannot have bound to port 0");
+                    true
+                }
+                (Protocol::Memory(0), Protocol::Memory(x)) => {
+                    assert_ne!(x, 0, "cannot have bound to port 0");
+                    true
+                }
+                (right, left) => right == left,
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use async_std::task;
     use libipld::ipld;
+    use libp2p::build_multiaddr;
     use multihash::Sha2_256;
 
     const MDNS: bool = false;
+
+    #[test]
+    fn unspecified_multiaddrs() {
+        assert!(starts_unspecified(&build_multiaddr!(
+            Ip4([0, 0, 0, 0]),
+            Tcp(1u16)
+        )));
+        assert!(starts_unspecified(&build_multiaddr!(
+            Ip6([0, 0, 0, 0, 0, 0, 0, 0]),
+            Tcp(1u16)
+        )));
+    }
+
+    #[test]
+    fn localhost_multiaddrs_are_not_unspecified() {
+        assert!(!starts_unspecified(&build_multiaddr!(
+            Ip4([127, 0, 0, 1]),
+            Tcp(1u16)
+        )));
+        assert!(!starts_unspecified(&build_multiaddr!(
+            Ip6([0, 0, 0, 0, 0, 0, 0, 1]),
+            Tcp(1u16)
+        )));
+    }
+
+    #[test]
+    fn bound_ephemerals() {
+        assert!(could_be_bound_from_ephemeral(
+            0,
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16))
+        ));
+        assert!(could_be_bound_from_ephemeral(
+            1,
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16))
+        ));
+        assert!(could_be_bound_from_ephemeral(
+            1,
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([0, 0, 0, 0]), Tcp(0u16))
+        ));
+        assert!(could_be_bound_from_ephemeral(
+            1,
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([0, 0, 0, 0]), Tcp(0u16))
+        ));
+
+        assert!(!could_be_bound_from_ephemeral(
+            0,
+            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16))
+        ));
+        assert!(could_be_bound_from_ephemeral(
+            1,
+            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16))
+        ));
+
+        assert!(!could_be_bound_from_ephemeral(
+            1,
+            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(55555u16)),
+            &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(44444u16))
+        ));
+    }
 
     #[async_std::test]
     async fn test_put_and_get_block() {
@@ -789,7 +1073,7 @@ mod tests {
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
         let block = Block::new(data, cid);
         let ipfs = UninitializedIpfs::new(options).await;
-        let (mut ipfs, fut) = ipfs.start().await.unwrap();
+        let (ipfs, fut) = ipfs.start().await.unwrap();
         task::spawn(fut);
 
         let cid: Cid = ipfs.put_block(block.clone()).await.unwrap();

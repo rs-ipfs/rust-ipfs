@@ -1,19 +1,28 @@
-use crate::v0::support::{with_ipfs, InvalidMultipartFormData, StringError};
-use cid::{Codec, Version};
+use crate::v0::support::unshared::Unshared;
+use crate::v0::support::{with_ipfs, HandledErr, InvalidMultipartFormData, StringError};
+use futures::stream::FuturesOrdered;
 use futures::stream::StreamExt;
-use ipfs::{Cid, Ipfs, IpfsTypes};
+use futures::stream::{TryStream, TryStreamExt};
+use ipfs::error::Error;
+use ipfs::{Ipfs, IpfsTypes};
+use libipld::cid::{Cid, Codec, Version};
 use serde::{Deserialize, Serialize};
-use warp::{http::Response, multipart, path, query, reply, Buf, Filter, Rejection, Reply};
+use std::convert::TryFrom;
+use std::error::Error as StdError;
+use warp::hyper::body::Bytes;
+use warp::{
+    http::Response, hyper::Body, multipart, path, query, reply, Buf, Filter, Rejection, Reply,
+};
+
+mod options;
+use options::RmOptions;
 
 #[derive(Debug, Deserialize)]
 pub struct GetQuery {
     arg: String,
 }
 
-async fn get_query<T: IpfsTypes>(
-    mut ipfs: Ipfs<T>,
-    query: GetQuery,
-) -> Result<impl Reply, Rejection> {
+async fn get_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: GetQuery) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
     let data = ipfs
         .get_block(&cid)
@@ -49,28 +58,18 @@ pub struct PutResponse {
 }
 
 async fn put_query<T: IpfsTypes>(
-    mut ipfs: Ipfs<T>,
+    ipfs: Ipfs<T>,
     query: PutQuery,
     mut form: multipart::FormData,
 ) -> Result<impl Reply, Rejection> {
-    let format = match query
-        .format
-        .as_ref()
-        .map(|s| s.as_str())
-        .unwrap_or("dag-pb")
-    {
+    let format = match query.format.as_deref().unwrap_or("dag-pb") {
         "dag-cbor" => Codec::DagCBOR,
         "dag-pb" => Codec::DagProtobuf,
         "dag-json" => Codec::DagJSON,
         "raw" => Codec::Raw,
         _ => return Err(StringError::from("unknown codec").into()),
     };
-    let hasher = match query
-        .mhtype
-        .as_ref()
-        .map(|s| s.as_str())
-        .unwrap_or("sha2-256")
-    {
+    let hasher = match query.mhtype.as_deref().unwrap_or("sha2-256") {
         "sha2-256" => multihash::Sha2_256::digest,
         "sha2-512" => multihash::Sha2_512::digest,
         _ => return Err(StringError::from("unknown hash").into()),
@@ -111,27 +110,120 @@ pub fn put<T: IpfsTypes>(
         .and_then(put_query)
 }
 
-#[derive(Debug, Deserialize)]
-pub struct RmQuery {}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct RmResponse {}
-
-async fn rm_query<T: IpfsTypes>(_ipfs: Ipfs<T>, _query: RmQuery) -> Result<impl Reply, Rejection> {
-    //let _data = ipfs.put_block(query.cid).await
-    //    .map_err(|e| reject::custom(StringError::from(e)))?;
-    let response = RmResponse {};
-    Ok(reply::json(&response))
+pub struct RmResponse {
+    error: String,
+    hash: String,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct EmptyResponse {}
 
 pub fn rm<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "rm")
         .and(with_ipfs(ipfs))
-        .and(query::<RmQuery>())
+        .and(rm_options())
         .and_then(rm_query)
+}
+
+fn rm_options() -> impl Filter<Extract = (RmOptions,), Error = Rejection> + Clone {
+    warp::filters::query::raw().and_then(|q: String| {
+        let res = RmOptions::try_from(q.as_str())
+            .map_err(StringError::from)
+            .map_err(warp::reject::custom);
+
+        futures::future::ready(res)
+    })
+}
+
+async fn rm_query<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    options: RmOptions,
+) -> Result<impl Reply, Rejection> {
+    use futures::future::TryFutureExt;
+
+    let RmOptions { args, force, quiet } = options;
+
+    let cids = args
+        .into_iter()
+        .map(|s| Cid::try_from(s.as_str()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(StringError::from)?;
+
+    let futs: FuturesOrdered<_> = cids
+        .into_iter()
+        .map(|cid| ipfs.remove_block(cid.clone()).map_err(move |e| (cid, e)))
+        .collect();
+
+    let responses = futs
+        .collect::<Vec<Result<Cid, (Cid, Error)>>>()
+        .await
+        .into_iter()
+        .map(move |result| match result {
+            Ok(cid) => RmResponse {
+                hash: cid.to_string(),
+                error: "".to_string(),
+            },
+            Err((cid, e)) => {
+                if force {
+                    RmResponse {
+                        hash: cid.to_string(),
+                        error: "".to_string(),
+                    }
+                } else {
+                    RmResponse {
+                        hash: cid.to_string(),
+                        error: e.to_string(),
+                    }
+                }
+            }
+        })
+        .map(|response: RmResponse| serde_json::to_string(&response))
+        .map(move |result| match result {
+            Ok(mut string) => {
+                if quiet {
+                    string = "".to_string();
+                } else {
+                    string.push('\n');
+                }
+                Ok(string.into_bytes())
+            }
+            Err(e) => {
+                log::error!("edge serialization failed: {}", e);
+                Err(HandledErr)
+            }
+        });
+
+    let st = futures::stream::iter(responses);
+    Ok(StreamResponse(Unshared::new(st)))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StatQuery {
+    arg: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct StatResponse {
+    key: String,
+    size: usize,
+}
+
+async fn stat_query<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    query: StatQuery,
+) -> Result<impl Reply, Rejection> {
+    let cid: Cid = query.arg.parse().map_err(StringError::from)?;
+    let block = ipfs.get_block(&cid).await.map_err(StringError::from)?;
+    let response = StatResponse {
+        key: query.arg,
+        size: block.data().len(),
+    };
+    Ok(reply::json(&response))
 }
 
 pub fn stat<T: IpfsTypes>(
@@ -139,6 +231,19 @@ pub fn stat<T: IpfsTypes>(
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "stat")
         .and(with_ipfs(ipfs))
-        .and(query::<RmQuery>())
-        .and_then(rm_query)
+        .and(query::<StatQuery>())
+        .and_then(stat_query)
+}
+
+pub struct StreamResponse<S>(pub S);
+
+impl<S> Reply for StreamResponse<S>
+where
+    S: TryStream + Send + Sync + 'static,
+    S::Ok: Into<Bytes>,
+    S::Error: StdError + Send + Sync + 'static,
+{
+    fn into_response(self) -> warp::reply::Response {
+        Response::new(Body::wrap_stream(self.0.into_stream()))
+    }
 }

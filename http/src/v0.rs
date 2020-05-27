@@ -1,11 +1,14 @@
 use ipfs::{Ipfs, IpfsTypes};
 use std::convert::Infallible;
+use warp::{query, Filter};
 
 pub mod bitswap;
 pub mod block;
+pub mod dag;
 pub mod id;
 pub mod pin;
 pub mod pubsub;
+pub mod refs;
 pub mod swarm;
 pub mod version;
 
@@ -13,61 +16,86 @@ pub mod support;
 pub use support::recover_as_message_response;
 pub(crate) use support::{with_ipfs, InvalidPeerId, NotImplemented, StringError};
 
-pub fn routes<T>(
+/// Helper to combine the multiple filters together with Filter::or, possibly boxing the types in
+/// the process. This greatly helps the build times for `ipfs-http`.
+macro_rules! combine {
+    ($x:expr, $($y:expr),+) => {
+        {
+            let filter = boxed_on_debug!($x);
+            $(
+                let filter = boxed_on_debug!(filter.or($y));
+            )+
+            filter
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+macro_rules! boxed_on_debug {
+    ($x:expr) => {
+        $x.boxed()
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! boxed_on_debug {
+    ($x:expr) => {
+        $x
+    };
+}
+
+pub fn routes<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
     shutdown_tx: tokio::sync::mpsc::Sender<()>,
-) -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone
-where
-    T: IpfsTypes,
-{
-    use warp::{query, Filter};
-    // /api/v0/shutdown
+) -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
+    let mount = warp::path("api").and(warp::path("v0"));
+
     let shutdown = warp::post()
         .and(warp::path!("shutdown"))
         .and(warp::any().map(move || shutdown_tx.clone()))
         .and_then(handle_shutdown);
 
-    let mount = warp::path("api").and(warp::path("v0"));
+    let api = mount.and(combine!(
+        shutdown,
+        id::identity(ipfs),
+        warp::path!("add").and_then(not_implemented),
+        bitswap::wantlist(ipfs),
+        bitswap::stat(ipfs),
+        block::get(ipfs),
+        block::put(ipfs),
+        block::rm(ipfs),
+        block::stat(ipfs),
+        warp::path!("bootstrap" / ..).and_then(not_implemented),
+        warp::path!("config" / ..).and_then(not_implemented),
+        dag::put(ipfs),
+        dag::resolve(ipfs),
+        warp::path!("dht" / ..).and_then(not_implemented),
+        warp::path!("get").and_then(not_implemented),
+        warp::path!("key" / ..).and_then(not_implemented),
+        warp::path!("name" / ..).and_then(not_implemented),
+        warp::path!("object" / ..).and_then(not_implemented),
+        pin::add_pin(ipfs),
+        warp::path!("ping" / ..).and_then(not_implemented),
+        pubsub::routes(ipfs),
+        refs::local(ipfs),
+        refs::refs(ipfs),
+        warp::path!("repo" / ..).and_then(not_implemented),
+        warp::path!("stats" / ..).and_then(not_implemented),
+        swarm::connect(ipfs),
+        swarm::peers(ipfs),
+        swarm::addrs(ipfs),
+        swarm::addrs_local(ipfs),
+        swarm::disconnect(ipfs),
+        warp::path!("version")
+            .and(query::<version::Query>())
+            .and_then(version::version)
+    ));
 
-    let api = mount.and(
-        shutdown
-            .or(id::identity(ipfs))
-            // Placeholder paths
-            // https://docs.rs/warp/0.2.2/warp/macro.path.html#path-prefixes
-            .or(warp::path!("add").and_then(not_implemented))
-            .or(bitswap::wantlist(ipfs))
-            .or(bitswap::stat(ipfs))
-            .or(block::get(ipfs))
-            .or(block::put(ipfs))
-            .or(warp::path!("block" / ..).and_then(not_implemented))
-            .or(warp::path!("bootstrap" / ..).and_then(not_implemented))
-            .or(warp::path!("config" / ..).and_then(not_implemented))
-            .or(warp::path!("dag" / ..).and_then(not_implemented))
-            .or(warp::path!("dht" / ..).and_then(not_implemented))
-            .or(warp::path!("get").and_then(not_implemented))
-            .or(warp::path!("key" / ..).and_then(not_implemented))
-            .or(warp::path!("name" / ..).and_then(not_implemented))
-            .or(warp::path!("object" / ..).and_then(not_implemented))
-            .or(pin::add_pin(ipfs))
-            .or(warp::path!("ping" / ..).and_then(not_implemented))
-            .or(pubsub::routes(ipfs))
-            .or(warp::path!("refs" / ..).and_then(not_implemented))
-            .or(warp::path!("repo" / ..).and_then(not_implemented))
-            .or(warp::path!("stats" / ..).and_then(not_implemented))
-            .or(swarm::connect(ipfs))
-            .or(swarm::peers(ipfs))
-            .or(swarm::addrs(ipfs))
-            .or(swarm::addrs_local(ipfs))
-            .or(swarm::disconnect(ipfs))
-            .or(warp::path!("version")
-                .and(query::<version::Query>())
-                .and_then(version::version)),
-    );
-
+    // have a common handler turn the rejections into 400 or 500 with json body
     api.recover(recover_as_message_response)
 }
 
-pub async fn handle_shutdown(
+pub(crate) async fn handle_shutdown(
     mut tx: tokio::sync::mpsc::Sender<()>,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
     Ok(match tx.send(()).await {

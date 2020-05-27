@@ -11,25 +11,25 @@ nightly = []
 all = ["rocksdb"]
 
 [dependencies]
-anyhow = "1.0.26"
+anyhow = "1.0.28"
 async-std = { version = "1.5.0", features = ["attributes", "std"] }
-async-trait = "0.1.24"
+async-trait = "0.1.29"
 bitswap = { path = "bitswap" }
 byteorder = "1.3.4"
 dirs = "2.0.2"
-domain = { git = "https://github.com/nlnetlabs/domain", features = ["resolv"] }
+domain = { git = "https://github.com/nlnetlabs/domain", rev="084964", features = ["resolv"] }
 futures = { version = "0.3.4", features = ["compat", "io-compat"] }
-libipld = { version = "0.1.0", features = ["dag-pb"] }
-libp2p = "0.16.2"
+libipld = { git = "https://github.com/ipfs-rust/rust-ipld", rev = "b2286c53c13f3eeec2a3766387f2926838e8e4c9", features = ["dag-pb", "dag-json"] }
+libp2p = "0.19.0"
 log = "0.4.8"
 multibase = "0.8.0"
 multihash = "0.10.1"
 prost = "0.6.1"
 rand = "0.7.3"
 rocksdb = { version = "0.13.0", optional = true }
-serde = { version = "1.0.104", features = ["derive"] }
-serde_json = "1.0.48"
-thiserror = "1.0.11"
+serde = { version = "1.0.106", features = ["derive"] }
+serde_json = "1.0.51"
+thiserror = "1.0.14"
 void = "1.0.2"
 
 [build-dependencies]
@@ -44,8 +44,8 @@ members = [ "bitswap", "http", "examples" ]
 [patch.crates-io]
 ctr = { git = "https://github.com/koivunej/stream-ciphers.git", branch = "ctr128-64to128" }
 
-# these are needed for the floodsub local originated messages to be seen by subscribers
-libp2p = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
-libp2p-core = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
-libp2p-swarm = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
-libp2p-floodsub = { git = "https://github.com/koivunej/rust-libp2p.git", branch = "v0.16.2-with-floodsub-opts" }
+# at least these libp2p components need to be patched if you want to use a local version
+# libp2p = { path = "../libp2p" }
+# libp2p-core = { path = "../libp2p" }
+# libp2p-swarm = { path = "../libp2p" }
+# libp2p-floodsub = { path = "../libp2p" }
