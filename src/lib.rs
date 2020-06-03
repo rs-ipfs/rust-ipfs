@@ -1,6 +1,6 @@
 //! IPFS node implementation
 //#![deny(missing_docs)]
-
+#![recursion_limit = "512"]
 #![cfg_attr(feature = "nightly", feature(external_doc))]
 #![cfg_attr(feature = "nightly", doc(include = "../README.md"))]
 
