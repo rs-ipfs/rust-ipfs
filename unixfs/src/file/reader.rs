@@ -89,7 +89,7 @@ impl<'a> FileReader<'a> {
 
         if inner.data.mode.is_some() || inner.data.mtime.is_some() {
             let metadata = FileMetadata::from(&inner.data);
-            return Err(FileError::NonRootDefinesMetadata(metadata))?;
+            return Err(FileError::NonRootDefinesMetadata(metadata).into());
         }
 
         Self::from_parts(inner, offset, traversal.metadata)
@@ -111,9 +111,9 @@ impl<'a> FileReader<'a> {
         if inner.data.Type != UnixFsType::File && inner.data.Type != UnixFsType::Raw {
             Err(FileReadFailed::UnexpectedType(inner.data.Type.into()))
         } else if inner.links.len() != inner.data.blocksizes.len() {
-            Err(FileError::LinksAndBlocksizesMismatch)?
+            Err(FileError::LinksAndBlocksizesMismatch.into())
         } else if empty_or_no_content && !is_zero_bytes && inner.links.is_empty() {
-            Err(FileError::NoLinksNoContent)?
+            Err(FileError::NoLinksNoContent.into())
         } else {
             // raw and file seem to be same except the raw is preferred in trickle dag
             let data = inner.data.Data.unwrap_borrowed_or_empty();
