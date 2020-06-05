@@ -149,6 +149,8 @@ impl<'a> FileReader<'a> {
         }
     }
 
+    /// Returns a moved tuple of the content (bytes or links) and a traversal, which can be used to
+    /// continue the traversal from the next block.
     pub fn content(
         self,
     ) -> (
@@ -178,6 +180,7 @@ impl<'a> FileReader<'a> {
     }
 }
 
+/// Carrier of validation data used between blocks during a walk on the merkle tree.
 #[derive(Debug)]
 pub struct Traversal {
     last_had_links: bool,
@@ -188,6 +191,13 @@ pub struct Traversal {
 }
 
 impl Traversal {
+    /// Continues the walk on the merkle tree with the given block contents. The block contents is
+    /// not validated and the range is expected to be the next from previous call to
+    /// FileContent::Spread iterator.
+    ///
+    /// When calling this directly, it is good to note that repeatedly calling this with the same
+    /// block contents will not be detected, and will instead grow the internal Vec of links until
+    /// memory runs out.
     pub fn continue_walk<'a>(
         self,
         next_block: &'a [u8],
@@ -205,6 +215,8 @@ impl AsRef<FileMetadata> for Traversal {
     }
 }
 
+/// Files in unixfs merkle trees can either contain content of the file, or can contain links to
+/// other parts of the tree.
 pub enum FileContent<'a, I>
 where
     I: Iterator<Item = (PBLink<'a>, Range<u64>)> + 'a,
@@ -222,6 +234,7 @@ impl<'a, I> FileContent<'a, I>
 where
     I: Iterator<Item = (PBLink<'a>, Range<u64>)>,
 {
+    /// Returns the content as bytes, or panics if there were links instead.
     pub fn unwrap_content(self) -> &'a [u8] {
         match self {
             FileContent::Just(x) => x,

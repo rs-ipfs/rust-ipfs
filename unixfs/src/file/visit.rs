@@ -20,7 +20,10 @@ impl IdleFileVisit {
         Self { range: Some(range) }
     }
 
-    /// Begins the visitation by offering the first block to be visited.
+    /// Begins the visitation by processing the first block to be visited.
+    ///
+    /// Returns on success a tuple of file bytes, any metadata associated, and optionally a
+    /// `FileVisit` to continue the walk.
     pub fn start<'a>(
         self,
         block: &'a [u8],
@@ -71,28 +74,6 @@ impl IdleFileVisit {
     }
 }
 
-fn to_pending(
-    nth: usize,
-    link: PBLink<'_>,
-    range: Range<u64>,
-) -> Result<(Cid, Range<u64>), FileReadFailed> {
-    let hash = link.Hash.unwrap_borrowed();
-
-    match Cid::try_from(hash) {
-        Ok(cid) => Ok((cid, range)),
-        Err(e) => Err(FileReadFailed::LinkInvalidCid {
-            nth,
-            hash: hash.to_vec(),
-            name: match link.Name {
-                Some(Cow::Borrowed(x)) => Cow::Owned(String::from(x)),
-                Some(Cow::Owned(x)) => Cow::Owned(x),
-                None => Cow::Borrowed(""),
-            },
-            cause: e,
-        }),
-    }
-}
-
 /// FileVisit represents an ongoing visitation over an UnixFs File tree.
 ///
 /// The file visitor does **not** implement size validation of merkledag links at the moment. This
@@ -121,7 +102,7 @@ impl FileVisit {
     /// Continues the walk with the data for the first `pending_link` key.
     ///
     /// Returns on success a tuple of bytes and new version of `FileVisit` to continue the visit,
-    /// if there is something more to visit.
+    /// when there is something more to visit.
     pub fn continue_walk<'a>(
         mut self,
         next: &'a [u8],
@@ -133,7 +114,6 @@ impl FileVisit {
             .expect("User called continue_walk there must have been a next link");
 
         // interesting, validation doesn't trigger if the range is the same?
-        // FIXME: get rid of clone
         let fr = traversal.continue_walk(next, &range)?;
         let (content, traversal) = fr.content();
         match content {
@@ -171,6 +151,28 @@ impl FileVisit {
 impl AsRef<FileMetadata> for FileVisit {
     fn as_ref(&self) -> &FileMetadata {
         self.state.as_ref()
+    }
+}
+
+fn to_pending(
+    nth: usize,
+    link: PBLink<'_>,
+    range: Range<u64>,
+) -> Result<(Cid, Range<u64>), FileReadFailed> {
+    let hash = link.Hash.unwrap_borrowed();
+
+    match Cid::try_from(hash) {
+        Ok(cid) => Ok((cid, range)),
+        Err(e) => Err(FileReadFailed::LinkInvalidCid {
+            nth,
+            hash: hash.to_vec(),
+            name: match link.Name {
+                Some(Cow::Borrowed(x)) => Cow::Owned(String::from(x)),
+                Some(Cow::Owned(x)) => Cow::Owned(x),
+                None => Cow::Borrowed(""),
+            },
+            cause: e,
+        }),
     }
 }
 

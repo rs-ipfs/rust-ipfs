@@ -1,8 +1,15 @@
+///! UnixFS file support.
+///!
+///! Most usable for walking UnixFS file trees provided by the `visit::IdleFileVisit` and
+///! `visit::FileVisit` types.
 use crate::pb::{UnixFs, UnixFsReadFailed, UnixFsType};
 use std::borrow::Cow;
 use std::fmt;
 
+/// Low level UnixFS file descriptor reader support.
 pub mod reader;
+
+/// Higher level API for visiting the file tree.
 pub mod visit;
 
 /// Container for the unixfs metadata, which can be present at the root of the file trees.
@@ -60,10 +67,15 @@ pub enum FileReadFailed {
     UnexpectedType(i32),
     /// Parsing failed
     Read(UnixFsReadFailed),
+    /// Link could not be turned into Cid.
     LinkInvalidCid {
+        /// The index of this link, from zero
         nth: usize,
+        /// Hash which could not be turned into a Cid
         hash: Vec<u8>,
+        /// Name of the link, most likely empty
         name: Cow<'static, str>,
+        /// Error from the attempted conversion
         cause: cid::Error,
     },
 }
@@ -92,7 +104,15 @@ impl fmt::Display for FileReadFailed {
     }
 }
 
-impl std::error::Error for FileReadFailed {}
+impl std::error::Error for FileReadFailed {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use FileReadFailed::*;
+        match self {
+            LinkInvalidCid { cause, .. } => Some(cause),
+            _ => None,
+        }
+    }
+}
 
 impl From<UnixFsReadFailed> for FileReadFailed {
     fn from(e: UnixFsReadFailed) -> Self {
@@ -126,7 +146,11 @@ pub enum FileError {
     /// These values should not be present for unixfs files with File or Raw. If they have a valid
     /// meaning, support for such has not been implemented.
     UnexpectedRawOrFileProperties {
+        /// Hash type, as read from the protobuf descriptor; should only be used with HAMT
+        /// directories.
         hash_type: Option<u64>,
+        /// Fan out, as read from the protobuf descriptor; should only be used with HAMT
+        /// directories.
         fanout: Option<u64>,
     },
 }
