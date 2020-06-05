@@ -159,7 +159,19 @@ impl fmt::Display for TraversalFailed {
     }
 }
 
-impl std::error::Error for TraversalFailed {}
+impl std::error::Error for TraversalFailed {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use TraversalFailed::*;
+
+        match self {
+            Loading(_, _) => {
+                // FIXME: anyhow::Error cannot be given out as source.
+                None
+            }
+            Walking(_, e) => Some(e),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
