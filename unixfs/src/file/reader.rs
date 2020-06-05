@@ -52,7 +52,7 @@ impl Ending {
                 Err(FileError::TreeExpandsOnLinks)
             }
             Ending::TreeCoverage(cover_end) if &next.start < cover_end && &next.end > cover_end => {
-                // when moving to sibling at the same height or above, it's coverage must start
+                // when moving to sibling at the same height or above, its coverage must start
                 // from where we stopped
                 //
                 // This has been separated instead of making the TreeExpandsOnLinks more general as
