@@ -15,7 +15,7 @@ gen() {
 	retval=0
 	local filename="$(basename "$1")"
 	local output="$(dirname "$1")/${filename%.*}.rs"
-	pb-rs --owned --single-mod --output "$output" "$tmpfile" || retval=$?
+	pb-rs --single-mod --output "$output" "$tmpfile" || retval=$?
 	rm "$tmpfile"
 
 	if [[ "$retval" -ne 0 ]]; then
