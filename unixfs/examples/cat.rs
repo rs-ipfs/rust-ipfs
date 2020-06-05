@@ -79,9 +79,10 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(u64, u64), Error> {
 
     // Following steps repeat the same pattern:
     while let Some(visit) = step {
-        // Read the next link. The `pending_links()` iterates the known links in the order of
-        // traversal, with the exception of possible new links appearing before the older.
-        let first = visit.pending_links().next().unwrap();
+        // Read the next link. The `pending_links()` gives the next link and an iterator over the
+        // following links. The iterator lists the known links in the order of traversal, with the
+        // exception of possible new links appearing before the older.
+        let (first, _) = visit.pending_links();
 
         buf.clear();
         read_bytes += blocks.as_file(&first.to_bytes())?.read_to_end(&mut buf)? as u64;

@@ -258,7 +258,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::Ending;
-    use crate::file::{FileError, FileReadFailed};
+    use crate::file::FileError;
 
     #[test]
     fn collapsing_tree() {
@@ -289,45 +289,50 @@ mod tests {
 
     #[test]
     fn expanding_tree() {
-        match Ending::TreeCoverage(100).check_is_suitable_next(10, &(0..102)) {
-            Err(FileReadFailed::File(FileError::TreeExpandsOnLinks)) => {}
-            x => panic!("unexpected {:?}", x),
-        }
-        match Ending::TreeCoverage(100).check_is_suitable_next(0, &(0..102)) {
-            Err(FileReadFailed::File(FileError::TreeExpandsOnLinks)) => {}
-            x => panic!("unexpected {:?}", x),
-        }
+        let res = Ending::TreeCoverage(100).check_is_suitable_next(10, &(0..102));
+        assert!(
+            matches!(res, Err(FileError::TreeExpandsOnLinks)),
+            "{:?}",
+            res
+        );
+
+        let res = Ending::TreeCoverage(100).check_is_suitable_next(0, &(0..102));
+        assert!(
+            matches!(res, Err(FileError::TreeExpandsOnLinks)),
+            "{:?}",
+            res
+        );
     }
 
     #[test]
     fn overlap() {
-        match Ending::TreeCoverage(100).check_is_suitable_next(10, &(88..102)) {
-            Err(FileReadFailed::File(FileError::TreeOverlapsBetweenLinks)) => {}
-            x => panic!("unexpected {:?}", x),
-        }
+        let res = Ending::TreeCoverage(100).check_is_suitable_next(10, &(88..102));
+        assert!(
+            matches!(res, Err(FileError::TreeOverlapsBetweenLinks)),
+            "{:?}",
+            res
+        );
     }
 
     #[test]
     fn hole() {
-        match Ending::Chunk(100).check_is_suitable_next(0, &(101..105)) {
-            Err(FileReadFailed::File(FileError::TreeJumpsBetweenLinks)) => {}
-            x => panic!("unexpected {:?}", x),
-        }
+        let res = Ending::Chunk(100).check_is_suitable_next(0, &(101..105));
+        assert!(
+            matches!(res, Err(FileError::TreeJumpsBetweenLinks)),
+            "{:?}",
+            res
+        );
     }
 
     #[test]
     fn wrong_next() {
-        match Ending::TreeCoverage(200).check_is_suitable_next(100, &(0..100)) {
-            Err(FileReadFailed::File(FileError::EarlierLink)) => {}
-            x => panic!("unexpected {:?}", x),
-        }
-        match Ending::TreeCoverage(101).check_is_suitable_next(100, &(0..100)) {
-            Err(FileReadFailed::File(FileError::EarlierLink)) => {}
-            x => panic!("unexpected {:?}", x),
-        }
-        match Ending::TreeCoverage(100).check_is_suitable_next(100, &(0..100)) {
-            Err(FileReadFailed::File(FileError::EarlierLink)) => {}
-            x => panic!("unexpected {:?}", x),
-        }
+        let res = Ending::TreeCoverage(200).check_is_suitable_next(100, &(0..100));
+        assert!(matches!(res, Err(FileError::EarlierLink)), "{:?}", res);
+
+        let res = Ending::TreeCoverage(101).check_is_suitable_next(100, &(0..100));
+        assert!(matches!(res, Err(FileError::EarlierLink)), "{:?}", res);
+
+        let res = Ending::TreeCoverage(100).check_is_suitable_next(100, &(0..100));
+        assert!(matches!(res, Err(FileError::EarlierLink)), "{:?}", res);
     }
 }

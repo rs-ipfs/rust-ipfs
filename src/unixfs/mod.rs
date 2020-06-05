@@ -110,10 +110,7 @@ pub fn cat(
 
         loop {
             // TODO: if it was possible, it would make sense to start downloading N of these
-            // TODO: it might be reasonable to provide (&Cid, impl Iterator<Item = &Cid>) here and
-            // move the unwrap into the library if this all turns out to be a good idea.
-            let next = visit.pending_links().next()
-                .expect("there must be links, otherwise visitation would had not continued");
+            let (next, _) = visit.pending_links();
 
             let Block { cid, data } = match ipfs.get_block(&next).await {
                 Ok(block) => block,

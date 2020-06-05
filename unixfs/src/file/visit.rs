@@ -93,10 +93,16 @@ pub struct FileVisit {
 
 impl FileVisit {
     /// Access hashes of all pending links for prefetching purposes. The block for the first item
-    /// returned by this iterator is the one which needs to be processed next with `continue_walk`.
-    // FIXME: this must change to Cid
-    pub fn pending_links(&self) -> impl Iterator<Item = &Cid> {
-        self.pending.iter().rev().map(|(link, _)| link)
+    /// returned by this method is the one which needs to be processed next with `continue_walk`.
+    ///
+    /// Returns tuple of the next Cid which needs to be processed and an iterator over the
+    /// remaining.
+    pub fn pending_links(&self) -> (&Cid, impl Iterator<Item = &Cid>) {
+        let mut iter = self.pending.iter().rev().map(|(link, _)| link);
+        let first = iter
+            .next()
+            .expect("the presence of links has been validated");
+        (first, iter)
     }
 
     /// Continues the walk with the data for the first `pending_link` key.

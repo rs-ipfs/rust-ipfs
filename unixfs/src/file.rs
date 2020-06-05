@@ -409,7 +409,7 @@ mod tests {
         };
 
         while let Some(visit) = step {
-            let first = visit.pending_links().next().unwrap();
+            let (first, _) = visit.pending_links();
             let block = blocks.get_by_cid(first);
 
             match visit.continue_walk(block) {
