@@ -62,7 +62,13 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(u64, u64), Error> {
     let mut read_bytes = 0;
     let mut content_bytes = 0;
 
-    // The blockstore specific way of
+    // The blockstore specific way of reading the block. Here we assume go-ipfs 0.5 default flatfs
+    // configuration, which puts the files at sharded directories and names the blocks as base32
+    // upper and a suffix of "data".
+    //
+    // For the ipfs-unixfs it is important that the raw block data lives long enough that the
+    // possible content gets to be processed, at minimum one step of the walk as shown in this
+    // example.
     let mut buf = Vec::new();
     read_bytes += blocks.as_file(&start.to_bytes())?.read_to_end(&mut buf)? as u64;
 

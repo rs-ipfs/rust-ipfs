@@ -103,10 +103,7 @@ impl FileVisit {
     ///
     /// Returns on success a tuple of bytes and new version of `FileVisit` to continue the visit,
     /// when there is something more to visit.
-    pub fn continue_walk(
-        mut self,
-        next: &[u8],
-    ) -> Result<(&[u8], Option<Self>), FileReadFailed> {
+    pub fn continue_walk(mut self, next: &[u8]) -> Result<(&[u8], Option<Self>), FileReadFailed> {
         let traversal = self.state;
         let (_, range) = self
             .pending
