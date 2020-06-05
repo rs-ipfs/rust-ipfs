@@ -386,6 +386,83 @@ mod tests {
     fn traversal_from_blockstore_with_size_validation() {
         let started_at = Instant::now();
 
+        use std::path::PathBuf;
+
+        struct FakeShardedBlockstore {
+            root: PathBuf,
+        }
+
+        impl FakeShardedBlockstore {
+            fn as_path(&self, key: &[u8]) -> PathBuf {
+                let encoded = multibase::Base::Base32Upper.encode(key);
+                let len = encoded.len();
+
+                // this is safe because base32 is ascii
+                let dir = &encoded[(len - 3)..(len - 1)];
+                assert_eq!(dir.len(), 2);
+
+                let mut path = self.root.clone();
+                path.push(dir);
+                path.push(encoded);
+                path.set_extension("data");
+                path
+            }
+
+            fn as_file(&self, key: &[u8]) -> std::io::Result<std::fs::File> {
+                // assume that we have a block store with second-to-last/2 sharding
+                // files in Base32Upper
+
+                let path = self.as_path(key);
+                //println!("{} -> {:?}", cid::Cid::try_from(key).unwrap(), path);
+
+                std::fs::OpenOptions::new().read(true).open(path)
+            }
+        }
+
+        /// Debug wrapper for a slice which is expected to have a lot of the same numbers, like an
+        /// dense storage for merkledag size validation, in which case T = u64.
+        struct RLE<'a, T: fmt::Display + PartialEq>(&'a [T]);
+
+        impl<'a, T: fmt::Display + PartialEq> fmt::Debug for RLE<'_, T> {
+            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let total = self.0.len();
+
+                write!(fmt, "{{ total: {}, rle: [", total)?;
+
+                let mut last = None;
+                let mut count = 0;
+
+                for c in self.0 {
+                    match last {
+                        Some(x) if x == c => count += 1,
+                        Some(x) => {
+                            if count > 1 {
+                                write!(fmt, "{} x {}, ", count, x)?;
+                            } else {
+                                write!(fmt, "{}, ", x)?;
+                            }
+                            last = Some(c);
+                            count = 1;
+                        }
+                        None => {
+                            last = Some(c);
+                            count = 1;
+                        }
+                    }
+                }
+
+                if let Some(x) = last {
+                    if count > 1 {
+                        write!(fmt, "{} x {}, ", count, x)?;
+                    } else {
+                        write!(fmt, "{}, ", x)?;
+                    }
+                }
+
+                write!(fmt, "] }}")
+            }
+        }
+
         // this depends on go-ipfs 0.5 flatfs blockstore and linux-5.6.14.tar.xz imported
         let blocks = FakeShardedBlockstore {
             root: PathBuf::from("/home/joonas/Programs/go-ipfs/ipfs_home/blocks"),
@@ -541,314 +618,77 @@ mod tests {
         assert_eq!(buf_hwm, 262158);
     }
 
-    // This has been used as a poor mans benchmark, taking ~430ms to process the ~110MB in release
-    // build.
-    #[test]
-    fn visitor_traversal_from_blockstore() {
-        let started_at = Instant::now();
+    fn collect_bytes(blocks: &FakeBlockstore, visit: IdleFileVisit, start: &str) -> Vec<u8> {
+        let mut ret = Vec::new();
 
-        // this depends on go-ipfs 0.5 flatfs blockstore and linux-5.6.14.tar.xz imported
-        let blocks = FakeShardedBlockstore {
-            root: PathBuf::from("/home/joonas/Programs/go-ipfs/ipfs_home/blocks"),
+        let mut step = match visit.start(blocks.get_by_str(start)) {
+            Ok((content, _, step)) => {
+                ret.extend(content);
+                step
+            },
+            x => unreachable!("{:?}", x),
         };
 
-        let start = "QmTEn8ypAkbJXZUXCRHBorwF2jM8uTUW9yRLzrcQouSoD4";
-        let start = cid::Cid::try_from(start).unwrap().to_bytes();
+        while let Some(visit) = step {
+            let first = visit.pending_links().next().unwrap();
+            let block = blocks.get_by_cid(first);
 
-        let visit = IdleFileVisit::default();
-
-        let mut sha = sha2::Sha256::new();
-        let mut bytes = 0;
-
-        let mut block_buffer = Vec::new();
-        blocks
-            .as_file(&start)
-            .unwrap()
-            .read_to_end(&mut block_buffer)
-            .unwrap();
-
-        let mut visit = match visit.start(&block_buffer[..]) {
-            Ok(([], _, Some(visit))) => visit,
-            x => unreachable!("unexpected {:?}", x),
-        };
-
-        loop {
-            let key = visit.pending_links().next().unwrap();
-
-            block_buffer.clear();
-            blocks
-                .as_file(&key.to_bytes())
-                .unwrap()
-                .read_to_end(&mut block_buffer)
-                .unwrap();
-
-            let step = match visit.continue_walk(&block_buffer[..]) {
-                Ok((content, step)) => {
-                    sha.input(&content);
-                    bytes += content.len();
-
-                    step
+            match visit.continue_walk(block) {
+                Ok((content, next_step)) => {
+                    ret.extend(content);
+                    step = next_step;
                 },
-                x => unreachable!("unexpected {:?}", x),
-            };
-
-            match step {
-                Some(next) => visit = next,
-                None => break,
+                x => unreachable!("{:?}", x),
             }
         }
 
-        let result = sha.result();
-        let elapsed = started_at.elapsed();
-        println!("{:?}", elapsed);
+        ret
+    }
 
-        assert_eq!(
-            &result[..],
-            hex!("33763f3541711e39fa743da45ff9512d54ade61406173f3d267ba4484cec7ea3")
-        );
-        assert_eq!(bytes, 111_812_744);
+    #[test]
+    fn visitor_traversal() {
+        let blocks = FakeBlockstore::with_fixtures();
+
+        let start = "QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6";
+        let bytes = collect_bytes(&blocks, IdleFileVisit::default(), start);
+
+        assert_eq!(&bytes[..], b"foobar\n");
     }
 
     #[test]
     fn scoped_visitor_traversal_from_blockstore() {
-        let started_at = Instant::now();
+        let blocks = FakeBlockstore::with_fixtures();
 
-        // this depends on go-ipfs 0.5 flatfs blockstore and linux-5.6.14.tar.xz imported
-        let blocks = FakeShardedBlockstore {
-            root: PathBuf::from("/home/joonas/Programs/go-ipfs/ipfs_home/blocks"),
-        };
-
-        let start = "QmTEn8ypAkbJXZUXCRHBorwF2jM8uTUW9yRLzrcQouSoD4";
-        let start = cid::Cid::try_from(start).unwrap().to_bytes();
-
-        let mut sha = sha2::Sha256::new();
-        let mut bytes = 0;
-
+        let start = "QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6";
         let visit = IdleFileVisit::default()
-            .with_target_range(500_000..(500_000 + 300_000));
+            .with_target_range(1..6);
+        let bytes = collect_bytes(&blocks, visit, start);
 
-        let mut block_buffer = Vec::new();
-        blocks
-            .as_file(&start)
-            .unwrap()
-            .read_to_end(&mut block_buffer)
-            .unwrap();
-
-        let mut visit = match visit.start(&block_buffer[..]) {
-            Ok(([], _, Some(visit))) => visit,
-            x => unreachable!("unexpected {:?}", x),
-        };
-
-        loop {
-            let key = visit.pending_links().next().unwrap();
-
-            block_buffer.clear();
-            blocks
-                .as_file(&key.to_bytes())
-                .unwrap()
-                .read_to_end(&mut block_buffer)
-                .unwrap();
-
-            let step = match visit.continue_walk(&block_buffer[..]) {
-                Ok((content, step)) => {
-                    sha.input(&content);
-                    bytes += content.len();
-                    step
-                },
-                x => unreachable!("unexpected {:?}", x),
-            };
-
-            match step {
-                Some(next) => visit = next,
-                None => break,
-            }
-        }
-
-        let result = sha.result();
-        let elapsed = started_at.elapsed();
-        println!("{:?}", elapsed);
-
-        assert_eq!(
-            &result[..],
-            hex!("6369d42caf9966c5c7c1796b9c99248c0a8fbf506a690fcaefc478d4a97b3683")
-        );
-        assert_eq!(bytes, 300_000);
+        assert_eq!(&bytes[..], b"oobar");
     }
 
     #[test]
     fn less_than_block_scoped_traversal_from_blockstore() {
-        let started_at = Instant::now();
+        let blocks = FakeBlockstore::with_fixtures();
 
-        // this depends on go-ipfs 0.5 flatfs blockstore and linux-5.6.14.tar.xz imported
-        let blocks = FakeShardedBlockstore {
-            root: PathBuf::from("/home/joonas/Programs/go-ipfs/ipfs_home/blocks"),
-        };
-
-        let start = "QmTEn8ypAkbJXZUXCRHBorwF2jM8uTUW9yRLzrcQouSoD4";
-        let start = cid::Cid::try_from(start).unwrap().to_bytes();
-
-        let mut block_buffer = Vec::new();
-        blocks
-            .as_file(&start)
-            .unwrap()
-            .read_to_end(&mut block_buffer)
-            .unwrap();
-
-        let mut sha = sha2::Sha256::new();
-        let mut bytes = 0;
-
+        let start = "QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6";
         let visit = IdleFileVisit::default()
-            .with_target_range(500_000..(500_000 + 32));
+            .with_target_range(0..1);
+        let bytes = collect_bytes(&blocks, visit, start);
 
-        let mut visit = match visit.start(&block_buffer[..]).unwrap() {
-            ([], _, Some(visit)) => visit,
-            x => unreachable!("unexpected {:?}", x),
-        };
-
-        loop {
-            let key = visit.pending_links().next().unwrap();
-
-            block_buffer.clear();
-            blocks
-                .as_file(&key.to_bytes())
-                .unwrap()
-                .read_to_end(&mut block_buffer)
-                .unwrap();
-
-            let step = match visit.continue_walk(&block_buffer[..]) {
-                Ok((content, step)) => {
-                    sha.input(&content);
-                    bytes += content.len();
-                    step
-                }
-                x => unreachable!("unexpected {:?}", x),
-            };
-
-            match step {
-                Some(next) => visit = next,
-                None => break,
-            }
-        }
-
-        let result = sha.result();
-        let elapsed = started_at.elapsed();
-        println!("{:?}", elapsed);
-
-        assert_eq!(bytes, 32);
-        assert_eq!(
-            &result[..],
-            hex!("62ab21fbe03d0ab6be3938740272bf0b70b516f15901e8ee51ecffb71dfe9e2b")
-        );
+        assert_eq!(&bytes[..], b"f");
     }
 
     #[test]
     fn scoped_traversal_out_of_bounds_from_blockstore() {
-        let started_at = Instant::now();
+        let blocks = FakeBlockstore::with_fixtures();
 
-        // this depends on go-ipfs 0.5 flatfs blockstore and linux-5.6.14.tar.xz imported
-        let blocks = FakeShardedBlockstore {
-            root: PathBuf::from("/home/joonas/Programs/go-ipfs/ipfs_home/blocks"),
-        };
-
-        let start = "QmTEn8ypAkbJXZUXCRHBorwF2jM8uTUW9yRLzrcQouSoD4";
-        let start = cid::Cid::try_from(start).unwrap().to_bytes();
-
-        let mut block_buffer = Vec::new();
-        blocks
-            .as_file(&start)
-            .unwrap()
-            .read_to_end(&mut block_buffer)
-            .unwrap();
-
+        let start = "QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6";
         let visit = IdleFileVisit::default()
-            .with_target_range(500_000_000..(500_000_000 + 32));
+            .with_target_range(7..20);
+        let bytes = collect_bytes(&blocks, visit, start);
 
-        match visit.start(&block_buffer[..]).unwrap() {
-            ([], _, None) => {
-                // no bytes are found on the range; this matches the go-ipfs http api behaviour
-                // FIXME: should be same for single block files!
-            },
-            x => unreachable!("unexpected {:?}", x),
-        }
-
-        let elapsed = started_at.elapsed();
-        println!("{:?}", elapsed);
+        assert_eq!(&bytes[..], b"");
     }
 
-    use std::path::PathBuf;
-
-    struct FakeShardedBlockstore {
-        root: PathBuf,
-    }
-
-    impl FakeShardedBlockstore {
-        fn as_path(&self, key: &[u8]) -> PathBuf {
-            let encoded = multibase::Base::Base32Upper.encode(key);
-            let len = encoded.len();
-
-            // this is safe because base32 is ascii
-            let dir = &encoded[(len - 3)..(len - 1)];
-            assert_eq!(dir.len(), 2);
-
-            let mut path = self.root.clone();
-            path.push(dir);
-            path.push(encoded);
-            path.set_extension("data");
-            path
-        }
-
-        fn as_file(&self, key: &[u8]) -> std::io::Result<std::fs::File> {
-            // assume that we have a block store with second-to-last/2 sharding
-            // files in Base32Upper
-
-            let path = self.as_path(key);
-            //println!("{} -> {:?}", cid::Cid::try_from(key).unwrap(), path);
-
-            std::fs::OpenOptions::new().read(true).open(path)
-        }
-    }
-
-    /// Debug wrapper for a slice which is expected to have a lot of the same numbers, like an
-    /// dense storage for merkledag size validation, in which case T = u64.
-    struct RLE<'a, T: fmt::Display + PartialEq>(&'a [T]);
-
-    impl<'a, T: fmt::Display + PartialEq> fmt::Debug for RLE<'_, T> {
-        fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let total = self.0.len();
-
-            write!(fmt, "{{ total: {}, rle: [", total)?;
-
-            let mut last = None;
-            let mut count = 0;
-
-            for c in self.0 {
-                match last {
-                    Some(x) if x == c => count += 1,
-                    Some(x) => {
-                        if count > 1 {
-                            write!(fmt, "{} x {}, ", count, x)?;
-                        } else {
-                            write!(fmt, "{}, ", x)?;
-                        }
-                        last = Some(c);
-                        count = 1;
-                    }
-                    None => {
-                        last = Some(c);
-                        count = 1;
-                    }
-                }
-            }
-
-            if let Some(x) = last {
-                if count > 1 {
-                    write!(fmt, "{} x {}, ", count, x)?;
-                } else {
-                    write!(fmt, "{}, ", x)?;
-                }
-            }
-
-            write!(fmt, "] }}")
-        }
-    }
 }
