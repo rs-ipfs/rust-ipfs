@@ -39,8 +39,8 @@ prost-build = "0.6.1"
 
 [dev-dependencies]
 env_logger = "0.7.1"
-sha2 = "*" # this is dependent on by multihash but it doesn't expose the Digest functionality needed in test
-hex-literal = "*"
+sha2 = "0.8.1"
+hex-literal = "0.2.1"
 
 [workspace]
 members = [ "bitswap", "http", "examples", "unixfs" ]
