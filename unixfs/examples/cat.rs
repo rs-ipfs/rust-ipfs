@@ -6,7 +6,7 @@ use std::io::{Error as IoError, Read, Write};
 use std::path::PathBuf;
 
 fn main() {
-    let cid = match std::env::args().skip(1).next().map(Cid::try_from) {
+    let cid = match std::env::args().nth(1).map(Cid::try_from) {
         Some(Ok(cid)) => cid,
         Some(Err(e)) => {
             eprintln!("Invalid cid given as argument: {}", e);
@@ -161,6 +161,6 @@ impl ShardedBlockStore {
         std::fs::OpenOptions::new()
             .read(true)
             .open(path)
-            .map_err(|e| Error::OpeningFailed(e))
+            .map_err(Error::OpeningFailed)
     }
 }

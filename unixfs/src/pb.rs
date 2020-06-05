@@ -53,7 +53,7 @@ impl<'a> TryFrom<Option<&'a [u8]>> for unixfs::Data<'a> {
     fn try_from(data: Option<&'a [u8]>) -> Result<Self, Self::Error> {
         use quick_protobuf::{BytesReader, MessageRead};
 
-        let data: &'a [u8] = data.ok_or(UnixFsReadFailed::NoData)?;
+        let data = data.ok_or(UnixFsReadFailed::NoData)?;
         let mut reader = BytesReader::from_bytes(data);
         UnixFs::from_reader(&mut reader, data).map_err(UnixFsReadFailed::InvalidUnixFs)
     }
@@ -135,14 +135,11 @@ where
     type Item = (PBLink<'a>, Range<u64>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.inner.next() {
-            Some((link, blocksize)) => {
-                let returned_base = self.base;
-                self.base += blocksize;
-                Some((link, returned_base..(returned_base + blocksize)))
-            }
-            None => None,
-        }
+        self.inner.next().map(|(link, blocksize)| {
+            let returned_base = self.base;
+            self.base += blocksize;
+            (link, returned_base..(returned_base + blocksize))
+        })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -157,10 +154,9 @@ mod test {
     use hex_literal::hex;
     use std::borrow::Cow;
     use std::convert::TryFrom;
-    use std::fmt;
 
     #[test]
-    fn hello_world() {
+    fn parse_content() {
         use quick_protobuf::{BytesReader, MessageRead};
         let input = hex!("0a0d08021207636f6e74656e741807");
 
@@ -168,45 +164,17 @@ mod test {
         let dagnode =
             PBNode::from_reader(&mut reader, &input).expect("parse outer merkledag::PBNode");
         assert!(dagnode.Links.is_empty());
-        println!("{:?}", dagnode);
 
         let unixfs_data = UnixFs::try_from(&dagnode).expect("parse inner unixfs::Data");
         assert_eq!(unixfs_data.Type, UnixFsType::File);
         assert_eq!(unixfs_data.Data, Some(Cow::Borrowed(&b"content"[..])));
+        assert_eq!(unixfs_data.filesize, Some(7));
         println!("{:?}", unixfs_data);
     }
 
     #[test]
     fn linux_tarxz_range_links() {
         let input = hex!("122b0a2212203822560f945fd3c74522de3448512a7e45cb53f0a9a1e12161da4667531ec12e120018aed4e015122b0a2212208594eb4dd5d67e573d506cd950ac59863b9afb024a590d7fe49b42fbcb44af43120018aed4e015122b0a221220745a70b6cd7ec3e46d16fb15b5e1e5db256f6a7a52d0b359f8f49b242665e17b120018b4e7e8090a1608021888c1a835208080e015208080e0152088c1e809");
-
-        struct HexOnly<T>(T);
-
-        impl<T> fmt::Debug for HexOnly<T>
-        where
-            T: std::convert::AsRef<[u8]>,
-        {
-            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let inner = self.0.as_ref();
-                write!(fmt, "({}: ", inner.len())?;
-                for b in inner {
-                    write!(fmt, "{:02x}", b)?
-                }
-                write!(fmt, ")")
-            }
-        }
-
-        impl<T> fmt::Display for HexOnly<T>
-        where
-            T: std::convert::AsRef<[u8]>,
-        {
-            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-                for b in self.0.as_ref() {
-                    write!(fmt, "{:02x}", b)?
-                }
-                Ok(())
-            }
-        }
 
         let flat = FlatUnixFs::try_from(&input[..]).unwrap();
 
@@ -219,15 +187,11 @@ mod test {
         expected_ranges.reverse();
 
         for (link, range) in flat.range_links() {
-            println!(
-                "{:>12}..{:<12} {:?}",
-                range.start,
-                range.end,
-                link.Hash
-                    .map(|h| multibase::Base::Base32Upper.encode(h.as_ref())),
-            );
-            assert_eq!(Some(range), expected_ranges.pop());
             assert_eq!(link.Name, Some(Cow::Borrowed("")));
+            // Tsize is the subtree size, which must always be larger than the file segments
+            // because of encoding
+            assert!(link.Tsize >= Some(range.end - range.start));
+            assert_eq!(Some(range), expected_ranges.pop());
         }
     }
 }

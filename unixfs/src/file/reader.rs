@@ -19,7 +19,6 @@ use crate::file::{FileError, FileMetadata, FileReadFailed, UnwrapBorrowedExt};
 pub struct FileReader<'a> {
     offset: u64,
     end: Ending,
-    had_links: bool,
     links: Vec<PBLink<'a>>,
     data: &'a [u8],
     blocksizes: Vec<u64>,
@@ -140,7 +139,6 @@ impl<'a> FileReader<'a> {
             Ok(Self {
                 offset,
                 end,
-                had_links: !inner.links.is_empty(),
                 links: inner.links,
                 data,
                 blocksizes: inner.data.blocksizes,
@@ -158,32 +156,29 @@ impl<'a> FileReader<'a> {
         Traversal,
     ) {
         let traversal = Traversal {
-            last_had_links: !self.had_links,
             last_ending: self.end,
             last_offset: self.offset,
 
             metadata: self.metadata,
         };
 
-        if self.links.is_empty() {
-            (FileContent::Just(self.data), traversal)
+        let fc = if self.links.is_empty() {
+            FileContent::Bytes(self.data)
         } else {
             let zipped = self.links.into_iter().zip(self.blocksizes.into_iter());
-            (
-                FileContent::Spread(RangeLinks::from_links_and_blocksizes(
-                    zipped,
-                    Some(self.offset),
-                )),
-                traversal,
-            )
-        }
+            FileContent::Links(RangeLinks::from_links_and_blocksizes(
+                zipped,
+                Some(self.offset),
+            ))
+        };
+
+        (fc, traversal)
     }
 }
 
 /// Carrier of validation data used between blocks during a walk on the merkle tree.
 #[derive(Debug)]
 pub struct Traversal {
-    last_had_links: bool,
     last_ending: Ending,
     last_offset: u64,
 
@@ -193,7 +188,7 @@ pub struct Traversal {
 impl Traversal {
     /// Continues the walk on the merkle tree with the given block contents. The block contents is
     /// not validated and the range is expected to be the next from previous call to
-    /// FileContent::Spread iterator.
+    /// FileContent::Links iterator.
     ///
     /// When calling this directly, it is good to note that repeatedly calling this with the same
     /// block contents will not be detected, and will instead grow the internal Vec of links until
@@ -204,7 +199,7 @@ impl Traversal {
         tree_range: &Range<u64>,
     ) -> Result<FileReader<'a>, FileReadFailed> {
         self.last_ending
-            .check_is_suitable_next(self.last_offset, &tree_range)?;
+            .check_is_suitable_next(self.last_offset, tree_range)?;
         FileReader::from_continued(self, tree_range.start, next_block)
     }
 }
@@ -223,11 +218,11 @@ where
 {
     /// When reaching the leaf level of a DAG we finally find the actual content. For empty files
     /// without content this will be an empty slice.
-    Just(&'a [u8]),
+    Bytes(&'a [u8]),
     /// The content of the file is spread over a number of blocks; iteration must follow from index
     /// depth-first from the first link to reach the given the bytes in the given byte offset
     /// range.
-    Spread(I),
+    Links(I),
 }
 
 impl<'a, I> FileContent<'a, I>
@@ -237,8 +232,8 @@ where
     /// Returns the content as bytes, or panics if there were links instead.
     pub fn unwrap_content(self) -> &'a [u8] {
         match self {
-            FileContent::Just(x) => x,
-            y => panic!("Expected FileContent::Just, found: {:?}", y),
+            FileContent::Bytes(x) => x,
+            y => panic!("Expected FileContent::Bytes, found: {:?}", y),
         }
     }
 }
@@ -249,8 +244,8 @@ where
 {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FileContent::Just(bytes) => write!(fmt, "Just({} bytes)", bytes.len()),
-            FileContent::Spread(_) => write!(fmt, "Spread(...)"),
+            FileContent::Bytes(bytes) => write!(fmt, "Bytes({} bytes)", bytes.len()),
+            FileContent::Links(iter) => write!(fmt, "Links({:?})", iter.size_hint()),
         }
     }
 }

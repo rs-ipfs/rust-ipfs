@@ -35,12 +35,12 @@ impl IdleFileVisit {
         let (content, traversal) = fr.content();
 
         match content {
-            FileContent::Just(content) => {
+            FileContent::Bytes(content) => {
                 let block = 0..content.len() as u64;
                 let content = maybe_target_slice(content, &block, self.range.as_ref());
                 Ok((content, metadata, None))
             }
-            FileContent::Spread(iter) => {
+            FileContent::Links(iter) => {
                 // we need to select suitable here
                 let mut pending = iter
                     .enumerate()
@@ -120,7 +120,7 @@ impl FileVisit {
         let fr = traversal.continue_walk(next, &range)?;
         let (content, traversal) = fr.content();
         match content {
-            FileContent::Just(content) => {
+            FileContent::Bytes(content) => {
                 let content = maybe_target_slice(content, &range, self.range.as_ref());
 
                 if !self.pending.is_empty() {
@@ -130,7 +130,7 @@ impl FileVisit {
                     Ok((content, None))
                 }
             }
-            FileContent::Spread(iter) => {
+            FileContent::Links(iter) => {
                 let before = self.pending.len();
 
                 for (i, (link, range)) in iter.enumerate() {
@@ -239,6 +239,7 @@ mod tests {
     use super::target_slice;
 
     #[test]
+    #[allow(clippy::type_complexity)]
     fn slice_for_target() {
         use std::ops::Range;
 

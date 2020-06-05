@@ -233,32 +233,30 @@ impl<'a> UnwrapBorrowedExt<'a> for Option<Cow<'a, [u8]>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{reader::*, visit::*, UnwrapBorrowedExt};
-    use hex_literal::hex;
+    use cid::Cid;
+    use std::collections::HashMap;
     use std::convert::TryFrom;
 
-    const CONTENT_FILE: &'static [u8] = &[
-        0x0a, 0x0d, 0x08, 0x02, 0x12, 0x07, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x18, 0x07,
-    ];
+    use super::{reader::*, visit::*, UnwrapBorrowedExt};
+    use hex_literal::hex;
+
+    const CONTENT_FILE: &[u8] = &hex!("0a0d08021207636f6e74656e741807");
 
     #[test]
     fn just_content() {
         let fr = FileReader::from_block(CONTENT_FILE).unwrap();
-
-        match fr.content() {
-            (FileContent::Just(b"content"), _) => {}
-            x => panic!("unexpected: {:?}", x),
-        }
+        let (content, _) = fr.content();
+        assert!(
+            matches!(content, FileContent::Bytes(b"content")),
+            "{:?}",
+            content
+        );
     }
 
     #[test]
     fn visiting_just_content() {
         let res = IdleFileVisit::default().start(CONTENT_FILE);
-
-        match res {
-            Ok((b"content", _, None)) => {}
-            x => unreachable!("unexpected {:?}", x),
-        }
+        assert!(matches!(res, Ok((b"content", _, None))), "{:?}", res);
     }
 
     #[test]
@@ -267,21 +265,16 @@ mod tests {
             .with_target_range(500_000..600_000)
             .start(CONTENT_FILE);
 
-        match res {
-            Ok((b"", _, None)) => {}
-            x => unreachable!("unexpected {:?}", x),
-        }
+        assert!(matches!(res, Ok((b"", _, None))), "{:?}", res);
     }
 
     #[test]
     fn empty_file() {
-        let block = &[0x0a, 0x04, 0x08, 0x02, 0x18, 0x00];
+        let block = &hex!("0a0408021800");
         let fr = FileReader::from_block(block).unwrap();
-        assert_eq!(fr.content().0.unwrap_content(), &[][..]);
+        let (content, _) = fr.content();
+        assert!(matches!(content, FileContent::Bytes(b"")), "{:?}", content);
     }
-
-    use cid::Cid;
-    use std::collections::HashMap;
 
     #[derive(Default)]
     struct FakeBlockstore {
@@ -310,10 +303,11 @@ mod tests {
             let mh = multihash::wrap(multihash::Code::Sha2_256, &result[..]);
             let cid = Cid::new_v0(mh).unwrap();
 
-            match self.blocks.insert(cid.clone(), block.to_vec()) {
-                None => {}
-                _ => unreachable!("duplicate cid {}", cid),
-            }
+            assert!(
+                self.blocks.insert(cid.clone(), block.to_vec()).is_none(),
+                "duplicate cid {}",
+                cid
+            );
 
             cid
         }
@@ -361,37 +355,34 @@ mod tests {
         let blocks = FakeBlockstore::with_fixtures();
 
         // filled on root
-        let (mut links_and_ranges, mut state) = {
+        let (mut links_and_ranges, mut traversal) = {
             let root = FileReader::from_block(blocks.get_by_str(target)).unwrap();
 
             let (mut links_and_ranges, traversal) = match root.content() {
-                (FileContent::Spread(iter), traversal) => (
-                    iter.map(|(link, range)| (link.Hash.unwrap_borrowed().to_vec(), range))
-                        .collect::<Vec<(Vec<u8>, _)>>(),
-                    traversal,
-                ),
+                (FileContent::Links(iter), traversal) => {
+                    let links_and_ranges = iter
+                        .map(|(link, range)| (link.Hash.unwrap_borrowed().to_vec(), range))
+                        .collect::<Vec<_>>();
+                    (links_and_ranges, traversal)
+                }
                 x => unreachable!("unexpected {:?}", x),
             };
 
             // reverse again to pop again
             links_and_ranges.reverse();
             // something 'static to hold on between two blocks
-            (links_and_ranges, Some(traversal))
+            (links_and_ranges, traversal)
         };
 
         let mut combined: Vec<u8> = Vec::new();
 
         while let Some((key, range)) = links_and_ranges.pop() {
             let next = blocks.get_by_raw(&key);
-            let fr = state
-                .take()
-                .map(|traversal| traversal.continue_walk(&next, &range))
-                .unwrap() //.unwrap_or_else(|| FileReader::from_block(&next))
-                .unwrap();
+            let fr = traversal.continue_walk(&next, &range).unwrap();
 
-            let (content, traversal) = fr.content();
+            let (content, next) = fr.content();
             combined.extend(content.unwrap_content());
-            state = Some(traversal);
+            traversal = next;
         }
 
         assert_eq!(combined, b"foobar\n");
@@ -400,25 +391,16 @@ mod tests {
     fn collect_bytes(blocks: &FakeBlockstore, visit: IdleFileVisit, start: &str) -> Vec<u8> {
         let mut ret = Vec::new();
 
-        let mut step = match visit.start(blocks.get_by_str(start)) {
-            Ok((content, _, step)) => {
-                ret.extend(content);
-                step
-            }
-            x => unreachable!("{:?}", x),
-        };
+        let (content, _, mut step) = visit.start(blocks.get_by_str(start)).unwrap();
+        ret.extend(content);
 
         while let Some(visit) = step {
             let (first, _) = visit.pending_links();
             let block = blocks.get_by_cid(first);
 
-            match visit.continue_walk(block) {
-                Ok((content, next_step)) => {
-                    ret.extend(content);
-                    step = next_step;
-                }
-                x => unreachable!("{:?}", x),
-            }
+            let (content, next_step) = visit.continue_walk(block).unwrap();
+            ret.extend(content);
+            step = next_step;
         }
 
         ret
