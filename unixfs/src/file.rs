@@ -229,11 +229,10 @@ mod tests {
 
     #[test]
     fn visiting_just_content() {
-        let res = IdleFileVisit::default()
-            .start(CONTENT_FILE);
+        let res = IdleFileVisit::default().start(CONTENT_FILE);
 
         match res {
-            Ok((b"content", _, None)) => {},
+            Ok((b"content", _, None)) => {}
             x => unreachable!("unexpected {:?}", x),
         }
     }
@@ -245,7 +244,7 @@ mod tests {
             .start(CONTENT_FILE);
 
         match res {
-            Ok((b"", _, None)) => {},
+            Ok((b"", _, None)) => {}
             x => unreachable!("unexpected {:?}", x),
         }
     }
@@ -288,7 +287,7 @@ mod tests {
             let cid = Cid::new_v0(mh).unwrap();
 
             match self.blocks.insert(cid.clone(), block.to_vec()) {
-                None => {},
+                None => {}
                 _ => unreachable!("duplicate cid {}", cid),
             }
 
@@ -342,10 +341,11 @@ mod tests {
             let root = FileReader::from_block(blocks.get_by_str(target)).unwrap();
 
             let (mut links_and_ranges, traversal) = match root.content() {
-                (FileContent::Spread(iter), traversal) => {
-                    (iter.map(|(link, range)| (link.Hash.unwrap_borrowed().to_vec(), range))
-                         .collect::<Vec<(Vec<u8>, _)>>(), traversal)
-                }
+                (FileContent::Spread(iter), traversal) => (
+                    iter.map(|(link, range)| (link.Hash.unwrap_borrowed().to_vec(), range))
+                        .collect::<Vec<(Vec<u8>, _)>>(),
+                    traversal,
+                ),
                 x => unreachable!("unexpected {:?}", x),
             };
 
@@ -380,7 +380,7 @@ mod tests {
             Ok((content, _, step)) => {
                 ret.extend(content);
                 step
-            },
+            }
             x => unreachable!("{:?}", x),
         };
 
@@ -392,7 +392,7 @@ mod tests {
                 Ok((content, next_step)) => {
                     ret.extend(content);
                     step = next_step;
-                },
+                }
                 x => unreachable!("{:?}", x),
             }
         }
@@ -415,8 +415,7 @@ mod tests {
         let blocks = FakeBlockstore::with_fixtures();
 
         let start = "QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6";
-        let visit = IdleFileVisit::default()
-            .with_target_range(1..6);
+        let visit = IdleFileVisit::default().with_target_range(1..6);
         let bytes = collect_bytes(&blocks, visit, start);
 
         assert_eq!(&bytes[..], b"oobar");
@@ -427,8 +426,7 @@ mod tests {
         let blocks = FakeBlockstore::with_fixtures();
 
         let start = "QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6";
-        let visit = IdleFileVisit::default()
-            .with_target_range(0..1);
+        let visit = IdleFileVisit::default().with_target_range(0..1);
         let bytes = collect_bytes(&blocks, visit, start);
 
         assert_eq!(&bytes[..], b"f");
@@ -439,8 +437,7 @@ mod tests {
         let blocks = FakeBlockstore::with_fixtures();
 
         let start = "QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6";
-        let visit = IdleFileVisit::default()
-            .with_target_range(7..20);
+        let visit = IdleFileVisit::default().with_target_range(7..20);
         let bytes = collect_bytes(&blocks, visit, start);
 
         assert_eq!(&bytes[..], b"");

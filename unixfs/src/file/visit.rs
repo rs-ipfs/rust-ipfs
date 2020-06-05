@@ -17,9 +17,7 @@ pub struct IdleFileVisit {
 impl IdleFileVisit {
     /// Target range represents the target byte range of the file we are interested in visiting.
     pub fn with_target_range(self, range: Range<u64>) -> Self {
-        Self {
-            range: Some(range),
-        }
+        Self { range: Some(range) }
     }
 
     /// Begins the visitation by offering the first block to be visited.
@@ -190,7 +188,11 @@ fn block_is_in_target_range(block: &Range<u64>, target: Option<&Range<u64>>) -> 
 
 /// Whenever we propagate the content from the tree upwards, we need to make sure it's inside the
 /// range we were originally interested in.
-fn maybe_target_slice<'a>(content: &'a [u8], block: &Range<u64>, target: Option<&Range<u64>>) -> &'a [u8] {
+fn maybe_target_slice<'a>(
+    content: &'a [u8],
+    block: &Range<u64>,
+    target: Option<&Range<u64>>,
+) -> &'a [u8] {
     if let Some(target) = target {
         target_slice(content, block, target)
     } else {
@@ -240,32 +242,25 @@ mod tests {
         let cases: &[(&[u8], u64, Range<u64>, &[u8])] = &[
             // xxxx xxxx cont ent_
             // ^^^^ ^^^^
-            (b"content_", 8, 0..8,   b""),
-
+            (b"content_", 8, 0..8, b""),
             // xxxx xxxx cont ent_
             // ^^^^ ^^^^ ^
-            (b"content_", 8, 0..9,   b"c"),
-
+            (b"content_", 8, 0..9, b"c"),
             // xxxx xxxx cont ent_
             //  ^^^ ^^^^ ^^^^ ^^^^ ...
-            (b"content_", 8, 1..20,  b"content_"),
-
+            (b"content_", 8, 1..20, b"content_"),
             // xxxx xxxx cont ent_
             //         ^ ^^^^ ^^^^ ...
-            (b"content_", 8, 7..20,  b"content_"),
-
+            (b"content_", 8, 7..20, b"content_"),
             // xxxx xxxx cont ent_
             //           ^^^^ ^^^^ ...
-            (b"content_", 8, 8..20,  b"content_"),
-
+            (b"content_", 8, 8..20, b"content_"),
             // xxxx xxxx cont ent_
             //            ^^^ ^^^^ ...
-            (b"content_", 8, 9..20,  b"ontent_"),
-
+            (b"content_", 8, 9..20, b"ontent_"),
             // xxxx xxxx cont ent_
             //                   ^ ...
             (b"content_", 8, 15..20, b"_"),
-
             // xxxx xxxx cont ent_ yyyy
             //                     ^^^^
             (b"content_", 8, 16..20, b""),
@@ -274,7 +269,11 @@ mod tests {
         for (block_data, block_offset, target_range, expected) in cases {
             let block_range = *block_offset..(block_offset + block_data.len() as u64);
             let sliced = target_slice(block_data, &block_range, target_range);
-            assert_eq!(sliced, *expected, "slice {:?} of block {:?}", target_range, block_range);
+            assert_eq!(
+                sliced, *expected,
+                "slice {:?} of block {:?}",
+                target_range, block_range
+            );
         }
     }
 }

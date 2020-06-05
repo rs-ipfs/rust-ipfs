@@ -64,10 +64,7 @@ impl Into<String> for File {
 use crate::{Ipfs, IpfsTypes};
 use async_stream::stream;
 use futures::stream::Stream;
-use ipfs_unixfs::file::{
-    visit::IdleFileVisit,
-    FileReadFailed,
-};
+use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
 use std::fmt;
 use std::ops::Range;
 
