@@ -44,12 +44,12 @@ enum Ending {
 
 impl Ending {
     /// Checks wheter or not the next range is good to be processed next.
-    fn check_is_suitable_next(&self, offset: u64, next: &Range<u64>) -> Result<(), FileReadFailed> {
+    fn check_is_suitable_next(&self, offset: u64, next: &Range<u64>) -> Result<(), FileError> {
         match self {
             Ending::TreeCoverage(cover_end) if next.start <= offset && &next.end > cover_end => {
                 // tree must be collapsing; we cant have root be some smaller *file* range than
                 // the child
-                Err(FileError::TreeExpandsOnLinks)?
+                Err(FileError::TreeExpandsOnLinks)
             }
             Ending::TreeCoverage(cover_end) if &next.start < cover_end && &next.end > cover_end => {
                 // when moving to sibling at the same height or above, it's coverage must start
@@ -58,13 +58,13 @@ impl Ending {
                 // This has been separated instead of making the TreeExpandsOnLinks more general as
                 // this might be a reasonable way with unixfs to reuse lower trees but no such
                 // example has been found at least.
-                Err(FileError::TreeOverlapsBetweenLinks)?
+                Err(FileError::TreeOverlapsBetweenLinks)
             }
-            Ending::TreeCoverage(_) if next.start < offset => Err(FileError::EarlierLink)?,
+            Ending::TreeCoverage(_) if next.start < offset => Err(FileError::EarlierLink),
             Ending::Chunk(chunk_end) if &next.start != chunk_end => {
                 // when continuing on from leaf node to either tree at above or a chunk at
                 // next, the next must continue where we stopped
-                Err(FileError::TreeJumpsBetweenLinks)?
+                Err(FileError::TreeJumpsBetweenLinks)
             }
             _ => Ok(()),
         }

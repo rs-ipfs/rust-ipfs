@@ -229,11 +229,10 @@ mod tests {
         let mut digest = Sha256::new();
         let mut count = 0;
 
-        loop {
-            let bytes = match stream.next().await {
-                Some(Ok(bytes)) => bytes,
-                Some(Err(e)) => panic!("got error: {}", e),
-                None => break,
+        while let Some(maybe_ok) = stream.next().await {
+            let bytes = match maybe_ok {
+                Ok(bytes) => bytes,
+                Err(e) => panic!("got error: {}", e),
             };
 
             digest.input(&bytes);

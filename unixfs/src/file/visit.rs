@@ -24,10 +24,10 @@ impl IdleFileVisit {
     ///
     /// Returns on success a tuple of file bytes, any metadata associated, and optionally a
     /// `FileVisit` to continue the walk.
-    pub fn start<'a>(
+    pub fn start(
         self,
-        block: &'a [u8],
-    ) -> Result<(&'a [u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
+        block: &[u8],
+    ) -> Result<(&[u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
         let fr = FileReader::from_block(block)?;
 
         let metadata = fr.as_ref().to_owned();
@@ -103,10 +103,10 @@ impl FileVisit {
     ///
     /// Returns on success a tuple of bytes and new version of `FileVisit` to continue the visit,
     /// when there is something more to visit.
-    pub fn continue_walk<'a>(
+    pub fn continue_walk(
         mut self,
-        next: &'a [u8],
-    ) -> Result<(&'a [u8], Option<Self>), FileReadFailed> {
+        next: &[u8],
+    ) -> Result<(&[u8], Option<Self>), FileReadFailed> {
         let traversal = self.state;
         let (_, range) = self
             .pending

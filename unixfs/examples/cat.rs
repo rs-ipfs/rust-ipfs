@@ -6,15 +6,14 @@ use std::io::{Error as IoError, Read, Write};
 use std::path::PathBuf;
 
 fn main() {
-    let cid = match std::env::args().skip(1).next().map(|s| Cid::try_from(s)) {
+    let cid = match std::env::args().skip(1).next().map(Cid::try_from) {
         Some(Ok(cid)) => cid,
         Some(Err(e)) => {
             eprintln!("Invalid cid given as argument: {}", e);
             std::process::exit(1);
         }
         None => {
-            eprintln!("USAGE: {} CID", std::env::args().next().unwrap());
-            eprintln!();
+            eprintln!("USAGE: {} CID\n", std::env::args().next().unwrap());
             eprintln!(
                 "Will walk the unixfs file pointed out by the CID from default go-ipfs 0.5 \
                 configuration flatfs blockstore and write all content to stdout."
@@ -42,8 +41,7 @@ fn main() {
             eprintln!("Total bytes:   {}", read);
         }
         Err(Error::OpeningFailed(e)) => {
-            eprintln!("{}", e);
-            eprintln!();
+            eprintln!("{}\n", e);
             eprintln!("This is likely caused by either:");
             eprintln!(" - ipfs does not have the block");
             eprintln!(" - ipfs is configured to use non-flatfs storage");
