@@ -30,8 +30,27 @@ fn multiple_concurrent_ephemeral_listening_addresses_on_same_ip() {
 
         let (first, second) = futures::future::join(first, second).await;
 
-        // one should succeed and other should fail
-        assert_eq!(first.is_ok(), second.is_err());
+        // before an Swarm alike api on the background task to make sure we attempt to modify the
+        // background task twice before the swarm gets to poll, this will forever produce one or two
+        // successes.
+        //
+        // with two attempts without polling the swarm in the between:
+        // assert_eq!(first.is_ok(), second.is_err());
+        //
+        // intuitively it could seem that first will always succeed because it must get the first
+        // attempt to push messages into the queue but not sure if that should be leaned on.
+
+        let successes = [first.is_ok(), second.is_ok()]
+            .iter()
+            .filter(|&&success| success)
+            .count();
+
+        assert!(
+            successes > 0,
+            "first: {:?}, second: {:?}",
+            first,
+            second
+        );
     });
 }
 
