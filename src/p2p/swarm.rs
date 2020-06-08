@@ -251,7 +251,7 @@ mod tests {
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
         let peer1 = async move {
-            while let Some(_) = swarm1.next().now_or_never() {}
+            while swarm1.next().now_or_never().is_some() {}
 
             for l in Swarm::listeners(&swarm1) {
                 tx.send(l.clone()).await.unwrap();
