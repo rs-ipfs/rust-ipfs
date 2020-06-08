@@ -1,3 +1,5 @@
+#![recursion_limit = "512"]
+
 use async_std::task;
 use ipfs::{Block, IpfsOptions, TestTypes, UninitializedIpfs};
 use libipld::cid::{Cid, Codec};
