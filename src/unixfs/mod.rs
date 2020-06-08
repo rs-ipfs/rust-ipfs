@@ -11,6 +11,9 @@ use libipld::pb::PbNode;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 
+mod cat;
+pub use cat::{cat, TraversalFailed};
+
 pub struct File {
     data: Vec<u8>,
 }

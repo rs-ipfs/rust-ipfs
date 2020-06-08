@@ -1,0 +1,17 @@
+[package]
+name = "ipfs-unixfs"
+version = "0.1.0"
+authors = ["Joonas Koivunen <joonas@equilibrium.co>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+quick-protobuf = "0.7.0"
+cid = "0.4.0"
+
+[dev-dependencies]
+multibase = "0.8.0"
+multihash = "0.10.1"
+sha2 = "0.8.1"
+hex-literal = "0.2.1"
