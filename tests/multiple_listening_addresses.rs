@@ -40,7 +40,12 @@ fn multiple_concurrent_ephemeral_listening_addresses_on_same_ip() {
         // intuitively it could seem that first will always succeed because it must get the first
         // attempt to push messages into the queue but not sure if that should be leaned on.
 
-        assert!(first.is_ok() || second.is_ok(), "first: {:?}, second: {:?}", first, second);
+        assert!(
+            first.is_ok() || second.is_ok(),
+            "first: {:?}, second: {:?}",
+            first,
+            second
+        );
     });
 }
 
