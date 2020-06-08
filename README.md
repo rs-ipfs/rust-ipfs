@@ -116,6 +116,14 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
 * `/refs` and `/refs/local`
 * `/bitswap/{ stat, wantlist }`
 
+### Devgrant Phase 2 - `In Progress`
+* UnixFS Support
+* `/cat`
+* `/get`
+
+### Substrate Grant Milestone 2 - `Pending`
+* `/add`
+* DHT + Swarming
 ### Work still required (APIs)
 
 - Interop testing
