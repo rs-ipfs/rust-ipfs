@@ -45,12 +45,7 @@ fn multiple_concurrent_ephemeral_listening_addresses_on_same_ip() {
             .filter(|&&success| success)
             .count();
 
-        assert!(
-            successes > 0,
-            "first: {:?}, second: {:?}",
-            first,
-            second
-        );
+        assert!(successes > 0, "first: {:?}, second: {:?}", first, second);
     });
 }
 
