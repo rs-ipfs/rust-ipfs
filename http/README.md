@@ -3,8 +3,8 @@
 HTTP api on top of ipfs crate. The end binary has some rudimentary ipfs CLI
 functionality but mostly in the aim of testing the `rust-ipfs` via:
 
- * [ipfs-rust-conformance](https://github.com/ipfs-rust/ipfs-rust-conformance)
- * [interop](https://github.com/ipfs-rust/interop/)
+ * [ipfs-rust-conformance](https://github.com/rs-ipfs/ipfs-rust-conformance)
+ * [interop](https://github.com/rs-ipfs/interop/)
 
 HTTP specs:
 
