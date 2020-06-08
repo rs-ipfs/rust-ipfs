@@ -1,13 +1,13 @@
 #![recursion_limit = "512"]
 
+use futures::io::AsyncWriteExt;
+use futures::pin_mut;
+use futures::stream::StreamExt; // needed for StreamExt::next
+use ipfs::{IpfsOptions, TestTypes, UninitializedIpfs};
+use libipld::cid::Cid;
+use std::convert::TryFrom;
 use std::env;
 use std::process::exit;
-use std::convert::TryFrom;
-use libipld::cid::Cid;
-use ipfs::{IpfsOptions, TestTypes, UninitializedIpfs};
-use futures::stream::StreamExt; // needed for StreamExt::next
-use futures::pin_mut;
-use futures::io::AsyncWriteExt;
 
 fn main() {
     env_logger::init();
@@ -20,13 +20,19 @@ fn main() {
     let cid = match env::args().nth(1).map(Cid::try_from) {
         Some(Ok(cid)) => cid,
         Some(Err(e)) => {
-            eprintln!("Failed to parse {} as Cid: {}", env::args().nth(1).unwrap(), e);
+            eprintln!(
+                "Failed to parse {} as Cid: {}",
+                env::args().nth(1).unwrap(),
+                e
+            );
             exit(1);
         }
         None => {
             eprintln!("Usage: fetch_and_cat CID");
-            eprintln!("Example will accept connections and print all bytes of the unixfs file to \
-                stdout.");
+            eprintln!(
+                "Example will accept connections and print all bytes of the unixfs file to \
+                stdout."
+            );
             exit(0);
         }
     };

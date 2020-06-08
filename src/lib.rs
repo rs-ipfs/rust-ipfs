@@ -14,7 +14,7 @@ pub use bitswap::Block;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use futures::sink::SinkExt;
-use futures::stream::{Stream, Fuse};
+use futures::stream::{Fuse, Stream};
 pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
@@ -26,10 +26,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
+use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::ops::Range;
 
 mod config;
 mod dag;
@@ -382,7 +382,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(File::get_unixfs_v1(&self.dag, path).await?)
     }
 
-    pub fn cat_unixfs(&self, cid: Cid, range: Option<Range<u64>>) -> impl Stream<Item = Result<Vec<u8>, unixfs::TraversalFailed>> + Send + '_ {
+    pub fn cat_unixfs(
+        &self,
+        cid: Cid,
+        range: Option<Range<u64>>,
+    ) -> impl Stream<Item = Result<Vec<u8>, unixfs::TraversalFailed>> + Send + '_ {
         unixfs::cat(self, cid, range)
     }
 

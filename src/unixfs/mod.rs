@@ -65,9 +65,9 @@ use crate::{Ipfs, IpfsTypes};
 use async_stream::stream;
 use futures::stream::Stream;
 use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
+use std::borrow::Borrow;
 use std::fmt;
 use std::ops::Range;
-use std::borrow::Borrow;
 
 /// IPFS cat operation, producing a stream of file bytes. This is generic over the different kinds
 /// of ways to own an `Ipfs` value in order to support both operating with borrowed `Ipfs` value
@@ -80,8 +80,9 @@ pub fn cat<'a, Types, MaybeOwned>(
     cid: Cid,
     range: Option<Range<u64>>,
 ) -> impl Stream<Item = Result<Vec<u8>, TraversalFailed>> + Send + 'a
-    where Types: IpfsTypes,
-          MaybeOwned: Borrow<Ipfs<Types>> + Send + 'a,
+where
+    Types: IpfsTypes,
+    MaybeOwned: Borrow<Ipfs<Types>> + Send + 'a,
 {
     use bitswap::Block;
 
