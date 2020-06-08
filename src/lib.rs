@@ -382,6 +382,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(File::get_unixfs_v1(&self.dag, path).await?)
     }
 
+    /// Creates a stream which will yield the bytes of an UnixFS file from the root Cid, with the
+    /// optional file byte range. If the range is specified and is outside of the file, the stream
+    /// will end without producing any bytes.
+    ///
+    /// To create an owned version of the stream, please use `ipfs::unixfs::cat` directly.
     pub fn cat_unixfs(
         &self,
         cid: Cid,
