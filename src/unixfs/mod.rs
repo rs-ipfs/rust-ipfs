@@ -67,12 +67,22 @@ use futures::stream::Stream;
 use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
 use std::fmt;
 use std::ops::Range;
+use std::borrow::Borrow;
 
-pub fn cat(
-    ipfs: Ipfs<impl IpfsTypes>,
+/// IPFS cat operation, producing a stream of file bytes. This is generic over the different kinds
+/// of ways to own an `Ipfs` value in order to support both operating with borrowed `Ipfs` value
+/// and an owned value. Passing an owned value allows the return value to be `'static`, which can
+/// be helpful in some contexts, like the http.
+///
+/// Returns a stream of bytes on the file pointed with the Cid.
+pub fn cat<'a, Types, MaybeOwned>(
+    ipfs: MaybeOwned,
     cid: Cid,
     range: Option<Range<u64>>,
-) -> impl Stream<Item = Result<Vec<u8>, TraversalFailed>> + Send + 'static {
+) -> impl Stream<Item = Result<Vec<u8>, TraversalFailed>> + Send + 'a
+    where Types: IpfsTypes,
+          MaybeOwned: Borrow<Ipfs<Types>> + Send + 'a,
+{
     use bitswap::Block;
 
     // using async_stream here at least to get on faster; writing custom streams is not too easy
@@ -83,7 +93,10 @@ pub fn cat(
             visit = visit.with_target_range(range);
         }
 
-        let Block { cid, data } = match ipfs.get_block(&cid).await {
+        // Get the root block to start the traversal. The stream does not expose any of the file
+        // metadata. To get to it the user needs to create a Visitor over the first block.
+        let borrow = ipfs.borrow();
+        let Block { cid, data } = match borrow.get_block(&cid).await {
             Ok(block) => block,
             Err(e) => {
                 yield Err(TraversalFailed::Loading(cid, e));
@@ -91,6 +104,7 @@ pub fn cat(
             }
         };
 
+        // Start the visit from the root block.
         let mut visit = match visit.start(&data) {
             Ok((bytes, _, visit)) => {
                 if !bytes.is_empty() {
@@ -112,7 +126,8 @@ pub fn cat(
             // TODO: if it was possible, it would make sense to start downloading N of these
             let (next, _) = visit.pending_links();
 
-            let Block { cid, data } = match ipfs.get_block(&next).await {
+            let borrow = ipfs.borrow();
+            let Block { cid, data } = match borrow.get_block(&next).await {
                 Ok(block) => block,
                 Err(e) => {
                     yield Err(TraversalFailed::Loading(next.to_owned(), e));
@@ -123,6 +138,7 @@ pub fn cat(
             match visit.continue_walk(&data) {
                 Ok((bytes, next_visit)) => {
                     if !bytes.is_empty() {
+                        // TODO: manual implementation could allow returning just the slice
                         yield Ok(bytes.to_vec());
                     }
 
@@ -185,66 +201,5 @@ mod tests {
 
         let cid2 = file.put_unixfs_v1(&dag).await.unwrap();
         assert_eq!(cid.to_string(), cid2.to_string());
-    }
-
-    #[ignore]
-    #[async_std::test]
-    async fn cat() {
-        use crate::{IpfsOptions, UninitializedIpfs};
-        use async_std::task;
-        use futures::stream::StreamExt;
-        use hex_literal::hex;
-        use sha2::{Digest, Sha256};
-        use std::time::{Duration, Instant};
-
-        let options = IpfsOptions::inmemory_with_generated_keys(false);
-
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        task::spawn(fut);
-
-        let id = ipfs.identity().await.unwrap();
-        println!("listening at: {}/p2p/{}", id.1[0], id.0.into_peer_id());
-        let cid = "QmTEn8ypAkbJXZUXCRHBorwF2jM8uTUW9yRLzrcQouSoD4";
-        println!("please connect an go-ipfs with Cid {}", cid);
-
-        while ipfs.peers().await.unwrap().is_empty() {
-            async_std::future::timeout(
-                Duration::from_millis(100),
-                futures::future::pending::<()>(),
-            )
-            .await
-            .unwrap_err();
-        }
-
-        println!("got peer");
-        let started_at = Instant::now();
-
-        let stream = super::cat(ipfs, libipld::cid::Cid::try_from(cid).unwrap(), None);
-
-        futures::pin_mut!(stream);
-
-        let mut digest = Sha256::new();
-        let mut count = 0;
-
-        while let Some(maybe_ok) = stream.next().await {
-            let bytes = match maybe_ok {
-                Ok(bytes) => bytes,
-                Err(e) => panic!("got error: {}", e),
-            };
-
-            digest.input(&bytes);
-            count += bytes.len();
-        }
-
-        let result = digest.result();
-        let elapsed = started_at.elapsed();
-
-        println!("elapsed: {:?}", elapsed);
-
-        assert_eq!(count, 111_812_744);
-        assert_eq!(
-            &result[..],
-            hex!("33763f3541711e39fa743da45ff9512d54ade61406173f3d267ba4484cec7ea3")
-        );
     }
 }

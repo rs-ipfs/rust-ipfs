@@ -14,7 +14,7 @@ pub use bitswap::Block;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use futures::sink::SinkExt;
-use futures::stream::Fuse;
+use futures::stream::{Stream, Fuse};
 pub use libipld::cid::Cid;
 use libipld::cid::Codec;
 pub use libipld::ipld::Ipld;
@@ -29,6 +29,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::ops::Range;
 
 mod config;
 mod dag;
@@ -381,6 +382,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(File::get_unixfs_v1(&self.dag, path).await?)
     }
 
+    pub fn cat_unixfs(&self, cid: Cid, range: Option<Range<u64>>) -> impl Stream<Item = Result<Vec<u8>, unixfs::TraversalFailed>> + Send + '_ {
+        unixfs::cat(self, cid, range)
+    }
+
     /// Resolves a ipns path to an ipld path.
     pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
         Ok(self.ipns.resolve(path).await?)
@@ -721,7 +726,6 @@ impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-        use futures::Stream;
         use libp2p::{swarm::SwarmEvent, Swarm};
 
         // begin by polling the swarm so that initially it'll first have chance to bind listeners
