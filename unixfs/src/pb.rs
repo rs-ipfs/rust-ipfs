@@ -37,7 +37,17 @@ impl fmt::Display for UnixFsReadFailed {
     }
 }
 
-impl std::error::Error for UnixFsReadFailed {}
+impl std::error::Error for UnixFsReadFailed {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use UnixFsReadFailed::*;
+
+        match self {
+            InvalidDagPb(e) => Some(e),
+            InvalidUnixFs(e) => Some(e),
+            NoData => None
+        }
+    }
+}
 
 impl<'a> TryFrom<&'a merkledag::PBNode<'a>> for unixfs::Data<'a> {
     type Error = UnixFsReadFailed;
