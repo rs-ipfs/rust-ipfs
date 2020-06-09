@@ -10,6 +10,7 @@ pub mod pubsub;
 pub mod refs;
 pub mod swarm;
 pub mod version;
+pub mod root_files;
 
 pub mod support;
 pub use support::recover_as_message_response;
@@ -70,6 +71,7 @@ pub fn routes<T: IpfsTypes>(
         dag::resolve(ipfs),
         warp::path!("dht" / ..).and_then(not_implemented),
         warp::path!("get").and_then(not_implemented),
+        root_files::cat(ipfs),
         warp::path!("key" / ..).and_then(not_implemented),
         warp::path!("name" / ..).and_then(not_implemented),
         warp::path!("object" / ..).and_then(not_implemented),
