@@ -44,7 +44,7 @@ impl std::error::Error for UnixFsReadFailed {
         match self {
             InvalidDagPb(e) => Some(e),
             InvalidUnixFs(e) => Some(e),
-            NoData => None
+            NoData => None,
         }
     }
 }
@@ -82,6 +82,7 @@ impl<'a> TryFrom<&'a [u8]> for merkledag::PBNode<'a> {
 }
 
 /// Intermediate conversion structure suitable for creating multiple kinds of readers.
+#[derive(Debug)]
 pub(crate) struct FlatUnixFs<'a> {
     pub(crate) links: Vec<PBLink<'a>>,
     pub(crate) data: UnixFs<'a>,
