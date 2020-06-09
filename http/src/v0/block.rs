@@ -1,18 +1,15 @@
 use crate::v0::support::unshared::Unshared;
-use crate::v0::support::{with_ipfs, HandledErr, InvalidMultipartFormData, StringError};
+use crate::v0::support::{
+    with_ipfs, HandledErr, InvalidMultipartFormData, StreamResponse, StringError,
+};
 use futures::stream::FuturesOrdered;
 use futures::stream::StreamExt;
-use futures::stream::{TryStream, TryStreamExt};
 use ipfs::error::Error;
 use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::{Cid, Codec, Version};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
-use std::error::Error as StdError;
-use warp::hyper::body::Bytes;
-use warp::{
-    http::Response, hyper::Body, multipart, path, query, reply, Buf, Filter, Rejection, Reply,
-};
+use warp::{http::Response, multipart, path, query, reply, Buf, Filter, Rejection, Reply};
 
 mod options;
 use options::RmOptions;
@@ -233,17 +230,4 @@ pub fn stat<T: IpfsTypes>(
         .and(with_ipfs(ipfs))
         .and(query::<StatQuery>())
         .and_then(stat_query)
-}
-
-pub struct StreamResponse<S>(pub S);
-
-impl<S> Reply for StreamResponse<S>
-where
-    S: TryStream + Send + Sync + 'static,
-    S::Ok: Into<Bytes>,
-    S::Error: StdError + Send + Sync + 'static,
-{
-    fn into_response(self) -> warp::reply::Response {
-        Response::new(Body::wrap_stream(self.0.into_stream()))
-    }
 }

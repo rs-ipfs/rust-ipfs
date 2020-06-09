@@ -7,7 +7,9 @@ use std::error::Error as StdError;
 use std::fmt;
 
 pub mod option_parsing;
+mod stream;
 pub mod unshared;
+pub use stream::StreamResponse;
 
 /// The common responses apparently returned by the go-ipfs HTTP api on errors.
 /// See also: https://github.com/ferristseng/rust-ipfs-api/blob/master/ipfs-api/src/response/error.rs
