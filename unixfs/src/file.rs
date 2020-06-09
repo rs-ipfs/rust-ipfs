@@ -66,7 +66,9 @@ pub enum FileReadFailed {
     // This is the raw value instead of the enum by design not to expose the quick-protobuf types
     UnexpectedType(i32),
     /// Parsing failed
-    Read(UnixFsReadFailed),
+    Read(quick_protobuf::Error),
+    /// Outer dag-pb node was parsed successfully but there was no data bytes for inner message.
+    EmptyPBNode,
     /// Link could not be turned into Cid.
     LinkInvalidCid {
         /// The index of this link, from zero
@@ -93,6 +95,7 @@ impl fmt::Display for FileReadFailed {
                 UnixFsType::from(*t)
             ),
             Read(e) => write!(fmt, "reading failed: {}", e),
+            EmptyPBNode => write!(fmt, "reading failed: missing UnixFS message"),
             LinkInvalidCid {
                 nth, name, cause, ..
             } => write!(
@@ -116,7 +119,12 @@ impl std::error::Error for FileReadFailed {
 
 impl From<UnixFsReadFailed> for FileReadFailed {
     fn from(e: UnixFsReadFailed) -> Self {
-        FileReadFailed::Read(e)
+        use UnixFsReadFailed::*;
+        match e {
+            InvalidDagPb(e) => FileReadFailed::Read(e),
+            InvalidUnixFs(e) => FileReadFailed::Read(e),
+            NoData => FileReadFailed::EmptyPBNode,
+        }
     }
 }
 
