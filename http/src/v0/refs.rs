@@ -22,11 +22,7 @@ mod path;
 pub use path::{IpfsPath, WalkSuccess};
 
 use crate::v0::support::unshared::Unshared;
-
-mod support;
-use support::StreamResponse;
-
-use crate::v0::support::HandledErr;
+use crate::v0::support::{HandledErr, StreamResponse};
 
 /// https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs
 pub fn refs<T: IpfsTypes>(

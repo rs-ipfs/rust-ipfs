@@ -29,7 +29,9 @@ use std::time::Duration;
 use warp::hyper::body::Bytes;
 use warp::Filter;
 
-use super::support::{with_ipfs, NonUtf8Topic, RequiredArgumentMissing, StringError};
+use crate::v0::support::{
+    with_ipfs, NonUtf8Topic, RequiredArgumentMissing, StreamResponse, StringError,
+};
 
 #[derive(Default)]
 pub struct Pubsub {
@@ -369,32 +371,6 @@ fn preformat(msg: impl AsRef<ipfs::PubsubMessage>) -> Result<PreformattedJsonMes
             log::error!("failed to serialize {:?}: {}", msg.as_ref(), e);
             StreamError::Serialization
         })
-}
-
-struct StreamResponse<S>(S);
-
-impl<S> warp::Reply for StreamResponse<S>
-where
-    S: futures::stream::TryStream + Send + Sync + 'static,
-    S::Ok: Into<Bytes>,
-    S::Error: std::error::Error + Send + Sync + 'static,
-{
-    fn into_response(self) -> warp::reply::Response {
-        use warp::http::header::{HeaderValue, CONTENT_TYPE, TRAILER};
-        use warp::hyper::Body;
-
-        // while it may seem like the S::Error is handled somehow it currently just means the
-        // response will stop. hopefully later it can be used to become trailer headers.
-        let mut resp = warp::reply::Response::new(Body::wrap_stream(self.0.into_stream()));
-        let headers = resp.headers_mut();
-
-        // FIXME: unable to send this header with warp/hyper right now
-        headers.insert(TRAILER, HeaderValue::from_static("X-Stream-Error"));
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        headers.insert("X-Chunked-Output", HeaderValue::from_static("1"));
-
-        resp
-    }
 }
 
 /// The  "arg" for `pubsub/sub`
