@@ -49,6 +49,7 @@ impl std::error::Error for UnixFsReadFailed {
     }
 }
 
+// This has been aliased as UnixFs<'a>
 impl<'a> TryFrom<&'a merkledag::PBNode<'a>> for unixfs::Data<'a> {
     type Error = UnixFsReadFailed;
 
@@ -57,6 +58,7 @@ impl<'a> TryFrom<&'a merkledag::PBNode<'a>> for unixfs::Data<'a> {
     }
 }
 
+// This has been aliased as UnixFs<'a>
 impl<'a> TryFrom<Option<&'a [u8]>> for unixfs::Data<'a> {
     type Error = UnixFsReadFailed;
 
@@ -85,22 +87,34 @@ pub(crate) struct FlatUnixFs<'a> {
     pub(crate) data: UnixFs<'a>,
 }
 
+impl<'a> FlatUnixFs<'a> {
+    pub(crate) fn try_parse(
+        data: &'a [u8],
+    ) -> Result<Self, (UnixFsReadFailed, Option<PBNode<'a>>)> {
+        let node = merkledag::PBNode::try_from(data)
+            .map_err(|e| (UnixFsReadFailed::InvalidDagPb(e), None))?;
+
+        let data = match node.Data {
+            Some(Cow::Borrowed(bytes)) if !bytes.is_empty() => Some(bytes),
+            Some(Cow::Owned(_)) => unreachable!(),
+            Some(Cow::Borrowed(_)) | None => return Err((UnixFsReadFailed::NoData, None)),
+        };
+
+        match UnixFs::try_from(data) {
+            Ok(data) => Ok(FlatUnixFs {
+                links: node.Links,
+                data,
+            }),
+            Err(e) => Err((e, Some(node))),
+        }
+    }
+}
+
 impl<'a> TryFrom<&'a [u8]> for FlatUnixFs<'a> {
     type Error = UnixFsReadFailed;
 
     fn try_from(data: &'a [u8]) -> Result<Self, Self::Error> {
-        let PBNode {
-            Links: links,
-            Data: data,
-        } = merkledag::PBNode::try_from(data).map_err(UnixFsReadFailed::InvalidDagPb)?;
-
-        let inner = UnixFs::try_from(match data {
-            Some(Cow::Borrowed(bytes)) if !bytes.is_empty() => Some(bytes),
-            Some(Cow::Owned(_)) => unreachable!(),
-            Some(Cow::Borrowed(_)) | None => return Err(UnixFsReadFailed::NoData),
-        })?;
-
-        Ok(FlatUnixFs { links, data: inner })
+        Self::try_parse(data).map_err(|(e, _node)| e)
     }
 }
 
