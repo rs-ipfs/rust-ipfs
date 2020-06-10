@@ -45,68 +45,24 @@ pub fn resolve<'needle>(
                 todo!()
             }
 
-            let direct = hamt
-                .links
-                .iter()
-                .enumerate()
-                .filter_map(|(i, link)| {
-                    let reborrowed = match &link.Hash {
-                        Some(Cow::Borrowed(bytes)) => Cow::Borrowed(*bytes),
-                        Some(Cow::Owned(_)) => unreachable!(),
-                        None => Cow::Borrowed(&[][..]),
-                    };
+            let mut links = cache.take().map(|c| c.buffer).unwrap_or_default();
 
-                    Some((i, reborrowed, link.Name.as_ref()))
-                })
-                .filter_map(|(i, hash, name)| match name.as_deref() {
-                    // the two hex or one byte prefix probably comes from fanout?
-                    Some(x) if x.len() > 2 && &x[2..] == needle => Some((i, hash)),
-                    _ => None,
-                });
+            let found = ShardedLookup::partition(
+                hamt.links.into_iter(),
+                needle,
+                &mut links)?;
 
-            match process_results(direct)? {
-                good @ Some(_) => Ok(good.into()),
-                None => {
-                    let links = hamt
-                        .links
-                        .into_iter()
-                        .enumerate();
-
-                    let mut res = cache.take().map(|c| c.buffer).unwrap_or_default();
-
-                    for (i, link) in links {
-                        let name = match link.Name {
-                            Some(Cow::Borrowed(s)) => s,
-                            None => &""[..],
-                            _ => unreachable!("never converted to owned"),
-                        };
-
-                        if name.len() > 2 && &name[2..] == needle {
-                            let cid = try_convert_cid(i, link.Hash.unwrap_borrowed_or_empty())?;
-                            eprintln!("found {} named {:?}", cid, name);
-                            return Ok(MaybeResolved::Found(cid));
-                        } else if name.len() == 2 {
-                            let cid = try_convert_cid(i, link.Hash.unwrap_borrowed_or_empty())?;
-                            eprintln!("pushing to front {}, named {:?}", cid, name);
-                            res.push_back(cid);
-                        } else {
-                            eprintln!("ignoring named {:?}", name);
-                        }
-                    }
-
-                    // the order probably doesn't matter here as we are just going to go through
-                    // all of them
-
-                    if res.is_empty() {
-                        *cache = Some(Cache { buffer: res });
-                        Ok(MaybeResolved::NotFound)
-                    } else {
-                        Ok(MaybeResolved::NeedToLoadMore(ShardedLookup {
-                            links: res,
-                            needle: Cow::Borrowed(needle),
-                        }))
-                    }
-                }
+            if let Some(cid) = found {
+                *cache = Some(links.into());
+                Ok(MaybeResolved::Found(cid))
+            } else if links.is_empty() {
+                *cache = Some(links.into());
+                Ok(MaybeResolved::NotFound)
+            } else {
+                Ok(MaybeResolved::NeedToLoadMore(ShardedLookup {
+                    links,
+                    needle: Cow::Borrowed(needle),
+                }))
             }
         }
         Ok(flat) if flat.data.Type == UnixFsType::Directory => {
@@ -152,15 +108,8 @@ fn search_normal_links<'a, 'b>(
     needle: &'b str,
 ) -> Result<Option<Cid>, ResolveError> {
     let matching = links
-        .filter_map(|(i, link)| {
-            Some((
-                i,
-                Cow::Borrowed(link.Hash.unwrap_borrowed_or_empty()),
-                link.Name,
-            ))
-        })
-        .filter_map(|(i, hash, name)| match name.as_deref() {
-            Some(x) if x == needle => Some((i, hash)),
+        .filter_map(|(i, link)| match link.Name.as_deref().unwrap_or_default() {
+            x if x == needle => Some((i, Cow::Borrowed(link.Hash.unwrap_borrowed_or_empty()))),
             _ => None,
         });
 
@@ -174,32 +123,23 @@ fn process_results<'a>(
 
     if let Some((i, first)) = first {
         let first = try_convert_cid(i, first.as_ref())?;
-
-        match matching
-            .next()
-            .map(|(j, hash)| (j, try_convert_cid(j, hash.as_ref())))
-        {
-            Some((j, Ok(other))) => {
-                panic!("got to links: {} and {}", first, other);
-                return Err(ResolveError::Multiple(MultipleMatchingLinks::Two {
-                    first: (i, first),
-                    second: (j, other),
-                }))
-            }
-            Some((_, Err(e))) => {
-                panic!("got to links: {} and {:?}", first, e);
-                return Err(ResolveError::Multiple(MultipleMatchingLinks::OneValid {
-                    first: (i, first),
-                    second: e,
-                }));
-            }
-            None => {}
+        match matching.next() {
+            Some((j, Cow::Borrowed(second))) => Err(MultipleMatchingLinks::from(((i, first), (j, second))).into()),
+            Some((_, Cow::Owned(_))) => unreachable!("never taken ownership of"),
+            None => Ok(Some(first)),
         }
-
-        Ok(Some(first))
     } else {
         Ok(None)
     }
+}
+
+fn try_convert_cid(nth: usize, hash: &[u8]) -> Result<Cid, InvalidCidInLink> {
+    Cid::try_from(hash).map_err(|e| InvalidCidInLink {
+        nth,
+        raw: hash.to_vec(),
+        source: e,
+        hidden: (),
+    })
 }
 
 pub enum MaybeResolved<'needle> {
@@ -212,6 +152,14 @@ pub struct Cache {
     buffer: VecDeque<Cid>,
 }
 
+impl From<VecDeque<Cid>> for Cache {
+    fn from(mut buffer: VecDeque<Cid>) -> Self {
+        buffer.clear();
+        Cache {
+            buffer,
+        }
+    }
+}
 impl fmt::Debug for Cache {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(fmt, "Cache {{ buffer: {} }}", self.buffer.capacity())
@@ -247,53 +195,17 @@ impl<'needle> ShardedLookup<'needle> {
         (first, iter)
     }
 
+    /// Continues the walk in the DAG of HAMT buckets searching for the original `needle`.
     pub fn continue_walk(mut self, next: &[u8], cache: &mut Option<Cache>) -> Result<MaybeResolved<'needle>, WalkError> {
-        eprintln!("Continuing walk with:");
-        for x in &self.links {
-            eprintln!(" - {}", x);
-        }
-        eprintln!();
+        // just to make sure not to mess this up
+        debug_assert_eq!(Some(self.pending_links().0), self.links.front());
 
-        assert_eq!(self.links.iter().next().cloned(), self.links.pop_front());
-        /*self.links
+        self.links
             .pop_front()
-            .expect("Already validated there are links");*/
+            .expect("Already validated there are links");
 
-        match FlatUnixFs::try_from(next) {
-            Ok(hamt) if hamt.data.Type == UnixFsType::HAMTShard => {
-                for (i, link) in hamt.links.into_iter().enumerate() {
-                    let name = match link.Name {
-                        Some(Cow::Borrowed(s)) => s,
-                        None => &""[..],
-                        _ => unreachable!("never converted to owned"),
-                    };
-
-                    if name.len() > 2 && &name[2..] == self.needle {
-                        let cid = try_convert_cid(i, link.Hash.unwrap_borrowed_or_empty())?;
-                        eprintln!("found {} named {:?}", cid, name);
-                        *cache = Some(Cache { buffer: self.links });
-                        return Ok(MaybeResolved::Found(cid));
-                    } else if name.len() == 2 {
-                        let cid = try_convert_cid(i, link.Hash.unwrap_borrowed_or_empty())?;
-                        eprintln!("pushing to front {}, named {:?}", cid, name);
-                        self.links.push_back(cid);
-                    } else {
-                        eprintln!("ignoring named {:?}", name);
-                    }
-                }
-
-                if self.links.is_empty() {
-                    *cache = Some(Cache { buffer: self.links });
-                    Ok(MaybeResolved::NotFound)
-                } else {
-                    eprintln!("Need to load more:");
-                    for x in &self.links {
-                        eprintln!(" - {}", x);
-                    }
-                    eprintln!();
-                    Ok(MaybeResolved::NeedToLoadMore(self))
-                }
-            }
+        let hamt = match FlatUnixFs::try_from(next) {
+            Ok(hamt) if hamt.data.Type == UnixFsType::HAMTShard => hamt,
             Ok(other) => return Err(WalkError::UnexpectedBucketType(other.data.Type.into())),
             Err(UnixFsReadFailed::InvalidDagPb(e)) | Err(UnixFsReadFailed::InvalidUnixFs(e)) => {
                 *cache = Some(Cache { buffer: self.links });
@@ -303,15 +215,60 @@ impl<'needle> ShardedLookup<'needle> {
                 *cache = Some(Cache { buffer: self.links });
                 return Err(WalkError::EmptyDagPb)
             }
+        };
+
+        let found = Self::partition(
+            hamt.links.into_iter(),
+            self.needle.as_ref(),
+            &mut self.links)?;
+
+        if let Some(cid) = found {
+            *cache = Some(self.links.into());
+            Ok(MaybeResolved::Found(cid))
+        } else if self.links.is_empty() {
+            *cache = Some(self.links.into());
+            Ok(MaybeResolved::NotFound)
+        } else {
+            Ok(MaybeResolved::NeedToLoadMore(self))
         }
     }
 
+    /// Transforms this `ShardedLookup` into an `ShardedLookup<'static>` by taking ownership of the
+    /// needle we are trying to find.
     pub fn with_owned_needle(self) -> ShardedLookup<'static> {
         let ShardedLookup { links, needle } = self;
-
         let needle = Cow::Owned(needle.into_owned());
-
         ShardedLookup { links, needle }
+    }
+
+    /// Partition the original links per their kind if the link:
+    ///
+    ///  - matches the needle uniquely, it will be returned as Some(cid)
+    ///  - is a bucket, it is pushed back to the work
+    pub(crate) fn partition<'a>(iter: impl Iterator<Item = PBLink<'a>>, needle: &str, work: &mut VecDeque<Cid>) -> Result<Option<Cid>, WalkError> {
+        let mut found = None;
+
+        for (i, link) in iter.enumerate() {
+            let name = link.Name.as_deref().unwrap_or_default();
+
+            if name.len() > 2 && &name[2..] == needle {
+                let hash = link.Hash.as_deref().unwrap_or_default();
+
+                if let Some(first) = found.take() {
+                    return Err(MultipleMatchingLinks::from((first, (i, hash))).into());
+                } else {
+                    found = Some((i, try_convert_cid(i, hash)?));
+                }
+            } else if name.len() == 2 {
+                // the magic number of two comes from the fanout (256) probably
+                let cid = try_convert_cid(i, link.Hash.unwrap_borrowed_or_empty())?;
+                work.push_back(cid);
+            } else {
+                // no match, not interesting for us
+            }
+        }
+
+        Ok(found.map(|(_, cid)| cid))
     }
 }
 
@@ -331,6 +288,19 @@ pub enum ResolveError {
 impl From<InvalidCidInLink> for ResolveError {
     fn from(e: InvalidCidInLink) -> ResolveError {
         ResolveError::InvalidCidInLink(e)
+    }
+}
+
+impl From<MultipleMatchingLinks> for ResolveError {
+    fn from(e: MultipleMatchingLinks) -> ResolveError {
+        ResolveError::Multiple(e)
+    }
+}
+
+impl From<WalkError> for ResolveError {
+    fn from(e: WalkError) -> ResolveError {
+        // FIXME: this makes no sense
+        ResolveError::Walk(e)
     }
 }
 
@@ -355,7 +325,23 @@ pub enum MultipleMatchingLinks {
     },
 }
 
+impl<'a> From<((usize, Cid), (usize, &'a [u8]))> for MultipleMatchingLinks {
+    fn from(((i, first), (j, second)): ((usize, Cid), (usize, &'a [u8]))) -> MultipleMatchingLinks {
+        match try_convert_cid(j, second) {
+            Ok(second) => MultipleMatchingLinks::Two {
+                first: (i, first),
+                second: (j, second),
+            },
+            Err(e) => MultipleMatchingLinks::OneValid {
+                first: (i, first),
+                second: e,
+            }
+        }
+    }
+}
+
 impl MultipleMatchingLinks {
+    /// Takes the first link, ignoring the other(s).
     pub fn into_inner(self) -> Cid {
         use MultipleMatchingLinks::*;
         match self {
@@ -364,21 +350,19 @@ impl MultipleMatchingLinks {
     }
 }
 
-fn try_convert_cid(nth: usize, hash: &[u8]) -> Result<Cid, InvalidCidInLink> {
-    Cid::try_from(hash).map_err(|e| InvalidCidInLink {
-        nth,
-        raw: hash.to_vec(),
-        source: e,
-        hidden: (),
-    })
-}
-
 #[derive(Debug)]
 pub enum WalkError {
     InvalidCidInLink(InvalidCidInLink),
+    Multiple(MultipleMatchingLinks),
     UnexpectedBucketType(i32),
     Read(quick_protobuf::Error),
     EmptyDagPb,
+}
+
+impl From<MultipleMatchingLinks> for WalkError {
+    fn from(e: MultipleMatchingLinks) -> Self {
+        WalkError::Multiple(e)
+    }
 }
 
 impl From<InvalidCidInLink> for WalkError {
@@ -393,6 +377,7 @@ impl fmt::Display for WalkError {
 
         match self {
             InvalidCidInLink(e) => write!(fmt, "Invalid link: {:?}", e),
+            Multiple(e) => write!(fmt, "Multiple matching links found: {:?}", e),
             UnexpectedBucketType(t) => write!(
                 fmt,
                 "unexpected type for HAMT bucket: {} or {:?}",
