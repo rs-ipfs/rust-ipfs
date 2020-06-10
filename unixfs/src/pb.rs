@@ -98,7 +98,7 @@ impl<'a> FlatUnixFs<'a> {
         let data = match node.Data {
             Some(Cow::Borrowed(bytes)) if !bytes.is_empty() => Some(bytes),
             Some(Cow::Owned(_)) => unreachable!(),
-            Some(Cow::Borrowed(_)) | None => return Err((UnixFsReadFailed::NoData, None)),
+            Some(Cow::Borrowed(_)) | None => return Err((UnixFsReadFailed::NoData, Some(node))),
         };
 
         match UnixFs::try_from(data) {
