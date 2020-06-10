@@ -82,26 +82,12 @@ pub fn resolve<'needle>(
         }
     };
 
-    // plain dag-pb and unixfs directories are searched the same way
-    Ok(search_normal_links(links.into_iter().enumerate(), needle)?.into())
-}
-
-fn search_normal_links<'a, 'b>(
-    links: impl Iterator<Item = (usize, PBLink<'a>)>,
-    needle: &'b str,
-) -> Result<Option<Cid>, ResolveError> {
-    let matching = links
+    let mut matching = links.into_iter().enumerate()
         .filter_map(|(i, link)| match link.Name.as_deref().unwrap_or_default() {
             x if x == needle => Some((i, Cow::Borrowed(link.Hash.unwrap_borrowed_or_empty()))),
             _ => None,
         });
 
-    process_results(matching)
-}
-
-fn process_results<'a>(
-    mut matching: impl Iterator<Item = (usize, Cow<'a, [u8]>)>,
-) -> Result<Option<Cid>, ResolveError> {
     let first = matching.next();
 
     if let Some((i, first)) = first {
@@ -109,10 +95,10 @@ fn process_results<'a>(
         match matching.next() {
             Some((j, Cow::Borrowed(second))) => Err(MultipleMatchingLinks::from(((i, first), (j, second))).into()),
             Some((_, Cow::Owned(_))) => unreachable!("never taken ownership of"),
-            None => Ok(Some(first)),
+            None => Ok(MaybeResolved::Found(first)),
         }
     } else {
-        Ok(None)
+        Ok(MaybeResolved::NotFound)
     }
 }
 
