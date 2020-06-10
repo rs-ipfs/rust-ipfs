@@ -1,11 +1,11 @@
 use cid::Cid;
-use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::ops::Range;
 
 use crate::file::reader::{FileContent, FileReader, Traversal};
-use crate::file::{FileMetadata, FileReadFailed, UnwrapBorrowedExt};
+use crate::file::{FileMetadata, FileReadFailed};
 use crate::pb::merkledag::PBLink;
+use crate::InvalidCidInLink;
 
 /// IdleFileVisit represents a prepared file visit over a tree. The user has to know the CID and be
 /// able to get the block for the visit.
@@ -162,20 +162,11 @@ fn to_pending(
     link: PBLink<'_>,
     range: Range<u64>,
 ) -> Result<(Cid, Range<u64>), FileReadFailed> {
-    let hash = link.Hash.unwrap_borrowed();
+    let hash = link.Hash.as_deref().unwrap_or_default();
 
     match Cid::try_from(hash) {
         Ok(cid) => Ok((cid, range)),
-        Err(e) => Err(FileReadFailed::LinkInvalidCid {
-            nth,
-            hash: hash.to_vec(),
-            name: match link.Name {
-                Some(Cow::Borrowed(x)) => Cow::Owned(String::from(x)),
-                Some(Cow::Owned(x)) => Cow::Owned(x),
-                None => Cow::Borrowed(""),
-            },
-            cause: e,
-        }),
+        Err(e) => Err(FileReadFailed::InvalidCid(InvalidCidInLink::from((nth, link, e)))),
     }
 }
 

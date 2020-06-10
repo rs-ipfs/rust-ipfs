@@ -1,5 +1,5 @@
-use crate::file::UnwrapBorrowedExt;
 use crate::pb::{FlatUnixFs, PBLink, PBNode, UnixFsReadFailed, UnixFsType};
+use crate::InvalidCidInLink;
 use cid::Cid;
 use std::borrow::Cow;
 use std::collections::VecDeque;
@@ -74,22 +74,18 @@ pub fn resolve<'needle>(
         }
     };
 
-    let mut matching = links.into_iter().enumerate().filter_map(|(i, link)| {
-        match link.Name.as_deref().unwrap_or_default() {
-            x if x == needle => Some((i, Cow::Borrowed(link.Hash.unwrap_borrowed_or_empty()))),
+    let mut matching = links.into_iter().enumerate()
+        .filter_map(|(i, link)| match link.Name.as_deref().unwrap_or_default() {
+            x if x == needle => Some((i, link)),
             _ => None,
-        }
-    });
+        });
 
     let first = matching.next();
 
     if let Some((i, first)) = first {
-        let first = try_convert_cid(i, first.as_ref())?;
+        let first = try_convert_cid(i, first)?;
         match matching.next() {
-            Some((j, Cow::Borrowed(second))) => {
-                Err(MultipleMatchingLinks::from(((i, first), (j, second))).into())
-            }
-            Some((_, Cow::Owned(_))) => unreachable!("never taken ownership of"),
+            Some((j, second)) => Err(MultipleMatchingLinks::from(((i, first), (j, second))).into()),
             None => Ok(MaybeResolved::Found(first)),
         }
     } else {
@@ -97,13 +93,9 @@ pub fn resolve<'needle>(
     }
 }
 
-fn try_convert_cid(nth: usize, hash: &[u8]) -> Result<Cid, InvalidCidInLink> {
-    Cid::try_from(hash).map_err(|e| InvalidCidInLink {
-        nth,
-        raw: hash.to_vec(),
-        source: e,
-        hidden: (),
-    })
+fn try_convert_cid(nth: usize, link: PBLink<'_>) -> Result<Cid, InvalidCidInLink> {
+    let hash = link.Hash.as_deref().unwrap_or_default();
+    Cid::try_from(hash).map_err(|e| InvalidCidInLink::from((nth, link, e)))
 }
 
 pub enum MaybeResolved<'needle> {
@@ -238,24 +230,21 @@ impl<'needle> ShardedLookup<'needle> {
     pub(crate) fn partition<'a>(
         iter: impl Iterator<Item = PBLink<'a>>,
         needle: &str,
-        work: &mut VecDeque<Cid>,
-    ) -> Result<Option<Cid>, PartitioningError> {
+        work: &mut VecDeque<Cid>) -> Result<Option<Cid>, PartitioningError> {
         let mut found = None;
 
         for (i, link) in iter.enumerate() {
             let name = link.Name.as_deref().unwrap_or_default();
 
             if name.len() > 2 && &name[2..] == needle {
-                let hash = link.Hash.as_deref().unwrap_or_default();
-
                 if let Some(first) = found.take() {
-                    return Err(MultipleMatchingLinks::from((first, (i, hash))).into());
+                    return Err(MultipleMatchingLinks::from((first, (i, link))).into());
                 } else {
-                    found = Some((i, try_convert_cid(i, hash)?));
+                    found = Some((i, try_convert_cid(i, link)?));
                 }
             } else if name.len() == 2 {
                 // the magic number of two comes from the fanout (256) probably
-                let cid = try_convert_cid(i, link.Hash.unwrap_borrowed_or_empty())?;
+                let cid = try_convert_cid(i, link)?;
                 work.push_back(cid);
             } else {
                 // no match, not interesting for us
@@ -381,16 +370,6 @@ impl fmt::Display for ShardError {
 
 impl std::error::Error for ShardError {}
 
-/// A link could not be transformed into a Cid.
-#[derive(Debug)]
-pub struct InvalidCidInLink {
-    pub nth: usize,
-    pub raw: Vec<u8>,
-    pub source: cid::Error,
-    /// This is to deny creating these outside of the crate
-    hidden: (),
-}
-
 /// Multiple matching links were found: **at least two**.
 #[derive(Debug)]
 pub enum MultipleMatchingLinks {
@@ -406,8 +385,8 @@ pub enum MultipleMatchingLinks {
     },
 }
 
-impl<'a> From<((usize, Cid), (usize, &'a [u8]))> for MultipleMatchingLinks {
-    fn from(((i, first), (j, second)): ((usize, Cid), (usize, &'a [u8]))) -> MultipleMatchingLinks {
+impl<'a> From<((usize, Cid), (usize, PBLink<'a>))> for MultipleMatchingLinks {
+    fn from(((i, first), (j, second)): ((usize, Cid), (usize, PBLink<'a>))) -> MultipleMatchingLinks {
         match try_convert_cid(j, second) {
             Ok(second) => MultipleMatchingLinks::Two {
                 first: (i, first),

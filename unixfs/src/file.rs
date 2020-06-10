@@ -3,6 +3,7 @@
 ///! Most usable for walking UnixFS file trees provided by the `visit::IdleFileVisit` and
 ///! `visit::FileVisit` types.
 use crate::pb::{UnixFs, UnixFsReadFailed, UnixFsType};
+use crate::InvalidCidInLink;
 use std::borrow::Cow;
 use std::fmt;
 
@@ -66,20 +67,9 @@ pub enum FileReadFailed {
     // This is the raw value instead of the enum by design not to expose the quick-protobuf types
     UnexpectedType(i32),
     /// Parsing failed
-    Read(quick_protobuf::Error),
-    /// Outer dag-pb node was parsed successfully but there was no data bytes for inner message.
-    EmptyPBNode,
+    Read(Option<quick_protobuf::Error>),
     /// Link could not be turned into Cid.
-    LinkInvalidCid {
-        /// The index of this link, from zero
-        nth: usize,
-        /// Hash which could not be turned into a Cid
-        hash: Vec<u8>,
-        /// Name of the link, most likely empty
-        name: Cow<'static, str>,
-        /// Error from the attempted conversion
-        cause: cid::Error,
-    },
+    InvalidCid(InvalidCidInLink),
 }
 
 impl fmt::Display for FileReadFailed {
@@ -94,15 +84,9 @@ impl fmt::Display for FileReadFailed {
                 t,
                 UnixFsType::from(*t)
             ),
-            Read(e) => write!(fmt, "reading failed: {}", e),
-            EmptyPBNode => write!(fmt, "reading failed: missing UnixFS message"),
-            LinkInvalidCid {
-                nth, name, cause, ..
-            } => write!(
-                fmt,
-                "failed to convert link #{} ({:?}) to Cid: {}",
-                nth, name, cause
-            ),
+            Read(Some(e)) => write!(fmt, "reading failed: {}", e),
+            Read(None) => write!(fmt, "reading failed: missing UnixFS message"),
+            InvalidCid(e) => write!(fmt, "{}", e),
         }
     }
 }
@@ -111,7 +95,8 @@ impl std::error::Error for FileReadFailed {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         use FileReadFailed::*;
         match self {
-            LinkInvalidCid { cause, .. } => Some(cause),
+            InvalidCid(e) => Some(e),
+            Read(Some(e)) => Some(e),
             _ => None,
         }
     }
@@ -121,9 +106,9 @@ impl From<UnixFsReadFailed> for FileReadFailed {
     fn from(e: UnixFsReadFailed) -> Self {
         use UnixFsReadFailed::*;
         match e {
-            InvalidDagPb(e) => FileReadFailed::Read(e),
-            InvalidUnixFs(e) => FileReadFailed::Read(e),
-            NoData => FileReadFailed::EmptyPBNode,
+            InvalidDagPb(e) => FileReadFailed::Read(Some(e)),
+            InvalidUnixFs(e) => FileReadFailed::Read(Some(e)),
+            NoData => FileReadFailed::Read(None),
         }
     }
 }
