@@ -24,17 +24,13 @@ pub fn resolve<'needle>(
     needle: &'needle str,
     cache: &mut Option<Cache>,
 ) -> Result<MaybeResolved<'needle>, ResolveError> {
-
     let links = match FlatUnixFs::try_parse(block) {
         Ok(mut hamt) if hamt.data.Type == UnixFsType::HAMTShard => {
             ShardedLookup::check_supported(&mut hamt)?;
 
             let mut links = cache.take().map(|c| c.buffer).unwrap_or_default();
 
-            let found = ShardedLookup::partition(
-                hamt.links.into_iter(),
-                needle,
-                &mut links)?;
+            let found = ShardedLookup::partition(hamt.links.into_iter(), needle, &mut links)?;
 
             return if let Some(cid) = found {
                 *cache = Some(links.into());
@@ -65,35 +61,34 @@ pub fn resolve<'needle>(
 
             flat.links
         }
-        Err((_, Some(PBNode { Links: links, .. }))) => {
-            links
-        }
+        Err((_, Some(PBNode { Links: links, .. }))) => links,
         Ok(_other) => {
             // go-ipfs does not resolve links under File, probably it's not supposed to work on
             // anything other then
-            return Ok(MaybeResolved::NotFound)
+            return Ok(MaybeResolved::NotFound);
         }
-        Err((UnixFsReadFailed::InvalidDagPb(e), None)) => {
-            return Err(ResolveError::Read(e))
-        }
+        Err((UnixFsReadFailed::InvalidDagPb(e), None)) => return Err(ResolveError::Read(e)),
         // FIXME: add an additional error type to handle this case..
         Err((UnixFsReadFailed::NoData, _)) | Err((UnixFsReadFailed::InvalidUnixFs(_), _)) => {
             unreachable!("Cannot have NoData without recovered outer dag-pb node")
         }
     };
 
-    let mut matching = links.into_iter().enumerate()
-        .filter_map(|(i, link)| match link.Name.as_deref().unwrap_or_default() {
+    let mut matching = links.into_iter().enumerate().filter_map(|(i, link)| {
+        match link.Name.as_deref().unwrap_or_default() {
             x if x == needle => Some((i, Cow::Borrowed(link.Hash.unwrap_borrowed_or_empty()))),
             _ => None,
-        });
+        }
+    });
 
     let first = matching.next();
 
     if let Some((i, first)) = first {
         let first = try_convert_cid(i, first.as_ref())?;
         match matching.next() {
-            Some((j, Cow::Borrowed(second))) => Err(MultipleMatchingLinks::from(((i, first), (j, second))).into()),
+            Some((j, Cow::Borrowed(second))) => {
+                Err(MultipleMatchingLinks::from(((i, first), (j, second))).into())
+            }
             Some((_, Cow::Owned(_))) => unreachable!("never taken ownership of"),
             None => Ok(MaybeResolved::Found(first)),
         }
@@ -124,9 +119,7 @@ pub struct Cache {
 impl From<VecDeque<Cid>> for Cache {
     fn from(mut buffer: VecDeque<Cid>) -> Self {
         buffer.clear();
-        Cache {
-            buffer,
-        }
+        Cache { buffer }
     }
 }
 impl fmt::Debug for Cache {
@@ -165,7 +158,11 @@ impl<'needle> ShardedLookup<'needle> {
     }
 
     /// Continues the walk in the DAG of HAMT buckets searching for the original `needle`.
-    pub fn continue_walk(mut self, next: &[u8], cache: &mut Option<Cache>) -> Result<MaybeResolved<'needle>, WalkError> {
+    pub fn continue_walk(
+        mut self,
+        next: &[u8],
+        cache: &mut Option<Cache>,
+    ) -> Result<MaybeResolved<'needle>, WalkError> {
         // just to make sure not to mess this up
         debug_assert_eq!(Some(self.pending_links().0), self.links.front());
 
@@ -178,11 +175,11 @@ impl<'needle> ShardedLookup<'needle> {
             Ok(other) => return Err(WalkError::UnexpectedBucketType(other.data.Type.into())),
             Err(UnixFsReadFailed::InvalidDagPb(e)) | Err(UnixFsReadFailed::InvalidUnixFs(e)) => {
                 *cache = Some(Cache { buffer: self.links });
-                return Err(WalkError::Read(Some(e)))
+                return Err(WalkError::Read(Some(e)));
             }
             Err(UnixFsReadFailed::NoData) => {
                 *cache = Some(Cache { buffer: self.links });
-                return Err(WalkError::Read(None))
+                return Err(WalkError::Read(None));
             }
         };
 
@@ -191,7 +188,8 @@ impl<'needle> ShardedLookup<'needle> {
         let found = Self::partition(
             hamt.links.into_iter(),
             self.needle.as_ref(),
-            &mut self.links)?;
+            &mut self.links,
+        )?;
 
         if let Some(cid) = found {
             *cache = Some(self.links.into());
@@ -240,7 +238,8 @@ impl<'needle> ShardedLookup<'needle> {
     pub(crate) fn partition<'a>(
         iter: impl Iterator<Item = PBLink<'a>>,
         needle: &str,
-        work: &mut VecDeque<Cid>) -> Result<Option<Cid>, PartitioningError> {
+        work: &mut VecDeque<Cid>,
+    ) -> Result<Option<Cid>, PartitioningError> {
         let mut found = None;
 
         for (i, link) in iter.enumerate() {
@@ -355,15 +354,27 @@ pub enum ShardError {
     UnexpectedProperties {
         filesize: Option<u64>,
         blocksizes: Vec<u64>,
-    }
+    },
 }
 
 impl fmt::Display for ShardError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ShardError::*;
         match self {
-            UnsupportedProperties { hash_type, fanout } => write!(fmt, "unsupported HAMTShard properties: hash_type={:?}, fanout={:?}", hash_type, fanout),
-            UnexpectedProperties { filesize, blocksizes } => write!(fmt, "unexpected HAMTShard properties: filesize=({:?}), {} blocksizes", filesize, blocksizes.len()),
+            UnsupportedProperties { hash_type, fanout } => write!(
+                fmt,
+                "unsupported HAMTShard properties: hash_type={:?}, fanout={:?}",
+                hash_type, fanout
+            ),
+            UnexpectedProperties {
+                filesize,
+                blocksizes,
+            } => write!(
+                fmt,
+                "unexpected HAMTShard properties: filesize=({:?}), {} blocksizes",
+                filesize,
+                blocksizes.len()
+            ),
         }
     }
 }
@@ -405,7 +416,7 @@ impl<'a> From<((usize, Cid), (usize, &'a [u8]))> for MultipleMatchingLinks {
             Err(e) => MultipleMatchingLinks::OneValid {
                 first: (i, first),
                 second: e,
-            }
+            },
         }
     }
 }
