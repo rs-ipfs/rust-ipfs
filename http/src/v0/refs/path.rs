@@ -112,7 +112,7 @@ impl IpfsPath {
         }
         for key in self {
             if current.codec() == cid::Codec::DagProtobuf {
-                return walk_dagpb(ipld, key);
+                return Err(WalkFailed::UnsupportedWalkOnDagPbIpld)
             }
 
             ipld = match ipld {
@@ -183,92 +183,6 @@ impl IpfsPath {
     }
 }
 
-/// "Specialized" walk over dag-pb ipld tree.
-///
-/// # Panics
-///
-/// When the dag-pb ipld structure doesn't conform to expectations. This is to on purpose signal
-/// that we have gone out of sync with the libipld implementation.
-fn walk_dagpb(ipld: Ipld, key: String) -> Result<WalkSuccess, WalkFailed> {
-    // the current dag-pb represents the links of dag-pb nodes under "/Links"
-    // panicking instead of errors since we want to change this is dag-pb2ipld
-    // structure changes.
-    //
-    // this would be much better done at codec level, as is in js-ipld
-
-    let property = if key == "Data" { "Data" } else { "Links" };
-
-    let (map, toplevel) = match ipld {
-        Ipld::Map(mut m) => {
-            let links = m.remove(property);
-            (m, links)
-        }
-        x => panic!(
-            "Expected dag-pb2ipld have top-level {:?}, was: {:?}",
-            property, x
-        ),
-    };
-
-    if key == "Data" {
-        return Ok(WalkSuccess::AtDestination(toplevel.unwrap_or(Ipld::Null)));
-    }
-
-    let mut links = match toplevel {
-        Some(Ipld::List(vec)) => vec,
-        Some(x) => panic!(
-            "Expected dag-pb2ipld top-level \"Links\" to be List, was: {:?}",
-            x
-        ),
-        // assume this means that the list was empty, and as such wasn't created
-        None => return Err(WalkFailed::UnmatchableSegment(Ipld::Map(map), key)),
-    };
-
-    let index = if let Ok(index) = key.parse::<usize>() {
-        if index >= links.len() {
-            return Err(WalkFailed::ListIndexOutOfRange(links, index));
-        }
-        index
-    } else {
-        let index = links
-            .iter()
-            .enumerate()
-            .position(|(i, link)| match link.get("Name") {
-                Some(Ipld::String(s)) => s == &key,
-                Some(x) => panic!(
-                    "Expected dag-pb2ipld \"Links[{}]/Name\" to be an optional String, was: {:?}",
-                    i, x
-                ),
-                None => false,
-            });
-
-        match index {
-            Some(index) => index,
-            None => return Err(WalkFailed::UnmatchableSegment(Ipld::List(links), key)),
-        }
-    };
-
-    let link = links.swap_remove(index);
-
-    match link {
-        Ipld::Map(mut m) => {
-            let link = match m.remove("Hash") {
-                Some(Ipld::Link(link)) => link,
-                Some(x) => panic!(
-                    "Expected dag-pb2ipld \"Links[{}]/Hash\" to be a link, was: {:?}",
-                    index, x
-                ),
-                None => panic!("Expected dag-pb2ipld \"Links[{}]/Hash\" to exist", index),
-            };
-
-            Ok(WalkSuccess::Link(key, link))
-        }
-        x => panic!(
-            "Expected dag-pb2ipld \"Links[{}]\" to be a Map, was: {:?}",
-            index, x
-        ),
-    }
-}
-
 /// The success values walking an `IpfsPath` can result to.
 #[derive(Debug, PartialEq)]
 pub enum WalkSuccess {
@@ -292,15 +206,20 @@ pub enum WalkFailed {
     ListIndexOutOfRange(Vec<Ipld>, usize),
     /// Catch-all failure for example when walking a segment on integer
     UnmatchableSegment(Ipld, String),
+    /// Non-ipld walk failure on dag-pb
+    UnmatchedNamedLink(String),
+    UnsupportedWalkOnDagPbIpld,
 }
 
 impl fmt::Display for WalkFailed {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            // go-ipfs: no such link found
-            WalkFailed::UnmatchedMapProperty(_, ref key) => {
-                write!(fmt, "No such link found: {:?}", key)
-            }
+            // go-ipfs: no such link found or in cat: file does not exist
+            // js-ipfs: no link named "$key" under $cid
+            WalkFailed::UnmatchedMapProperty(_, ref key)
+            | WalkFailed::UnmatchedNamedLink(ref key) => {
+                write!(fmt, "no link named \"{}\"", key)
+            },
             // go-ipfs: strconv.Atoi: parsing {:?}: invalid syntax
             WalkFailed::UnparseableListIndex(_, ref segment) => {
                 write!(fmt, "Invalid list index: {:?}", segment)
@@ -315,6 +234,9 @@ impl fmt::Display for WalkFailed {
             // go-ipfs: tried to resolve through object that had no links
             WalkFailed::UnmatchableSegment(_, _) => {
                 write!(fmt, "Tried to resolve through object that had no links")
+            },
+            WalkFailed::UnsupportedWalkOnDagPbIpld => {
+                write!(fmt, "Tried to walk over dag-pb after converting to IPLD, use ipfs::unixfs::ll or similar directly.")
             }
         }
     }

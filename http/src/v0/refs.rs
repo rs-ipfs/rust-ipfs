@@ -143,7 +143,84 @@ async fn refs_paths<T: IpfsTypes>(
     Ok(iplds_refs(ipfs, iplds, max_depth, unique))
 }
 
+#[derive(Debug)]
+pub struct WalkError {
+    last_cid: Cid,
+    reason: WalkFailed,
+}
+
+#[derive(Debug)]
+pub enum WalkFailed {
+    Loading(Error),
+    Parsing(libipld::error::BlockError),
+    DagPb(ipfs::unixfs::ll::ResolveError),
+    IpldWalking(path::WalkFailed),
+}
+
+use std::fmt;
+
+impl fmt::Display for WalkError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use WalkFailed::*;
+        match &self.reason {
+            Loading(e) => write!(fmt, "loading of {} failed: {}", self.last_cid, e),
+            Parsing(e) => write!(fmt, "failed to parse {} as IPLD: {}", self.last_cid, e),
+            DagPb(e) => write!(fmt, "failed to resolve {} over dag-pb: {}", self.last_cid, e),
+            // this is asserted in the conformance tests and I don't really want to change the
+            // tests for this
+            IpldWalking(e) => write!(fmt, "{} under {}", e, self.last_cid),
+        }
+    }
+}
+
+impl std::error::Error for WalkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use WalkFailed::*;
+        match &self.reason {
+            Loading(_) => None, // TODO: anyhow
+            Parsing(e) => Some(e),
+            DagPb(e) => Some(e),
+            IpldWalking(e) => Some(e),
+        }
+    }
+}
+
+impl From<Error> for WalkFailed {
+    fn from(e: Error) -> Self {
+        WalkFailed::Loading(e)
+    }
+}
+
+impl From<libipld::error::BlockError> for WalkFailed {
+    fn from(e: libipld::error::BlockError) -> Self {
+        WalkFailed::Parsing(e)
+    }
+}
+
+impl From<ipfs::unixfs::ll::ResolveError> for WalkFailed {
+    fn from(e: ipfs::unixfs::ll::ResolveError) -> Self {
+        WalkFailed::DagPb(e)
+    }
+}
+
+impl From<path::WalkFailed> for WalkFailed {
+    fn from(e: path::WalkFailed) -> Self {
+        WalkFailed::IpldWalking(e)
+    }
+}
+
+impl From<(WalkFailed, Cid)> for WalkError {
+    fn from((reason, last_cid): (WalkFailed, Cid)) -> Self {
+        WalkError {
+            last_cid,
+            reason,
+        }
+    }
+}
+
 /// Walks the `path` while loading the links.
+///
+/// Returns the Cid where we ended up, and an optional Ipld structure if one was projected.
 ///
 /// # Panics
 ///
@@ -151,20 +228,77 @@ async fn refs_paths<T: IpfsTypes>(
 pub async fn walk_path<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
     mut path: IpfsPath,
-) -> Result<(Cid, Ipld), Error> {
+) -> Result<(Cid, Option<Ipld>), WalkError> {
+    use ipfs::unixfs::ll::MaybeResolved;
+
     let mut current = path.take_root().unwrap();
+    let mut cache = None;
 
-    loop {
-        let Block { data, .. } = ipfs.get_block(&current).await?;
-        let ipld = decode_ipld(&current, &data)?;
+    while path.len() > 0 {
+        let Block { data, .. } = match ipfs.get_block(&current).await {
+            Ok(block) => block,
+            Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
+        };
 
-        match path.walk(&current, ipld)? {
-            WalkSuccess::EmptyPath(ipld) | WalkSuccess::AtDestination(ipld) => {
-                return Ok((current, ipld))
+        if current.codec() == cid::Codec::DagProtobuf {
+
+            let needle = path.next()
+                .expect("already checked path is not empty");
+
+            let mut lookup = match ipfs::unixfs::ll::resolve(&data, &needle, &mut cache) {
+                Ok(MaybeResolved::NeedToLoadMore(lookup)) => lookup,
+                Ok(MaybeResolved::Found(cid)) => {
+                    current = cid;
+                    continue;
+                }
+                Ok(MaybeResolved::NotFound) => {
+                    let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
+                    return Err(WalkError::from((e, current)));
+                },
+                Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
+            };
+
+            loop {
+                let (next, _) = lookup.pending_links();
+                let next = next.to_owned();
+                let Block { data, .. } = match ipfs.get_block(&next).await {
+                    Ok(block) => block,
+                    Err(e) => return Err(WalkError::from((WalkFailed::from(e), next))),
+                };
+
+                match lookup.continue_walk(&data, &mut cache) {
+                    Ok(MaybeResolved::NeedToLoadMore(next)) => lookup = next,
+                    Ok(MaybeResolved::Found(cid)) => {
+                        current = cid;
+                        break;
+                    },
+                    Ok(MaybeResolved::NotFound) => {
+                        let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
+                        return Err(WalkError::from((e, next)));
+                    },
+                    Err(e) => return Err(WalkError::from((WalkFailed::from(e.into_resolve_error()), next))),
+                }
             }
-            WalkSuccess::Link(_key, next_cid) => current = next_cid,
+
+            continue;
+        }
+
+
+        let ipld = match decode_ipld(&current, &data) {
+            Ok(ipld) => ipld,
+            Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
+        };
+
+        match path.walk(&current, ipld) {
+            Ok(WalkSuccess::EmptyPath(ipld)) | Ok(WalkSuccess::AtDestination(ipld)) => {
+                return Ok((current, Some(ipld)))
+            }
+            Ok(WalkSuccess::Link(_, next_cid)) => current = next_cid,
+            Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
         };
     }
+
+    Ok((current, None))
 }
 
 /// Gather links as edges between two documents from all of the `iplds` which represent the
@@ -183,7 +317,7 @@ pub async fn walk_path<T: IpfsTypes>(
 /// If there are dag-pb nodes and the libipld has changed it's dag-pb tree structure.
 fn iplds_refs<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    iplds: Vec<(Cid, Ipld)>,
+    iplds: Vec<(Cid, Option<Ipld>)>,
     max_depth: Option<u64>,
     unique: bool,
 ) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static {
@@ -198,7 +332,16 @@ fn iplds_refs<T: IpfsTypes>(
         let mut visited = HashSet::new();
         let mut work = VecDeque::new();
 
-        for (origin, ipld) in iplds {
+        for (origin, maybe_ipld) in iplds {
+
+            let ipld = match maybe_ipld {
+                Some(ipld) => ipld,
+                None => {
+                    let Block { data, .. } = ipfs.get_block(&origin).await.map_err(|e| e.to_string())?;
+                    decode_ipld(&origin, &data).map_err(|e| e.to_string())?
+                }
+            };
+
             for (link_name, next_cid) in ipld_links(&origin, ipld) {
                 work.push_back((0, next_cid, origin.clone(), link_name));
             }

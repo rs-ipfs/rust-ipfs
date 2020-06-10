@@ -1,6 +1,7 @@
+use std::convert::TryFrom;
 use crate::v0::support::unshared::Unshared;
 use crate::v0::support::{with_ipfs, StringError, StreamResponse};
-use libipld::cid::Cid;
+use libipld::cid::Codec;
 use ipfs::{IpfsTypes, Ipfs};
 use serde::Deserialize;
 use warp::{path, query, Reply, Rejection, Filter};
@@ -24,8 +25,10 @@ pub fn cat<T: IpfsTypes>(
 }
 
 async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Reply, Rejection> {
-    // FIXME: this could be an ipfs path as well
-    let cid: Cid = args.arg.parse().map_err(StringError::from)?;
+    use crate::v0::refs::{IpfsPath, walk_path};
+    use ipfs::unixfs::{TraversalFailed, ll::file::FileReadFailed};
+
+    let path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
 
     let range = match (args.offset, args.length) {
         (Some(start), Some(len)) => Some(start..(start + len)),
@@ -34,10 +37,22 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
         (None, None) => None,
     };
 
+    // FIXME: this is here until we have IpfsPath back at ipfs
+
+    let (cid, _) = walk_path(&ipfs, path).await.map_err(StringError::from)?;
+
+    if cid.codec() != Codec::DagProtobuf {
+        return Err(StringError::from("unknown node type").into());
+    }
+
     // TODO: timeout
-    // TODO: the second parameter should be impl Into<IpfsPath> to support infallible conversions
-    // from cid -> IpfsPath
-    let stream = ipfs::unixfs::cat(ipfs, cid, range);
+    let stream = match ipfs::unixfs::cat(ipfs, cid, range).await {
+        Ok(stream) => stream,
+        Err(TraversalFailed::Walking(_, FileReadFailed::UnexpectedType(ut))) if ut.is_directory() => {
+            return Err(StringError::from("this dag node is a directory").into())
+        },
+        Err(e) => return Err(StringError::from(e).into()),
+    };
 
     Ok(StreamResponse(Unshared::new(stream)))
 }
