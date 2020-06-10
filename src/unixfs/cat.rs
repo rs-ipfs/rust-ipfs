@@ -50,7 +50,7 @@ where
             };
 
             (visit, bytes)
-        },
+        }
         Err(e) => {
             return Err(TraversalFailed::Walking(cid, e));
         }

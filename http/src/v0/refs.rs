@@ -165,7 +165,11 @@ impl fmt::Display for WalkError {
         match &self.reason {
             Loading(e) => write!(fmt, "loading of {} failed: {}", self.last_cid, e),
             Parsing(e) => write!(fmt, "failed to parse {} as IPLD: {}", self.last_cid, e),
-            DagPb(e) => write!(fmt, "failed to resolve {} over dag-pb: {}", self.last_cid, e),
+            DagPb(e) => write!(
+                fmt,
+                "failed to resolve {} over dag-pb: {}",
+                self.last_cid, e
+            ),
             // this is asserted in the conformance tests and I don't really want to change the
             // tests for this
             IpldWalking(e) => write!(fmt, "{} under {}", e, self.last_cid),
@@ -211,10 +215,7 @@ impl From<path::WalkFailed> for WalkFailed {
 
 impl From<(WalkFailed, Cid)> for WalkError {
     fn from((reason, last_cid): (WalkFailed, Cid)) -> Self {
-        WalkError {
-            last_cid,
-            reason,
-        }
+        WalkError { last_cid, reason }
     }
 }
 
@@ -241,9 +242,7 @@ pub async fn walk_path<T: IpfsTypes>(
         };
 
         if current.codec() == cid::Codec::DagProtobuf {
-
-            let needle = path.next()
-                .expect("already checked path is not empty");
+            let needle = path.next().expect("already checked path is not empty");
 
             let mut lookup = match ipfs::unixfs::ll::resolve(&data, &needle, &mut cache) {
                 Ok(MaybeResolved::NeedToLoadMore(lookup)) => lookup,
@@ -254,7 +253,7 @@ pub async fn walk_path<T: IpfsTypes>(
                 Ok(MaybeResolved::NotFound) => {
                     let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
                     return Err(WalkError::from((e, current)));
-                },
+                }
                 Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
             };
 
@@ -271,18 +270,22 @@ pub async fn walk_path<T: IpfsTypes>(
                     Ok(MaybeResolved::Found(cid)) => {
                         current = cid;
                         break;
-                    },
+                    }
                     Ok(MaybeResolved::NotFound) => {
                         let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
                         return Err(WalkError::from((e, next)));
-                    },
-                    Err(e) => return Err(WalkError::from((WalkFailed::from(e.into_resolve_error()), next))),
+                    }
+                    Err(e) => {
+                        return Err(WalkError::from((
+                            WalkFailed::from(e.into_resolve_error()),
+                            next,
+                        )))
+                    }
                 }
             }
 
             continue;
         }
-
 
         let ipld = match decode_ipld(&current, &data) {
             Ok(ipld) => ipld,

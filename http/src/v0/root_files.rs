@@ -1,10 +1,10 @@
-use std::convert::TryFrom;
 use crate::v0::support::unshared::Unshared;
-use crate::v0::support::{with_ipfs, StringError, StreamResponse};
+use crate::v0::support::{with_ipfs, StreamResponse, StringError};
+use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::Codec;
-use ipfs::{IpfsTypes, Ipfs};
 use serde::Deserialize;
-use warp::{path, query, Reply, Rejection, Filter};
+use std::convert::TryFrom;
+use warp::{path, query, Filter, Rejection, Reply};
 
 #[derive(Debug, Deserialize)]
 pub struct CatArgs {
@@ -25,14 +25,14 @@ pub fn cat<T: IpfsTypes>(
 }
 
 async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Reply, Rejection> {
-    use crate::v0::refs::{IpfsPath, walk_path};
-    use ipfs::unixfs::{TraversalFailed, ll::file::FileReadFailed};
+    use crate::v0::refs::{walk_path, IpfsPath};
+    use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed};
 
     let path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
 
     let range = match (args.offset, args.length) {
         (Some(start), Some(len)) => Some(start..(start + len)),
-        (Some(_start), None) => { todo!("need to abstract over the range") },
+        (Some(_start), None) => todo!("need to abstract over the range"),
         (None, Some(len)) => Some(0..len),
         (None, None) => None,
     };
@@ -48,9 +48,11 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
     // TODO: timeout
     let stream = match ipfs::unixfs::cat(ipfs, cid, range).await {
         Ok(stream) => stream,
-        Err(TraversalFailed::Walking(_, FileReadFailed::UnexpectedType(ut))) if ut.is_directory() => {
+        Err(TraversalFailed::Walking(_, FileReadFailed::UnexpectedType(ut)))
+            if ut.is_directory() =>
+        {
             return Err(StringError::from("this dag node is a directory").into())
-        },
+        }
         Err(e) => return Err(StringError::from(e).into()),
     };
 

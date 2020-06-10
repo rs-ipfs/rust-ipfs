@@ -391,7 +391,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         &self,
         cid: Cid,
         range: Option<Range<u64>>,
-    ) -> Result<impl Stream<Item = Result<Vec<u8>, unixfs::TraversalFailed>> + Send + '_, unixfs::TraversalFailed> {
+    ) -> Result<
+        impl Stream<Item = Result<Vec<u8>, unixfs::TraversalFailed>> + Send + '_,
+        unixfs::TraversalFailed,
+    > {
         unixfs::cat(self, cid, range).await
     }
 

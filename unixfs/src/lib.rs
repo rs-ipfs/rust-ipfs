@@ -10,7 +10,7 @@ pub mod file;
 /// UnixFS directory support.
 pub mod dir;
 
-pub use dir::{resolve, MaybeResolved, ResolveError, LookupError};
+pub use dir::{resolve, LookupError, MaybeResolved, ResolveError};
 
 mod pb;
 use crate::pb::UnixFsType;

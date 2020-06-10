@@ -112,7 +112,7 @@ impl IpfsPath {
         }
         for key in self {
             if current.codec() == cid::Codec::DagProtobuf {
-                return Err(WalkFailed::UnsupportedWalkOnDagPbIpld)
+                return Err(WalkFailed::UnsupportedWalkOnDagPbIpld);
             }
 
             ipld = match ipld {

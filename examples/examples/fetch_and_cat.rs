@@ -60,7 +60,7 @@ fn main() {
             Err(e) => {
                 eprintln!("Error: {}", e);
                 exit(1);
-            },
+            }
         };
         // The stream needs to be pinned on the stack to be used with StreamExt::next
         pin_mut!(stream);

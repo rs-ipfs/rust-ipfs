@@ -553,25 +553,33 @@ impl std::error::Error for LookupError {
 #[cfg(test)]
 mod tests {
 
-    use std::convert::TryFrom;
+    use super::{resolve, MaybeResolved};
     use cid::Cid;
     use hex_literal::hex;
-    use super::{resolve, MaybeResolved};
+    use std::convert::TryFrom;
 
     #[test]
     fn resolve_paths() {
         let payload = hex!("12330a2212206aad27d7e2fc815cd15bf679535062565dc927a831547281fc0af9e5d7e67c74120b6166726963616e2e747874180812340a221220fd36ac5279964db0cba8f7fa45f8c4c44ef5e2ff55da85936a378c96c9c63204120c616d6572696361732e747874180812360a2212207564c20415869d77a8a40ca68a9158e397dd48bdff1325cdb23c5bcd181acd17120e6175737472616c69616e2e7478741808");
 
         let segments = [
-            ("african.txt", "QmVX54jfjB8eRxLVxyQSod6b1FyDh7mR4mQie9j97i2Qk3"),
-            ("americas.txt","QmfP6D9bRV4FEYDL4EHZtZG58kDwDfnzmyjuyK5d1pvzbM"),
-            ("australian.txt", "QmWEuXAjUGyndgr4MKqMBgzMW36XgPgvitt2jsXgtuc7JE")
+            (
+                "african.txt",
+                "QmVX54jfjB8eRxLVxyQSod6b1FyDh7mR4mQie9j97i2Qk3",
+            ),
+            (
+                "americas.txt",
+                "QmfP6D9bRV4FEYDL4EHZtZG58kDwDfnzmyjuyK5d1pvzbM",
+            ),
+            (
+                "australian.txt",
+                "QmWEuXAjUGyndgr4MKqMBgzMW36XgPgvitt2jsXgtuc7JE",
+            ),
         ];
 
         let mut cache = None;
 
         for (segment, link) in &segments {
-
             let target = Cid::try_from(*link).unwrap();
 
             let res = resolve(&payload[..], segment, &mut cache);

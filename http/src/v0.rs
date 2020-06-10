@@ -8,9 +8,9 @@ pub mod dag;
 pub mod id;
 pub mod pubsub;
 pub mod refs;
+pub mod root_files;
 pub mod swarm;
 pub mod version;
-pub mod root_files;
 
 pub mod support;
 pub use support::recover_as_message_response;
