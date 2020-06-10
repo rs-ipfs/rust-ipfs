@@ -24,26 +24,10 @@ pub fn resolve<'needle>(
     needle: &'needle str,
     cache: &mut Option<Cache>,
 ) -> Result<MaybeResolved<'needle>, ResolveError> {
-    match FlatUnixFs::try_parse(block) {
-        Ok(hamt) if hamt.data.Type == UnixFsType::HAMTShard => {
-            // TODO: make sure these are as expected
-            eprintln!(
-                "filesize={:?}, blocksizes={}, hash_type: {:?}, fanout: {:?}",
-                hamt.data.filesize,
-                hamt.data.blocksizes.len(),
-                hamt.data.hashType,
-                hamt.data.fanout
-            );
 
-            // not sure if we need to concern ourselves with fanout?
-            if hamt.data.fanout != Some(256) {
-                todo!()
-                //return Err(ResolveError::Unsupported(HamtError::Fanout(hamt.data.fanout)));
-            }
-
-            if hamt.data.filesize.is_some() || !hamt.data.blocksizes.is_empty() {
-                todo!()
-            }
+    let links = match FlatUnixFs::try_parse(block) {
+        Ok(mut hamt) if hamt.data.Type == UnixFsType::HAMTShard => {
+            ShardedLookup::check_supported(&mut hamt)?;
 
             let mut links = cache.take().map(|c| c.buffer).unwrap_or_default();
 
@@ -52,7 +36,7 @@ pub fn resolve<'needle>(
                 needle,
                 &mut links)?;
 
-            if let Some(cid) = found {
+            return if let Some(cid) = found {
                 *cache = Some(links.into());
                 Ok(MaybeResolved::Found(cid))
             } else if links.is_empty() {
@@ -63,7 +47,7 @@ pub fn resolve<'needle>(
                     links,
                     needle: Cow::Borrowed(needle),
                 }))
-            }
+            };
         }
         Ok(flat) if flat.data.Type == UnixFsType::Directory => {
             if flat.data.filesize.is_some()
@@ -79,28 +63,27 @@ pub fn resolve<'needle>(
                 });
             }
 
-            eprintln!("Searching normal directory");
-
-            Ok(search_normal_links(flat.links.into_iter().enumerate(), needle)?.into())
+            flat.links
         }
         Err((_, Some(PBNode { Links: links, .. }))) => {
-            eprintln!("Searching outer dag-pb");
-            Ok(search_normal_links(links.into_iter().enumerate(), needle)?.into())
+            links
         }
         Ok(_other) => {
-            eprintln!("Not finding anything under: {:?}", _other.data.Type);
             // go-ipfs does not resolve links under File, probably it's not supposed to work on
             // anything other then
-            Ok(MaybeResolved::NotFound)
+            return Ok(MaybeResolved::NotFound)
         }
         Err((UnixFsReadFailed::InvalidDagPb(e), None)) => {
-            return Err(ResolveError::Walk(WalkError::Read(e)))
+            return Err(ResolveError::Read(e))
         }
         // FIXME: add an additional error type to handle this case..
         Err((UnixFsReadFailed::NoData, _)) | Err((UnixFsReadFailed::InvalidUnixFs(_), _)) => {
             unreachable!("Cannot have NoData without recovered outer dag-pb node")
         }
-    }
+    };
+
+    // plain dag-pb and unixfs directories are searched the same way
+    Ok(search_normal_links(links.into_iter().enumerate(), needle)?.into())
 }
 
 fn search_normal_links<'a, 'b>(
@@ -204,18 +187,20 @@ impl<'needle> ShardedLookup<'needle> {
             .pop_front()
             .expect("Already validated there are links");
 
-        let hamt = match FlatUnixFs::try_from(next) {
+        let mut hamt = match FlatUnixFs::try_from(next) {
             Ok(hamt) if hamt.data.Type == UnixFsType::HAMTShard => hamt,
             Ok(other) => return Err(WalkError::UnexpectedBucketType(other.data.Type.into())),
             Err(UnixFsReadFailed::InvalidDagPb(e)) | Err(UnixFsReadFailed::InvalidUnixFs(e)) => {
                 *cache = Some(Cache { buffer: self.links });
-                return Err(WalkError::Read(e))
+                return Err(WalkError::Read(Some(e)))
             }
             Err(UnixFsReadFailed::NoData) => {
                 *cache = Some(Cache { buffer: self.links });
-                return Err(WalkError::EmptyDagPb)
+                return Err(WalkError::Read(None))
             }
         };
+
+        Self::check_supported(&mut hamt)?;
 
         let found = Self::partition(
             hamt.links.into_iter(),
@@ -241,11 +226,35 @@ impl<'needle> ShardedLookup<'needle> {
         ShardedLookup { links, needle }
     }
 
+    /// Takes the validated object as mutable reference to move data out of it in case of error.
+    ///
+    /// Returns an error if we don't support the properties on the HAMTShard typed node
+    pub(crate) fn check_supported(hamt: &mut FlatUnixFs<'_>) -> Result<(), ShardError> {
+        assert_eq!(hamt.data.Type, UnixFsType::HAMTShard);
+
+        if hamt.data.fanout != Some(256) || hamt.data.hashType != Some(34) {
+            Err(ShardError::UnsupportedProperties {
+                hash_type: hamt.data.hashType,
+                fanout: hamt.data.fanout,
+            })
+        } else if hamt.data.filesize.is_some() || !hamt.data.blocksizes.is_empty() {
+            Err(ShardError::UnexpectedProperties {
+                filesize: hamt.data.filesize,
+                blocksizes: std::mem::take(&mut hamt.data.blocksizes),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
     /// Partition the original links per their kind if the link:
     ///
     ///  - matches the needle uniquely, it will be returned as Some(cid)
     ///  - is a bucket, it is pushed back to the work
-    pub(crate) fn partition<'a>(iter: impl Iterator<Item = PBLink<'a>>, needle: &str, work: &mut VecDeque<Cid>) -> Result<Option<Cid>, WalkError> {
+    pub(crate) fn partition<'a>(
+        iter: impl Iterator<Item = PBLink<'a>>,
+        needle: &str,
+        work: &mut VecDeque<Cid>) -> Result<Option<Cid>, PartitioningError> {
         let mut found = None;
 
         for (i, link) in iter.enumerate() {
@@ -274,20 +283,28 @@ impl<'needle> ShardedLookup<'needle> {
 
 #[derive(Debug)]
 pub enum ResolveError {
+    /// Two or more suitable links were found.
     Multiple(MultipleMatchingLinks),
-    InvalidCidInLink(InvalidCidInLink),
+    /// A hash in a link could not be converted to a Cid.
+    InvalidCid(InvalidCidInLink),
+    /// A directory had unsupported properties. These are not encountered during walking sharded
+    /// directories.
     UnexpectedDirProperties {
         filesize: Option<u64>,
         blocksizes: Vec<u64>,
         hash_type: Option<u64>,
         fanout: Option<u64>,
     },
-    Walk(WalkError),
+    /// Read an HAMTSharded directory which had unexpected properties
+    Shard(ShardError),
+    /// Failed to read the block as an dag-pb node. Failure to read an inner UnixFS node is ignored
+    /// and links of the outer dag-pb are processed.
+    Read(quick_protobuf::Error),
 }
 
 impl From<InvalidCidInLink> for ResolveError {
     fn from(e: InvalidCidInLink) -> ResolveError {
-        ResolveError::InvalidCidInLink(e)
+        ResolveError::InvalidCid(e)
     }
 }
 
@@ -297,13 +314,77 @@ impl From<MultipleMatchingLinks> for ResolveError {
     }
 }
 
-impl From<WalkError> for ResolveError {
-    fn from(e: WalkError) -> ResolveError {
-        // FIXME: this makes no sense
-        ResolveError::Walk(e)
+impl From<ShardError> for ResolveError {
+    fn from(e: ShardError) -> ResolveError {
+        ResolveError::Shard(e)
     }
 }
 
+pub(crate) enum PartitioningError {
+    Multiple(MultipleMatchingLinks),
+    InvalidCid(InvalidCidInLink),
+}
+
+impl From<InvalidCidInLink> for PartitioningError {
+    fn from(e: InvalidCidInLink) -> PartitioningError {
+        PartitioningError::InvalidCid(e)
+    }
+}
+
+impl From<MultipleMatchingLinks> for PartitioningError {
+    fn from(e: MultipleMatchingLinks) -> PartitioningError {
+        PartitioningError::Multiple(e)
+    }
+}
+
+impl From<PartitioningError> for ResolveError {
+    fn from(e: PartitioningError) -> ResolveError {
+        use PartitioningError::*;
+        match e {
+            Multiple(m) => ResolveError::Multiple(m),
+            InvalidCid(e) => ResolveError::InvalidCid(e),
+        }
+    }
+}
+
+impl From<PartitioningError> for WalkError {
+    fn from(e: PartitioningError) -> WalkError {
+        use PartitioningError::*;
+        match e {
+            Multiple(m) => WalkError::Multiple(m),
+            InvalidCid(e) => WalkError::InvalidCid(e),
+        }
+    }
+}
+
+/// Shard does not fit into expectations.
+#[derive(Debug)]
+pub enum ShardError {
+    /// Encountered an HAMT sharded directory which had an unsupported configuration.
+    UnsupportedProperties {
+        hash_type: Option<u64>,
+        fanout: Option<u64>,
+    },
+    /// Encountered an HAMT sharded directory which had a unexpected properties.
+    UnexpectedProperties {
+        filesize: Option<u64>,
+        blocksizes: Vec<u64>,
+    }
+}
+
+impl fmt::Display for ShardError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use ShardError::*;
+        match self {
+            UnsupportedProperties { hash_type, fanout } => write!(fmt, "unsupported HAMTShard properties: hash_type={:?}, fanout={:?}", hash_type, fanout),
+            UnexpectedProperties { filesize, blocksizes } => write!(fmt, "unexpected HAMTShard properties: filesize=({:?}), {} blocksizes", filesize, blocksizes.len()),
+        }
+    }
+}
+
+impl std::error::Error for ShardError {}
+
+/// A link could not be transformed into a Cid.
 #[derive(Debug)]
 pub struct InvalidCidInLink {
     pub nth: usize,
@@ -313,12 +394,15 @@ pub struct InvalidCidInLink {
     hidden: (),
 }
 
+/// Multiple matching links were found: **at least two**.
 #[derive(Debug)]
 pub enum MultipleMatchingLinks {
+    /// Two valid links were found
     Two {
         first: (usize, Cid),
         second: (usize, Cid),
     },
+    /// Two matched links but the other could not be converted.
     OneValid {
         first: (usize, Cid),
         second: InvalidCidInLink,
@@ -352,11 +436,11 @@ impl MultipleMatchingLinks {
 
 #[derive(Debug)]
 pub enum WalkError {
-    InvalidCidInLink(InvalidCidInLink),
     Multiple(MultipleMatchingLinks),
+    InvalidCid(InvalidCidInLink),
     UnexpectedBucketType(i32),
-    Read(quick_protobuf::Error),
-    EmptyDagPb,
+    Shard(ShardError),
+    Read(Option<quick_protobuf::Error>),
 }
 
 impl From<MultipleMatchingLinks> for WalkError {
@@ -367,7 +451,13 @@ impl From<MultipleMatchingLinks> for WalkError {
 
 impl From<InvalidCidInLink> for WalkError {
     fn from(e: InvalidCidInLink) -> Self {
-        WalkError::InvalidCidInLink(e)
+        WalkError::InvalidCid(e)
+    }
+}
+
+impl From<ShardError> for WalkError {
+    fn from(e: ShardError) -> Self {
+        WalkError::Shard(e)
     }
 }
 
@@ -376,7 +466,7 @@ impl fmt::Display for WalkError {
         use WalkError::*;
 
         match self {
-            InvalidCidInLink(e) => write!(fmt, "Invalid link: {:?}", e),
+            InvalidCid(e) => write!(fmt, "Invalid link: {:?}", e),
             Multiple(e) => write!(fmt, "Multiple matching links found: {:?}", e),
             UnexpectedBucketType(t) => write!(
                 fmt,
@@ -384,12 +474,13 @@ impl fmt::Display for WalkError {
                 t,
                 UnixFsType::from(*t)
             ),
-            Read(e) => write!(
+            Shard(e) => write!(fmt, "{}", e),
+            Read(Some(e)) => write!(
                 fmt,
                 "failed to parse the block as unixfs or dag-pb node: {}",
                 e
             ),
-            EmptyDagPb => write!(fmt, "HAMTDirectory not found in empty dag-pb node"),
+            Read(None) => write!(fmt, "HAMTDirectory not found in empty dag-pb node"),
         }
     }
 }
@@ -398,7 +489,7 @@ impl std::error::Error for WalkError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         use WalkError::*;
         match self {
-            Read(e) => Some(e),
+            Read(Some(e)) => Some(e),
             _ => None,
         }
     }
