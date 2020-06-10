@@ -289,6 +289,35 @@ pub enum ResolveError {
     Lookup(LookupError),
 }
 
+impl fmt::Display for ResolveError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use ResolveError::*;
+        match self {
+            UnexpectedDirProperties { filesize, blocksizes, hash_type, fanout } => write!(
+                fmt,
+                "unexpected directory properties: filesize={:?}, {} blocksizes, hash_type={:?}, fanout={:?}",
+                filesize,
+                blocksizes.len(),
+                hash_type,
+                fanout
+            ),
+            Read(e) => write!(fmt, "parsing failed: {}", e),
+            Lookup(e) => write!(fmt, "{}", e),
+        }
+    }
+}
+
+impl std::error::Error for ResolveError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use ResolveError::*;
+        match self {
+            Read(e) => Some(e),
+            Lookup(LookupError::Read(Some(e))) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 impl From<InvalidCidInLink> for ResolveError {
     fn from(e: InvalidCidInLink) -> ResolveError {
         ResolveError::Lookup(e.into())
@@ -304,6 +333,12 @@ impl From<MultipleMatchingLinks> for ResolveError {
 impl From<ShardError> for ResolveError {
     fn from(e: ShardError) -> ResolveError {
         ResolveError::Lookup(e.into())
+    }
+}
+
+impl From<LookupError> for ResolveError {
+    fn from(e: LookupError) -> ResolveError {
+        ResolveError::Lookup(e)
     }
 }
 
@@ -442,6 +477,13 @@ pub enum LookupError {
     Shard(ShardError),
     /// Parsing failed or the inner dag-pb data was contained no bytes.
     Read(Option<quick_protobuf::Error>),
+}
+
+impl LookupError {
+    /// Converts this HAMT lookup error to the more general ResolveError
+    pub fn into_resolve_error(self) -> ResolveError {
+        self.into()
+    }
 }
 
 impl From<MultipleMatchingLinks> for LookupError {
