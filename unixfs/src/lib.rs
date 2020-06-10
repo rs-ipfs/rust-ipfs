@@ -53,7 +53,11 @@ impl<'a> From<(usize, pb::PBLink<'a>, cid::Error)> for InvalidCidInLink {
 
 impl fmt::Display for InvalidCidInLink {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "failed to convert link #{} ({:?}) to Cid: {}", self.nth, self.name, self.source)
+        write!(
+            fmt,
+            "failed to convert link #{} ({:?}) to Cid: {}",
+            self.nth, self.name, self.source
+        )
     }
 }
 

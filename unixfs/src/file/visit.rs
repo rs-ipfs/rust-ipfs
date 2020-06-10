@@ -166,7 +166,9 @@ fn to_pending(
 
     match Cid::try_from(hash) {
         Ok(cid) => Ok((cid, range)),
-        Err(e) => Err(FileReadFailed::InvalidCid(InvalidCidInLink::from((nth, link, e)))),
+        Err(e) => Err(FileReadFailed::InvalidCid(InvalidCidInLink::from((
+            nth, link, e,
+        )))),
     }
 }
 
