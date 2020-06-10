@@ -8,6 +8,10 @@ use std::fmt;
 
 /// Resolves a single path segment on `dag-pb` or UnixFS directories (normal, sharded).
 ///
+/// The third parameter can always be substituted with a None but when repeatedly resolving over
+/// multiple path segments, it can be used to cache the work queue used to avoid re-allocating it
+/// between the steps.
+///
 /// Returns on success either a walker which can be used to traverse additional links searching for
 /// the link, or the resolved link once it has been found or NotFound when it cannot be found.
 ///
@@ -18,6 +22,7 @@ use std::fmt;
 pub fn resolve<'needle>(
     block: &[u8],
     needle: &'needle str,
+    cache: &mut Option<Cache>,
 ) -> Result<MaybeResolved<'needle>, ResolveError> {
     match FlatUnixFs::try_parse(block) {
         Ok(hamt) if hamt.data.Type == UnixFsType::HAMTShard => {
@@ -67,7 +72,7 @@ pub fn resolve<'needle>(
                         .into_iter()
                         .enumerate();
 
-                    let mut res = VecDeque::new();
+                    let mut res = cache.take().map(|c| c.buffer).unwrap_or_default();
 
                     for (i, link) in links {
                         let name = match link.Name {
@@ -93,6 +98,7 @@ pub fn resolve<'needle>(
                     // all of them
 
                     if res.is_empty() {
+                        *cache = Some(Cache { buffer: res });
                         Ok(MaybeResolved::NotFound)
                     } else {
                         Ok(MaybeResolved::NeedToLoadMore(ShardedLookup {
@@ -202,6 +208,16 @@ pub enum MaybeResolved<'needle> {
     NotFound,
 }
 
+pub struct Cache {
+    buffer: VecDeque<Cid>,
+}
+
+impl fmt::Debug for Cache {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(fmt, "Cache {{ buffer: {} }}", self.buffer.capacity())
+    }
+}
+
 impl From<Option<Cid>> for MaybeResolved<'static> {
     fn from(maybe: Option<Cid>) -> Self {
         if let Some(cid) = maybe {
@@ -231,12 +247,13 @@ impl<'needle> ShardedLookup<'needle> {
         (first, iter)
     }
 
-    pub fn continue_walk(mut self, next: &[u8]) -> Result<MaybeResolved<'needle>, WalkError> {
+    pub fn continue_walk(mut self, next: &[u8], cache: &mut Option<Cache>) -> Result<MaybeResolved<'needle>, WalkError> {
         eprintln!("Continuing walk with:");
         for x in &self.links {
             eprintln!(" - {}", x);
         }
         eprintln!();
+
         assert_eq!(self.links.iter().next().cloned(), self.links.pop_front());
         /*self.links
             .pop_front()
@@ -254,6 +271,7 @@ impl<'needle> ShardedLookup<'needle> {
                     if name.len() > 2 && &name[2..] == self.needle {
                         let cid = try_convert_cid(i, link.Hash.unwrap_borrowed_or_empty())?;
                         eprintln!("found {} named {:?}", cid, name);
+                        *cache = Some(Cache { buffer: self.links });
                         return Ok(MaybeResolved::Found(cid));
                     } else if name.len() == 2 {
                         let cid = try_convert_cid(i, link.Hash.unwrap_borrowed_or_empty())?;
@@ -265,6 +283,7 @@ impl<'needle> ShardedLookup<'needle> {
                 }
 
                 if self.links.is_empty() {
+                    *cache = Some(Cache { buffer: self.links });
                     Ok(MaybeResolved::NotFound)
                 } else {
                     eprintln!("Need to load more:");
@@ -277,9 +296,13 @@ impl<'needle> ShardedLookup<'needle> {
             }
             Ok(other) => return Err(WalkError::UnexpectedBucketType(other.data.Type.into())),
             Err(UnixFsReadFailed::InvalidDagPb(e)) | Err(UnixFsReadFailed::InvalidUnixFs(e)) => {
+                *cache = Some(Cache { buffer: self.links });
                 return Err(WalkError::Read(e))
             }
-            Err(UnixFsReadFailed::NoData) => return Err(WalkError::EmptyDagPb),
+            Err(UnixFsReadFailed::NoData) => {
+                *cache = Some(Cache { buffer: self.links });
+                return Err(WalkError::EmptyDagPb)
+            }
         }
     }
 
