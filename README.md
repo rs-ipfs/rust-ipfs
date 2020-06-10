@@ -142,6 +142,13 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
 
 Rust IPFS is actively maintained by @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol), [Equilibrium Labs](https://github.com/eqlabs), and [MRH.io](https://mrh.io).
 
+## Alternatives
+
+It’s been noted that the Rust-IPFS name and popularity may serve us from a "first-mover" perspective.  However, alternatives do exist with different philosophies, and we believe that supporting this community and diversity is both important and will ultimately help produce the best solution possible.
+
+- [`ipfs-embed`](https://github.com/ipfs-rust/ipfs-embed/) - An implementation based on [`sled`](https://github.com/ipfs-rust/ipfs-embed/)
+- PolkaX's [`rust-ipfs`](https://github.com/PolkaX/rust-ipfs)
+
 ## Contributors
 
 ### Code Contributors
