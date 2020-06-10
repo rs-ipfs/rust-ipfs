@@ -9,7 +9,11 @@ pub mod file;
 
 /// UnixFS directory support.
 pub mod dir;
+
+pub use dir::{resolve, MaybeResolved, ResolveError, LookupError};
+
 mod pb;
+use crate::pb::UnixFsType;
 
 /// A link could not be transformed into a Cid.
 #[derive(Debug)]
@@ -64,5 +68,26 @@ impl fmt::Display for InvalidCidInLink {
 impl std::error::Error for InvalidCidInLink {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.source)
+    }
+}
+
+/// Wrapper around the unexpected UnixFs node type, allowing access to querying what is known about
+/// the type.
+#[derive(Debug)]
+pub struct UnexpectedNodeType(i32);
+
+impl From<UnixFsType> for UnexpectedNodeType {
+    fn from(t: UnixFsType) -> UnexpectedNodeType {
+        UnexpectedNodeType(t.into())
+    }
+}
+
+impl UnexpectedNodeType {
+    /// Returns true if the type represents some directory type
+    pub fn is_directory(&self) -> bool {
+        match UnixFsType::from(self.0) {
+            UnixFsType::Directory | UnixFsType::HAMTShard => true,
+            _ => false,
+        }
     }
 }

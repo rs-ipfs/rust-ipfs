@@ -3,7 +3,7 @@
 ///! Most usable for walking UnixFS file trees provided by the `visit::IdleFileVisit` and
 ///! `visit::FileVisit` types.
 use crate::pb::{UnixFs, UnixFsReadFailed, UnixFsType};
-use crate::InvalidCidInLink;
+use crate::{InvalidCidInLink, UnexpectedNodeType};
 use std::borrow::Cow;
 use std::fmt;
 
@@ -65,7 +65,7 @@ pub enum FileReadFailed {
     File(FileError),
     /// FileReader can only process raw or file type of unixfs content.
     // This is the raw value instead of the enum by design not to expose the quick-protobuf types
-    UnexpectedType(i32),
+    UnexpectedType(UnexpectedNodeType),
     /// Parsing failed
     Read(Option<quick_protobuf::Error>),
     /// Link could not be turned into Cid.
@@ -78,7 +78,7 @@ impl fmt::Display for FileReadFailed {
 
         match self {
             File(e) => write!(fmt, "{}", e),
-            UnexpectedType(t) => write!(
+            UnexpectedType(UnexpectedNodeType(t)) => write!(
                 fmt,
                 "unexpected type for UnixFs: {} or {:?}",
                 t,
