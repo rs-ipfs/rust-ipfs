@@ -28,11 +28,7 @@ pub fn nameless_links(
         .enumerate()
         .map(|(nth, link)| {
             let hash = link.Hash.as_deref().unwrap_or_default();
-
-            match Cid::try_from(hash) {
-                Ok(cid) => Ok(cid),
-                Err(e) => Err(InvalidCidInLink::from((nth, link, e))),
-            }
+            Cid::try_from(hash).map_err(|e| InvalidCidInLink::from((nth, link, e)))
         })
         .collect::<Result<Vec<_>, _>>())
 }
