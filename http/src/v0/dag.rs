@@ -92,7 +92,7 @@ async fn inner_resolve<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     opts: ResolveOptions,
 ) -> Result<impl Reply, Rejection> {
-    use crate::v0::refs::{IpfsPath, walk_path};
+    use crate::v0::refs::{walk_path, IpfsPath};
     use std::convert::TryFrom;
 
     let path = IpfsPath::try_from(opts.arg.as_str()).map_err(StringError::from)?;
@@ -101,9 +101,8 @@ async fn inner_resolve<T: IpfsTypes>(
 
     let remaining = {
         let slashes = remaining.len();
-        let mut buf = String::with_capacity(
-            remaining.iter().map(|s| s.len()).sum::<usize>() + slashes,
-        );
+        let mut buf =
+            String::with_capacity(remaining.iter().map(|s| s.len()).sum::<usize>() + slashes);
 
         for piece in remaining.into_iter().rev() {
             if !buf.is_empty() {

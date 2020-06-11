@@ -139,8 +139,10 @@ async fn refs_paths<T: IpfsTypes>(
     }
 
     // strip out the path inside last document, we don't need it
-    let iplds = walks.map_ok(|(cid, maybe_ipld, _)| (cid, maybe_ipld))
-        .try_collect().await?;
+    let iplds = walks
+        .map_ok(|(cid, maybe_ipld, _)| (cid, maybe_ipld))
+        .try_collect()
+        .await?;
 
     Ok(iplds_refs(ipfs, iplds, max_depth, unique))
 }
@@ -243,7 +245,6 @@ pub async fn walk_path<T: IpfsTypes>(
         };
 
         if current.codec() == cid::Codec::DagProtobuf {
-
             let mut lookup = match ipfs::unixfs::ll::resolve(&data, &needle, &mut cache) {
                 Ok(MaybeResolved::NeedToLoadMore(lookup)) => lookup,
                 Ok(MaybeResolved::Found(cid)) => {
@@ -326,11 +327,11 @@ pub async fn walk_path<T: IpfsTypes>(
                     Ok(WalkSuccess::AtDestination(ipld)) => {
                         path_inside_last.push(tmp);
                         ipld
-                    },
+                    }
                     Ok(WalkSuccess::Link(_, next_cid)) => {
                         current = next_cid;
                         continue 'outer;
-                    },
+                    }
                     Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
                 };
 
@@ -343,7 +344,7 @@ pub async fn walk_path<T: IpfsTypes>(
 
             if path.len() == 0 {
                 path_inside_last.shrink_to_fit();
-                return Ok((current, Some(ipld), path_inside_last))
+                return Ok((current, Some(ipld), path_inside_last));
             }
         }
     }
