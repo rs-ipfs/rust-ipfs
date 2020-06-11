@@ -1,5 +1,5 @@
 use crate::pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType};
-use crate::InvalidCidInLink;
+use crate::{InvalidCidInLink, UnexpectedNodeType};
 use cid::Cid;
 use std::convert::TryFrom;
 use std::fmt;
@@ -47,10 +47,11 @@ pub fn resolve<'needle>(
         }
         Err(ParsingFailed::InvalidUnixFs(_, PBNode { Links: links, .. }))
         | Err(ParsingFailed::NoData(PBNode { Links: links, .. })) => links,
-        Ok(_other) => {
+        Ok(other) => {
             // go-ipfs does not resolve links under File, probably it's not supposed to work on
-            // anything other then
-            return Ok(MaybeResolved::NotFound);
+            // anything other then; returning NotFound would be correct but, perhaps it's even more
+            // correct to return that we don't support this
+            return Err(ResolveError::UnexpectedType(other.data.Type.into()));
         }
         Err(ParsingFailed::InvalidDagPb(e)) => return Err(ResolveError::Read(e)),
     };
@@ -107,6 +108,9 @@ impl From<Option<Cid>> for MaybeResolved<'static> {
 /// cases, there can be unexpected directories.
 #[derive(Debug)]
 pub enum ResolveError {
+    /// The target block was not a directory, hamt shard, or dag-pb node of which data could not be
+    /// parsed as UnixFS.
+    UnexpectedType(UnexpectedNodeType),
     /// A directory had unsupported properties. These are not encountered during walking sharded
     /// directories.
     UnexpectedDirProperties {
@@ -130,6 +134,11 @@ impl fmt::Display for ResolveError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ResolveError::*;
         match self {
+            UnexpectedType(ut) => write!(
+                fmt,
+                "unexpected type for UnixFs: {:?}",
+                ut
+            ),
             UnexpectedDirProperties { filesize, blocksizes, hash_type, fanout } => write!(
                 fmt,
                 "unexpected directory properties: filesize={:?}, {} blocksizes, hash_type={:?}, fanout={:?}",
@@ -268,10 +277,18 @@ mod tests {
             match res {
                 Ok(MaybeResolved::Found(cid)) => assert_eq!(Some(cid), target),
                 Ok(MaybeResolved::NotFound) => {
-                    assert!(target.is_none(), "should not have found {}", segment)
+                    assert!(target.is_none(), "should not have found {:?}", segment)
                 }
                 x => panic!("{:?}", x),
             }
         }
+    }
+
+    #[test]
+    fn errors_with_file() {
+        let payload = hex!("0a130802120d666f6f6261720a666f6f626172180d");
+        // MaybeResolved::NotFound would be a possible answer as well, but this perhaps highlights
+        // that we dont know how to resolve through this
+        resolve(&payload[..], "anything", &mut None).unwrap_err();
     }
 }

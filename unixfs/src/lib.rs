@@ -76,8 +76,19 @@ impl std::error::Error for InvalidCidInLink {
 
 /// Wrapper around the unexpected UnixFs node type, allowing access to querying what is known about
 /// the type.
-#[derive(Debug)]
 pub struct UnexpectedNodeType(i32);
+
+impl fmt::Debug for UnexpectedNodeType {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let converted = UnixFsType::from(self.0);
+        // the conversion defaults to Raw
+        if converted == UnixFsType::Raw && self.0 != 0 {
+            write!(fmt, "{} or <unknown>", self.0)
+        } else {
+            write!(fmt, "{} or {:?}", self.0, converted)
+        }
+    }
+}
 
 impl From<UnixFsType> for UnexpectedNodeType {
     fn from(t: UnixFsType) -> UnexpectedNodeType {
@@ -90,6 +101,14 @@ impl UnexpectedNodeType {
     pub fn is_directory(&self) -> bool {
         match UnixFsType::from(self.0) {
             UnixFsType::Directory | UnixFsType::HAMTShard => true,
+            _ => false,
+        }
+    }
+
+    /// Returns true if the type represents File type
+    pub fn is_file(&self) -> bool {
+        match UnixFsType::from(self.0) {
+            UnixFsType::File => true,
             _ => false,
         }
     }

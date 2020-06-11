@@ -2,7 +2,7 @@
 ///!
 ///! Most usable for walking UnixFS file trees provided by the `visit::IdleFileVisit` and
 ///! `visit::FileVisit` types.
-use crate::pb::{ParsingFailed, UnixFs, UnixFsType};
+use crate::pb::{ParsingFailed, UnixFs};
 use crate::{InvalidCidInLink, UnexpectedNodeType};
 use std::borrow::Cow;
 use std::fmt;
@@ -78,12 +78,7 @@ impl fmt::Display for FileReadFailed {
 
         match self {
             File(e) => write!(fmt, "{}", e),
-            UnexpectedType(UnexpectedNodeType(t)) => write!(
-                fmt,
-                "unexpected type for UnixFs: {} or {:?}",
-                t,
-                UnixFsType::from(*t)
-            ),
+            UnexpectedType(ut) => write!(fmt, "unexpected type for UnixFs: {:?}", ut),
             Read(Some(e)) => write!(fmt, "reading failed: {}", e),
             Read(None) => write!(fmt, "reading failed: missing UnixFS message"),
             InvalidCid(e) => write!(fmt, "{}", e),
