@@ -1,6 +1,6 @@
 use super::{try_convert_cid, MaybeResolved, MultipleMatchingLinks, ResolveError};
 use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
-use crate::InvalidCidInLink;
+use crate::{InvalidCidInLink, UnexpectedNodeType};
 use cid::Cid;
 use std::borrow::Cow;
 use std::collections::VecDeque;
@@ -275,7 +275,7 @@ pub enum LookupError {
     /// Invalid Cid was matched
     InvalidCid(InvalidCidInLink),
     /// Unexpected HAMT shard bucket type
-    UnexpectedBucketType(i32),
+    UnexpectedBucketType(UnexpectedNodeType),
     /// Unsupported or unexpected property of the UnixFS node
     Shard(ShardError),
     /// Parsing failed or the inner dag-pb data was contained no bytes.
@@ -314,12 +314,7 @@ impl fmt::Display for LookupError {
         match self {
             InvalidCid(e) => write!(fmt, "Invalid link: {:?}", e),
             Multiple(e) => write!(fmt, "Multiple matching links found: {:?}", e),
-            UnexpectedBucketType(t) => write!(
-                fmt,
-                "unexpected type for HAMT bucket: {} or {:?}",
-                t,
-                UnixFsType::from(*t)
-            ),
+            UnexpectedBucketType(ut) => write!(fmt, "unexpected type for HAMT bucket: {:?}", ut),
             Shard(e) => write!(fmt, "{}", e),
             Read(Some(e)) => write!(
                 fmt,
@@ -343,13 +338,14 @@ impl std::error::Error for LookupError {
 
 #[cfg(test)]
 mod tests {
-    use super::{MaybeResolved, ShardedLookup};
+    use super::{LookupError, MaybeResolved, ShardError, ShardedLookup};
     use crate::pb::FlatUnixFs;
     use hex_literal::hex;
     use std::convert::TryFrom;
 
     // a directory from some linux kernel tree import: linux-5.5-rc5/tools/testing/selftests/rcutorture/
     const DIR: &[u8] = &hex!("122e0a2212204baf5104fe53d495223f8e2ba95375a31fda6b18e926cb54edd61f30b5f1de6512053641646f6318b535122c0a221220fd9f545068048e647d5d0b275ed171596e0c1c04b8fed09dc13bee7607e75bc7120242391883c00312330a2212208a4a68f6b88594ce373419586c12d24bde2d519ab636b1d2dcc986eb6265b7a3120a43444d616b6566696c65189601122f0a2212201ededc99d23a7ef43a8f17e6dd8b89934993245ef39e18936a37e412e536ed681205463562696e18c5ad030a280805121f200000000020000200000000000000000004000000000000000000000000002822308002");
+    const FILE: &[u8] = &hex!("0a130802120d666f6f6261720a666f6f626172180d");
 
     #[test]
     fn direct_hit() {
@@ -382,18 +378,27 @@ mod tests {
             x => unreachable!("{:?}", x),
         };
 
-        let (next, mut rest) = next.pending_links();
+        {
+            let (first, mut rest) = next.pending_links();
 
-        // there is only one bin: in other cases we would just walk in BFS other
-        assert_eq!(
-            next.to_string(),
-            "QmfQgmYMYmGQP4X6V3JhTELkQmGVP9kpJgv9duejQ8vWez"
-        );
-        assert!(rest.next().is_none());
+            // there is only one bin: in other cases we would just walk in BFS other
+            assert_eq!(
+                first.to_string(),
+                "QmfQgmYMYmGQP4X6V3JhTELkQmGVP9kpJgv9duejQ8vWez"
+            );
+            assert!(rest.next().is_none());
+        }
+
+        // then we error on anything other than HAMTShard
+        let err = next.continue_walk(FILE, &mut None).unwrap_err();
+        match err {
+            LookupError::UnexpectedBucketType(ut) if ut.is_file() => {}
+            x => unreachable!("{:?}", x),
+        }
     }
 
     #[test]
-    fn unsupported() {
+    fn unsupported_hash_type_or_fanout() {
         use crate::pb::{FlatUnixFs, UnixFs, UnixFsType};
         use std::borrow::Cow;
 
@@ -403,8 +408,8 @@ mod tests {
                 Data: Some(Cow::Borrowed(
                     b"this cannot be interpreted yet but would be an error",
                 )),
-                filesize: Some(0),
-                blocksizes: vec![1],
+                filesize: None,
+                blocksizes: Vec::new(),
                 hashType: Some(33), // supported 34 or murmur128 le cut as u64?
                 fanout: Some(255),  // supported 256
                 mode: None,         // these are not read by the lookup
@@ -413,6 +418,46 @@ mod tests {
             links: Vec::new(),
         };
 
-        ShardedLookup::lookup_or_start(example, "doesnt matter", &mut None).unwrap_err();
+        let err = ShardedLookup::lookup_or_start(example, "doesnt matter", &mut None).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                LookupError::Shard(ShardError::UnsupportedProperties { .. })
+            ),
+            "{:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn unexpected_properties() {
+        use crate::pb::{FlatUnixFs, UnixFs, UnixFsType};
+        use std::borrow::Cow;
+
+        let example = FlatUnixFs {
+            data: UnixFs {
+                Type: UnixFsType::HAMTShard,
+                Data: Some(Cow::Borrowed(
+                    b"this cannot be interpreted yet but would be an error",
+                )),
+                filesize: Some(1),   // err
+                blocksizes: vec![1], // err
+                hashType: Some(34),
+                fanout: Some(256),
+                mode: None,
+                mtime: None,
+            },
+            links: Vec::new(),
+        };
+
+        let err = ShardedLookup::lookup_or_start(example, "doesnt matter", &mut None).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                LookupError::Shard(ShardError::UnexpectedProperties { .. })
+            ),
+            "{:?}",
+            err
+        );
     }
 }
