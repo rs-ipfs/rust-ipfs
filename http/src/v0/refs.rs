@@ -268,7 +268,6 @@ pub async fn walk_path<T: IpfsTypes>(
         };
 
         if current.codec() == cid::Codec::DagProtobuf {
-
             let mut lookup = match ipfs::unixfs::ll::resolve(&data, &needle, &mut cache) {
                 Ok(MaybeResolved::NeedToLoadMore(lookup)) => lookup,
                 Ok(MaybeResolved::Found(cid)) => {
@@ -291,7 +290,11 @@ pub async fn walk_path<T: IpfsTypes>(
                         let data = ipfs::unixfs::ll::dagpb::node_data(&data)
                             .expect("already parsed once, second time cannot fail")
                             .unwrap_or_default();
-                        return Ok((current, Loaded::Ipld(Ipld::Bytes(data.to_vec())), vec![needle]));
+                        return Ok((
+                            current,
+                            Loaded::Ipld(Ipld::Bytes(data.to_vec())),
+                            vec![needle],
+                        ));
                     }
                     let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
                     return Err(WalkError::from((e, current)));
@@ -323,7 +326,11 @@ pub async fn walk_path<T: IpfsTypes>(
                             let data = ipfs::unixfs::ll::dagpb::node_data(&data)
                                 .expect("already parsed once, second time cannot fail")
                                 .unwrap_or_default();
-                            return Ok((current, Loaded::Ipld(Ipld::Bytes(data.to_vec())), vec![needle]));
+                            return Ok((
+                                current,
+                                Loaded::Ipld(Ipld::Bytes(data.to_vec())),
+                                vec![needle],
+                            ));
                         }
                         let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
                         return Err(WalkError::from((e, next)));
