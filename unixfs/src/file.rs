@@ -2,7 +2,7 @@
 ///!
 ///! Most usable for walking UnixFS file trees provided by the `visit::IdleFileVisit` and
 ///! `visit::FileVisit` types.
-use crate::pb::{UnixFs, UnixFsReadFailed, UnixFsType};
+use crate::pb::{ParsingFailed, UnixFs, UnixFsType};
 use crate::{InvalidCidInLink, UnexpectedNodeType};
 use std::borrow::Cow;
 use std::fmt;
@@ -102,13 +102,13 @@ impl std::error::Error for FileReadFailed {
     }
 }
 
-impl From<UnixFsReadFailed> for FileReadFailed {
-    fn from(e: UnixFsReadFailed) -> Self {
-        use UnixFsReadFailed::*;
+impl<'a> From<ParsingFailed<'a>> for FileReadFailed {
+    fn from(e: ParsingFailed<'a>) -> Self {
+        use ParsingFailed::*;
         match e {
             InvalidDagPb(e) => FileReadFailed::Read(Some(e)),
-            InvalidUnixFs(e) => FileReadFailed::Read(Some(e)),
-            NoData => FileReadFailed::Read(None),
+            InvalidUnixFs(e, _) => FileReadFailed::Read(Some(e)),
+            NoData(_) => FileReadFailed::Read(None),
         }
     }
 }

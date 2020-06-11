@@ -1,4 +1,4 @@
-use crate::pb::{FlatUnixFs, PBLink, PBNode, UnixFsReadFailed, UnixFsType};
+use crate::pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType};
 use crate::InvalidCidInLink;
 use cid::Cid;
 use std::borrow::Cow;
@@ -61,17 +61,14 @@ pub fn resolve<'needle>(
 
             flat.links
         }
-        Err((_, Some(PBNode { Links: links, .. }))) => links,
+        Err(ParsingFailed::InvalidUnixFs(_, PBNode { Links: links, .. }))
+        | Err(ParsingFailed::NoData(PBNode { Links: links, .. })) => links,
         Ok(_other) => {
             // go-ipfs does not resolve links under File, probably it's not supposed to work on
             // anything other then
             return Ok(MaybeResolved::NotFound);
         }
-        Err((UnixFsReadFailed::InvalidDagPb(e), None)) => return Err(ResolveError::Read(e)),
-        // FIXME: add an additional error type to handle this case..
-        Err((UnixFsReadFailed::NoData, _)) | Err((UnixFsReadFailed::InvalidUnixFs(_), _)) => {
-            unreachable!("Cannot have NoData without recovered outer dag-pb node")
-        }
+        Err(ParsingFailed::InvalidDagPb(e)) => return Err(ResolveError::Read(e)),
     };
 
     let mut matching = links.into_iter().enumerate().filter_map(|(i, link)| {
@@ -187,11 +184,11 @@ impl<'needle> ShardedLookup<'needle> {
         let mut hamt = match FlatUnixFs::try_from(next) {
             Ok(hamt) if hamt.data.Type == UnixFsType::HAMTShard => hamt,
             Ok(other) => return Err(LookupError::UnexpectedBucketType(other.data.Type.into())),
-            Err(UnixFsReadFailed::InvalidDagPb(e)) | Err(UnixFsReadFailed::InvalidUnixFs(e)) => {
+            Err(ParsingFailed::InvalidDagPb(e)) | Err(ParsingFailed::InvalidUnixFs(e, _)) => {
                 *cache = Some(Cache { buffer: self.links });
                 return Err(LookupError::Read(Some(e)));
             }
-            Err(UnixFsReadFailed::NoData) => {
+            Err(ParsingFailed::NoData(_)) => {
                 *cache = Some(Cache { buffer: self.links });
                 return Err(LookupError::Read(None));
             }
