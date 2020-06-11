@@ -28,9 +28,6 @@ impl fmt::Debug for Cache {
 /// `ShardedLookup` can walk over multiple HAMT sharded directory nodes which allows multiple block
 /// spanning directories.
 pub struct ShardedLookup<'needle> {
-    // TODO: tempted to put Vec<(Cid, &'data str)> here but maybe that can be the underlying
-    // reader used for listing as well?
-    // Need to have VecDeque to do BFS
     links: VecDeque<Cid>,
     // this will be tricky if we ever need to have a case-insensitive resolving *but* we can then
     // make a custom Cow type; important not to expose Cow in any API.
