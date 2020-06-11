@@ -45,7 +45,7 @@ async fn refs_inner<T: IpfsTypes>(
         .map_err(StringError::from)?;
 
     log::trace!(
-        "refs on {:?} to depth {:?} with {:?}",
+        "refs on {:?} to depth {:?} with formatter: {:?}",
         opts.arg,
         max_depth,
         formatter
