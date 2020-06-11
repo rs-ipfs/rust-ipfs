@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use crate::file::reader::{FileContent, FileReader, Traversal};
 use crate::file::{FileMetadata, FileReadFailed};
-use crate::pb::merkledag::PBLink;
+use crate::pb::{merkledag::PBLink, FlatUnixFs};
 use crate::InvalidCidInLink;
 
 /// IdleFileVisit represents a prepared file visit over a tree. The user has to know the CID and be
@@ -29,7 +29,21 @@ impl IdleFileVisit {
         block: &[u8],
     ) -> Result<(&[u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
         let fr = FileReader::from_block(block)?;
+        self.start_from_reader(fr)
+    }
 
+    pub(crate) fn start_from_parsed(
+        self,
+        block: FlatUnixFs<'_>
+    ) -> Result<(&[u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
+        let fr = FileReader::from_parsed(block)?;
+        self.start_from_reader(fr)
+    }
+
+    fn start_from_reader(
+        self,
+        fr: FileReader<'_>
+    ) -> Result<(&[u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
         let metadata = fr.as_ref().to_owned();
 
         let (content, traversal) = fr.content();
@@ -71,6 +85,7 @@ impl IdleFileVisit {
                 }
             }
         }
+
     }
 }
 

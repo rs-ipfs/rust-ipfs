@@ -78,6 +78,11 @@ impl<'a> FileReader<'a> {
         Self::from_parts(inner, 0, metadata)
     }
 
+    pub(crate) fn from_parsed(inner: FlatUnixFs<'a>) -> Result<Self, FileReadFailed> {
+        let metadata = FileMetadata::from(&inner.data);
+        Self::from_parts(inner, 0, metadata)
+    }
+
     /// Called by Traversal to continue traversing a file tree traversal.
     fn from_continued(
         traversal: Traversal,
