@@ -234,33 +234,42 @@ mod tests {
     use std::convert::TryFrom;
 
     #[test]
-    fn resolve_paths() {
+    fn resolve_paths_from_plain_dagpb() {
         let payload = hex!("12330a2212206aad27d7e2fc815cd15bf679535062565dc927a831547281fc0af9e5d7e67c74120b6166726963616e2e747874180812340a221220fd36ac5279964db0cba8f7fa45f8c4c44ef5e2ff55da85936a378c96c9c63204120c616d6572696361732e747874180812360a2212207564c20415869d77a8a40ca68a9158e397dd48bdff1325cdb23c5bcd181acd17120e6175737472616c69616e2e7478741808");
+
+        assert!(
+            crate::dagpb::node_data(&payload).unwrap().is_none(),
+            "this payload has no data field"
+        );
 
         let segments = [
             (
                 "african.txt",
-                "QmVX54jfjB8eRxLVxyQSod6b1FyDh7mR4mQie9j97i2Qk3",
+                Some("QmVX54jfjB8eRxLVxyQSod6b1FyDh7mR4mQie9j97i2Qk3"),
             ),
             (
                 "americas.txt",
-                "QmfP6D9bRV4FEYDL4EHZtZG58kDwDfnzmyjuyK5d1pvzbM",
+                Some("QmfP6D9bRV4FEYDL4EHZtZG58kDwDfnzmyjuyK5d1pvzbM"),
             ),
             (
                 "australian.txt",
-                "QmWEuXAjUGyndgr4MKqMBgzMW36XgPgvitt2jsXgtuc7JE",
+                Some("QmWEuXAjUGyndgr4MKqMBgzMW36XgPgvitt2jsXgtuc7JE"),
             ),
+            ("not found", None),
         ];
 
         let mut cache = None;
 
         for (segment, link) in &segments {
-            let target = Cid::try_from(*link).unwrap();
+            let target = link.map(|link| Cid::try_from(link).unwrap());
 
             let res = resolve(&payload[..], segment, &mut cache);
 
             match res {
-                Ok(MaybeResolved::Found(cid)) => assert_eq!(cid, target),
+                Ok(MaybeResolved::Found(cid)) => assert_eq!(Some(cid), target),
+                Ok(MaybeResolved::NotFound) => {
+                    assert!(target.is_none(), "should not have found {}", segment)
+                }
                 x => panic!("{:?}", x),
             }
         }
