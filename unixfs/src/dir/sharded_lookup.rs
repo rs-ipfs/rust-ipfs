@@ -340,3 +340,55 @@ impl std::error::Error for LookupError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{MaybeResolved, ShardedLookup};
+    use crate::pb::FlatUnixFs;
+    use hex_literal::hex;
+    use std::convert::TryFrom;
+
+    // a directory from some linux kernel tree import: linux-5.5-rc5/tools/testing/selftests/rcutorture/
+    const DIR: &[u8] = &hex!("122e0a2212204baf5104fe53d495223f8e2ba95375a31fda6b18e926cb54edd61f30b5f1de6512053641646f6318b535122c0a221220fd9f545068048e647d5d0b275ed171596e0c1c04b8fed09dc13bee7607e75bc7120242391883c00312330a2212208a4a68f6b88594ce373419586c12d24bde2d519ab636b1d2dcc986eb6265b7a3120a43444d616b6566696c65189601122f0a2212201ededc99d23a7ef43a8f17e6dd8b89934993245ef39e18936a37e412e536ed681205463562696e18c5ad030a280805121f200000000020000200000000000000000004000000000000000000000000002822308002");
+
+    #[test]
+    fn direct_hit() {
+        let parsed = FlatUnixFs::try_from(DIR).unwrap();
+
+        // calling shardedlookup directly makes little sense, but through `resolve` it would make
+        // sense
+
+        // testing this is a bit ... not nice, since we can only find out if there is a negative
+        // hit through exhausting the buckets
+        let found = ShardedLookup::lookup_or_start(parsed, "bin", &mut None);
+
+        match found {
+            Ok(MaybeResolved::Found(cid))
+                if cid.to_string() == "QmQRA3JX9JNSccQpXjuKzMVCpfTaP4XpHbrrefqaQFWf5Z" => {}
+            x => unreachable!("{:?}", x),
+        }
+    }
+
+    #[test]
+    fn found_in_the_other_bucket() {
+        let parsed = FlatUnixFs::try_from(DIR).unwrap();
+
+        // there is a single bin "B9" which would contain "formal" but our implementation cannot
+        // see it, it just guesses to start looking up in other buckets
+        let see_next = ShardedLookup::lookup_or_start(parsed, "formal", &mut None);
+
+        let next = match see_next {
+            Ok(MaybeResolved::NeedToLoadMore(next)) => next,
+            x => unreachable!("{:?}", x),
+        };
+
+        let (next, mut rest) = next.pending_links();
+
+        // there is only one bin: in other cases we would just walk in BFS other
+        assert_eq!(
+            next.to_string(),
+            "QmfQgmYMYmGQP4X6V3JhTELkQmGVP9kpJgv9duejQ8vWez"
+        );
+        assert!(rest.next().is_none());
+    }
+}
