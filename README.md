@@ -146,7 +146,7 @@ Rust IPFS is actively maintained by @koivunej, and @aphelionz. Special thanks is
 
 It’s been noted that the Rust-IPFS name and popularity may serve its organization from a "first-mover" perspective. However, alternatives with different philosophies do exist, and we believe that supporting a diverse IPFS community is important and will ultimately help produce the best solution possible.
 
-- [`rust-ipfs-api`](https://github.com/ferristseng/rust-ipfs-api) - A Rust client for an existing IPFS HTTP API. Supports both tokio and actix.
+- [`rust-ipfs-api`](https://github.com/ferristseng/rust-ipfs-api) - A Rust client for an existing IPFS HTTP API. Supports both hyper and actix.
 - [`ipfs-embed`](https://github.com/ipfs-rust/ipfs-embed/) - An implementation based on [`sled`](https://github.com/ipfs-rust/ipfs-embed/)
 - [`rust-ipld`](https://github.com/ipfs-rust/rust-ipld) - Basic rust ipld library supporting `dag-cbor`, `dag-json` and `dag-pb` formats.
 - PolkaX's own [`rust-ipfs`](https://github.com/PolkaX/rust-ipfs)
