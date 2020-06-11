@@ -265,6 +265,8 @@ mod tests {
                 Some("QmWEuXAjUGyndgr4MKqMBgzMW36XgPgvitt2jsXgtuc7JE"),
             ),
             ("not found", None),
+            // this is not a hamt shard
+            ("01african.txt", None),
         ];
 
         let mut cache = None;

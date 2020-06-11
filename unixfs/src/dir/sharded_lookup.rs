@@ -391,4 +391,28 @@ mod tests {
         );
         assert!(rest.next().is_none());
     }
+
+    #[test]
+    fn unsupported() {
+        use crate::pb::{FlatUnixFs, UnixFs, UnixFsType};
+        use std::borrow::Cow;
+
+        let example = FlatUnixFs {
+            data: UnixFs {
+                Type: UnixFsType::HAMTShard,
+                Data: Some(Cow::Borrowed(
+                    b"this cannot be interpreted yet but would be an error",
+                )),
+                filesize: Some(0),
+                blocksizes: vec![1],
+                hashType: Some(33), // supported 34 or murmur128 le cut as u64?
+                fanout: Some(255),  // supported 256
+                mode: None,         // these are not read by the lookup
+                mtime: None,
+            },
+            links: Vec::new(),
+        };
+
+        ShardedLookup::lookup_or_start(example, "doesnt matter", &mut None).unwrap_err();
+    }
 }
