@@ -108,7 +108,7 @@ impl<'needle> ShardedLookup<'needle> {
 
     /// Finds or starts a lookup of multiple buckets.
     ///
-    /// Returns the found link, the definitive negative or means to continue traversal.
+    /// Returns the found link, the definitive negative or the means to continue the traversal.
     pub(crate) fn lookup_or_start(
         mut hamt: FlatUnixFs<'_>,
         needle: &'needle str,
