@@ -144,7 +144,7 @@ Rust IPFS is actively maintained by @koivunej, and @aphelionz. Special thanks is
 
 ## Alternatives and other cool, related projects
 
-It’s been noted that the Rust-IPFS name and popularity may serve us from a "first-mover" perspective.  However, alternatives do exist with different philosophies, and we believe that supporting this community and diversity is both important and will ultimately help produce the best solution possible.
+It’s been noted that the Rust-IPFS name and popularity may serve its organization from a "first-mover" perspective. However, alternatives with different philosophies do exist, and we believe that supporting a diverse IPFS community is important and will ultimately help produce the best solution possible.
 
 - [`rust-ipfs-api`](https://github.com/ferristseng/rust-ipfs-api) - A Rust client for an existing IPFS HTTP API. Supports both tokio and actix.
 - [`ipfs-embed`](https://github.com/ipfs-rust/ipfs-embed/) - An implementation based on [`sled`](https://github.com/ipfs-rust/ipfs-embed/)
