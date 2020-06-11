@@ -94,16 +94,6 @@ pub enum MaybeResolved<'needle> {
     NotFound,
 }
 
-impl From<Option<Cid>> for MaybeResolved<'static> {
-    fn from(maybe: Option<Cid>) -> Self {
-        if let Some(cid) = maybe {
-            MaybeResolved::Found(cid)
-        } else {
-            MaybeResolved::NotFound
-        }
-    }
-}
-
 /// Resolving can fail similarly as with `ShardedLookup::continue_walk` but in addition to sharded
 /// cases, there can be unexpected directories.
 #[derive(Debug)]
