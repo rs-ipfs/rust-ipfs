@@ -140,7 +140,7 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
 
 ## Maintainers
 
-Rust IPFS is actively maintained by @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol), [Equilibrium Labs](https://github.com/eqlabs), and [MRH.io](https://mrh.io).
+Rust IPFS is actively maintained by @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol), [Equilibrium](https://github.com/eqlabs), and [MRH.io](https://mrh.io).
 
 ## Alternatives and other cool, related projects
 
