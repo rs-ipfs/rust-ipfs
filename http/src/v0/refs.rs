@@ -244,15 +244,18 @@ pub async fn walk_path<T: IpfsTypes>(
     use ipfs::unixfs::ll::MaybeResolved;
 
     let mut current = path.take_root().unwrap();
+
+    // cache for any datastructure used in repeated hamt lookups
     let mut cache = None;
 
+    // the path_inside_last applies only in the IPLD projection case and it's main consumer is the
+    // `/dag/resolve` API where the response is the returned cid and the "remaining path".
     let mut path_inside_last = Vec::new();
 
     // important: on the `/refs` path we need to fetch the first block to fail deterministic so we
     // need to load it either way here; if the response gets processed to the stream phase, it'll
     // always fire up a response and the test 'should print nothing for non-existent hashes' fails.
     // Not sure how correct that is, but that is the test.
-
     'outer: loop {
         let Block { data, .. } = match ipfs.get_block(&current).await {
             Ok(block) => block,
@@ -352,6 +355,8 @@ pub async fn walk_path<T: IpfsTypes>(
             };
 
             loop {
+                // this needs to be stored at least temporarily to recover the path_inside_last or
+                // the "remaining path"
                 let tmp = needle.clone();
                 ipld = match IpfsPath::resolve_segment(needle, ipld) {
                     Ok(WalkSuccess::EmptyPath(_)) => unreachable!(),
@@ -374,6 +379,8 @@ pub async fn walk_path<T: IpfsTypes>(
             }
 
             if path.len() == 0 {
+                // when done with the remaining IpfsPath we should be set with the projected Ipld
+                // document
                 path_inside_last.shrink_to_fit();
                 return Ok((current, Loaded::Ipld(ipld), path_inside_last));
             }

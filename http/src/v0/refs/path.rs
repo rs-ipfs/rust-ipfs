@@ -205,6 +205,7 @@ impl IpfsPath {
 #[derive(Debug, PartialEq)]
 pub enum WalkSuccess {
     /// IpfsPath was already empty, or became empty during previous walk
+    // FIXME: remove this when migrating away from IpfsPath::walk
     EmptyPath(Ipld),
     /// IpfsPath arrived at destination, following walk attempts will return EmptyPath
     AtDestination(Ipld),
