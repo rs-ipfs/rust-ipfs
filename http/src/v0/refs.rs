@@ -252,7 +252,7 @@ pub async fn walk_path<T: IpfsTypes>(
     // `/dag/resolve` API where the response is the returned cid and the "remaining path".
     let mut path_inside_last = Vec::new();
 
-    // important: on the `/refs` path we need to fetch the first block to fail deterministic so we
+    // important: on the `/refs` path we need to fetch the first block to fail deterministically so we
     // need to load it either way here; if the response gets processed to the stream phase, it'll
     // always fire up a response and the test 'should print nothing for non-existent hashes' fails.
     // Not sure how correct that is, but that is the test.

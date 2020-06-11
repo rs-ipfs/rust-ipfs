@@ -49,7 +49,7 @@ pub fn resolve<'needle>(
         | Err(ParsingFailed::NoData(PBNode { Links: links, .. })) => links,
         Ok(other) => {
             // go-ipfs does not resolve links under File, probably it's not supposed to work on
-            // anything other then; returning NotFound would be correct but, perhaps it's even more
+            // anything else then; returning NotFound would be correct, but perhaps it's even more
             // correct to return that we don't support this
             return Err(ResolveError::UnexpectedType(other.data.Type.into()));
         }
@@ -98,7 +98,7 @@ pub enum MaybeResolved<'needle> {
 /// cases, there can be unexpected directories.
 #[derive(Debug)]
 pub enum ResolveError {
-    /// The target block was not a directory, hamt shard, or dag-pb node of which data could not be
+    /// The target block was not a directory, hamt shard, or was a dag-pb node whose data could not be
     /// parsed as UnixFS.
     UnexpectedType(UnexpectedNodeType),
     /// A directory had unsupported properties. These are not encountered during walking sharded
@@ -113,7 +113,7 @@ pub enum ResolveError {
         /// fanout is a property of HAMT shards
         fanout: Option<u64>,
     },
-    /// Failed to read the block as an dag-pb node. Failure to read an inner UnixFS node is ignored
+    /// Failed to read the block as a dag-pb node. Failure to read an inner UnixFS node is ignored
     /// and links of the outer dag-pb are processed.
     Read(quick_protobuf::Error),
     /// Lookup errors.
@@ -183,14 +183,14 @@ impl From<LookupError> for ResolveError {
 pub enum MultipleMatchingLinks {
     /// Two valid links were found
     Two {
-        /// The first link and it's index in the links
+        /// The first link and its index in the links
         first: (usize, Cid),
-        /// The second link and it's index in the links
+        /// The second link and its index in the links
         second: (usize, Cid),
     },
-    /// Two matched links but the other could not be converted.
+    /// Two links were matched but one of them could not be converted.
     OneValid {
-        /// The first link and it's index in the links
+        /// The first link and its index in the links
         first: (usize, Cid),
         /// The failure to parse the other link
         second: InvalidCidInLink,

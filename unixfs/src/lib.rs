@@ -23,7 +23,7 @@ pub mod dagpb;
 pub struct InvalidCidInLink {
     /// The index of this link, from zero
     pub nth: usize,
-    /// Hash which could not be turned into a Cid
+    /// Hash which could not be turned into a `Cid`
     pub hash: Cow<'static, [u8]>,
     /// Name of the link, most likely empty when this originates from a file, most likely non-empty
     /// for other kinds.
@@ -97,7 +97,7 @@ impl From<UnixFsType> for UnexpectedNodeType {
 }
 
 impl UnexpectedNodeType {
-    /// Returns true if the type represents some directory type
+    /// Returns `true` if the type represents some directory
     pub fn is_directory(&self) -> bool {
         match UnixFsType::from(self.0) {
             UnixFsType::Directory | UnixFsType::HAMTShard => true,
@@ -105,7 +105,7 @@ impl UnexpectedNodeType {
         }
     }
 
-    /// Returns true if the type represents File type
+    /// Returns `true` if the type represents a `File`
     pub fn is_file(&self) -> bool {
         match UnixFsType::from(self.0) {
             UnixFsType::File => true,

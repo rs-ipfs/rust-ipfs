@@ -111,7 +111,7 @@ impl IpfsPath {
     pub fn resolve_segment(key: String, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
         ipld = match ipld {
             Ipld::Link(cid) if key == "." => {
-                // go-ipfs: allows this to be skipped. lets require the dot for now.
+                // go-ipfs: allows this to be skipped. let's require the dot for now.
                 // FIXME: this would require the iterator to be peekable in addition.
                 return Ok(WalkSuccess::Link(key, cid));
             }

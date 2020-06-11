@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::convert::TryFrom;
 use std::fmt;
 
-/// Cache of datastructures used while traversing. Reduces allocations when walking over multiple
+/// A cache of data structures used while traversing. Reduces allocations when walking over multiple
 /// path segments.
 pub struct Cache {
     buffer: VecDeque<Cid>,
@@ -29,7 +29,7 @@ impl fmt::Debug for Cache {
 /// spanning directories.
 pub struct ShardedLookup<'needle> {
     links: VecDeque<Cid>,
-    // this will be tricky if we ever need to have a case-insensitive resolving *but* we can then
+    // this will be tricky if we ever need to have case-insensitive resolving *but* we can then
     // make a custom Cow type; important not to expose Cow in any API.
     needle: Cow<'needle, str>,
 }
@@ -98,7 +98,7 @@ impl<'needle> ShardedLookup<'needle> {
         }
     }
 
-    /// Transforms this `ShardedLookup` into an `ShardedLookup<'static>` by taking ownership of the
+    /// Transforms this `ShardedLookup` into a `ShardedLookup<'static>` by taking ownership of the
     /// needle we are trying to find.
     pub fn with_owned_needle(self) -> ShardedLookup<'static> {
         let ShardedLookup { links, needle } = self;
@@ -136,7 +136,7 @@ impl<'needle> ShardedLookup<'needle> {
 
     /// Takes the validated object as mutable reference to move data out of it in case of error.
     ///
-    /// Returns an error if we don't support the properties on the HAMTShard typed node
+    /// Returns an error if we don't support the properties on the HAMTShard-typed node
     fn check_supported(hamt: &mut FlatUnixFs<'_>) -> Result<(), ShardError> {
         assert_eq!(hamt.data.Type, UnixFsType::HAMTShard);
 
@@ -155,9 +155,9 @@ impl<'needle> ShardedLookup<'needle> {
         }
     }
 
-    /// Partition the original links per their kind if the link:
+    /// Partition the original links based on their kind; if the link:
     ///
-    ///  - matches the needle uniquely, it will be returned as Some(cid)
+    ///  - matches the needle uniquely, it will be returned as `Some(cid)`
     ///  - is a bucket, it is pushed back to the work
     fn partition<'a>(
         iter: impl Iterator<Item = PBLink<'a>>,
@@ -378,7 +378,7 @@ mod tests {
         {
             let (first, mut rest) = next.pending_links();
 
-            // there is only one bin: in other cases we would just walk in BFS other
+            // there is only one bin: in other cases we would just walk in BFS order
             assert_eq!(
                 first.to_string(),
                 "QmfQgmYMYmGQP4X6V3JhTELkQmGVP9kpJgv9duejQ8vWez"

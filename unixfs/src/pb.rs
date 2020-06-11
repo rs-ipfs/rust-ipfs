@@ -11,7 +11,7 @@ pub(crate) mod unixfs;
 pub(crate) use unixfs::mod_Data::DataType as UnixFsType;
 pub(crate) use unixfs::Data as UnixFs;
 
-/// Failure cases for nested serialization, which allows recovery of the outer PBNode when useful.
+/// Failure cases for nested serialization, which allows recovery of the outer `PBNode` when desired.
 #[derive(Debug)]
 pub(crate) enum ParsingFailed<'a> {
     InvalidDagPb(quick_protobuf::Error),
