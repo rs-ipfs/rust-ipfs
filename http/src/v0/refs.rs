@@ -278,29 +278,7 @@ pub async fn walk_path<T: IpfsTypes>(
                     continue;
                 }
                 Ok(MaybeResolved::NotFound) => {
-                    if needle == "Data" && path.len() == 0 {
-                        // /dag/resolve needs to "resolve through" a dag-pb node down to the "just
-                        // data" even though we do not need to extract it ... however this might be
-                        // good to just filter with refs, as no refs of such path exist
-                        //
-                        // testing with go-ipfs 0.5 reveals that dag resolve only follows links
-                        // which are actually present in the dag-pb, not numeric links like Links/5
-                        // or links/5, even if such are present in the `dag get` output.
-                        //
-                        // comment on this special casing: there cannot be any other such
-                        // special case as the Links do not work like Data so while this is not
-                        // pretty, it's not terrible.
-                        let data = ipfs::unixfs::ll::dagpb::node_data(&data)
-                            .expect("already parsed once, second time cannot fail")
-                            .unwrap_or_default();
-                        return Ok((
-                            current,
-                            Loaded::Ipld(Ipld::Bytes(data.to_vec())),
-                            vec![needle],
-                        ));
-                    }
-                    let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
-                    return Err(WalkError::from((e, current)));
+                    return handle_dagpb_not_found(current, &data, needle, &path)
                 }
                 Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
             };
@@ -324,19 +302,7 @@ pub async fn walk_path<T: IpfsTypes>(
                         break;
                     }
                     Ok(MaybeResolved::NotFound) => {
-                        if needle == "Data" && path.len() == 0 {
-                            // see remarks in the earlier MaybeResolve::NotFound branch
-                            let data = ipfs::unixfs::ll::dagpb::node_data(&data)
-                                .expect("already parsed once, second time cannot fail")
-                                .unwrap_or_default();
-                            return Ok((
-                                current,
-                                Loaded::Ipld(Ipld::Bytes(data.to_vec())),
-                                vec![needle],
-                            ));
-                        }
-                        let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
-                        return Err(WalkError::from((e, next)));
+                        return handle_dagpb_not_found(next, &data, needle, &path)
                     }
                     Err(e) => {
                         return Err(WalkError::from((
@@ -385,6 +351,34 @@ pub async fn walk_path<T: IpfsTypes>(
                 return Ok((current, Loaded::Ipld(ipld), path_inside_last));
             }
         }
+    }
+}
+
+fn handle_dagpb_not_found(
+    at: Cid,
+    data: &[u8],
+    needle: String,
+    path: &IpfsPath,
+) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
+    if needle == "Data" && path.len() == 0 {
+        // /dag/resolve needs to "resolve through" a dag-pb node down to the "just
+        // data" even though we do not need to extract it ... however this might be
+        // good to just filter with refs, as no refs of such path exist
+        //
+        // testing with go-ipfs 0.5 reveals that dag resolve only follows links
+        // which are actually present in the dag-pb, not numeric links like Links/5
+        // or links/5, even if such are present in the `dag get` output.
+        //
+        // comment on this special casing: there cannot be any other such
+        // special case as the Links do not work like Data so while this is not
+        // pretty, it's not terrible.
+        let data = ipfs::unixfs::ll::dagpb::node_data(&data)
+            .expect("already parsed once, second time cannot fail")
+            .unwrap_or_default();
+        Ok((at, Loaded::Ipld(Ipld::Bytes(data.to_vec())), vec![needle]))
+    } else {
+        let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
+        Err(WalkError::from((e, at)))
     }
 }
 
