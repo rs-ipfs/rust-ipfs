@@ -92,19 +92,12 @@ async fn inner_resolve<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     opts: ResolveOptions,
 ) -> Result<impl Reply, Rejection> {
-    use crate::v0::refs::{IpfsPath, walk_path, path, WalkFailed, WalkError};
+    use crate::v0::refs::{IpfsPath, walk_path};
     use std::convert::TryFrom;
 
     let path = IpfsPath::try_from(opts.arg.as_str()).map_err(StringError::from)?;
 
-    let (current, _, remaining) = match walk_path(&ipfs, path).await {
-        Ok(t) => t,
-        Err(WalkError {
-            last_cid,
-            reason: WalkFailed::IpldWalking(path::WalkFailed::UnmatchedNamedLink(name))
-        }) if name == "Data" => (last_cid, None, vec![name]),
-        Err(e) => return Err(StringError::from(e).into()),
-    };
+    let (current, _, remaining) = walk_path(&ipfs, path).await.map_err(StringError::from)?;
 
     let remaining = {
         let slashes = remaining.len();
