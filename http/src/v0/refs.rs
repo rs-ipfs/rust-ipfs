@@ -18,7 +18,7 @@ use options::RefsOptions;
 mod format;
 use format::EdgeFormatter;
 
-mod path;
+pub(crate) mod path;
 pub use path::{IpfsPath, WalkSuccess};
 
 use crate::v0::support::unshared::Unshared;
@@ -138,15 +138,17 @@ async fn refs_paths<T: IpfsTypes>(
         walks.push(walk_path(&ipfs, path));
     }
 
-    let iplds = walks.try_collect().await?;
+    // strip out the path inside last document, we don't need it
+    let iplds = walks.map_ok(|(cid, maybe_ipld, _)| (cid, maybe_ipld))
+        .try_collect().await?;
 
     Ok(iplds_refs(ipfs, iplds, max_depth, unique))
 }
 
 #[derive(Debug)]
 pub struct WalkError {
-    last_cid: Cid,
-    reason: WalkFailed,
+    pub(crate) last_cid: Cid,
+    pub(crate) reason: WalkFailed,
 }
 
 #[derive(Debug)]
@@ -221,28 +223,26 @@ impl From<(WalkFailed, Cid)> for WalkError {
 
 /// Walks the `path` while loading the links.
 ///
-/// Returns the Cid where we ended up, and an optional Ipld structure if one was projected.
-///
-/// # Panics
-///
-/// If there are dag-pb nodes and the libipld has changed it's dag-pb tree structure.
+/// Returns the Cid where we ended up, and an optional Ipld structure if one was projected, and the
+/// path inside the last document we walked.
 pub async fn walk_path<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
     mut path: IpfsPath,
-) -> Result<(Cid, Option<Ipld>), WalkError> {
+) -> Result<(Cid, Option<Ipld>, Vec<String>), WalkError> {
     use ipfs::unixfs::ll::MaybeResolved;
 
     let mut current = path.take_root().unwrap();
     let mut cache = None;
 
-    while path.len() > 0 {
+    let mut path_inside_last = Vec::new();
+
+    'outer: while let Some(mut needle) = path.next() {
         let Block { data, .. } = match ipfs.get_block(&current).await {
             Ok(block) => block,
             Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
         };
 
         if current.codec() == cid::Codec::DagProtobuf {
-            let needle = path.next().expect("already checked path is not empty");
 
             let mut lookup = match ipfs::unixfs::ll::resolve(&data, &needle, &mut cache) {
                 Ok(MaybeResolved::NeedToLoadMore(lookup)) => lookup,
@@ -259,7 +259,11 @@ pub async fn walk_path<T: IpfsTypes>(
 
             loop {
                 let (next, _) = lookup.pending_links();
+
+                // need to take ownership in order to enrich the error, next is invalidaded on
+                // lookup.continue_walk.
                 let next = next.to_owned();
+
                 let Block { data, .. } = match ipfs.get_block(&next).await {
                     Ok(block) => block,
                     Err(e) => return Err(WalkError::from((WalkFailed::from(e), next))),
@@ -283,25 +287,44 @@ pub async fn walk_path<T: IpfsTypes>(
                     }
                 }
             }
+        } else {
+            path_inside_last.clear();
 
-            continue;
-        }
+            let mut ipld = match decode_ipld(&current, &data) {
+                Ok(ipld) => ipld,
+                Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
+            };
 
-        let ipld = match decode_ipld(&current, &data) {
-            Ok(ipld) => ipld,
-            Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
-        };
+            loop {
+                let tmp = needle.clone();
+                ipld = match IpfsPath::resolve_segment(needle, ipld) {
+                    Ok(WalkSuccess::EmptyPath(_)) => unreachable!(),
+                    Ok(WalkSuccess::AtDestination(ipld)) => {
+                        path_inside_last.push(tmp);
+                        ipld
+                    },
+                    Ok(WalkSuccess::Link(_, next_cid)) => {
+                        current = next_cid;
+                        continue 'outer;
+                    },
+                    Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
+                };
 
-        match path.walk(&current, ipld) {
-            Ok(WalkSuccess::EmptyPath(ipld)) | Ok(WalkSuccess::AtDestination(ipld)) => {
-                return Ok((current, Some(ipld)))
+                // we might resolve multiple segments inside a single document
+                needle = match path.next() {
+                    Some(needle) => needle,
+                    None => break,
+                }
             }
-            Ok(WalkSuccess::Link(_, next_cid)) => current = next_cid,
-            Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
-        };
+
+            if path.len() == 0 {
+                path_inside_last.shrink_to_fit();
+                return Ok((current, Some(ipld), path_inside_last))
+            }
+        }
     }
 
-    Ok((current, None))
+    Ok((current, None, Vec::new()))
 }
 
 /// Gather links as edges between two documents from all of the `iplds` which represent the

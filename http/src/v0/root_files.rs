@@ -39,7 +39,7 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
 
     // FIXME: this is here until we have IpfsPath back at ipfs
 
-    let (cid, _) = walk_path(&ipfs, path).await.map_err(StringError::from)?;
+    let (cid, _, _) = walk_path(&ipfs, path).await.map_err(StringError::from)?;
 
     if cid.codec() != Codec::DagProtobuf {
         return Err(StringError::from("unknown node type").into());

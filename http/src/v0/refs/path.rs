@@ -99,6 +99,50 @@ impl IpfsPath {
         self.root.take()
     }
 
+    pub fn resolve(&mut self, ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
+        let key = match self.next() {
+            Some(key) => key,
+            None => return Ok(WalkSuccess::EmptyPath(ipld)),
+        };
+
+        Self::resolve_segment(key, ipld)
+    }
+
+    pub fn resolve_segment(key: String, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
+        ipld = match ipld {
+            Ipld::Link(cid) if key == "." => {
+                // go-ipfs: allows this to be skipped. lets require the dot for now.
+                // FIXME: this would require the iterator to be peekable in addition.
+                return Ok(WalkSuccess::Link(key, cid));
+            }
+            Ipld::Map(mut m) if m.contains_key(&key) => {
+                if let Some(ipld) = m.remove(&key) {
+                    ipld
+                } else {
+                    return Err(WalkFailed::UnmatchedMapProperty(m, key));
+                }
+            }
+            Ipld::List(mut l) => {
+                if let Ok(index) = key.parse::<usize>() {
+                    if index < l.len() {
+                        l.swap_remove(index)
+                    } else {
+                        return Err(WalkFailed::ListIndexOutOfRange(l, index));
+                    }
+                } else {
+                    return Err(WalkFailed::UnparseableListIndex(l, key));
+                }
+            }
+            x => return Err(WalkFailed::UnmatchableSegment(x, key)),
+        };
+
+        if let Ipld::Link(next_cid) = ipld {
+            Ok(WalkSuccess::Link(key, next_cid))
+        } else {
+            Ok(WalkSuccess::AtDestination(ipld))
+        }
+    }
+
     /// Walks the path depicted by self until either the path runs out or a new link needs to be
     /// traversed to continue the walk. With !dag-pb documents this can result in subtree of an
     /// Ipld be represented.
@@ -106,48 +150,22 @@ impl IpfsPath {
     /// # Panics
     ///
     /// If the current Ipld is from a dag-pb and the libipld has changed it's dag-pb tree structure.
+    // FIXME: this needs to be removed and ... we should have some generic Ipld::walk
     pub fn walk(&mut self, current: &Cid, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
         if self.len() == 0 {
             return Ok(WalkSuccess::EmptyPath(ipld));
         }
-        for key in self {
-            if current.codec() == cid::Codec::DagProtobuf {
-                return Err(WalkFailed::UnsupportedWalkOnDagPbIpld);
-            }
-
-            ipld = match ipld {
-                Ipld::Link(cid) if key == "." => {
-                    // go-ipfs: allows this to be skipped. lets require the dot for now.
-                    // FIXME: this would require the iterator to be peekable in addition.
-                    return Ok(WalkSuccess::Link(key, cid));
-                }
-                Ipld::Map(mut m) if m.contains_key(&key) => {
-                    if let Some(ipld) = m.remove(&key) {
-                        ipld
-                    } else {
-                        return Err(WalkFailed::UnmatchedMapProperty(m, key));
-                    }
-                }
-                Ipld::List(mut l) => {
-                    if let Ok(index) = key.parse::<usize>() {
-                        if index < l.len() {
-                            l.swap_remove(index)
-                        } else {
-                            return Err(WalkFailed::ListIndexOutOfRange(l, index));
-                        }
-                    } else {
-                        return Err(WalkFailed::UnparseableListIndex(l, key));
-                    }
-                }
-                x => return Err(WalkFailed::UnmatchableSegment(x, key)),
-            };
-
-            if let Ipld::Link(next_cid) = ipld {
-                return Ok(WalkSuccess::Link(key, next_cid));
-            }
+        if current.codec() == cid::Codec::DagProtobuf {
+            return Err(WalkFailed::UnsupportedWalkOnDagPbIpld);
         }
 
-        Ok(WalkSuccess::AtDestination(ipld))
+        loop {
+            ipld = match self.resolve(ipld)? {
+                WalkSuccess::AtDestination(ipld) => ipld,
+                WalkSuccess::EmptyPath(ipld) => return Ok(WalkSuccess::AtDestination(ipld)),
+                ret @ WalkSuccess::Link(_, _) => return Ok(ret),
+            };
+        }
     }
 
     pub fn remaining_path(&self) -> &[String] {
