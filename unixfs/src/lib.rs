@@ -15,6 +15,9 @@ pub use dir::{resolve, LookupError, MaybeResolved, ResolveError};
 mod pb;
 use crate::pb::UnixFsType;
 
+/// Support operations for the dag-pb, the outer shell of UnixFS.
+pub mod dagpb;
+
 /// A link could not be transformed into a Cid.
 #[derive(Debug)]
 pub struct InvalidCidInLink {
