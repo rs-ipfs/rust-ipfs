@@ -248,7 +248,7 @@ pub async fn walk_path<T: IpfsTypes>(
     // cache for any datastructure used in repeated hamt lookups
     let mut cache = None;
 
-    // the path_inside_last applies only in the IPLD projection case and it's main consumer is the
+    // the path_inside_last applies only in the IPLD projection case and its main consumer is the
     // `/dag/resolve` API where the response is the returned cid and the "remaining path".
     let mut path_inside_last = Vec::new();
 
