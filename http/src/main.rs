@@ -25,7 +25,10 @@ fn main() {
     if std::env::var_os("RUST_LOG").is_none() {
         // FIXME: see if tracing could be used as the frontend for log macros
         // FIXME: use log macros here as well
-        std::env::set_var("RUST_LOG", "ipfs-http=trace,ipfs=trace,bitswap=trace");
+        std::env::set_var(
+            "RUST_LOG",
+            "ipfs_http=trace,ipfs=trace,bitswap=trace,ipfs_unixfs=trace",
+        );
     }
 
     env_logger::init();

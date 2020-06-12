@@ -11,51 +11,60 @@ pub(crate) mod unixfs;
 pub(crate) use unixfs::mod_Data::DataType as UnixFsType;
 pub(crate) use unixfs::Data as UnixFs;
 
-/// Failure cases for TryFrom conversions and most importantly, the `FlatUnixFs` conversion.
+/// Failure cases for nested serialization, which allows recovery of the outer `PBNode` when desired.
 #[derive(Debug)]
-pub enum UnixFsReadFailed {
-    /// The outer content could not be read as dag-pb PBNode.
+pub(crate) enum ParsingFailed<'a> {
     InvalidDagPb(quick_protobuf::Error),
-    /// dag-pb::PBNode::Data could not be read as UnixFS::Data message
-    InvalidUnixFs(quick_protobuf::Error),
-    /// dag-pb contained zero bytes
-    NoData,
+    NoData(PBNode<'a>),
+    InvalidUnixFs(quick_protobuf::Error, PBNode<'a>),
 }
 
-impl fmt::Display for UnixFsReadFailed {
+impl fmt::Display for ParsingFailed<'_> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use UnixFsReadFailed::*;
+        use ParsingFailed::*;
         match self {
             InvalidDagPb(e) => write!(fmt, "failed to read the block as dag-pb: {}", e),
-            InvalidUnixFs(e) => write!(
+            InvalidUnixFs(e, _) => write!(
                 fmt,
                 "failed to read the dag-pb PBNode::Data as UnixFS message: {}",
                 e
             ),
-            NoData => write!(fmt, "dag-pb PBNode::Data was missing or empty"),
+            NoData(_) => write!(fmt, "dag-pb PBNode::Data was missing or empty"),
         }
     }
 }
 
-impl std::error::Error for UnixFsReadFailed {}
+impl std::error::Error for ParsingFailed<'_> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use ParsingFailed::*;
 
-impl<'a> TryFrom<&'a merkledag::PBNode<'a>> for unixfs::Data<'a> {
-    type Error = UnixFsReadFailed;
-
-    fn try_from(node: &'a merkledag::PBNode<'a>) -> Result<Self, Self::Error> {
-        UnixFs::try_from(node.Data.as_ref().map(|a| a.as_ref()))
+        match self {
+            InvalidDagPb(e) => Some(e),
+            InvalidUnixFs(e, _) => Some(e),
+            NoData(_) => None,
+        }
     }
 }
 
+// This has been aliased as UnixFs<'a>
+impl<'a> TryFrom<&'a merkledag::PBNode<'a>> for unixfs::Data<'a> {
+    type Error = quick_protobuf::Error;
+
+    fn try_from(node: &'a merkledag::PBNode<'a>) -> Result<Self, Self::Error> {
+        UnixFs::try_from(node.Data.as_deref())
+    }
+}
+
+// This has been aliased as UnixFs<'a>
 impl<'a> TryFrom<Option<&'a [u8]>> for unixfs::Data<'a> {
-    type Error = UnixFsReadFailed;
+    type Error = quick_protobuf::Error;
 
     fn try_from(data: Option<&'a [u8]>) -> Result<Self, Self::Error> {
         use quick_protobuf::{BytesReader, MessageRead};
 
-        let data = data.ok_or(UnixFsReadFailed::NoData)?;
+        let data = data.unwrap_or_default();
         let mut reader = BytesReader::from_bytes(data);
-        UnixFs::from_reader(&mut reader, data).map_err(UnixFsReadFailed::InvalidUnixFs)
+        UnixFs::from_reader(&mut reader, data)
     }
 }
 
@@ -70,27 +79,37 @@ impl<'a> TryFrom<&'a [u8]> for merkledag::PBNode<'a> {
 }
 
 /// Intermediate conversion structure suitable for creating multiple kinds of readers.
+#[derive(Debug)]
 pub(crate) struct FlatUnixFs<'a> {
     pub(crate) links: Vec<PBLink<'a>>,
     pub(crate) data: UnixFs<'a>,
 }
 
+impl<'a> FlatUnixFs<'a> {
+    pub(crate) fn try_parse(data: &'a [u8]) -> Result<Self, ParsingFailed<'a>> {
+        Self::try_from(data)
+    }
+}
+
 impl<'a> TryFrom<&'a [u8]> for FlatUnixFs<'a> {
-    type Error = UnixFsReadFailed;
+    type Error = ParsingFailed<'a>;
 
     fn try_from(data: &'a [u8]) -> Result<Self, Self::Error> {
-        let PBNode {
-            Links: links,
-            Data: data,
-        } = merkledag::PBNode::try_from(data).map_err(UnixFsReadFailed::InvalidDagPb)?;
+        let node = merkledag::PBNode::try_from(data).map_err(ParsingFailed::InvalidDagPb)?;
 
-        let inner = UnixFs::try_from(match data {
+        let data = match node.Data {
             Some(Cow::Borrowed(bytes)) if !bytes.is_empty() => Some(bytes),
             Some(Cow::Owned(_)) => unreachable!(),
-            Some(Cow::Borrowed(_)) | None => return Err(UnixFsReadFailed::NoData),
-        })?;
+            Some(Cow::Borrowed(_)) | None => return Err(ParsingFailed::NoData(node)),
+        };
 
-        Ok(FlatUnixFs { links, data: inner })
+        match UnixFs::try_from(data) {
+            Ok(data) => Ok(FlatUnixFs {
+                links: node.Links,
+                data,
+            }),
+            Err(e) => Err(ParsingFailed::InvalidUnixFs(e, node)),
+        }
     }
 }
 

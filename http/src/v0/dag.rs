@@ -92,56 +92,25 @@ async fn inner_resolve<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     opts: ResolveOptions,
 ) -> Result<impl Reply, Rejection> {
-    use crate::v0::refs::{IpfsPath, WalkSuccess};
-    use ipfs::Block;
-    use libipld::block::decode_ipld;
-    use std::collections::VecDeque;
+    use crate::v0::refs::{walk_path, IpfsPath};
     use std::convert::TryFrom;
 
-    let mut path = IpfsPath::try_from(opts.arg.as_str()).map_err(StringError::from)?;
+    let path = IpfsPath::try_from(opts.arg.as_str()).map_err(StringError::from)?;
 
-    let root = path.take_root().unwrap();
-
-    // the walk api and path owning the strings doesn't really work so nicely here
-    let mut current = root;
-    let mut remaining = path
-        .remaining_path()
-        .iter()
-        .cloned()
-        .collect::<VecDeque<_>>();
-
-    loop {
-        let Block { data, .. } = ipfs.get_block(&current).await.map_err(StringError::from)?;
-        let ipld = decode_ipld(&current, &data).map_err(StringError::from)?;
-        let res = path.walk(&current, ipld).map_err(StringError::from)?;
-
-        match res {
-            WalkSuccess::EmptyPath(_) | WalkSuccess::AtDestination(_) => {
-                break;
-            }
-            WalkSuccess::Link(_key, next_cid) => {
-                // the return value of RemPath needs to be the path inside the last document
-                // but our walk will eventually exhaust the items of IpfsPath. update the backup
-                // in `remaining` only while traversing links
-                while remaining.len() > path.len() {
-                    remaining.pop_front();
-                }
-
-                current = next_cid;
-            }
-        };
-    }
+    let (current, _, remaining) = walk_path(&ipfs, path).await.map_err(StringError::from)?;
 
     let remaining = {
-        let mut buf = String::with_capacity(
-            remaining.iter().map(|s| s.len()).sum::<usize>() + remaining.len(),
-        );
-        while let Some(piece) = remaining.pop_front() {
+        let slashes = remaining.len();
+        let mut buf =
+            String::with_capacity(remaining.iter().map(|s| s.len()).sum::<usize>() + slashes);
+
+        for piece in remaining.into_iter().rev() {
             if !buf.is_empty() {
                 buf.push('/');
             }
             buf.push_str(&piece);
         }
+
         buf
     };
 

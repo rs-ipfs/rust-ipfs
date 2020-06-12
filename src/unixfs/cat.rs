@@ -13,56 +13,68 @@ use std::ops::Range;
 /// be helpful in some contexts, like the http.
 ///
 /// Returns a stream of bytes on the file pointed with the Cid.
-pub fn cat<'a, Types, MaybeOwned>(
+pub async fn cat<'a, Types, MaybeOwned>(
     ipfs: MaybeOwned,
     cid: Cid,
     range: Option<Range<u64>>,
-) -> impl Stream<Item = Result<Vec<u8>, TraversalFailed>> + Send + 'a
+) -> Result<impl Stream<Item = Result<Vec<u8>, TraversalFailed>> + Send + 'a, TraversalFailed>
 where
     Types: IpfsTypes,
     MaybeOwned: Borrow<Ipfs<Types>> + Send + 'a,
 {
     use bitswap::Block;
 
+    let mut visit = IdleFileVisit::default();
+    if let Some(range) = range {
+        visit = visit.with_target_range(range);
+    }
+
+    // Get the root block to start the traversal. The stream does not expose any of the file
+    // metadata. To get to it the user needs to create a Visitor over the first block.
+    let borrow = ipfs.borrow();
+    let Block { cid, data } = match borrow.get_block(&cid).await {
+        Ok(block) => block,
+        Err(e) => {
+            return Err(TraversalFailed::Loading(cid, e));
+        }
+    };
+
+    // Start the visit from the root block. We need to move the both components as Options into the
+    // stream as we can't yet return them from this Future context.
+    let (visit, bytes) = match visit.start(&data) {
+        Ok((bytes, _, visit)) => {
+            let bytes = if !bytes.is_empty() {
+                Some(bytes.to_vec())
+            } else {
+                None
+            };
+
+            (visit, bytes)
+        }
+        Err(e) => {
+            return Err(TraversalFailed::Walking(cid, e));
+        }
+    };
+
     // using async_stream here at least to get on faster; writing custom streams is not too easy
     // but this might be easy enough to write open.
-    stream! {
-        let mut visit = IdleFileVisit::default();
-        if let Some(range) = range {
-            visit = visit.with_target_range(range);
+    Ok(stream! {
+
+        if let Some(bytes) = bytes {
+            yield Ok(bytes);
         }
 
-        // Get the root block to start the traversal. The stream does not expose any of the file
-        // metadata. To get to it the user needs to create a Visitor over the first block.
-        let borrow = ipfs.borrow();
-        let Block { cid, data } = match borrow.get_block(&cid).await {
-            Ok(block) => block,
-            Err(e) => {
-                yield Err(TraversalFailed::Loading(cid, e));
-                return;
-            }
-        };
-
-        // Start the visit from the root block.
-        let mut visit = match visit.start(&data) {
-            Ok((bytes, _, visit)) => {
-                if !bytes.is_empty() {
-                    yield Ok(bytes.to_vec());
-                }
-
-                match visit {
-                    Some(v) => v,
-                    None => return,
-                }
-            },
-            Err(e) => {
-                yield Err(TraversalFailed::Walking(cid, e));
-                return;
-            }
+        let mut visit = match visit {
+            Some(visit) => visit,
+            None => return,
         };
 
         loop {
             // TODO: if it was possible, it would make sense to start downloading N of these
+            // we could just create an FuturesUnordered which would drop the value right away. that
+            // would probably always cost many unnecessary clones, but it would be nice to "shut"
+            // the subscriber so that it will only resolve to a value but still keep the operation
+            // going. Not that we have any "operation" concept of the Want yet.
             let (next, _) = visit.pending_links();
 
             let borrow = ipfs.borrow();
@@ -92,7 +104,7 @@ where
                 }
             }
         }
-    }
+    })
 }
 
 /// Types of failures which can occur while walking the UnixFS graph.

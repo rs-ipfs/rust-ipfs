@@ -2,7 +2,8 @@
 ///!
 ///! Most usable for walking UnixFS file trees provided by the `visit::IdleFileVisit` and
 ///! `visit::FileVisit` types.
-use crate::pb::{UnixFs, UnixFsReadFailed, UnixFsType};
+use crate::pb::{ParsingFailed, UnixFs};
+use crate::{InvalidCidInLink, UnexpectedNodeType};
 use std::borrow::Cow;
 use std::fmt;
 
@@ -64,20 +65,11 @@ pub enum FileReadFailed {
     File(FileError),
     /// FileReader can only process raw or file type of unixfs content.
     // This is the raw value instead of the enum by design not to expose the quick-protobuf types
-    UnexpectedType(i32),
+    UnexpectedType(UnexpectedNodeType),
     /// Parsing failed
-    Read(UnixFsReadFailed),
+    Read(Option<quick_protobuf::Error>),
     /// Link could not be turned into Cid.
-    LinkInvalidCid {
-        /// The index of this link, from zero
-        nth: usize,
-        /// Hash which could not be turned into a Cid
-        hash: Vec<u8>,
-        /// Name of the link, most likely empty
-        name: Cow<'static, str>,
-        /// Error from the attempted conversion
-        cause: cid::Error,
-    },
+    InvalidCid(InvalidCidInLink),
 }
 
 impl fmt::Display for FileReadFailed {
@@ -86,20 +78,10 @@ impl fmt::Display for FileReadFailed {
 
         match self {
             File(e) => write!(fmt, "{}", e),
-            UnexpectedType(t) => write!(
-                fmt,
-                "unexpected type for UnixFs: {} or {:?}",
-                t,
-                UnixFsType::from(*t)
-            ),
-            Read(e) => write!(fmt, "reading failed: {}", e),
-            LinkInvalidCid {
-                nth, name, cause, ..
-            } => write!(
-                fmt,
-                "failed to convert link #{} ({:?}) to Cid: {}",
-                nth, name, cause
-            ),
+            UnexpectedType(ut) => write!(fmt, "unexpected type for UnixFs: {:?}", ut),
+            Read(Some(e)) => write!(fmt, "reading failed: {}", e),
+            Read(None) => write!(fmt, "reading failed: missing UnixFS message"),
+            InvalidCid(e) => write!(fmt, "{}", e),
         }
     }
 }
@@ -108,15 +90,21 @@ impl std::error::Error for FileReadFailed {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         use FileReadFailed::*;
         match self {
-            LinkInvalidCid { cause, .. } => Some(cause),
+            InvalidCid(e) => Some(e),
+            Read(Some(e)) => Some(e),
             _ => None,
         }
     }
 }
 
-impl From<UnixFsReadFailed> for FileReadFailed {
-    fn from(e: UnixFsReadFailed) -> Self {
-        FileReadFailed::Read(e)
+impl<'a> From<ParsingFailed<'a>> for FileReadFailed {
+    fn from(e: ParsingFailed<'a>) -> Self {
+        use ParsingFailed::*;
+        match e {
+            InvalidDagPb(e) => FileReadFailed::Read(Some(e)),
+            InvalidUnixFs(e, _) => FileReadFailed::Read(Some(e)),
+            NoData(_) => FileReadFailed::Read(None),
+        }
     }
 }
 

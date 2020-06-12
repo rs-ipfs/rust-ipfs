@@ -11,6 +11,8 @@ use libipld::pb::PbNode;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 
+pub use ipfs_unixfs as ll;
+
 mod cat;
 pub use cat::{cat, TraversalFailed};
 

@@ -18,7 +18,7 @@ use options::RefsOptions;
 mod format;
 use format::EdgeFormatter;
 
-mod path;
+pub(crate) mod path;
 pub use path::{IpfsPath, WalkSuccess};
 
 use crate::v0::support::unshared::Unshared;
@@ -45,7 +45,7 @@ async fn refs_inner<T: IpfsTypes>(
         .map_err(StringError::from)?;
 
     log::trace!(
-        "refs on {:?} to depth {:?} with {:?}",
+        "refs on {:?} to depth {:?} with formatter: {:?}",
         opts.arg,
         max_depth,
         formatter
@@ -138,32 +138,247 @@ async fn refs_paths<T: IpfsTypes>(
         walks.push(walk_path(&ipfs, path));
     }
 
-    let iplds = walks.try_collect().await?;
+    // strip out the path inside last document, we don't need it
+    let iplds = walks
+        .map_ok(|(cid, maybe_ipld, _)| (cid, maybe_ipld))
+        .try_collect()
+        .await?;
 
     Ok(iplds_refs(ipfs, iplds, max_depth, unique))
 }
 
+#[derive(Debug)]
+pub struct WalkError {
+    pub(crate) last_cid: Cid,
+    pub(crate) reason: WalkFailed,
+}
+
+#[derive(Debug)]
+pub enum WalkFailed {
+    Loading(Error),
+    Parsing(libipld::error::BlockError),
+    DagPb(ipfs::unixfs::ll::ResolveError),
+    IpldWalking(path::WalkFailed),
+}
+
+use std::fmt;
+
+impl fmt::Display for WalkError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use WalkFailed::*;
+        match &self.reason {
+            Loading(e) => write!(fmt, "loading of {} failed: {}", self.last_cid, e),
+            Parsing(e) => write!(fmt, "failed to parse {} as IPLD: {}", self.last_cid, e),
+            DagPb(e) => write!(
+                fmt,
+                "failed to resolve {} over dag-pb: {}",
+                self.last_cid, e
+            ),
+            // this is asserted in the conformance tests and I don't really want to change the
+            // tests for this
+            IpldWalking(e) => write!(fmt, "{} under {}", e, self.last_cid),
+        }
+    }
+}
+
+impl std::error::Error for WalkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use WalkFailed::*;
+        match &self.reason {
+            Loading(_) => None, // TODO: anyhow
+            Parsing(e) => Some(e),
+            DagPb(e) => Some(e),
+            IpldWalking(e) => Some(e),
+        }
+    }
+}
+
+impl From<Error> for WalkFailed {
+    fn from(e: Error) -> Self {
+        WalkFailed::Loading(e)
+    }
+}
+
+impl From<libipld::error::BlockError> for WalkFailed {
+    fn from(e: libipld::error::BlockError) -> Self {
+        WalkFailed::Parsing(e)
+    }
+}
+
+impl From<ipfs::unixfs::ll::ResolveError> for WalkFailed {
+    fn from(e: ipfs::unixfs::ll::ResolveError) -> Self {
+        WalkFailed::DagPb(e)
+    }
+}
+
+impl From<path::WalkFailed> for WalkFailed {
+    fn from(e: path::WalkFailed) -> Self {
+        WalkFailed::IpldWalking(e)
+    }
+}
+
+impl From<(WalkFailed, Cid)> for WalkError {
+    fn from((reason, last_cid): (WalkFailed, Cid)) -> Self {
+        WalkError { last_cid, reason }
+    }
+}
+
+/// The IpfsPath walk can end in with the target block loaded or parsed and optionally projected as
+/// an Ipld.
+#[derive(Debug)]
+pub enum Loaded {
+    /// The raw block from `ipfs.get_block`
+    Raw(Box<[u8]>),
+    /// Possibly projected IPLD value.
+    Ipld(Ipld),
+}
+
 /// Walks the `path` while loading the links.
 ///
-/// # Panics
-///
-/// If there are dag-pb nodes and the libipld has changed it's dag-pb tree structure.
+/// Returns the Cid where we ended up, and an optional Ipld structure if one was projected, and the
+/// path inside the last document we walked.
 pub async fn walk_path<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
     mut path: IpfsPath,
-) -> Result<(Cid, Ipld), Error> {
+) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
+    use ipfs::unixfs::ll::MaybeResolved;
+
     let mut current = path.take_root().unwrap();
 
-    loop {
-        let Block { data, .. } = ipfs.get_block(&current).await?;
-        let ipld = decode_ipld(&current, &data)?;
+    // cache for any datastructure used in repeated hamt lookups
+    let mut cache = None;
 
-        match path.walk(&current, ipld)? {
-            WalkSuccess::EmptyPath(ipld) | WalkSuccess::AtDestination(ipld) => {
-                return Ok((current, ipld))
-            }
-            WalkSuccess::Link(_key, next_cid) => current = next_cid,
+    // the path_inside_last applies only in the IPLD projection case and its main consumer is the
+    // `/dag/resolve` API where the response is the returned cid and the "remaining path".
+    let mut path_inside_last = Vec::new();
+
+    // important: on the `/refs` path we need to fetch the first block to fail deterministically so we
+    // need to load it either way here; if the response gets processed to the stream phase, it'll
+    // always fire up a response and the test 'should print nothing for non-existent hashes' fails.
+    // Not sure how correct that is, but that is the test.
+    'outer: loop {
+        let Block { data, .. } = match ipfs.get_block(&current).await {
+            Ok(block) => block,
+            Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
         };
+
+        // needs to be mutable because the Ipld walk will overwrite it to project down in the
+        // document
+        let mut needle = if let Some(needle) = path.next() {
+            needle
+        } else {
+            return Ok((current, Loaded::Raw(data), Vec::new()));
+        };
+
+        if current.codec() == cid::Codec::DagProtobuf {
+            let mut lookup = match ipfs::unixfs::ll::resolve(&data, &needle, &mut cache) {
+                Ok(MaybeResolved::NeedToLoadMore(lookup)) => lookup,
+                Ok(MaybeResolved::Found(cid)) => {
+                    current = cid;
+                    continue;
+                }
+                Ok(MaybeResolved::NotFound) => {
+                    return handle_dagpb_not_found(current, &data, needle, &path)
+                }
+                Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
+            };
+
+            loop {
+                let (next, _) = lookup.pending_links();
+
+                // need to take ownership in order to enrich the error, next is invalidaded on
+                // lookup.continue_walk.
+                let next = next.to_owned();
+
+                let Block { data, .. } = match ipfs.get_block(&next).await {
+                    Ok(block) => block,
+                    Err(e) => return Err(WalkError::from((WalkFailed::from(e), next))),
+                };
+
+                match lookup.continue_walk(&data, &mut cache) {
+                    Ok(MaybeResolved::NeedToLoadMore(next)) => lookup = next,
+                    Ok(MaybeResolved::Found(cid)) => {
+                        current = cid;
+                        break;
+                    }
+                    Ok(MaybeResolved::NotFound) => {
+                        return handle_dagpb_not_found(next, &data, needle, &path)
+                    }
+                    Err(e) => {
+                        return Err(WalkError::from((
+                            WalkFailed::from(e.into_resolve_error()),
+                            next,
+                        )))
+                    }
+                }
+            }
+        } else {
+            path_inside_last.clear();
+
+            let mut ipld = match decode_ipld(&current, &data) {
+                Ok(ipld) => ipld,
+                Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
+            };
+
+            loop {
+                // this needs to be stored at least temporarily to recover the path_inside_last or
+                // the "remaining path"
+                let tmp = needle.clone();
+                ipld = match IpfsPath::resolve_segment(needle, ipld) {
+                    Ok(WalkSuccess::EmptyPath(_)) => unreachable!(),
+                    Ok(WalkSuccess::AtDestination(ipld)) => {
+                        path_inside_last.push(tmp);
+                        ipld
+                    }
+                    Ok(WalkSuccess::Link(_, next_cid)) => {
+                        current = next_cid;
+                        continue 'outer;
+                    }
+                    Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
+                };
+
+                // we might resolve multiple segments inside a single document
+                needle = match path.next() {
+                    Some(needle) => needle,
+                    None => break,
+                };
+            }
+
+            if path.len() == 0 {
+                // when done with the remaining IpfsPath we should be set with the projected Ipld
+                // document
+                path_inside_last.shrink_to_fit();
+                return Ok((current, Loaded::Ipld(ipld), path_inside_last));
+            }
+        }
+    }
+}
+
+fn handle_dagpb_not_found(
+    at: Cid,
+    data: &[u8],
+    needle: String,
+    path: &IpfsPath,
+) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
+    if needle == "Data" && path.len() == 0 {
+        // /dag/resolve needs to "resolve through" a dag-pb node down to the "just
+        // data" even though we do not need to extract it ... however this might be
+        // good to just filter with refs, as no refs of such path exist
+        //
+        // testing with go-ipfs 0.5 reveals that dag resolve only follows links
+        // which are actually present in the dag-pb, not numeric links like Links/5
+        // or links/5, even if such are present in the `dag get` output.
+        //
+        // comment on this special casing: there cannot be any other such
+        // special case as the Links do not work like Data so while this is not
+        // pretty, it's not terrible.
+        let data = ipfs::unixfs::ll::dagpb::node_data(&data)
+            .expect("already parsed once, second time cannot fail")
+            .unwrap_or_default();
+        Ok((at, Loaded::Ipld(Ipld::Bytes(data.to_vec())), vec![needle]))
+    } else {
+        let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
+        Err(WalkError::from((e, at)))
     }
 }
 
@@ -183,7 +398,7 @@ pub async fn walk_path<T: IpfsTypes>(
 /// If there are dag-pb nodes and the libipld has changed it's dag-pb tree structure.
 fn iplds_refs<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    iplds: Vec<(Cid, Ipld)>,
+    iplds: Vec<(Cid, Loaded)>,
     max_depth: Option<u64>,
     unique: bool,
 ) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static {
@@ -198,7 +413,15 @@ fn iplds_refs<T: IpfsTypes>(
         let mut visited = HashSet::new();
         let mut work = VecDeque::new();
 
-        for (origin, ipld) in iplds {
+        for (origin, maybe_ipld) in iplds {
+
+            let ipld = match maybe_ipld {
+                Loaded::Ipld(ipld) => ipld,
+                Loaded::Raw(data) => {
+                    decode_ipld(&origin, &data).map_err(|e| e.to_string())?
+                }
+            };
+
             for (link_name, next_cid) in ipld_links(&origin, ipld) {
                 work.push_back((0, next_cid, origin.clone(), link_name));
             }

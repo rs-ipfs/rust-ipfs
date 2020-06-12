@@ -387,12 +387,15 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// will end without producing any bytes.
     ///
     /// To create an owned version of the stream, please use `ipfs::unixfs::cat` directly.
-    pub fn cat_unixfs(
+    pub async fn cat_unixfs(
         &self,
         cid: Cid,
         range: Option<Range<u64>>,
-    ) -> impl Stream<Item = Result<Vec<u8>, unixfs::TraversalFailed>> + Send + '_ {
-        unixfs::cat(self, cid, range)
+    ) -> Result<
+        impl Stream<Item = Result<Vec<u8>, unixfs::TraversalFailed>> + Send + '_,
+        unixfs::TraversalFailed,
+    > {
+        unixfs::cat(self, cid, range).await
     }
 
     /// Resolves a ipns path to an ipld path.

@@ -9,5 +9,5 @@ Goals:
 Status:
 
 * first iteration of file reader has been implemented
-* directory support has not been implemented
+* first iteration of resolving IpfsPath segments through directories has been implemented
 * creation and alteration of dags has not been implemented

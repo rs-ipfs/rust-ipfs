@@ -55,7 +55,10 @@ fn main() {
 
         eprintln!();
 
-        let stream = ipfs.cat_unixfs(cid, None);
+        let stream = ipfs.cat_unixfs(cid, None).await.unwrap_or_else(|e| {
+            eprintln!("Error: {}", e);
+            exit(1);
+        });
         // The stream needs to be pinned on the stack to be used with StreamExt::next
         pin_mut!(stream);
         let mut stdout = async_std::io::stdout();
