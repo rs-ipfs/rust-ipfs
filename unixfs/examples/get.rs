@@ -54,7 +54,8 @@ fn main() {
 }
 
 fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
-    use ipfs_unixfs::dir::walk::{Walker, Walk, ContinuedWalk};
+    use ipfs_unixfs::dir::walk::{Walker, Walk, ContinuedWalk, FileSegment};
+    use sha2::{Digest, Sha256};
 
     // The blockstore specific way of reading the block. Here we assume go-ipfs 0.5 default flatfs
     // configuration, which puts the files at sharded directories and names the blocks as base32
@@ -76,16 +77,34 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
         x => unreachable!("{:?}", x),
     };
 
+    let mut hash: Option<(u64, Sha256)> = None;
+
     while let Some(walker) = visit {
         buf.clear();
         let (next, _) = walker.pending_links();
         blocks.as_file(&next.to_bytes())?.read_to_end(&mut buf)?;
         visit = match walker.continue_walk(&buf, &mut cache).unwrap() {
-            ContinuedWalk::File(bytes, item) => {
-                // this will be called for every file related block in file order; the `bytes` can
-                // be empty.
-                println!("f {:?} {} bytes", item.as_entry().path(), bytes.as_ref().len());
-                item.into_inner()
+            ContinuedWalk::File(segment, item) => {
+                let (mut total_bytes, mut hasher) = hash.take().unwrap_or_default();
+                match segment {
+                    FileSegment::NotLast(bytes) => {
+                        total_bytes += bytes.len() as u64;
+                        hasher.input(bytes);
+                        hash = Some((total_bytes, hasher));
+                        item.into_inner()
+                    }
+                    FileSegment::Last(bytes) => {
+                        total_bytes += bytes.len() as u64;
+                        hasher.input(bytes);
+                        let res = hasher.result();
+                        print!("f {:?} {} bytes ", item.as_entry().path(), total_bytes);
+                        for b in res {
+                            print!("{:02x}", b);
+                        }
+                        println!();
+                        item.into_inner()
+                    }
+                }
             },
             ContinuedWalk::Directory(item) => {
                 println!("d {:?}", item.as_entry().path());
