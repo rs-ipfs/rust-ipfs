@@ -193,10 +193,16 @@ impl Walker {
                 let was_some = step.is_some();
                 *visit = step;
 
-                if was_some || self.next.is_some() {
-                    return Ok(ContinuedWalk::File(bytes, Item { state: State::Unfinished(self) }));
+                let segment = if was_some {
+                    FileSegment::NotLast(bytes)
                 } else {
-                    return Ok(ContinuedWalk::File(bytes, Item { state: State::Last(self.current) }));
+                    FileSegment::Last(bytes)
+                };
+
+                if was_some || self.next.is_some() {
+                    return Ok(ContinuedWalk::File(segment, Item { state: State::Unfinished(self) }));
+                } else {
+                    return Ok(ContinuedWalk::File(segment, Item { state: State::Last(self.current) }));
                 }
             },
             _ => {}
@@ -305,15 +311,22 @@ impl Walker {
 
                 let next = self.pending.pop();
 
+                let segment = if was_some {
+                    FileSegment::NotLast(bytes)
+                } else {
+                    FileSegment::Last(bytes)
+                };
+
                 if was_some || next.is_some() {
-                    Ok(ContinuedWalk::File(bytes, Item { state: State::Unfinished(Self {
+
+                    Ok(ContinuedWalk::File(segment, Item { state: State::Unfinished(Self {
                         current: self.current,
                         next,
                         pending: self.pending,
                         path_recycler: self.path_recycler,
                     })}))
                 } else {
-                    Ok(ContinuedWalk::File(bytes, Item { state: State::Last(self.current) }))
+                    Ok(ContinuedWalk::File(segment, Item { state: State::Last(self.current) }))
                 }
             },
             UnixFsType::Metadata => todo!("metadata?"),
@@ -623,9 +636,25 @@ enum State {
 #[derive(Debug)]
 pub enum ContinuedWalk<'a> {
     // should this be just the description of what we just walked into?
-    File(&'a [u8], Item),
+    File(FileSegment<'a>, Item),
     Directory(Item),
     Symlink(&'a [u8], Item),
+}
+
+#[derive(Debug)]
+pub enum FileSegment<'a> {
+    NotLast(&'a [u8]),
+    Last(&'a [u8]),
+}
+
+impl<'a> AsRef<[u8]> for FileSegment<'a> {
+    fn as_ref(&self) -> &[u8] {
+        use FileSegment::*;
+        match self {
+            NotLast(a) => a,
+            Last(b) => b,
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -82,7 +82,9 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
         blocks.as_file(&next.to_bytes())?.read_to_end(&mut buf)?;
         visit = match walker.continue_walk(&buf, &mut cache).unwrap() {
             ContinuedWalk::File(bytes, item) => {
-                println!("f {:?} {} bytes", item.as_entry().path(), bytes.len());
+                // this will be called for every file related block in file order; the `bytes` can
+                // be empty.
+                println!("f {:?} {} bytes", item.as_entry().path(), bytes.as_ref().len());
                 item.into_inner()
             },
             ContinuedWalk::Directory(item) => {
