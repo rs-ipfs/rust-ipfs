@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 use crate::pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType};
 use crate::file::{FileMetadata, FileReadFailed};
-use crate::file::visit::{IdleFileVisit, FileVisit};
+use crate::file::visit::{IdleFileVisit, FileVisit, Cache};
 use crate::InvalidCidInLink;
 use std::path::{Path, PathBuf};
 use cid::Cid;
@@ -87,7 +87,7 @@ fn convert_sharded_link(
 }
 
 impl Walker {
-    pub fn start<'a>(data: &'a [u8]) -> Result<Walk<'a>, Error> {
+    pub fn start<'a>(data: &'a [u8], cache: &mut Option<Cache>) -> Result<Walk<'a>, Error> {
         let flat = FlatUnixFs::try_from(data)?;
 
         match flat.data.Type {
@@ -144,7 +144,7 @@ impl Walker {
             },
             UnixFsType::Raw | UnixFsType::File => {
                 let (bytes, metadata, step) = IdleFileVisit::default()
-                    .start_from_parsed(flat)?;
+                    .start_from_parsed(flat, cache)?;
 
                 if let Some(visit) = step {
                     Ok(Walk::MultiBlockFile {
@@ -181,14 +181,14 @@ impl Walker {
         }
     }
 
-    pub fn continue_walk<'a>(mut self, bytes: &'a [u8]) -> Result<ContinuedWalk<'a>, Error> {
+    pub fn continue_walk<'a>(mut self, bytes: &'a [u8], cache: &mut Option<Cache>) -> Result<ContinuedWalk<'a>, Error> {
         use InnerKind::*;
 
         match &mut self.current.kind {
             File(_, visit @ Some(_)) => {
                 let (bytes, step) = visit.take()
                     .unwrap()
-                    .continue_walk(bytes)?;
+                    .continue_walk(bytes, cache)?;
 
                 let was_some = step.is_some();
                 *visit = step;
@@ -295,7 +295,7 @@ impl Walker {
             },
             UnixFsType::Raw | UnixFsType::File => {
                 let (bytes, metadata, step) = IdleFileVisit::default()
-                    .start_from_parsed(flat)?;
+                    .start_from_parsed(flat, cache)?;
 
                 let (cid, name, depth) = self.next.expect("continued without next");
                 //println!("continued over to File {}, {:?}, {}", cid, name, depth);
@@ -699,8 +699,9 @@ mod tests {
 
         let blocks = FakeBlockstore::with_fixtures();
         let block = blocks.get_by_str(s);
+        let mut cache = None;
 
-        let mut visit = match Walker::start(block).unwrap() {
+        let mut visit = match Walker::start(block, &mut cache).unwrap() {
             Walk::Walker(walker) => {
                 *ret.entry(PathBuf::from(walker.as_entry().path())).or_insert(0) += 1;
                 Some(walker)
@@ -711,7 +712,7 @@ mod tests {
         while let Some(walker) = visit {
             let (next, _) = walker.pending_links();
             let block = blocks.get_by_cid(next);
-            visit = match walker.continue_walk(block).unwrap() {
+            visit = match walker.continue_walk(block, &mut cache).unwrap() {
                 ContinuedWalk::File(bytes, item) => {
                     *ret.entry(PathBuf::from(item.as_entry().path())).or_insert(0) += 1;
                     item.into_inner()

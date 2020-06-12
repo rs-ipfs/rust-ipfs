@@ -90,7 +90,7 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(u64, u64), Error> {
         // Similar to first step, except we no longer get the file metadata. It is still accessible
         // from the `visit` via `AsRef<ipfs_unixfs::file::FileMetadata>` but likely only needed in
         // the first step.
-        let (content, next_step) = visit.continue_walk(&buf)?;
+        let (content, next_step) = visit.continue_walk(&buf, &mut None)?;
         stdout.write_all(content)?;
         content_bytes += content.len() as u64;
 

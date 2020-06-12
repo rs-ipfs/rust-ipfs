@@ -413,7 +413,7 @@ pub(crate) mod tests {
             let (first, _) = visit.pending_links();
             let block = blocks.get_by_cid(first);
 
-            let (content, next_step) = visit.continue_walk(block).unwrap();
+            let (content, next_step) = visit.continue_walk(block, &mut None).unwrap();
             ret.extend(content);
             step = next_step;
         }

@@ -29,21 +29,23 @@ impl IdleFileVisit {
         block: &[u8],
     ) -> Result<(&[u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
         let fr = FileReader::from_block(block)?;
-        self.start_from_reader(fr)
+        self.start_from_reader(fr, &mut None)
     }
 
-    pub(crate) fn start_from_parsed(
+    pub(crate) fn start_from_parsed<'a>(
         self,
-        block: FlatUnixFs<'_>
-    ) -> Result<(&[u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
+        block: FlatUnixFs<'a>,
+        cache: &'_ mut Option<Cache>,
+    ) -> Result<(&'a [u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
         let fr = FileReader::from_parsed(block)?;
-        self.start_from_reader(fr)
+        self.start_from_reader(fr, cache)
     }
 
-    fn start_from_reader(
+    fn start_from_reader<'a>(
         self,
-        fr: FileReader<'_>
-    ) -> Result<(&[u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
+        fr: FileReader<'a>,
+        cache: &'_ mut Option<Cache>,
+    ) -> Result<(&'a [u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
         let metadata = fr.as_ref().to_owned();
 
         let (content, traversal) = fr.content();
@@ -56,7 +58,9 @@ impl IdleFileVisit {
             }
             FileContent::Links(iter) => {
                 // we need to select suitable here
-                let mut pending = iter
+                let mut links = cache.take().unwrap_or_default().inner;
+
+                let pending = iter
                     .enumerate()
                     .filter_map(|(i, (link, range))| {
                         if !block_is_in_target_range(&range, self.range.as_ref()) {
@@ -64,20 +68,24 @@ impl IdleFileVisit {
                         }
 
                         Some(to_pending(i, link, range))
-                    })
-                    .collect::<Result<Vec<(Cid, Range<u64>)>, _>>()?;
+                    });
+
+                for item in pending {
+                    links.push(item?);
+                }
 
                 // order is reversed to consume them in the depth first order
-                pending.reverse();
+                links.reverse();
 
-                if pending.is_empty() {
+                if links.is_empty() {
+                    *cache = Some(links.into());
                     Ok((&[][..], metadata, None))
                 } else {
                     Ok((
                         &[][..],
                         metadata,
                         Some(FileVisit {
-                            pending,
+                            pending: links,
                             state: traversal,
                             range: self.range,
                         }),
@@ -86,6 +94,18 @@ impl IdleFileVisit {
             }
         }
 
+    }
+}
+
+#[derive(Default)]
+pub struct Cache {
+    inner: Vec<(Cid, Range<u64>)>
+}
+
+impl From<Vec<(Cid, Range<u64>)>> for Cache {
+    fn from(mut inner: Vec<(Cid, Range<u64>)>) -> Self {
+        inner.clear();
+        Cache { inner }
     }
 }
 
@@ -124,7 +144,7 @@ impl FileVisit {
     ///
     /// Returns on success a tuple of bytes and new version of `FileVisit` to continue the visit,
     /// when there is something more to visit.
-    pub fn continue_walk(mut self, next: &[u8]) -> Result<(&[u8], Option<Self>), FileReadFailed> {
+    pub fn continue_walk<'a>(mut self, next: &'a [u8], cache: &mut Option<Cache>) -> Result<(&'a [u8], Option<Self>), FileReadFailed> {
         let traversal = self.state;
         let (_, range) = self
             .pending
@@ -142,6 +162,7 @@ impl FileVisit {
                     self.state = traversal;
                     Ok((content, Some(self)))
                 } else {
+                    *cache = Some(self.pending.into());
                     Ok((content, None))
                 }
             }
