@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 use std::convert::TryFrom;
+use std::fmt;
 use crate::pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType};
 use crate::file::{FileMetadata, FileReadFailed};
 use crate::file::visit::{IdleFileVisit, FileVisit, Cache};
@@ -16,14 +17,14 @@ pub struct Walker {
     /// walk in which case we shortcircuit to continue it.
     next: Option<(Cid, String, usize)>,
     pending: Vec<(Cid, String, usize)>,
-    path_recycler: Vec<String>,
+    // tried to recycle the names but that was consistently at fast and used more memory than just
+    // cloning the strings
 }
 
 fn convert_link(
     depth: usize,
     nth: usize,
     link: PBLink<'_>,
-    recycler: &mut Vec<String>
 ) -> Result<(Cid, String, usize), InvalidCidInLink> {
     let hash = link.Hash.as_deref().unwrap_or_default();
     let cid = match Cid::try_from(hash) {
@@ -31,15 +32,7 @@ fn convert_link(
         Err(e) => return Err(InvalidCidInLink::from((nth, link, e))),
     };
     let name = match link.Name {
-        Some(Cow::Borrowed(s)) if !s.is_empty() => {
-            if let Some(mut o) = recycler.pop() {
-                o.clear();
-                o.push_str(s);
-                o
-            } else {
-                s.to_string()
-            }
-        }
+        Some(Cow::Borrowed(s)) if !s.is_empty() => s.to_owned(),
         None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
         Some(Cow::Owned(s)) => s,
     };
@@ -51,7 +44,6 @@ fn convert_sharded_link(
     depth: usize,
     nth: usize,
     link: PBLink<'_>,
-    recycler: &mut Vec<String>
 ) -> Result<(Cid, String, usize), InvalidCidInLink> {
     let hash = link.Hash.as_deref().unwrap_or_default();
     let cid = match Cid::try_from(hash) {
@@ -59,26 +51,15 @@ fn convert_sharded_link(
         Err(e) => return Err(InvalidCidInLink::from((nth, link, e))),
     };
     let (depth, name) = match link.Name {
-        Some(Cow::Borrowed(s)) if s.len() > 2 => {
-            let mut o = recycler.pop().unwrap_or_default();
-            o.clear();
-            o.push_str(&s[2..]);
-            (depth, o)
-        },
-        Some(Cow::Borrowed(s)) if s.len() == 2 => {
-            (depth - 1, String::from(""))
-        }
+        Some(Cow::Borrowed(s)) if s.len() > 2 => (depth, s[2..].to_owned()),
+        Some(Cow::Borrowed(s)) if s.len() == 2 => (depth - 1, String::from("")),
         None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
         Some(Cow::Owned(s)) => {
             if s.len() == 2 {
                 (depth - 1, String::from(""))
             } else {
                 assert!(s.len() > 2);
-                let mut o = recycler.pop().unwrap_or_default();
-                o.clear();
-                o.push_str(&s[2..]);
-                recycler.push(s);
-                (depth, o)
+                (depth, s[2..].to_owned())
             }
         },
     };
@@ -92,12 +73,10 @@ impl Walker {
 
         match flat.data.Type {
             UnixFsType::Directory => {
-                let mut path_recycler = Vec::new();
-
                 let mut links = flat.links
                     .into_iter()
                     .enumerate()
-                    .map(|(nth, link)| convert_link(2, nth, link, &mut path_recycler));
+                    .map(|(nth, link)| convert_link(2, nth, link));
 
                 let next = links.next();
 
@@ -110,19 +89,16 @@ impl Walker {
                         current,
                         next: Some(next),
                         pending,
-                        path_recycler,
                     }))
                 } else {
                     todo!("empty root directory")
                 }
             },
             UnixFsType::HAMTShard => {
-                let mut path_recycler = Vec::new();
-
                 let mut links = flat.links
                     .into_iter()
                     .enumerate()
-                    .map(|(nth, link)| convert_sharded_link(1, nth, link, &mut path_recycler));
+                    .map(|(nth, link)| convert_sharded_link(1, nth, link));
 
                 let next = links.next();
 
@@ -135,7 +111,6 @@ impl Walker {
                         current,
                         next: Some(next),
                         pending,
-                        path_recycler,
                     }))
                 } else {
                     todo!("empty root directory")
@@ -176,7 +151,9 @@ impl Walker {
                 (first, Either::Left(rest.chain(cids)))
             },
             _ => {
-                (&self.next.as_ref().unwrap().0, Either::Right(cids))
+                let next = self.next.as_ref()
+                    .expect("validated in start and continue_walk we have the next");
+                (&next.0, Either::Right(cids))
             }
         }
     }
@@ -209,14 +186,15 @@ impl Walker {
         match flat.data.Type {
             UnixFsType::Directory => {
 
-                let mut path_recycler = self.path_recycler;
                 let (cid, name, depth) = self.next.expect("continued without next");
                 //println!("continued over to Directory {}, {:?}, {}", cid, name, depth);
 
+                // depth + 1 because all entries below a directory are children of next, as in,
+                // deeper
                 let mut links = flat.links
                     .into_iter()
                     .enumerate()
-                    .map(|(nth, link)| convert_link(depth + 1, nth, link, &mut path_recycler))
+                    .map(|(nth, link)| convert_link(depth + 1, nth, link))
                     .rev();
 
                 let mut pending = {
@@ -234,17 +212,12 @@ impl Walker {
                     FileMetadata::from(&flat.data)
                 );
 
-                if !name.is_empty() {
-                    path_recycler.push(name);
-                }
-
                 if let Some(next) = pending.pop() {
                     Ok(ContinuedWalk::Directory(Item {
                         state: State::Unfinished(Self {
                             current: self.current,
                             next: Some(next),
                             pending,
-                            path_recycler,
                         })
                     }))
                 } else {
@@ -254,15 +227,16 @@ impl Walker {
                 }
             },
             UnixFsType::HAMTShard => {
-                let mut path_recycler = self.path_recycler;
                 let (cid, name, depth) = self.next.expect("continued without next");
 
                 //println!("continued over to HAMTShard {}, {:?}, {}", cid, name, depth);
 
+                // similar to directory the depth is +1 for nested entries, but the sibling buckets
+                // are at depth
                 let mut links = flat.links
                     .into_iter()
                     .enumerate()
-                    .map(|(nth, link)| convert_sharded_link(depth + 1, nth, link, &mut path_recycler))
+                    .map(|(nth, link)| convert_sharded_link(depth + 1, nth, link))
                     .rev();
 
                 let mut pending = {
@@ -275,17 +249,12 @@ impl Walker {
 
                 self.current.as_bucket(cid, &name, depth);
 
-                if !name.is_empty() {
-                    path_recycler.push(name);
-                }
-
                 if let Some(next) = pending.pop() {
                     Ok(ContinuedWalk::Directory(Item {
                         state: State::Unfinished(Self {
                             current: self.current,
                             next: Some(next),
                             pending,
-                            path_recycler,
                         })
                     }))
                 } else {
@@ -303,7 +272,6 @@ impl Walker {
                 //println!("continued over to File {}, {:?}, {}", cid, name, depth);
                 let file_continues = step.is_some();
                 self.current.as_file(cid, &name, depth, metadata, step);
-                self.path_recycler.push(name);
 
                 let next = self.pending.pop();
 
@@ -314,7 +282,6 @@ impl Walker {
                         current: self.current,
                         next,
                         pending: self.pending,
-                        path_recycler: self.path_recycler,
                     })}))
                 } else {
                     Ok(ContinuedWalk::File(segment, Item { state: State::Last(self.current) }))
@@ -326,7 +293,6 @@ impl Walker {
                 let contents = flat.data.Data.as_deref().unwrap_or_default();
 
                 let (cid, name, depth) = self.next.expect("continued without next");
-
                 self.current.as_symlink(cid, &name, depth, metadata);
 
                 if let Some(next) = self.pending.pop() {
@@ -334,7 +300,6 @@ impl Walker {
                         current: self.current,
                         next: Some(next),
                         pending: self.pending,
-                        path_recycler: self.path_recycler,
                     })}))
                 } else {
                     Ok(ContinuedWalk::Symlink(bytes, Item { state: State::Last(self.current) }))
@@ -504,7 +469,7 @@ impl InnerEntry {
                 self.kind = Bucket(cid);
 
                 if name.is_empty() {
-                    // continuation bucket
+                    // continuation bucket going bucket -> bucket
                     while self.depth > depth {
                         assert!(self.path.pop());
                         self.depth -= 1;
