@@ -70,55 +70,28 @@ fn convert_sharded_link(
 impl Walker {
     pub fn start<'a>(data: &'a [u8], cache: &mut Option<Cache>) -> Result<Walk<'a>, Error> {
         let flat = FlatUnixFs::try_from(data)?;
+        let metadata = FileMetadata::from(&flat.data);
 
         match flat.data.Type {
             UnixFsType::Directory => {
-                let mut links = flat.links
+                let inner = InnerEntry::new_root_dir(metadata);
+
+                let links = flat.links
                     .into_iter()
                     .enumerate()
                     .map(|(nth, link)| convert_link(2, nth, link));
 
-                let metadata = FileMetadata::from(&flat.data);
-
-                if let Some(next) = links.next() {
-                    let next = next?;
-                    let pending = links.collect::<Result<Vec<_>, _>>()?;
-                    let current = InnerEntry::new_root_dir(metadata);
-
-                    Ok(Walk::Walker(Walker {
-                        current,
-                        next: Some(next),
-                        pending,
-                    }))
-                } else {
-                    Ok(Walk::EmptyDirectory {
-                        metadata,
-                    })
-                }
+                Self::walk_directory(links, inner)
             },
             UnixFsType::HAMTShard => {
-                let mut links = flat.links
+                let inner = InnerEntry::new_root_bucket(metadata);
+
+                let links = flat.links
                     .into_iter()
                     .enumerate()
                     .map(|(nth, link)| convert_sharded_link(1, nth, link));
 
-                let metadata = FileMetadata::from(&flat.data);
-
-                if let Some(next) = links.next() {
-                    let next = next?;
-                    let pending = links.collect::<Result<Vec<_>, _>>()?;
-                    let current = InnerEntry::new_root_bucket(metadata);
-
-                    Ok(Walk::Walker(Walker {
-                        current,
-                        next: Some(next),
-                        pending,
-                    }))
-                } else {
-                    Ok(Walk::EmptyDirectory {
-                        metadata,
-                    })
-                }
+                Self::walk_directory(links, inner)
             },
             UnixFsType::Raw | UnixFsType::File => {
                 let (bytes, metadata, step) = IdleFileVisit::default()
@@ -138,6 +111,25 @@ impl Walker {
             },
             UnixFsType::Metadata => todo!("metadata?"),
             UnixFsType::Symlink => todo!("?"),
+        }
+    }
+
+    fn walk_directory<'a, I>(mut links: I, current: InnerEntry) -> Result<Walk<'a>, Error>
+        where I: Iterator<Item = Result<(Cid, String, usize), InvalidCidInLink>> + 'a,
+    {
+        if let Some(next) = links.next() {
+            let next = Some(next?);
+            let pending = links.collect::<Result<Vec<_>, _>>()?;
+
+            Ok(Walk::Walker(Walker {
+                current,
+                next,
+                pending,
+            }))
+        } else {
+            Ok(Walk::EmptyDirectory {
+                metadata: current.into(),
+            })
         }
     }
 
@@ -364,6 +356,12 @@ struct InnerEntry {
     path: PathBuf,
     metadata: FileMetadata,
     depth: usize,
+}
+
+impl From<InnerEntry> for FileMetadata {
+    fn from(e: InnerEntry) -> Self {
+        e.metadata
+    }
 }
 
 #[derive(Debug)]
