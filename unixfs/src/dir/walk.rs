@@ -172,11 +172,13 @@ impl Walker {
 
                 let segment = FileSegment::later(bytes, file_continues);
 
-                if file_continues || self.next.is_some() {
-                    return Ok(ContinuedWalk::File(segment, Item { state: State::Unfinished(self) }));
+                let state = if file_continues || self.next.is_some() {
+                    State::Unfinished(self)
                 } else {
-                    return Ok(ContinuedWalk::File(segment, Item { state: State::Last(self.current) }));
-                }
+                    State::Last(self.current)
+                };
+
+                return Ok(ContinuedWalk::File(segment, Item::from(state)))
             },
             _ => {}
         }
@@ -187,7 +189,6 @@ impl Walker {
             UnixFsType::Directory => {
 
                 let (cid, name, depth) = self.next.expect("continued without next");
-                //println!("continued over to Directory {}, {:?}, {}", cid, name, depth);
 
                 // depth + 1 because all entries below a directory are children of next, as in,
                 // deeper
@@ -212,24 +213,20 @@ impl Walker {
                     FileMetadata::from(&flat.data)
                 );
 
-                if let Some(next) = pending.pop() {
-                    Ok(ContinuedWalk::Directory(Item {
-                        state: State::Unfinished(Self {
-                            current: self.current,
-                            next: Some(next),
-                            pending,
-                        })
-                    }))
+                let state = if let Some(next) = pending.pop() {
+                    State::Unfinished(Self {
+                        current: self.current,
+                        next: Some(next),
+                        pending,
+                    })
                 } else {
-                    Ok(ContinuedWalk::Directory(Item {
-                        state: State::Last(self.current)
-                    }))
-                }
+                    State::Last(self.current)
+                };
+
+                Ok(ContinuedWalk::Directory(Item::from(state)))
             },
             UnixFsType::HAMTShard => {
                 let (cid, name, depth) = self.next.expect("continued without next");
-
-                //println!("continued over to HAMTShard {}, {:?}, {}", cid, name, depth);
 
                 // similar to directory the depth is +1 for nested entries, but the sibling buckets
                 // are at depth
@@ -249,19 +246,17 @@ impl Walker {
 
                 self.current.as_bucket(cid, &name, depth);
 
-                if let Some(next) = pending.pop() {
-                    Ok(ContinuedWalk::Directory(Item {
-                        state: State::Unfinished(Self {
-                            current: self.current,
-                            next: Some(next),
-                            pending,
-                        })
-                    }))
+                let state = if let Some(next) = pending.pop() {
+                    State::Unfinished(Self {
+                        current: self.current,
+                        next: Some(next),
+                        pending,
+                    })
                 } else {
-                    Ok(ContinuedWalk::Directory(Item {
-                        state: State::Last(self.current)
-                    }))
-                }
+                    State::Last(self.current)
+                };
+
+                Ok(ContinuedWalk::Directory(Item::from(state)))
 
             },
             UnixFsType::Raw | UnixFsType::File => {
@@ -269,7 +264,6 @@ impl Walker {
                     .start_from_parsed(flat, cache)?;
 
                 let (cid, name, depth) = self.next.expect("continued without next");
-                //println!("continued over to File {}, {:?}, {}", cid, name, depth);
                 let file_continues = step.is_some();
                 self.current.as_file(cid, &name, depth, metadata, step);
 
@@ -277,15 +271,17 @@ impl Walker {
 
                 let segment = FileSegment::first(bytes, file_continues);
 
-                if file_continues || next.is_some() {
-                    Ok(ContinuedWalk::File(segment, Item { state: State::Unfinished(Self {
+                let state = if file_continues || next.is_some() {
+                    State::Unfinished(Self {
                         current: self.current,
                         next,
                         pending: self.pending,
-                    })}))
+                    })
                 } else {
-                    Ok(ContinuedWalk::File(segment, Item { state: State::Last(self.current) }))
-                }
+                    State::Last(self.current)
+                };
+
+                Ok(ContinuedWalk::File(segment, Item::from(state)))
             },
             UnixFsType::Metadata => todo!("metadata?"),
             UnixFsType::Symlink => {
@@ -295,15 +291,17 @@ impl Walker {
                 let (cid, name, depth) = self.next.expect("continued without next");
                 self.current.as_symlink(cid, &name, depth, metadata);
 
-                if let Some(next) = self.pending.pop() {
-                    Ok(ContinuedWalk::Symlink(bytes, Item { state: State::Unfinished(Self {
+                let state = if let Some(next) = self.pending.pop() {
+                    State::Unfinished(Self {
                         current: self.current,
                         next: Some(next),
                         pending: self.pending,
-                    })}))
+                    })
                 } else {
-                    Ok(ContinuedWalk::Symlink(bytes, Item { state: State::Last(self.current) }))
-                }
+                    State::Last(self.current)
+                };
+
+                Ok(ContinuedWalk::Symlink(bytes, Item::from(state)))
             },
         }
     }
@@ -324,6 +322,9 @@ impl Walker {
             ref x => todo!("how to skip {:?}", x),
         }
     }
+
+    // TODO: we could easily split an 'static value for a directory or bucket, which would pop all
+    // entries at a single level out to do some parallel walking
 }
 
 enum Either<A, B> {
@@ -572,6 +573,14 @@ pub enum Walk<'a> {
 #[derive(Debug)]
 pub struct Item {
     state: State,
+}
+
+impl From<State> for Item {
+    fn from(state: State) -> Self {
+        Item {
+            state
+        }
+    }
 }
 
 impl Item {
