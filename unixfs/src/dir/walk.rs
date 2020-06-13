@@ -13,7 +13,7 @@ use cid::Cid;
 #[derive(Debug)]
 pub struct Walker {
     current: InnerEntry,
-    /// On the next call to `continue_walk` this will be the block, unless we have an ongoing file,
+    /// On the next call to `continue_walk` this will be the block, unless we have an ongoing file
     /// walk in which case we shortcircuit to continue it.
     next: Option<(Cid, String, usize)>,
     pending: Vec<(Cid, String, usize)>,
@@ -78,12 +78,12 @@ impl Walker {
                     .enumerate()
                     .map(|(nth, link)| convert_link(2, nth, link));
 
-                let next = links.next();
+                let metadata = FileMetadata::from(&flat.data);
 
-                if let Some(next) = next {
+                if let Some(next) = links.next() {
                     let next = next?;
                     let pending = links.collect::<Result<Vec<_>, _>>()?;
-                    let current = InnerEntry::new_root_dir(FileMetadata::from(&flat.data));
+                    let current = InnerEntry::new_root_dir(metadata);
 
                     Ok(Walk::Walker(Walker {
                         current,
@@ -91,7 +91,9 @@ impl Walker {
                         pending,
                     }))
                 } else {
-                    todo!("empty root directory")
+                    Ok(Walk::EmptyDirectory {
+                        metadata,
+                    })
                 }
             },
             UnixFsType::HAMTShard => {
@@ -100,12 +102,12 @@ impl Walker {
                     .enumerate()
                     .map(|(nth, link)| convert_sharded_link(1, nth, link));
 
-                let next = links.next();
+                let metadata = FileMetadata::from(&flat.data);
 
-                if let Some(next) = next {
+                if let Some(next) = links.next() {
                     let next = next?;
                     let pending = links.collect::<Result<Vec<_>, _>>()?;
-                    let current = InnerEntry::new_root_bucket(FileMetadata::from(&flat.data));
+                    let current = InnerEntry::new_root_bucket(metadata);
 
                     Ok(Walk::Walker(Walker {
                         current,
@@ -113,9 +115,10 @@ impl Walker {
                         pending,
                     }))
                 } else {
-                    todo!("empty root directory")
+                    Ok(Walk::EmptyDirectory {
+                        metadata,
+                    })
                 }
-
             },
             UnixFsType::Raw | UnixFsType::File => {
                 let (bytes, metadata, step) = IdleFileVisit::default()
@@ -565,6 +568,9 @@ pub enum Walk<'a> {
     Symlink {
         metadata: FileMetadata,
         target: &'a [u8],
+    },
+    EmptyDirectory {
+        metadata: FileMetadata,
     },
     /// Walk was started on a directory
     Walker(Walker),
