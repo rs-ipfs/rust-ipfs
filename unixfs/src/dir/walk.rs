@@ -190,16 +190,12 @@ impl Walker {
                     .unwrap()
                     .continue_walk(bytes, cache)?;
 
-                let was_some = step.is_some();
+                let file_continues = step.is_some();
                 *visit = step;
 
-                let segment = if was_some {
-                    FileSegment::NotLast(bytes)
-                } else {
-                    FileSegment::Last(bytes)
-                };
+                let segment = FileSegment::later(bytes, file_continues);
 
-                if was_some || self.next.is_some() {
+                if file_continues || self.next.is_some() {
                     return Ok(ContinuedWalk::File(segment, Item { state: State::Unfinished(self) }));
                 } else {
                     return Ok(ContinuedWalk::File(segment, Item { state: State::Last(self.current) }));
@@ -305,20 +301,15 @@ impl Walker {
 
                 let (cid, name, depth) = self.next.expect("continued without next");
                 //println!("continued over to File {}, {:?}, {}", cid, name, depth);
-                let was_some = step.is_some();
+                let file_continues = step.is_some();
                 self.current.as_file(cid, &name, depth, metadata, step);
                 self.path_recycler.push(name);
 
                 let next = self.pending.pop();
 
-                let segment = if was_some {
-                    FileSegment::NotLast(bytes)
-                } else {
-                    FileSegment::Last(bytes)
-                };
+                let segment = FileSegment::first(bytes, file_continues);
 
-                if was_some || next.is_some() {
-
+                if file_continues || next.is_some() {
                     Ok(ContinuedWalk::File(segment, Item { state: State::Unfinished(Self {
                         current: self.current,
                         next,
@@ -642,18 +633,47 @@ pub enum ContinuedWalk<'a> {
 }
 
 #[derive(Debug)]
-pub enum FileSegment<'a> {
-    NotLast(&'a [u8]),
-    Last(&'a [u8]),
+pub struct FileSegment<'a> {
+    bytes: &'a [u8],
+    first_block: bool,
+    last_block: bool,
 }
 
-impl<'a> AsRef<[u8]> for FileSegment<'a> {
-    fn as_ref(&self) -> &[u8] {
-        use FileSegment::*;
-        match self {
-            NotLast(a) => a,
-            Last(b) => b,
+impl<'a> FileSegment<'a> {
+    fn first(bytes: &'a [u8], last_block: bool) -> Self {
+        FileSegment {
+            bytes,
+            first_block: true,
+            last_block,
         }
+    }
+
+    fn later(bytes: &'a [u8], last_block: bool) -> Self {
+        FileSegment {
+            bytes,
+            first_block: false,
+            last_block,
+        }
+    }
+
+    /// Returns true if this is the last block of the file, false otherwise.
+    ///
+    /// Note: Last block can also be the first.
+    pub fn is_last(&self) -> bool {
+        self.last_block
+    }
+
+    /// Returns true if this is the first block of the file, false otherwise.
+    ///
+    /// Note: First block can also be the last.
+    pub fn is_first(&self) -> bool {
+        self.first_block
+    }
+}
+
+impl AsRef<[u8]> for FileSegment<'_> {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
     }
 }
 

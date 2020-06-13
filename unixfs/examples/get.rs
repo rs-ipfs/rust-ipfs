@@ -54,7 +54,7 @@ fn main() {
 }
 
 fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
-    use ipfs_unixfs::dir::walk::{Walker, Walk, ContinuedWalk, FileSegment};
+    use ipfs_unixfs::dir::walk::{Walker, Walk, ContinuedWalk};
     use sha2::{Digest, Sha256};
 
     // The blockstore specific way of reading the block. Here we assume go-ipfs 0.5 default flatfs
@@ -90,21 +90,18 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                 total_bytes += bytes.len() as u64;
                 hasher.input(bytes);
 
-                match segment {
-                    FileSegment::NotLast(_) => {
-                        hash = Some((total_bytes, hasher));
-                        item.into_inner()
+                if !segment.is_last() {
+                    hash = Some((total_bytes, hasher));
+                } else {
+                    let res = hasher.result();
+                    print!("f {:?} {} bytes ", item.as_entry().path(), total_bytes);
+                    for b in res {
+                        print!("{:02x}", b);
                     }
-                    FileSegment::Last(_) => {
-                        let res = hasher.result();
-                        print!("f {:?} {} bytes ", item.as_entry().path(), total_bytes);
-                        for b in res {
-                            print!("{:02x}", b);
-                        }
-                        println!();
-                        item.into_inner()
-                    }
+                    println!();
                 }
+
+                item.into_inner()
             },
             ContinuedWalk::Directory(item) => {
                 println!("d {:?}", item.as_entry().path());
