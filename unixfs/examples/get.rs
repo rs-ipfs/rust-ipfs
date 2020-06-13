@@ -86,16 +86,16 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
         visit = match walker.continue_walk(&buf, &mut cache).unwrap() {
             ContinuedWalk::File(segment, item) => {
                 let (mut total_bytes, mut hasher) = hash.take().unwrap_or_default();
+                let bytes = segment.as_ref();
+                total_bytes += bytes.len() as u64;
+                hasher.input(bytes);
+
                 match segment {
-                    FileSegment::NotLast(bytes) => {
-                        total_bytes += bytes.len() as u64;
-                        hasher.input(bytes);
+                    FileSegment::NotLast(_) => {
                         hash = Some((total_bytes, hasher));
                         item.into_inner()
                     }
-                    FileSegment::Last(bytes) => {
-                        total_bytes += bytes.len() as u64;
-                        hasher.input(bytes);
+                    FileSegment::Last(_) => {
                         let res = hasher.result();
                         print!("f {:?} {} bytes ", item.as_entry().path(), total_bytes);
                         for b in res {
