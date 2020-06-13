@@ -308,13 +308,20 @@ impl Walker {
         }
     }
 
-    fn skip_current(&mut self) {
+    fn skip_current_file(mut self) -> Skipped {
         use InnerKind::*;
         match &mut self.current.kind {
             File(_, visit @ Some(_)) => {
                 visit.take();
-            }
-            _ => {},
+
+                if self.next.is_some() {
+                    Skipped(State::Unfinished(self))
+                } else {
+                    Skipped(State::Last(self.current))
+                }
+            },
+            Bucket(_) => todo!("we could skip shards as well by ... maybe?"),
+            ref x => todo!("how to skip {:?}", x),
         }
     }
 }
@@ -596,6 +603,9 @@ pub enum ContinuedWalk<'a> {
     Directory(Item),
     Symlink(&'a [u8], Item),
 }
+
+#[derive(Debug)]
+pub struct Skipped(State);
 
 #[derive(Debug)]
 pub struct FileSegment<'a> {
