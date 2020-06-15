@@ -244,7 +244,7 @@ pub(crate) mod tests {
     #[test]
     fn visiting_just_content() {
         let res = IdleFileVisit::default().start(CONTENT_FILE);
-        assert!(matches!(res, Ok((b"content", _, None))), "{:?}", res);
+        assert!(matches!(res, Ok((b"content", _, _, None))), "{:?}", res);
     }
 
     #[test]
@@ -253,7 +253,7 @@ pub(crate) mod tests {
             .with_target_range(500_000..600_000)
             .start(CONTENT_FILE);
 
-        assert!(matches!(res, Ok((b"", _, None))), "{:?}", res);
+        assert!(matches!(res, Ok((b"", _, _, None))), "{:?}", res);
     }
 
     #[test]
@@ -406,7 +406,7 @@ pub(crate) mod tests {
     fn collect_bytes(blocks: &FakeBlockstore, visit: IdleFileVisit, start: &str) -> Vec<u8> {
         let mut ret = Vec::new();
 
-        let (content, _, mut step) = visit.start(blocks.get_by_str(start)).unwrap();
+        let (content, _, _, mut step) = visit.start(blocks.get_by_str(start)).unwrap();
         ret.extend(content);
 
         while let Some(visit) = step {

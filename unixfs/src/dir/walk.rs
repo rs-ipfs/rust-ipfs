@@ -654,6 +654,11 @@ impl<'a> FileSegment<'a> {
         }
     }
 
+    /// Returns the total file size, remains constant during the walking of segments.
+    pub fn total_file_size(&self) -> u64 {
+        todo!("need to add this at filevisit level")
+    }
+
     /// Returns true if this is the first block of the file, false otherwise.
     ///
     /// Note: First block can also be the last.
