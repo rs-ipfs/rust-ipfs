@@ -79,6 +79,9 @@ impl Walker {
                 let links = flat.links
                     .into_iter()
                     .enumerate()
+                    // 2 == number of ancestors this link needs to have on the path, this is after
+                    // some trial and error so not entirely sure why ... ancestors always includes
+                    // the empty root in our case.
                     .map(|(nth, link)| convert_link(2, nth, link));
 
                 Self::walk_directory(links, inner)
@@ -89,6 +92,7 @@ impl Walker {
                 let links = flat.links
                     .into_iter()
                     .enumerate()
+                    // 1 == ancestors should be only the [""]
                     .map(|(nth, link)| convert_sharded_link(1, nth, link));
 
                 Self::walk_directory(links, inner)
@@ -165,7 +169,7 @@ impl Walker {
                 let file_continues = step.is_some();
                 *visit = step;
 
-                let segment = FileSegment::later(bytes, file_continues);
+                let segment = FileSegment::later(bytes, !file_continues);
 
                 let state = if file_continues || self.next.is_some() {
                     State::Unfinished(self)
@@ -179,11 +183,17 @@ impl Walker {
         }
 
         let flat = FlatUnixFs::try_from(bytes)?;
+        let metadata = FileMetadata::from(&flat.data);
 
         match flat.data.Type {
             UnixFsType::Directory => {
-
                 let (cid, name, depth) = self.next.expect("continued without next");
+                self.current.as_directory(
+                    cid,
+                    &name,
+                    depth,
+                    metadata,
+                );
 
                 // depth + 1 because all entries below a directory are children of next, as in,
                 // deeper
@@ -193,6 +203,9 @@ impl Walker {
                     .map(|(nth, link)| convert_link(depth + 1, nth, link))
                     .rev();
 
+                // replacing this with try_fold takes as many lines as the R: Try<Ok = B> cannot be
+                // deduced without specifying the Error
+
                 let mut pending = {
                     let mut pending = self.pending;
                     for link in links {
@@ -200,13 +213,6 @@ impl Walker {
                     }
                     pending
                 };
-
-                self.current.as_directory(
-                    cid,
-                    &name,
-                    depth,
-                    FileMetadata::from(&flat.data)
-                );
 
                 let state = if let Some(next) = pending.pop() {
                     State::Unfinished(Self {
@@ -222,6 +228,7 @@ impl Walker {
             },
             UnixFsType::HAMTShard => {
                 let (cid, name, depth) = self.next.expect("continued without next");
+                self.current.as_bucket(cid, &name, depth);
 
                 // similar to directory the depth is +1 for nested entries, but the sibling buckets
                 // are at depth
@@ -238,8 +245,6 @@ impl Walker {
                     }
                     pending
                 };
-
-                self.current.as_bucket(cid, &name, depth);
 
                 let state = if let Some(next) = pending.pop() {
                     State::Unfinished(Self {
@@ -264,7 +269,8 @@ impl Walker {
 
                 let next = self.pending.pop();
 
-                let segment = FileSegment::first(bytes, file_continues);
+                // FIXME: add test case for this being reversed and it's never the last
+                let segment = FileSegment::first(bytes, !file_continues);
 
                 let state = if file_continues || next.is_some() {
                     State::Unfinished(Self {
@@ -280,7 +286,6 @@ impl Walker {
             },
             UnixFsType::Metadata => todo!("metadata?"),
             UnixFsType::Symlink => {
-                let metadata = FileMetadata::from(&flat.data);
                 let contents = flat.data.Data.as_deref().unwrap_or_default();
 
                 let (cid, name, depth) = self.next.expect("continued without next");
@@ -319,7 +324,9 @@ impl Walker {
     }
 
     // TODO: we could easily split an 'static value for a directory or bucket, which would pop all
-    // entries at a single level out to do some parallel walking
+    // entries at a single level out to do some parallel walking, though the skipping could already
+    // be used to do that... Maybe we could return the filevisit on Skipped to save user from
+    // re-creating one? How to do the same for directories?
 }
 
 enum Either<A, B> {
@@ -379,6 +386,7 @@ pub enum Entry<'a> {
     RootDirectory(&'a FileMetadata),
     Bucket(&'a Cid, &'a Path),
     Directory(&'a Cid, &'a Path, &'a FileMetadata),
+    // TODO: add remaining bytes or something here?
     File(&'a Cid, &'a Path, &'a FileMetadata),
     Symlink(&'a Cid, &'a Path, &'a FileMetadata),
 }
@@ -463,7 +471,6 @@ impl InnerEntry {
             },
             ref x => todo!("dir after {:?}", x),
         }
-        //println!("as_dir -> {:?}", self.path);
     }
 
     fn as_bucket(
@@ -491,7 +498,6 @@ impl InnerEntry {
             },
             ref x => todo!("bucket after {:?}", x),
         }
-        //println!("as_bucket -> {:?}", self.path);
     }
 
     fn as_file(
@@ -521,7 +527,6 @@ impl InnerEntry {
             }
             ref x => todo!("file from {:?}", x),
         }
-        //println!("as_file -> {:?}", self.path);
     }
 
     fn as_symlink(
@@ -558,14 +563,16 @@ pub enum Walk<'a> {
         bytes: &'a [u8],
         metadata: FileMetadata,
     },
-    /// Walk was started on a file which can be iterated further with the given FileVisit
-    MultiBlockFile {
-        metadata: FileMetadata,
-        visit: FileVisit,
-    },
     Symlink {
         metadata: FileMetadata,
         target: &'a [u8],
+    },
+    /// Walk was started on a file which can be iterated further with the given FileVisit
+    // TODO: not sure why not expose this through the continue_block as well? the path will just be
+    // empty all the time.
+    MultiBlockFile {
+        metadata: FileMetadata,
+        visit: FileVisit,
     },
     EmptyDirectory {
         metadata: FileMetadata,
@@ -574,6 +581,7 @@ pub enum Walk<'a> {
     Walker(Walker),
 }
 
+// Wrapper to hide the state
 #[derive(Debug)]
 pub struct Item {
     state: State,
@@ -588,6 +596,8 @@ impl From<State> for Item {
 }
 
 impl Item {
+    // TODO: add path(&self) -> &Path
+
     pub fn as_entry(&self) -> Entry<'_> {
         match &self.state {
             State::Unfinished(w) => w.as_entry(),
@@ -644,18 +654,18 @@ impl<'a> FileSegment<'a> {
         }
     }
 
-    /// Returns true if this is the last block of the file, false otherwise.
-    ///
-    /// Note: Last block can also be the first.
-    pub fn is_last(&self) -> bool {
-        self.last_block
-    }
-
     /// Returns true if this is the first block of the file, false otherwise.
     ///
     /// Note: First block can also be the last.
     pub fn is_first(&self) -> bool {
         self.first_block
+    }
+
+    /// Returns true if this is the last block of the file, false otherwise.
+    ///
+    /// Note: Last block can also be the first.
+    pub fn is_last(&self) -> bool {
+        self.last_block
     }
 }
 
