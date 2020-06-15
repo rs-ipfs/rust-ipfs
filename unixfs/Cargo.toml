@@ -5,10 +5,13 @@ authors = ["Joonas Koivunen <joonas@equilibrium.co>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = [ "filetime" ]
 
 [dependencies]
 quick-protobuf = "0.7.0"
 cid = "0.4.0"
+filetime = { version = "0.2.10", optional = true }
 
 [dev-dependencies]
 multibase = "0.8.0"
