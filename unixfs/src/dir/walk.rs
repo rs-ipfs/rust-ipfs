@@ -98,7 +98,7 @@ impl Walker {
                 Self::walk_directory(links, inner)
             },
             UnixFsType::Raw | UnixFsType::File => {
-                let (bytes, metadata, step) = IdleFileVisit::default()
+                let (bytes, _file_size, metadata, step) = IdleFileVisit::default()
                     .start_from_parsed(flat, cache)?;
 
                 if let Some(visit) = step {

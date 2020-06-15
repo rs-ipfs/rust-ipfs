@@ -23,6 +23,7 @@ pub struct FileReader<'a> {
     data: &'a [u8],
     blocksizes: Vec<u64>,
     metadata: FileMetadata,
+    file_size: u64,
 }
 
 impl AsRef<FileMetadata> for FileReader<'_> {
@@ -148,6 +149,7 @@ impl<'a> FileReader<'a> {
                 data,
                 blocksizes: inner.data.blocksizes,
                 metadata,
+                file_size: inner.data.filesize.unwrap(),
             })
         }
     }
@@ -165,6 +167,7 @@ impl<'a> FileReader<'a> {
             last_offset: self.offset,
 
             metadata: self.metadata,
+            file_size: self.file_size,
         };
 
         let fc = if self.links.is_empty() {
@@ -179,6 +182,10 @@ impl<'a> FileReader<'a> {
 
         (fc, traversal)
     }
+
+    pub fn file_size(&self) -> u64 {
+        self.file_size
+    }
 }
 
 /// Carrier of validation data used between blocks during a walk on the merkle tree.
@@ -186,6 +193,7 @@ impl<'a> FileReader<'a> {
 pub struct Traversal {
     last_ending: Ending,
     last_offset: u64,
+    file_size: u64,
 
     metadata: FileMetadata,
 }
@@ -206,6 +214,10 @@ impl Traversal {
         self.last_ending
             .check_is_suitable_next(self.last_offset, tree_range)?;
         FileReader::from_continued(self, tree_range.start, next_block)
+    }
+
+    pub fn file_size(&self) -> u64 {
+        self.file_size
     }
 }
 

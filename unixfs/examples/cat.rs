@@ -73,7 +73,7 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(u64, u64), Error> {
     read_bytes += blocks.as_file(&start.to_bytes())?.read_to_end(&mut buf)? as u64;
 
     // First step of the walk can give content or continued visitation but not both.
-    let (content, _metadata, mut step) = IdleFileVisit::default().start(&buf)?;
+    let (content, _, _metadata, mut step) = IdleFileVisit::default().start(&buf)?;
     stdout.write_all(content)?;
     content_bytes += content.len() as u64;
 

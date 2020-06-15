@@ -27,7 +27,7 @@ impl IdleFileVisit {
     pub fn start(
         self,
         block: &[u8],
-    ) -> Result<(&[u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
+    ) -> Result<(&[u8], u64, FileMetadata, Option<FileVisit>), FileReadFailed> {
         let fr = FileReader::from_block(block)?;
         self.start_from_reader(fr, &mut None)
     }
@@ -36,7 +36,7 @@ impl IdleFileVisit {
         self,
         block: FlatUnixFs<'a>,
         cache: &'_ mut Option<Cache>,
-    ) -> Result<(&'a [u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
+    ) -> Result<(&'a [u8], u64, FileMetadata, Option<FileVisit>), FileReadFailed> {
         let fr = FileReader::from_parsed(block)?;
         self.start_from_reader(fr, cache)
     }
@@ -45,7 +45,7 @@ impl IdleFileVisit {
         self,
         fr: FileReader<'a>,
         cache: &'_ mut Option<Cache>,
-    ) -> Result<(&'a [u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
+    ) -> Result<(&'a [u8], u64, FileMetadata, Option<FileVisit>), FileReadFailed> {
         let metadata = fr.as_ref().to_owned();
 
         let (content, traversal) = fr.content();
@@ -54,7 +54,7 @@ impl IdleFileVisit {
             FileContent::Bytes(content) => {
                 let block = 0..content.len() as u64;
                 let content = maybe_target_slice(content, &block, self.range.as_ref());
-                Ok((content, metadata, None))
+                Ok((content, traversal.file_size(), metadata, None))
             }
             FileContent::Links(iter) => {
                 // we need to select suitable here
@@ -79,10 +79,11 @@ impl IdleFileVisit {
 
                 if links.is_empty() {
                     *cache = Some(links.into());
-                    Ok((&[][..], metadata, None))
+                    Ok((&[][..], traversal.file_size(), metadata, None))
                 } else {
                     Ok((
                         &[][..],
+                        traversal.file_size(),
                         metadata,
                         Some(FileVisit {
                             pending: links,
@@ -184,6 +185,10 @@ impl FileVisit {
                 Ok((&[][..], Some(self)))
             }
         }
+    }
+
+    pub fn file_size(&self) -> u64 {
+        self.state.file_size()
     }
 }
 
