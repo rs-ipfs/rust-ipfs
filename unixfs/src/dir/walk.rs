@@ -391,8 +391,9 @@ pub enum Entry<'a> {
     Symlink(&'a Cid, &'a Path, &'a FileMetadata),
 }
 
-impl Entry<'_> {
-    pub fn path(&self) -> &Path {
+impl<'a> Entry<'a> {
+    /// Returns the path for the latest entry.
+    pub fn path(&self) -> &'a Path {
         use Entry::*;
         match self {
             RootDirectory(_) => "".as_ref(),
