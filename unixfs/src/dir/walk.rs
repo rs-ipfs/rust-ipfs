@@ -145,7 +145,7 @@ impl Walker {
         use InnerKind::*;
         let cids = self.pending.iter().map(|(cid, ..)| cid).rev();
         match self.current.kind {
-            File(_, Some(ref visit)) => {
+            File(_, Some(ref visit), _) => {
                 let (first, rest) = visit.pending_links();
                 (first, Either::Left(rest.chain(cids)))
             },
@@ -161,7 +161,7 @@ impl Walker {
         use InnerKind::*;
 
         match &mut self.current.kind {
-            File(_, visit @ Some(_)) => {
+            File(_, visit @ Some(_), _) => {
                 let (bytes, step) = visit.take()
                     .unwrap()
                     .continue_walk(bytes, cache)?;
@@ -227,8 +227,16 @@ impl Walker {
                 Ok(ContinuedWalk::Directory(Item::from(state)))
             },
             UnixFsType::HAMTShard => {
+                // FIXME: the first hamtshard must have metadata!
                 let (cid, name, depth) = self.next.expect("continued without next");
-                self.current.as_bucket(cid, &name, depth);
+
+                if name.is_empty() {
+                    // the name should be empty for all of the siblings
+                    self.current.as_bucket(cid, &name, depth);
+                } else {
+                    // but it should be non-empty for the directories
+                    self.current.as_bucket_root(cid, &name, depth, metadata);
+                }
 
                 // similar to directory the depth is +1 for nested entries, but the sibling buckets
                 // are at depth
@@ -260,12 +268,12 @@ impl Walker {
 
             },
             UnixFsType::Raw | UnixFsType::File => {
-                let (bytes, metadata, step) = IdleFileVisit::default()
+                let (bytes, file_size, metadata, step) = IdleFileVisit::default()
                     .start_from_parsed(flat, cache)?;
 
                 let (cid, name, depth) = self.next.expect("continued without next");
                 let file_continues = step.is_some();
-                self.current.as_file(cid, &name, depth, metadata, step);
+                self.current.as_file(cid, &name, depth, metadata, step, file_size);
 
                 let next = self.pending.pop();
 
@@ -286,7 +294,11 @@ impl Walker {
             },
             UnixFsType::Metadata => todo!("metadata?"),
             UnixFsType::Symlink => {
-                let contents = flat.data.Data.as_deref().unwrap_or_default();
+                let contents = match flat.data.Data {
+                    Some(Cow::Borrowed(bytes)) if !bytes.is_empty() => bytes,
+                    None | Some(Cow::Borrowed(_)) => &[][..],
+                    _ => unreachable!("never used into_owned"),
+                };
 
                 let (cid, name, depth) = self.next.expect("continued without next");
                 self.current.as_symlink(cid, &name, depth, metadata);
@@ -301,7 +313,7 @@ impl Walker {
                     State::Last(self.current)
                 };
 
-                Ok(ContinuedWalk::Symlink(bytes, Item::from(state)))
+                Ok(ContinuedWalk::Symlink(contents, Item::from(state)))
             },
         }
     }
@@ -309,7 +321,7 @@ impl Walker {
     fn skip_current_file(mut self) -> Skipped {
         use InnerKind::*;
         match &mut self.current.kind {
-            File(_, visit @ Some(_)) => {
+            File(_, visit @ Some(_), _) => {
                 visit.take();
 
                 if self.next.is_some() {
@@ -373,11 +385,16 @@ impl From<InnerEntry> for FileMetadata {
 
 #[derive(Debug)]
 enum InnerKind {
+    // This is necessarily at the root of the walk
     RootDirectory,
-    RootBucket,
+    // This is necessarily at the root of the walk
+    BucketAtRoot,
+    // This is the metadata containing bucket, for which we have a name
+    RootBucket(Cid),
+    // This is a sibling to a previous named metadata containing bucket
     Bucket(Cid),
     Directory(Cid),
-    File(Cid, Option<FileVisit>),
+    File(Cid, Option<FileVisit>, u64),
     Symlink(Cid),
 }
 
@@ -387,7 +404,7 @@ pub enum Entry<'a> {
     Bucket(&'a Cid, &'a Path),
     Directory(&'a Cid, &'a Path, &'a FileMetadata),
     // TODO: add remaining bytes or something here?
-    File(&'a Cid, &'a Path, &'a FileMetadata),
+    File(&'a Cid, &'a Path, &'a FileMetadata, u64),
     Symlink(&'a Cid, &'a Path, &'a FileMetadata),
 }
 
@@ -400,7 +417,7 @@ impl<'a> Entry<'a> {
             RootDirectory(_) => "".as_ref(),
             Bucket(_, p)
             | Directory(_, p, _)
-            | File(_, p, _)
+            | File(_, p, _, _)
             | Symlink(_, p, _) => p,
         }
     }
@@ -413,8 +430,28 @@ impl<'a> Entry<'a> {
             Bucket(_, _) => None,
             RootDirectory(m)
             | Directory(_, _, m)
-            | File(_, _, m)
+            | File(_, _, m, _)
             | Symlink(_, _, m) => Some(m),
+        }
+    }
+
+    /// Returns the total size of the file this entry represents, or none if not a file.
+    pub fn total_file_size(&self) -> Option<u64> {
+        use Entry::*;
+        match self {
+            File(_, _, _, sz) => Some(*sz),
+            _ => None,
+        }
+    }
+
+    pub fn cid(&self) -> Option<&Cid> {
+        use Entry::*;
+        match self {
+            RootDirectory(_) => None,
+            Bucket(cid, _)
+            | Directory(cid, _, _)
+            | File(cid, _, _, _)
+            | Symlink(cid, _, _) => Some(cid),
         }
     }
 }
@@ -431,7 +468,7 @@ impl InnerEntry {
 
     fn new_root_bucket(metadata: FileMetadata) -> Self {
         Self {
-            kind: InnerKind::RootBucket,
+            kind: InnerKind::BucketAtRoot,
             path: PathBuf::new(),
             metadata,
             depth: 0,
@@ -441,11 +478,11 @@ impl InnerEntry {
     pub fn as_entry<'a>(&'a self) -> Entry<'a> {
         use InnerKind::*;
         match &self.kind {
-            RootDirectory => Entry::RootDirectory(&self.metadata),
-            RootBucket => Entry::RootDirectory(&self.metadata),
+            RootDirectory | BucketAtRoot => Entry::RootDirectory(&self.metadata),
+            RootBucket(cid) => Entry::Directory(cid, &self.path, &self.metadata),
             Bucket(cid) => Entry::Bucket(cid, &self.path),
             Directory(cid) => Entry::Directory(cid, &self.path, &self.metadata),
-            File(cid, _) => Entry::File(cid, &self.path, &self.metadata),
+            File(cid, _, sz) => Entry::File(cid, &self.path, &self.metadata, *sz),
             Symlink(cid) => Entry::Symlink(cid, &self.path, &self.metadata),
         }
     }
@@ -471,20 +508,45 @@ impl InnerEntry {
         use InnerKind::*;
         match self.kind {
             RootDirectory
-            | RootBucket  => {
+            | BucketAtRoot => {
                 self.kind = Directory(cid);
                 self.set_path(name, depth);
                 self.metadata = metadata;
             },
             Bucket(_)
+            | RootBucket(_)
             | Directory(_)
-            | File(_, None)
+            | File(_, None, _)
             | Symlink(_) => {
                 self.kind = Directory(cid);
                 self.set_path(name, depth);
                 self.metadata = metadata;
             },
             ref x => todo!("dir after {:?}", x),
+        }
+    }
+
+    fn as_bucket_root(
+        &mut self,
+        cid: Cid,
+        name: &str,
+        depth: usize,
+        metadata: FileMetadata,
+    ) {
+        use InnerKind::*;
+        match self.kind {
+            RootDirectory
+            | BucketAtRoot
+            | Bucket(_)
+            | RootBucket(_)
+            | Directory(_)
+            | File(_, None, _)
+            | Symlink(_) => {
+                self.kind = RootBucket(cid);
+                self.set_path(name, depth);
+                self.metadata = metadata;
+            },
+            ref x => todo!("root bucket after {:?}", x),
         }
     }
 
@@ -496,7 +558,7 @@ impl InnerEntry {
     ) {
         use InnerKind::*;
         match self.kind {
-            RootBucket | Bucket(_) | File(_, None) | Symlink(_) => {
+            BucketAtRoot | RootBucket(_) | Bucket(_) | File(_, None, _) | Symlink(_) => {
                 self.kind = Bucket(cid);
 
                 if name.is_empty() {
@@ -522,24 +584,21 @@ impl InnerEntry {
         depth: usize,
         metadata: FileMetadata,
         step: Option<FileVisit>,
+        file_size: u64,
     ) {
         use InnerKind::*;
         match self.kind {
             RootDirectory
-            | RootBucket => {
-                assert_eq!(self.depth, 0);
-                self.kind = File(cid, step);
+            | BucketAtRoot
+            | RootBucket(_)
+            | Bucket(_)
+            | Directory(_)
+            | File(_, None, _)
+            | Symlink(_) => {
+                self.kind = File(cid, step, file_size);
                 self.set_path(name, depth);
                 self.metadata = metadata;
             },
-            Bucket(_)
-            | Directory(_)
-            | File(_, None)
-            | Symlink(_) => {
-                self.kind = File(cid, step);
-                self.set_path(name, depth);
-                self.metadata = metadata;
-            }
             ref x => todo!("file from {:?}", x),
         }
     }
@@ -553,14 +612,12 @@ impl InnerEntry {
     ) {
         use InnerKind::*;
         match self.kind {
-            RootDirectory => {
-                self.kind = Symlink(cid);
-                self.set_path(name, depth);
-                self.metadata = metadata;
-            },
-            Bucket(_)
+            RootDirectory
+            | BucketAtRoot
+            | RootBucket(_)
+            | Bucket(_)
             | Directory(_)
-            | File(_, None)
+            | File(_, None, _)
             | Symlink(_) => {
                 self.kind = Symlink(cid);
                 self.set_path(name, depth);
@@ -666,11 +723,6 @@ impl<'a> FileSegment<'a> {
             first_block: false,
             last_block,
         }
-    }
-
-    /// Returns the total file size, remains constant during the walking of segments.
-    pub fn total_file_size(&self) -> u64 {
-        todo!("need to add this at filevisit level")
     }
 
     /// Returns true if this is the first block of the file, false otherwise.

@@ -117,7 +117,9 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                         let payload_bytes = data.len() + 1;
 
                         let padding = 512 - (payload_bytes % 512);
-                        stdout.write_all(&zeroes[..padding]).unwrap();
+                        if padding < 512 {
+                            stdout.write_all(&zeroes[..padding]).unwrap();
+                        }
                     }
 
                     let metadata = item.as_entry().metadata().expect("files must have metadata");
@@ -130,7 +132,7 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                         .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
                         .unwrap_or(0));
 
-                    header.set_size(segment.total_file_size());
+                    header.set_size(item.as_entry().total_file_size().unwrap());
                     header.set_entry_type(tar::EntryType::Regular);
                     header.set_cksum();
 
@@ -138,69 +140,138 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                 }
 
                 stdout.write_all(segment.as_ref()).unwrap();
+                let total_file_size = item.as_entry().total_file_size().unwrap();
 
                 if segment.is_last() {
                     // write out the last data, then write padding
-
-                    let total_file_size = segment.total_file_size();
-
                     let padding = 512 - (total_file_size % 512);
-                    stdout.write_all(&zeroes[..padding as usize]).unwrap();
+                    if padding < 512 {
+                        stdout.write_all(&zeroes[..padding as usize]).unwrap();
+                    }
                 }
 
                 item.into_inner()
             },
             ContinuedWalk::Directory(item) => {
 
-                // create header and empty entry ... we also need to remember the last directory
-                // path not to create duplicate entries
-                let path = item.as_entry().path();
+                // sibling buckets do not have metadata
+                if let Some(metadata) = item.as_entry().metadata() {
 
-                // skip empty paths; this might need to be the CID though
-                if path != Path::new("") {
-                    if let Err(e) = header.set_path(path) {
-                        let data = prepare_long_header(&mut header, &mut long_filename_header, path, e);
+                    // create header and empty entry ... we also need to remember the last directory
+                    // path not to create duplicate entries
+                    let path = item.as_entry().path();
 
-                        stdout.write_all(long_filename_header.as_bytes()).unwrap();
-                        stdout.write_all(data).unwrap();
-                        stdout.write_all(&[0]).unwrap();
+                    // skip empty paths; this might need to be the CID though
+                    if path != Path::new("") {
+                        if let Err(e) = header.set_path(path) {
+                            let data = prepare_long_header(&mut header, &mut long_filename_header, path, e);
 
-                        let payload_bytes = data.len() + 1;
+                            stdout.write_all(long_filename_header.as_bytes()).unwrap();
+                            stdout.write_all(data).unwrap();
+                            stdout.write_all(&[0]).unwrap();
 
-                        let padding = 512 - (payload_bytes % 512);
-                        stdout.write_all(&zeroes[..padding]).unwrap();
+                            let payload_bytes = data.len() + 1;
+
+                            let padding = 512 - (payload_bytes % 512);
+                            stdout.write_all(&zeroes[..padding]).unwrap();
+                        }
+
+                        // dirs are appended: header, no additional padding
+
+                        header.set_mode(metadata.mode()
+                            .map(|mode| mode & 0o7777)
+                            .unwrap_or(0o0755));
+
+                        header.set_mtime(metadata.mtime()
+                            .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
+                            .unwrap_or(0));
+
+                        header.set_size(0);
+                        header.set_entry_type(tar::EntryType::Directory);
+                        header.set_cksum();
+
+                        stdout.write_all(header.as_bytes()).unwrap();
                     }
-
-                    // dirs are appended: header + 512 zeroes
-
-                    let metadata = item.as_entry().metadata().expect("files must have metadata");
-
-                    header.set_mode(metadata.mode()
-                        .map(|mode| mode & 0o7777)
-                        .unwrap_or(0o0755));
-
-                    header.set_mtime(metadata.mtime()
-                        .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
-                        .unwrap_or(0));
-
-                    header.set_size(0);
-                    header.set_entry_type(tar::EntryType::Directory);
-                    header.set_cksum();
-
-                    stdout.write_all(header.as_bytes()).unwrap();
-                    stdout.write_all(&zeroes).unwrap();
                 }
 
                 item.into_inner()
             }
-            ContinuedWalk::Symlink(_, item) => {
-                // FIXME: the symlinks seem to be prefixed with some valid unicode codepoints
-                // but need further deserialization.
-                //
+            ContinuedWalk::Symlink(bytes, item) => {
                 // create symlink header and entry. I am guessing the serialization format is right
                 // away tar compatible.
 
-                // TODO: skip for now
+                // FIXME: we could get away from the unwraps by refining the continuedwalk type
+                let metadata = item.as_entry().metadata().expect("symlink must have metadata");
+
+                let path = item.as_entry().path();
+                if let Err(e) = header.set_path(path) {
+                    let data = prepare_long_header(&mut header, &mut long_filename_header, path, e);
+
+                    stdout.write_all(long_filename_header.as_bytes()).unwrap();
+                    stdout.write_all(data).unwrap();
+                    stdout.write_all(&[0]).unwrap();
+
+                    let payload_bytes = data.len() + 1;
+
+                    let padding = 512 - (payload_bytes % 512);
+                    if padding < 512 {
+                        stdout.write_all(&zeroes[..padding]).unwrap();
+                    }
+                }
+
+                header.set_mode(metadata.mode()
+                    .map(|mode| mode & 0o7777)
+                    .unwrap_or(0o0644));
+
+                header.set_mtime(metadata.mtime()
+                    .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
+                    .unwrap_or(0));
+
+                header.set_size(0);
+                header.set_entry_type(tar::EntryType::Symlink);
+
+                let target = Path::new(std::str::from_utf8(bytes).unwrap());
+                if let Err(e) = header.set_link_name(&target) {
+                    let data = path2bytes(target);
+                    if data.len() < header.as_old().linkname.len() {
+                        // this might be an /ipfs/QmFoo which we should error and not allow
+                        panic!("invalid link target: {:?} ({})", target, e)
+                    }
+
+                    long_filename_header.set_mode(0o644);
+
+                    {
+                        let name = b"././@LongLink";
+                        let gnu_header = long_filename_header.as_gnu_mut().unwrap();
+                        // since we are reusing the header, zero out all of the bytes
+                        let written = name.iter().copied().chain(std::iter::repeat(0)).enumerate().take(gnu_header.name.len());
+                        // FIXME: there must be a better way to do this
+                        for (i, b) in written {
+                            gnu_header.name[i] = b;
+                        }
+                    }
+
+                    long_filename_header.set_size(data.len() as u64 + 1);
+                    long_filename_header.set_entry_type(tar::EntryType::new(b'K'));
+                    long_filename_header.set_cksum();
+
+                    stdout.write_all(long_filename_header.as_bytes()).unwrap();
+                    stdout.write_all(data).unwrap();
+                    stdout.write_all(&[0]).unwrap();
+
+                    let payload_bytes = data.len() + 1;
+
+                    let padding = 512 - (payload_bytes % 512);
+                    if padding < 512 {
+                        stdout.write_all(&zeroes[..padding]).unwrap();
+                    }
+                }
+
+                header.set_cksum();
+                stdout.write_all(header.as_bytes()).unwrap();
+
+                // no padding for the remaining
+
                 item.into_inner()
             }
         };
@@ -212,20 +283,6 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
 
 /// Returns the raw bytes we need to write as a new entry into the tar
 fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut tar::Header, path: &'a Path, error: std::io::Error) -> &'a [u8] {
-    #[cfg(unix)]
-    fn path2bytes(p: &Path) -> &[u8] {
-        use std::os::unix::prelude::*;
-        p.as_os_str().as_bytes()
-    }
-
-    #[cfg(windows)]
-    fn path2bytes(p: &Path) -> &[u8] {
-        use std::os::windows::prelude::*;
-        p.as_os_str()
-            .to_str()
-            .expect("we should only have unicode compatible bytes even on windows")
-            .as_bytes()
-    }
 
     #[cfg(unix)]
     /// On unix this operation can never fail.
@@ -276,6 +333,9 @@ fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut 
         panic!("path cannot be put into tar: {:?} ({})", path, error);
     }
 
+    long_filename_header.set_mode(0o644);
+
+    // TODO: we could just set this once, like other fields except path?
     {
         let name = b"././@LongLink";
         let gnu_header = long_filename_header.as_gnu_mut().unwrap();
@@ -290,8 +350,6 @@ fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut 
     // the plus one is documented as compliance to GNU tar, probably the null byte
     // termination?
     long_filename_header.set_size(data.len() as u64 + 1);
-
-    long_filename_header.set_mode(0o644);
     long_filename_header.set_entry_type(tar::EntryType::new(b'L'));
     long_filename_header.set_cksum();
 
@@ -302,6 +360,21 @@ fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut 
         .expect("we already made sure the path is of fitting length");
 
     data
+}
+
+#[cfg(unix)]
+fn path2bytes(p: &Path) -> &[u8] {
+    use std::os::unix::prelude::*;
+    p.as_os_str().as_bytes()
+}
+
+#[cfg(windows)]
+fn path2bytes(p: &Path) -> &[u8] {
+    use std::os::windows::prelude::*;
+    p.as_os_str()
+        .to_str()
+        .expect("we should only have unicode compatible bytes even on windows")
+        .as_bytes()
 }
 
 enum Error {
