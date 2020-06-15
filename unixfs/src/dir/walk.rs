@@ -403,6 +403,19 @@ impl<'a> Entry<'a> {
             | Symlink(_, p, _) => p,
         }
     }
+
+    /// Returns the metadata for the latest entry. It exists for initial directory entries, files,
+    /// and symlinks but not continued HamtShards.
+    pub fn metadata(&self) -> Option<&'a FileMetadata> {
+        use Entry::*;
+        match self {
+            Bucket(_, _) => None,
+            RootDirectory(m)
+            | Directory(_, _, m)
+            | File(_, _, m)
+            | Symlink(_, _, m) => Some(m),
+        }
+    }
 }
 
 impl InnerEntry {
