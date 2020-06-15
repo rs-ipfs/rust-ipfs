@@ -392,7 +392,8 @@ pub enum Entry<'a> {
 }
 
 impl<'a> Entry<'a> {
-    /// Returns the path for the latest entry.
+    /// Returns the path for the latest entry. This is created from UTF8 string and as such always
+    /// representable on all platforms.
     pub fn path(&self) -> &'a Path {
         use Entry::*;
         match self {
