@@ -789,8 +789,12 @@ mod tests {
     use crate::file::tests::FakeBlockstore;
 
     #[test]
-    fn walk_two_file_directory() {
+    fn walk_two_file_directory_empty() {
         two_file_directory_scenario("");
+    }
+
+    #[test]
+    fn walk_two_file_directory_named() {
         two_file_directory_scenario("foo");
     }
 
@@ -816,19 +820,21 @@ mod tests {
     }
 
     #[test]
-    fn sharded_dir_different_root_names() {
+    fn sharded_dir_different_root_empty() {
+        sharded_dir_scenario("");
+    }
+
+    #[test]
+    fn sharded_dir_different_root_named() {
+        sharded_dir_scenario("foo");
+    }
+
+    fn sharded_dir_scenario(root_name: &str) {
         use std::fmt::Write;
 
         // the hamt sharded directory is such that the root only has buckets so all of the actual files
         // are at second level buckets, each bucket should have 2 files. the actual files is in fact a single empty
         // file, linked from many names.
-
-        sharded_dir_scenario("foo");
-        sharded_dir_scenario("");
-    }
-
-    fn sharded_dir_scenario(root_name: &str) {
-        use std::fmt::Write;
 
         let mut counts = walk_everything(root_name, "QmZbFPTnDBMWbQ6iBxQAhuhLz8Nu9XptYS96e7cuf5wvbk");
         let mut buf = PathBuf::from(root_name);
@@ -872,7 +878,6 @@ mod tests {
 
         }
     }
-
 
     fn walk_everything(root_name: &str, cid: &str) -> HashMap<PathBuf, usize> {
         let mut ret = HashMap::new();
