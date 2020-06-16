@@ -360,7 +360,7 @@ fn handle_dagpb_not_found(
     needle: String,
     path: &IpfsPath,
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
-    if needle == "Data" && path.len() == 0 {
+    if needle == "Data" && path.len() == 0 && path.follow_dagpb_data() {
         // /dag/resolve needs to "resolve through" a dag-pb node down to the "just
         // data" even though we do not need to extract it ... however this might be
         // good to just filter with refs, as no refs of such path exist

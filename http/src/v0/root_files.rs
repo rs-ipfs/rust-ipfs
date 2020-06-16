@@ -1,7 +1,7 @@
 use crate::v0::support::unshared::Unshared;
 use crate::v0::support::{with_ipfs, StreamResponse, StringError};
 use ipfs::{Ipfs, IpfsTypes};
-use libipld::cid::Codec;
+use libipld::cid::{Cid, Codec};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::convert::TryFrom;
@@ -37,7 +37,8 @@ pub fn cat<T: IpfsTypes>(
 
 async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Reply, Rejection> {
 
-    let path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
+    let mut path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
+    path.set_follow_dagpb_data(false);
 
     let range = match (args.offset, args.length) {
         (Some(start), Some(len)) => Some(start..(start + len)),
@@ -85,23 +86,18 @@ pub fn get<T: IpfsTypes>(
 
 async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Reply, Rejection> {
 
-    let path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
+    let mut path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
+    path.set_follow_dagpb_data(false);
 
     // FIXME: this is here until we have IpfsPath back at ipfs
-
-    // FIXME: use the second tuple value
     let (cid, _, _) = walk_path(&ipfs, path).await.map_err(StringError::from)?;
 
     if cid.codec() != Codec::DagProtobuf {
         return Err(StringError::from("unknown node type").into());
     }
 
-    let st = walk(ipfs, cid);
-
-    Ok(StreamResponse(Unshared::new(st)))
+    Ok(StreamResponse(Unshared::new(walk(ipfs, cid))))
 }
-
-use libipld::cid::Cid;
 
 fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
     -> impl Stream<Item = Result<Bytes, std::convert::Infallible>> + 'static
