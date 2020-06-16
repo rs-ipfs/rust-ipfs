@@ -859,6 +859,54 @@ mod tests {
         assert!(counts.is_empty(), "{:#?}", counts);
     }
 
+    #[test]
+    fn single_block_top_level_file_empty() {
+        single_block_top_level_file_scenario("");
+    }
+
+    #[test]
+    fn single_block_top_level_file_named() {
+        single_block_top_level_file_scenario("empty.txt");
+    }
+
+    fn single_block_top_level_file_scenario(root_name: &str) {
+        let mut counts = walk_everything(root_name, "QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH");
+        let mut buf = PathBuf::from(root_name);
+        counts.checked_removal(&buf, 1);
+    }
+
+    #[test]
+    fn top_level_symlink_empty() {
+        top_level_symlink_scenario("");
+    }
+
+    #[test]
+    fn top_level_symlink_named() {
+        top_level_symlink_scenario("this_links_to_foobar");
+    }
+
+    fn top_level_symlink_scenario(root_name: &str) {
+        let mut counts = walk_everything(root_name, "QmNgQEdXVdLw79nH2bnxLMxnyWMaXrijfqMTiDVat3iyuz");
+        let mut buf = PathBuf::from(root_name);
+        counts.checked_removal(&buf, 1);
+    }
+
+    #[test]
+    fn top_level_multiblock_file_empty() {
+        top_level_multiblock_file_scenario("");
+    }
+
+    #[test]
+    fn top_level_multiblock_file_named() {
+        top_level_multiblock_file_scenario("foobar_and_newline.txt");
+    }
+
+    fn top_level_multiblock_file_scenario(root_name: &str) {
+        let mut counts = walk_everything(root_name, "QmNgQEdXVdLw79nH2bnxLMxnyWMaXrijfqMTiDVat3iyuz");
+        let mut buf = PathBuf::from(root_name);
+        counts.checked_removal(&buf, 5);
+    }
+
     trait CountsExt {
         fn checked_removal(&mut self, key: &PathBuf, expected: usize);
     }
