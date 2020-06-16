@@ -7,9 +7,6 @@ use std::fmt;
 mod sharded_lookup;
 pub use sharded_lookup::{Cache, LookupError, ShardError, ShardedLookup};
 
-/// Support for walking over all UnixFs trees. TODO: This needs to be moved to top-level.
-pub mod walk;
-
 /// Resolves a single path segment on `dag-pb` or UnixFS directories (normal, sharded).
 ///
 /// The third parameter can always be substituted with a None but when repeatedly resolving over

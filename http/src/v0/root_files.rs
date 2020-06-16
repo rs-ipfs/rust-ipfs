@@ -12,9 +12,9 @@ use bytes::{Bytes, BytesMut, buf::BufMut};
 use tar::{Header, EntryType};
 use futures::stream::TryStream;
 use ipfs::unixfs::ll::file::FileMetadata;
-use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed, ll::file::visit::Cache};
+use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed};
 use crate::v0::refs::{walk_path, IpfsPath};
-use ipfs::unixfs::ll::dir::walk::{self, Walker, ContinuedWalk};
+use ipfs::unixfs::ll::walk::{self, Walker, ContinuedWalk};
 use ipfs::Block;
 use async_stream::try_stream;
 
@@ -104,7 +104,7 @@ async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Re
 fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
     -> impl TryStream<Ok = Bytes, Error = GetError> + 'static
 {
-    let mut cache: Option<Cache> = None;
+    let mut cache = None;
     let mut tar_helper = TarHelper::with_buffer_sizes(16 * 1024);
 
     let mut root = Some(root);

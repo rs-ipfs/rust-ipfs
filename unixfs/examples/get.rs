@@ -1,5 +1,4 @@
 use cid::Cid;
-use ipfs_unixfs::file::{FileReadFailed};
 use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Error as IoError, Read};
@@ -57,7 +56,7 @@ fn main() {
 }
 
 fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
-    use ipfs_unixfs::dir::walk::{Walker, ContinuedWalk};
+    use ipfs_unixfs::walk::{Walker, ContinuedWalk};
     use std::io::{stdout, Write};
 
     let stdout = stdout();
@@ -75,11 +74,11 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
 
     let mut cache = None;
 
-    let mut visit = match Walker::start(&buf, "", &mut cache).unwrap() {
+    let mut visit = match Walker::start(&buf, "", &mut cache)? {
         ContinuedWalk::Directory(item) => {
             item.into_inner()
         },
-        x => unreachable!("{:?}", x),
+        x => todo!("Only root level directories are supported in this exporter, not: {:?}", x),
     };
 
     let mut header = tar::Header::new_gnu();
@@ -114,7 +113,7 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
         // call to continue_walk.
         let (next, _) = walker.pending_links();
         blocks.as_file(&next.to_bytes())?.read_to_end(&mut buf)?;
-        visit = match walker.continue_walk(&buf, &mut cache).unwrap() {
+        visit = match walker.continue_walk(&buf, &mut cache)? {
             ContinuedWalk::File(segment, item) => {
 
                 let total_size = item.as_entry().total_file_size().unwrap();
@@ -372,7 +371,7 @@ fn path2bytes(p: &Path) -> &[u8] {
 enum Error {
     OpeningFailed(IoError),
     Other(IoError),
-    Traversal(ipfs_unixfs::file::FileReadFailed),
+    Walk(ipfs_unixfs::walk::Error),
 }
 
 impl From<IoError> for Error {
@@ -381,9 +380,9 @@ impl From<IoError> for Error {
     }
 }
 
-impl From<FileReadFailed> for Error {
-    fn from(e: FileReadFailed) -> Error {
-        Error::Traversal(e)
+impl From<ipfs_unixfs::walk::Error> for Error {
+    fn from(e: ipfs_unixfs::walk::Error) -> Error {
+        Error::Walk(e)
     }
 }
 
@@ -393,7 +392,7 @@ impl fmt::Display for Error {
         match self {
             OpeningFailed(e) => write!(fmt, "File opening failed: {}", e),
             Other(e) => write!(fmt, "Other file related io error: {}", e),
-            Traversal(e) => write!(fmt, "Traversal failed, please report this as a bug: {}", e),
+            Walk(e) => write!(fmt, "Walk failed, please report this as a bug: {}", e),
         }
     }
 }

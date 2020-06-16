@@ -18,6 +18,9 @@ use crate::pb::UnixFsType;
 /// Support operations for the dag-pb, the outer shell of UnixFS.
 pub mod dagpb;
 
+/// Support for walking over all UnixFs trees.
+pub mod walk;
+
 /// A link could not be transformed into a Cid.
 #[derive(Debug)]
 pub struct InvalidCidInLink {
