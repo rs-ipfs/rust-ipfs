@@ -100,11 +100,17 @@ impl Walker {
             UnixFsType::HAMTShard => {
                 let inner = InnerEntry::new_root_bucket(metadata, root_name);
 
+                // using depth == Path::ancestors().count() ... maybe not so good idea.
+                let depth = if root_name.is_empty() {
+                    1
+                } else {
+                    2
+                };
+
                 let links = flat.links
                     .into_iter()
                     .enumerate()
-                    // 1 == ancestors should only be the [""]
-                    .map(|(nth, link)| convert_sharded_link(1, nth, link));
+                    .map(move |(nth, link)| convert_sharded_link(depth, nth, link));
 
                 Self::walk_directory(links, inner)
             },
@@ -152,6 +158,7 @@ impl Walker {
         self.current.as_entry()
     }
 
+    /// Returns the next cid to load and pass content of which to pass to `continue_walk`.
     pub fn pending_links(&self) -> (&Cid, impl Iterator<Item = &Cid>) {
         use InnerKind::*;
         // rev: because we'll pop any of the pending
@@ -416,7 +423,7 @@ enum InnerKind {
 
 #[derive(Debug)]
 pub enum Entry<'a> {
-    RootDirectory(&'a FileMetadata),
+    RootDirectory(&'a Path, &'a FileMetadata),
     Bucket(&'a Cid, &'a Path),
     Directory(&'a Cid, &'a Path, &'a FileMetadata),
     // TODO: add remaining bytes or something here?
@@ -430,8 +437,8 @@ impl<'a> Entry<'a> {
     pub fn path(&self) -> &'a Path {
         use Entry::*;
         match self {
-            RootDirectory(_) => "".as_ref(),
-            Bucket(_, p)
+            RootDirectory(p, _)
+            | Bucket(_, p)
             | Directory(_, p, _)
             | File(_, p, _, _)
             | Symlink(_, p, _) => p,
@@ -444,7 +451,7 @@ impl<'a> Entry<'a> {
         use Entry::*;
         match self {
             Bucket(_, _) => None,
-            RootDirectory(m)
+            RootDirectory(_, m)
             | Directory(_, _, m)
             | File(_, _, m, _)
             | Symlink(_, _, m) => Some(m),
@@ -463,7 +470,7 @@ impl<'a> Entry<'a> {
     pub fn cid(&self) -> Option<&Cid> {
         use Entry::*;
         match self {
-            RootDirectory(_) => None,
+            RootDirectory(_, _) => None,
             Bucket(cid, _)
             | Directory(cid, _, _)
             | File(cid, _, _, _)
@@ -506,7 +513,7 @@ impl InnerEntry {
     pub fn as_entry<'a>(&'a self) -> Entry<'a> {
         use InnerKind::*;
         match &self.kind {
-            RootDirectory | BucketAtRoot => Entry::RootDirectory(&self.metadata),
+            RootDirectory | BucketAtRoot => Entry::RootDirectory(&self.path, &self.metadata),
             RootBucket(cid) => Entry::Directory(cid, &self.path, &self.metadata),
             Bucket(cid) => Entry::Bucket(cid, &self.path),
             Directory(cid) => Entry::Directory(cid, &self.path, &self.metadata),
@@ -582,8 +589,10 @@ impl InnerEntry {
     ) {
         use InnerKind::*;
         match self.kind {
-            BucketAtRoot
-            | RootBucket(_)
+            BucketAtRoot => {
+                assert_eq!(self.depth, depth, "{:?}", self.path);
+            }
+            RootBucket(_)
             | Bucket(_)
             | File(_, None, _)
             | Symlink(_) => {
@@ -786,20 +795,24 @@ mod tests {
     }
 
     fn two_file_directory_scenario(root_name: &str) {
+        println!("new two_file_directory_scenario");
         let mut counts = walk_everything(root_name, "QmPTotyhVnnfCu9R4qwR4cdhpi5ENaiP8ZJfdqsm8Dw2jB");
 
-        let mut pb = PathBuf::from(root_name);
-        assert_eq!(counts.remove(&pb), Some(1));
+        let mut pb = PathBuf::new();
+        pb.push(root_name);
+        assert_eq!(counts.remove(&pb), Some(1), "invalid count for {:?} in {:#?}", pb, counts);
+        println!("{:?}", pb);
 
         pb.push("QmVkvLsSEm2uJx1h5Fqukje8mMPYg393o5C2kMCkF2bBTA");
-        assert_eq!(counts.remove(&pb), Some(1));
+        println!("{:?}", pb);
+        assert_eq!(counts.remove(&pb), Some(1), "invalid count for {:?} in {:#?}", pb, counts);
 
         pb.push("foobar.balanced");
-        assert_eq!(counts.remove(&pb), Some(5));
+        assert_eq!(counts.remove(&pb), Some(5), "invalid count for {:?} in {:#?}", pb, counts);
 
         assert!(pb.pop());
         pb.push("foobar.trickle");
-        assert_eq!(counts.remove(&pb), Some(5));
+        assert_eq!(counts.remove(&pb), Some(5), "invalid count for {:?} in {:#?}", pb, counts);
 
         assert!(counts.is_empty(), "{:#?}", counts);
     }
@@ -820,19 +833,22 @@ mod tests {
         use std::fmt::Write;
 
         let mut counts = walk_everything(root_name, "QmZbFPTnDBMWbQ6iBxQAhuhLz8Nu9XptYS96e7cuf5wvbk");
-
-        assert_eq!(counts.remove(&PathBuf::from(root_name)), Some(9));
-        let indices = [38, 48, 50, 58, 9, 33, 4, 34, 17, 37, 40, 16, 41, 3, 25, 49];
-        let mut fmtbuf = String::new();
         let mut buf = PathBuf::from(root_name);
 
-        for i in &indices {
+        assert_eq!(counts.remove(&buf), Some(9), "wrong value for {:?} in {:#?}", buf, counts);
+        let indices = [38, 48, 50, 58, 9, 33, 4, 34, 17, 37, 40, 16, 41, 3, 25, 49];
+        let mut fmtbuf = String::new();
+
+        for (index, i) in indices.iter().enumerate() {
             fmtbuf.clear();
             write!(fmtbuf, "long-named-file-{:03}", i).unwrap();
 
-            buf.pop();
+            if index > 0 {
+                buf.pop();
+            }
             buf.push(&fmtbuf);
-            assert_eq!(counts.remove(&buf), Some(1), "{:?}", buf);
+
+            assert_eq!(counts.remove(&buf), Some(1), "{:?} in {:#?}", buf, counts);
 
         }
 
@@ -846,7 +862,7 @@ mod tests {
         let block = blocks.get_by_str(cid);
         let mut cache = None;
 
-        let mut visit = match Walker::start(block, "foo", &mut cache).unwrap() {
+        let mut visit = match Walker::start(block, root_name, &mut cache).unwrap() {
             ContinuedWalk::Directory(item) => {
                 *ret.entry(PathBuf::from(item.as_entry().path())).or_insert(0) += 1;
                 item.into_inner()
