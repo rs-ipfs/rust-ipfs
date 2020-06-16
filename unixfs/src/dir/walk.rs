@@ -800,19 +800,17 @@ mod tests {
 
         let mut pb = PathBuf::new();
         pb.push(root_name);
-        assert_eq!(counts.remove(&pb), Some(1), "invalid count for {:?} in {:#?}", pb, counts);
-        println!("{:?}", pb);
+        counts.checked_removal(&pb, 1);
 
         pb.push("QmVkvLsSEm2uJx1h5Fqukje8mMPYg393o5C2kMCkF2bBTA");
-        println!("{:?}", pb);
-        assert_eq!(counts.remove(&pb), Some(1), "invalid count for {:?} in {:#?}", pb, counts);
+        counts.checked_removal(&pb, 1);
 
         pb.push("foobar.balanced");
-        assert_eq!(counts.remove(&pb), Some(5), "invalid count for {:?} in {:#?}", pb, counts);
+        counts.checked_removal(&pb, 5);
 
         assert!(pb.pop());
         pb.push("foobar.trickle");
-        assert_eq!(counts.remove(&pb), Some(5), "invalid count for {:?} in {:#?}", pb, counts);
+        counts.checked_removal(&pb, 5);
 
         assert!(counts.is_empty(), "{:#?}", counts);
     }
@@ -835,7 +833,8 @@ mod tests {
         let mut counts = walk_everything(root_name, "QmZbFPTnDBMWbQ6iBxQAhuhLz8Nu9XptYS96e7cuf5wvbk");
         let mut buf = PathBuf::from(root_name);
 
-        assert_eq!(counts.remove(&buf), Some(9), "wrong value for {:?} in {:#?}", buf, counts);
+        counts.checked_removal(&buf, 9);
+
         let indices = [38, 48, 50, 58, 9, 33, 4, 34, 17, 37, 40, 16, 41, 3, 25, 49];
         let mut fmtbuf = String::new();
 
@@ -848,12 +847,32 @@ mod tests {
             }
             buf.push(&fmtbuf);
 
-            assert_eq!(counts.remove(&buf), Some(1), "{:?} in {:#?}", buf, counts);
-
+            counts.checked_removal(&buf, 1);
         }
 
         assert!(counts.is_empty(), "{:#?}", counts);
     }
+
+    trait CountsExt {
+        fn checked_removal(&mut self, key: &PathBuf, expected: usize);
+    }
+
+    impl CountsExt for HashMap<PathBuf, usize> {
+        fn checked_removal(&mut self, key: &PathBuf, expected: usize) {
+            use std::collections::hash_map::Entry::*;
+
+            match self.entry(key.clone()) {
+                Occupied(oe) => {
+                    assert_eq!(oe.remove(), expected);
+                },
+                Vacant(_) => {
+                    panic!("no such key {:?} (expected {}) in {:#?}", key, expected, self);
+                }
+            }
+
+        }
+    }
+
 
     fn walk_everything(root_name: &str, cid: &str) -> HashMap<PathBuf, usize> {
         let mut ret = HashMap::new();
