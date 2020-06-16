@@ -920,7 +920,8 @@ mod tests {
     fn test_walked_file_segments() {
         let blocks = FakeBlockstore::with_fixtures();
 
-        let trickle_foobar = cid::Cid::try_from("QmWfQ48ChJUj4vWKFsUDe4646xCBmXgdmNfhjz9T7crywd").unwrap();
+        let trickle_foobar =
+            cid::Cid::try_from("QmWfQ48ChJUj4vWKFsUDe4646xCBmXgdmNfhjz9T7crywd").unwrap();
         let mut visit = Some(Walker::new(trickle_foobar, String::new()));
 
         let mut counter = 0;
@@ -940,12 +941,12 @@ mod tests {
                             assert!(segment.as_ref().is_empty());
                             assert!(segment.is_first());
                             assert!(!segment.is_last());
-                        },
+                        }
                         2..=4 => {
                             assert_eq!(segment.as_ref().len(), 2);
                             assert!(!segment.is_first());
                             assert!(!segment.is_last());
-                        },
+                        }
                         5 => {
                             assert_eq!(segment.as_ref().len(), 1);
                             assert!(!segment.is_first());
@@ -955,7 +956,7 @@ mod tests {
                     }
 
                     item.into_inner()
-                },
+                }
                 x => unreachable!("{:?}", x),
             };
         }
