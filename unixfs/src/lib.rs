@@ -149,7 +149,8 @@ impl Metadata {
     /// Returns the mtime metadata as an `FileTime`. Enabled only on feature `filetime`.
     #[cfg(feature = "filetime")]
     pub fn mtime_as_filetime(&self) -> Option<filetime::FileTime> {
-        self.mtime().map(|(seconds, nanos)| filetime::FileTime::from_unix_time(seconds, nanos))
+        self.mtime()
+            .map(|(seconds, nanos)| filetime::FileTime::from_unix_time(seconds, nanos))
     }
 }
 

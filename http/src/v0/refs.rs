@@ -291,7 +291,7 @@ pub async fn walk_path<T: IpfsTypes>(
                     // and the returned error string is tested against listed alternatives.
                     // unexpected type is not one of them.
                     let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
-                    return Err(WalkError::from((e, current)))
+                    return Err(WalkError::from((e, current)));
                 }
                 Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
             };
@@ -373,7 +373,6 @@ fn handle_dagpb_not_found(
     needle: String,
     path: &IpfsPath,
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
-
     use ipfs::unixfs::ll::dagpb::node_data;
 
     if needle == "Data" && path.len() == 0 && path.follow_dagpb_data() {

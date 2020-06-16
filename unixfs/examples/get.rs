@@ -1,11 +1,11 @@
 use cid::Cid;
+use ipfs_unixfs::Metadata;
+use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fmt;
+use std::io;
 use std::io::{Error as IoError, Read};
 use std::path::{Path, PathBuf};
-use std::io;
-use std::borrow::Cow;
-use ipfs_unixfs::Metadata;
 
 fn main() {
     let cid = match std::env::args().nth(1).map(Cid::try_from) {
@@ -38,8 +38,7 @@ fn main() {
     let blockstore = ShardedBlockStore { root: blocks };
 
     match walk(blockstore, &cid) {
-        Ok(()) => {
-        }
+        Ok(()) => {}
         Err(Error::OpeningFailed(e)) => {
             eprintln!("{}\n", e);
             eprintln!("This is likely caused by either:");
@@ -56,7 +55,7 @@ fn main() {
 }
 
 fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
-    use ipfs_unixfs::walk::{Walker, ContinuedWalk};
+    use ipfs_unixfs::walk::{ContinuedWalk, Walker};
     use std::io::{stdout, Write};
 
     let stdout = stdout();
@@ -75,10 +74,11 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
     let mut cache = None;
 
     let mut visit = match Walker::start(&buf, "", &mut cache)? {
-        ContinuedWalk::Directory(item) => {
-            item.into_inner()
-        },
-        x => todo!("Only root level directories are supported in this exporter, not: {:?}", x),
+        ContinuedWalk::Directory(item) => item.into_inner(),
+        x => todo!(
+            "Only root level directories are supported in this exporter, not: {:?}",
+            x
+        ),
     };
 
     let mut header = tar::Header::new_gnu();
@@ -93,7 +93,12 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
         let name = b"././@LongLink";
         let gnu_header = long_filename_header.as_gnu_mut().unwrap();
         // since we are reusing the header, zero out all of the bytes
-        let written = name.iter().copied().chain(std::iter::repeat(0)).enumerate().take(gnu_header.name.len());
+        let written = name
+            .iter()
+            .copied()
+            .chain(std::iter::repeat(0))
+            .enumerate()
+            .take(gnu_header.name.len());
         // FIXME: there must be a better way to do this
         for (i, b) in written {
             gnu_header.name[i] = b;
@@ -115,7 +120,6 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
         blocks.as_file(&next.to_bytes())?.read_to_end(&mut buf)?;
         visit = match walker.continue_walk(&buf, &mut cache)? {
             ContinuedWalk::File(segment, item) => {
-
                 let total_size = item.as_entry().total_file_size().unwrap();
 
                 if segment.is_first() {
@@ -123,7 +127,8 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
 
                     let path = item.as_entry().path();
                     if let Err(e) = header.set_path(path) {
-                        let data = prepare_long_header(&mut header, &mut long_filename_header, path, e);
+                        let data =
+                            prepare_long_header(&mut header, &mut long_filename_header, path, e);
 
                         stdout.write_all(long_filename_header.as_bytes()).unwrap();
                         stdout.write_all(data).unwrap();
@@ -137,7 +142,10 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                         }
                     }
 
-                    let metadata = item.as_entry().metadata().expect("files must have metadata");
+                    let metadata = item
+                        .as_entry()
+                        .metadata()
+                        .expect("files must have metadata");
 
                     apply_file(&mut header, metadata, total_size);
 
@@ -157,12 +165,10 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                 }
 
                 item.into_inner()
-            },
+            }
             ContinuedWalk::Directory(item) => {
-
                 // sibling buckets do not have metadata
                 if let Some(metadata) = item.as_entry().metadata() {
-
                     // create header and empty entry ... we also need to remember the last directory
                     // path not to create duplicate entries
                     let path = item.as_entry().path();
@@ -170,7 +176,12 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                     // skip empty paths; this might need to be the CID though
                     if path != Path::new("") {
                         if let Err(e) = header.set_path(path) {
-                            let data = prepare_long_header(&mut header, &mut long_filename_header, path, e);
+                            let data = prepare_long_header(
+                                &mut header,
+                                &mut long_filename_header,
+                                path,
+                                e,
+                            );
 
                             stdout.write_all(long_filename_header.as_bytes()).unwrap();
                             stdout.write_all(data).unwrap();
@@ -184,13 +195,21 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
 
                         // dirs are appended: header, no additional padding
 
-                        header.set_mode(metadata.mode()
-                            .map(|mode| mode & 0o7777)
-                            .unwrap_or(0o0755));
+                        header
+                            .set_mode(metadata.mode().map(|mode| mode & 0o7777).unwrap_or(0o0755));
 
-                        header.set_mtime(metadata.mtime()
-                            .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
-                            .unwrap_or(0));
+                        header.set_mtime(
+                            metadata
+                                .mtime()
+                                .and_then(|(seconds, _)| {
+                                    if seconds >= 0 {
+                                        Some(seconds as u64)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .unwrap_or(0),
+                        );
 
                         header.set_size(0);
                         header.set_entry_type(tar::EntryType::Directory);
@@ -207,7 +226,10 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                 // away tar compatible.
 
                 // FIXME: we could get away from the unwraps by refining the continuedwalk type
-                let metadata = item.as_entry().metadata().expect("symlink must have metadata");
+                let metadata = item
+                    .as_entry()
+                    .metadata()
+                    .expect("symlink must have metadata");
 
                 let path = item.as_entry().path();
                 if let Err(e) = header.set_path(path) {
@@ -249,13 +271,20 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                     }
                 }
 
-                header.set_mode(metadata.mode()
-                    .map(|mode| mode & 0o7777)
-                    .unwrap_or(0o0644));
+                header.set_mode(metadata.mode().map(|mode| mode & 0o7777).unwrap_or(0o0644));
 
-                header.set_mtime(metadata.mtime()
-                    .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
-                    .unwrap_or(0));
+                header.set_mtime(
+                    metadata
+                        .mtime()
+                        .and_then(|(seconds, _)| {
+                            if seconds >= 0 {
+                                Some(seconds as u64)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(0),
+                );
 
                 header.set_size(0);
                 header.set_entry_type(tar::EntryType::Symlink);
@@ -274,21 +303,32 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
 }
 
 fn apply_file(header: &mut tar::Header, metadata: &Metadata, total_size: u64) {
-    header.set_mode(metadata.mode()
-        .map(|mode| mode & 0o7777)
-        .unwrap_or(0o0644));
+    header.set_mode(metadata.mode().map(|mode| mode & 0o7777).unwrap_or(0o0644));
 
-    header.set_mtime(metadata.mtime()
-        .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
-        .unwrap_or(0));
+    header.set_mtime(
+        metadata
+            .mtime()
+            .and_then(|(seconds, _)| {
+                if seconds >= 0 {
+                    Some(seconds as u64)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0),
+    );
 
     header.set_size(total_size);
     header.set_entry_type(tar::EntryType::Regular);
 }
 
 /// Returns the raw bytes we need to write as a new entry into the tar
-fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut tar::Header, path: &'a Path, error: std::io::Error) -> &'a [u8] {
-
+fn prepare_long_header<'a>(
+    header: &mut tar::Header,
+    long_filename_header: &mut tar::Header,
+    path: &'a Path,
+    error: std::io::Error,
+) -> &'a [u8] {
     #[cfg(unix)]
     /// On unix this operation can never fail.
     pub fn bytes2path(bytes: Cow<[u8]>) -> io::Result<Cow<Path>> {
@@ -347,7 +387,8 @@ fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut 
     // we still need to figure out the truncated path we put into the header
     let path = bytes2path(Cow::Borrowed(&data[..max]))
         .expect("quite certain we have no non-utf8 paths here");
-    header.set_path(&path)
+    header
+        .set_path(&path)
         .expect("we already made sure the path is of fitting length");
 
     data

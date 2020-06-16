@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::ops::Range;
 
-use crate::file::{FileError, Metadata, FileReadFailed, UnwrapBorrowedExt};
+use crate::file::{FileError, FileReadFailed, Metadata, UnwrapBorrowedExt};
 
 /// Navigates the UnixFs files, which are either:
 ///  - single block files which have everything needed to all of the contents

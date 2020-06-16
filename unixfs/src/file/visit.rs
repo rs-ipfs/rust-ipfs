@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use std::ops::Range;
 
 use crate::file::reader::{FileContent, FileReader, Traversal};
-use crate::file::{Metadata, FileReadFailed};
+use crate::file::{FileReadFailed, Metadata};
 use crate::pb::{merkledag::PBLink, FlatUnixFs};
 use crate::InvalidCidInLink;
 
@@ -22,8 +22,9 @@ impl IdleFileVisit {
 
     /// Begins the visitation by processing the first block to be visited.
     ///
-    /// Returns on success a tuple of file bytes, any metadata associated, and optionally a
-    /// `FileVisit` to continue the walk.
+    /// Returns on success a tuple of file bytes, total file size, any metadata associated, and
+    /// optionally a `FileVisit` to continue the walk.
+    #[allow(clippy::type_complexity)]
     pub fn start(
         self,
         block: &[u8],
@@ -32,6 +33,7 @@ impl IdleFileVisit {
         self.start_from_reader(fr, &mut None)
     }
 
+    #[allow(clippy::type_complexity)]
     pub(crate) fn start_from_parsed<'a>(
         self,
         block: FlatUnixFs<'a>,
@@ -41,6 +43,7 @@ impl IdleFileVisit {
         self.start_from_reader(fr, cache)
     }
 
+    #[allow(clippy::type_complexity)]
     fn start_from_reader<'a>(
         self,
         fr: FileReader<'a>,
@@ -60,15 +63,13 @@ impl IdleFileVisit {
                 // we need to select suitable here
                 let mut links = cache.take().unwrap_or_default().inner;
 
-                let pending = iter
-                    .enumerate()
-                    .filter_map(|(i, (link, range))| {
-                        if !block_is_in_target_range(&range, self.range.as_ref()) {
-                            return None;
-                        }
+                let pending = iter.enumerate().filter_map(|(i, (link, range))| {
+                    if !block_is_in_target_range(&range, self.range.as_ref()) {
+                        return None;
+                    }
 
-                        Some(to_pending(i, link, range))
-                    });
+                    Some(to_pending(i, link, range))
+                });
 
                 for item in pending {
                     links.push(item?);
@@ -94,7 +95,6 @@ impl IdleFileVisit {
                 }
             }
         }
-
     }
 }
 
@@ -102,7 +102,7 @@ impl IdleFileVisit {
 /// different files.
 #[derive(Default)]
 pub struct Cache {
-    inner: Vec<(Cid, Range<u64>)>
+    inner: Vec<(Cid, Range<u64>)>,
 }
 
 impl From<Vec<(Cid, Range<u64>)>> for Cache {
@@ -147,7 +147,11 @@ impl FileVisit {
     ///
     /// Returns on success a tuple of bytes and new version of `FileVisit` to continue the visit,
     /// when there is something more to visit.
-    pub fn continue_walk<'a>(mut self, next: &'a [u8], cache: &mut Option<Cache>) -> Result<(&'a [u8], Option<Self>), FileReadFailed> {
+    pub fn continue_walk<'a>(
+        mut self,
+        next: &'a [u8],
+        cache: &mut Option<Cache>,
+    ) -> Result<(&'a [u8], Option<Self>), FileReadFailed> {
         let traversal = self.state;
         let (_, range) = self
             .pending

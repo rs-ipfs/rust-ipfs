@@ -1,22 +1,22 @@
+use crate::v0::refs::{walk_path, IpfsPath};
 use crate::v0::support::unshared::Unshared;
 use crate::v0::support::{with_ipfs, StreamResponse, StringError};
+use async_stream::try_stream;
+use bytes::{buf::BufMut, Bytes, BytesMut};
+use futures::stream::TryStream;
+use ipfs::unixfs::ll::walk::{self, ContinuedWalk, Walker};
+use ipfs::unixfs::ll::Metadata;
+use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed};
+use ipfs::Block;
 use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::{Cid, Codec};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fmt;
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
+use tar::{EntryType, Header};
 use warp::{path, query, Filter, Rejection, Reply};
-use bytes::{Bytes, BytesMut, buf::BufMut};
-use tar::{Header, EntryType};
-use futures::stream::TryStream;
-use ipfs::unixfs::ll::Metadata;
-use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed};
-use crate::v0::refs::{walk_path, IpfsPath};
-use ipfs::unixfs::ll::walk::{self, Walker, ContinuedWalk};
-use ipfs::Block;
-use async_stream::try_stream;
 
 #[derive(Debug, Deserialize)]
 pub struct CatArgs {
@@ -37,7 +37,6 @@ pub fn cat<T: IpfsTypes>(
 }
 
 async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Reply, Rejection> {
-
     let mut path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
     path.set_follow_dagpb_data(false);
 
@@ -101,9 +100,10 @@ async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Re
     Ok(StreamResponse(Unshared::new(walk(ipfs, cid).into_stream())))
 }
 
-fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
-    -> impl TryStream<Ok = Bytes, Error = GetError> + 'static
-{
+fn walk<Types: IpfsTypes>(
+    ipfs: Ipfs<Types>,
+    root: Cid,
+) -> impl TryStream<Ok = Bytes, Error = GetError> + 'static {
     let mut cache = None;
     let mut tar_helper = TarHelper::with_buffer_sizes(16 * 1024);
 
@@ -291,7 +291,7 @@ impl TarHelper {
         let header = Self::new_default_header();
         let long_filename_header = Self::new_long_filename_header();
         let mut zeroes = BytesMut::with_capacity(512);
-        for _ in 0..(512/8) {
+        for _ in 0..(512 / 8) {
             zeroes.put_u64(0);
         }
         assert_eq!(zeroes.len(), 512);
@@ -324,7 +324,12 @@ impl TarHelper {
             let name = b"././@LongLink";
             let gnu_header = long_filename_header.as_gnu_mut().unwrap();
             // since we are reusing the header, zero out all of the bytes
-            let written = name.iter().copied().chain(std::iter::repeat(0)).enumerate().take(gnu_header.name.len());
+            let written = name
+                .iter()
+                .copied()
+                .chain(std::iter::repeat(0))
+                .enumerate()
+                .take(gnu_header.name.len());
             // FIXME: could revert back to the slice copying code since we never change this
             for (i, b) in written {
                 gnu_header.name[i] = b;
@@ -338,11 +343,17 @@ impl TarHelper {
         long_filename_header
     }
 
-    fn apply_file(&mut self, path: &Path, metadata: &Metadata, total_size: u64) -> Result<[Option<Bytes>; 4], GetError> {
+    fn apply_file(
+        &mut self,
+        path: &Path,
+        metadata: &Metadata,
+        total_size: u64,
+    ) -> Result<[Option<Bytes>; 4], GetError> {
         let mut ret: [Option<Bytes>; 4] = Default::default();
 
         if let Err(e) = self.header.set_path(path) {
-            let data = prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
+            let data =
+                prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
 
             self.written.put_slice(self.long_filename_header.as_bytes());
             ret[0] = Some(self.written.split().freeze());
@@ -382,11 +393,16 @@ impl TarHelper {
         ret
     }
 
-    fn apply_directory(&mut self, path: &Path, metadata: &Metadata) -> Result<[Option<Bytes>; 4], GetError> {
+    fn apply_directory(
+        &mut self,
+        path: &Path,
+        metadata: &Metadata,
+    ) -> Result<[Option<Bytes>; 4], GetError> {
         let mut ret: [Option<Bytes>; 4] = Default::default();
 
         if let Err(e) = self.header.set_path(path) {
-            let data = prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
+            let data =
+                prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
 
             self.written.put_slice(self.long_filename_header.as_bytes());
             ret[0] = Some(self.written.split().freeze());
@@ -413,11 +429,17 @@ impl TarHelper {
         Ok(ret)
     }
 
-    fn apply_symlink(&mut self, path: &Path, target: &Path, metadata: &Metadata) -> Result<[Option<Bytes>; 7], GetError> {
+    fn apply_symlink(
+        &mut self,
+        path: &Path,
+        target: &Path,
+        metadata: &Metadata,
+    ) -> Result<[Option<Bytes>; 7], GetError> {
         let mut ret: [Option<Bytes>; 7] = Default::default();
 
         if let Err(e) = self.header.set_path(path) {
-            let data = prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
+            let data =
+                prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
 
             self.written.put_slice(self.long_filename_header.as_bytes());
             ret[0] = Some(self.written.split().freeze());
@@ -440,7 +462,8 @@ impl TarHelper {
             }
 
             self.long_filename_header.set_size(data.len() as u64 + 1);
-            self.long_filename_header.set_entry_type(tar::EntryType::new(b'K'));
+            self.long_filename_header
+                .set_entry_type(tar::EntryType::new(b'K'));
             self.long_filename_header.set_cksum();
 
             self.written.put_slice(self.long_filename_header.as_bytes());
@@ -477,19 +500,35 @@ impl TarHelper {
     }
 
     fn set_metadata(header: &mut tar::Header, metadata: &Metadata, default_mode: u32) {
-        header.set_mode(metadata.mode()
-            .map(|mode| mode & 0o7777)
-            .unwrap_or(default_mode));
+        header.set_mode(
+            metadata
+                .mode()
+                .map(|mode| mode & 0o7777)
+                .unwrap_or(default_mode),
+        );
 
-        header.set_mtime(metadata.mtime()
-            .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
-            .unwrap_or(0));
+        header.set_mtime(
+            metadata
+                .mtime()
+                .and_then(|(seconds, _)| {
+                    if seconds >= 0 {
+                        Some(seconds as u64)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(0),
+        );
     }
 }
 
 /// Returns the raw bytes we need to write as a new entry into the tar
-fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut tar::Header, path: &'a Path, _error: std::io::Error) -> Result<&'a [u8], GetError> {
-
+fn prepare_long_header<'a>(
+    header: &mut tar::Header,
+    long_filename_header: &mut tar::Header,
+    path: &'a Path,
+    _error: std::io::Error,
+) -> Result<&'a [u8], GetError> {
     #[cfg(unix)]
     /// On unix this operation can never fail.
     pub fn bytes2path(bytes: Cow<[u8]>) -> std::io::Result<Cow<Path>> {
@@ -548,7 +587,8 @@ fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut 
     // we still need to figure out the truncated path we put into the header
     let path = bytes2path(Cow::Borrowed(&data[..max]))
         .expect("quite certain we have no non-utf8 paths here");
-    header.set_path(&path)
+    header
+        .set_path(&path)
         .expect("we already made sure the path is of fitting length");
 
     Ok(data)

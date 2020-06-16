@@ -96,7 +96,11 @@ impl TryFrom<&str> for IpfsPath {
 
         let follow_dagpb_data = true;
 
-        Ok(IpfsPath { root, path, follow_dagpb_data })
+        Ok(IpfsPath {
+            root,
+            path,
+            follow_dagpb_data,
+        })
     }
 }
 

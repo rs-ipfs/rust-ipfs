@@ -3,7 +3,7 @@
 ///! Most usable for walking UnixFS file trees provided by the `visit::IdleFileVisit` and
 ///! `visit::FileVisit` types.
 use crate::pb::ParsingFailed;
-use crate::{InvalidCidInLink, UnexpectedNodeType, Metadata};
+use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
 use std::borrow::Cow;
 use std::fmt;
 
@@ -230,7 +230,9 @@ pub(crate) mod tests {
     #[cfg(test)]
     impl FakeBlockstore {
         pub fn get_by_cid<'a>(&'a self, cid: &Cid) -> &'a [u8] {
-            self.blocks.get(cid).unwrap_or_else(|| panic!("cid not found: {}", cid))
+            self.blocks
+                .get(cid)
+                .unwrap_or_else(|| panic!("cid not found: {}", cid))
         }
 
         pub fn get_by_raw<'a>(&'a self, key: &[u8]) -> &'a [u8] {

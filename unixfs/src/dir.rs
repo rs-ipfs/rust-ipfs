@@ -228,10 +228,10 @@ impl MultipleMatchingLinks {
 mod tests {
 
     use super::{resolve, MaybeResolved};
+    use crate::file::tests::FakeBlockstore;
     use cid::Cid;
     use hex_literal::hex;
     use std::convert::TryFrom;
-    use crate::file::tests::FakeBlockstore;
 
     #[test]
     fn resolve_paths_from_plain_dagpb() {
@@ -306,6 +306,9 @@ mod tests {
             x => unreachable!("{:?}", x),
         };
 
-        assert_eq!(&next.to_string(), "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL");
+        assert_eq!(
+            &next.to_string(),
+            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL"
+        );
     }
 }
