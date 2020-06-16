@@ -288,7 +288,7 @@ fn prepare_long_header<'a>(
 
         return match bytes {
             Cow::Borrowed(bytes) => {
-                let s = str::from_utf8(bytes).map_err(|_| not_unicode(bytes))?;
+                let s = std::str::from_utf8(bytes).map_err(|_| not_unicode(bytes))?;
                 Ok(Cow::Borrowed(Path::new(s)))
             }
             Cow::Owned(bytes) => {
@@ -297,11 +297,16 @@ fn prepare_long_header<'a>(
             }
         };
 
-        fn not_unicode(v: &[u8]) -> io::Error {
-            other(&format!(
-                "only Unicode paths are supported on Windows: {}",
-                String::from_utf8_lossy(v)
-            ))
+        fn not_unicode(v: &[u8]) -> std::io::Error {
+            use std::io::{Error, ErrorKind};
+
+            Error::new(
+                ErrorKind::Other,
+                &format!(
+                    "only Unicode paths are supported on Windows: {}",
+                    String::from_utf8_lossy(v)
+                )
+            )
         }
     }
 
