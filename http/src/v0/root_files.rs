@@ -107,48 +107,17 @@ fn walk<Types: IpfsTypes>(
     let mut cache = None;
     let mut tar_helper = TarHelper::with_buffer_sizes(16 * 1024);
 
-    let mut root = Some(root);
-    let mut maybe_walker: Option<Walker> = None;
+    // the HTTP api uses the final Cid name as the root name in the generated tar
+    // archive.
+    let name = root.to_string();
+    let mut visit: Option<Walker> = Some(Walker::new(root, name));
 
     try_stream! {
-        loop {
-            // this mangling with the root and maybe_walker looks like this mainly because
-            //
-            // a) I could not come up with a simpler solution, as we cannot refactor the big match
-            // to a function given the non-uniform yield points
-            //
-            // b) adding more code here, like with an tri-state enum, goes quickly over the current
-            // #[recursion_limit = "512"], which is required due to how async_stream needs to parse
-            // this function (tt-muncher).
-            //
-            // the next will be the root on first round, and pending_links on the next rounds. root
-            // is read with `as_ref` and later dropped by assigning `None` to it on every
-            // iteration.
-            let next = root.as_ref()
-                .or_else(|| maybe_walker.as_ref().map(|w| w.pending_links().0));
-
-            // we either have a cid reference, or we are done
-            let next = match next {
-                Some(cid_ref) => cid_ref,
-                None => return,
-            };
-
+        while let Some(walker) = visit {
+            let (next, _) = walker.pending_links();
             let Block { data, .. } = ipfs.get_block(next).await?;
 
-            let res = match maybe_walker {
-                None => {
-                    // the HTTP api uses the final Cid name as the root name in the generated tar
-                    // archive; it will be copied to Walker internally so it can be temporary.
-                    let root_name = next.to_string();
-                    Walker::start(&data, &root_name, &mut cache)?
-                },
-                Some(walker) => walker.continue_walk(&data, &mut cache)?,
-            };
-
-            // make sure only first round uses the `root` cid.
-            root = None;
-
-            let next_walker = match res {
+            visit = match walker.continue_walk(&data, &mut cache)? {
                 ContinuedWalk::File(segment, item) => {
                     let total_size = item.as_entry()
                         .total_file_size()
@@ -196,9 +165,6 @@ fn walk<Types: IpfsTypes>(
                     if let Some(metadata) = item.as_entry().metadata() {
                         let path = item.as_entry().path();
 
-                        // TODO: this is still wrong
-                        assert_ne!(path, Path::new(""), "had metadata but name was empty");
-
                         for mut bytes in tar_helper.apply_directory(path, metadata)?.iter_mut() {
                             if let Some(bytes) = bytes.take() {
                                 yield bytes;
@@ -209,6 +175,8 @@ fn walk<Types: IpfsTypes>(
                     item.into_inner()
                 },
                 ContinuedWalk::Symlink(bytes, item) => {
+
+                    // converting a symlink is the most tricky part
                     let path = item.as_entry().path();
                     let target = std::str::from_utf8(bytes).map_err(|_| GetError::NonUtf8Symlink)?;
                     let target = Path::new(target);
@@ -223,8 +191,6 @@ fn walk<Types: IpfsTypes>(
                     item.into_inner()
                 },
             };
-
-            maybe_walker = next_walker;
         }
     }
 }

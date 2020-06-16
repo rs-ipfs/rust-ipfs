@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 /// Walker helps with walking an UnixFS tree, including all of the content and files.
 #[derive(Debug)]
 pub struct Walker {
-    current: InnerEntry,
+    /// This is `None` until the first block has been visited.
+    current: Option<InnerEntry>,
     /// On the next call to `continue_walk` this will be the block, unless we have an ongoing file
     /// walk in which case we shortcircuit to continue it. Failing any of the unwrappings of
     /// `self.next` would be an logic error
@@ -74,125 +75,33 @@ fn convert_sharded_link(
 }
 
 impl Walker {
-    /// Starts a new walk on a block's `data`. Requires a `root_name` which can be empty, but
-    /// conventionally with ipfs `/get` API is a string version of the root CID. It will be used as
-    /// the filename for any top level file or symlink, or the directory name for the top level
-    /// directory.
-    ///
-    /// Cache is an option, used to cache a datastructure between walking different files at the
-    /// cost of more constantly higher memory usage. It can always be given as `&mut None` to
-    /// effectively disable caching of the said datastructures.
-    ///
-    /// Returns on success the means to continue the walk or the final element and it's related
-    /// data.
-    pub fn start<'a>(
-        data: &'a [u8],
-        root_name: &str,
-        cache: &mut Option<Cache>,
-    ) -> Result<ContinuedWalk<'a>, Error> {
-        let flat = FlatUnixFs::try_from(data)?;
-        let metadata = Metadata::from(&flat.data);
+    /// Returns a new instance of a walker, ready to start from the given Cid.
+    pub fn new(cid: Cid, root_name: String) -> Walker {
+        // 1 == Path::ancestors().count() for an empty path
+        let depth = if root_name.is_empty() { 1 } else { 2 };
+        let next = Some((cid, root_name, depth));
 
-        match flat.data.Type {
-            UnixFsType::Directory => {
-                let inner = InnerEntry::new_root_dir(metadata, root_name);
-
-                let links = flat
-                    .links
-                    .into_iter()
-                    .enumerate()
-                    // 2 == number of ancestors this link needs to have on the path, this is after
-                    // some trial and error so not entirely sure why ... ancestors always include
-                    // the empty root in our case.
-                    .map(|(nth, link)| convert_link(2, nth, link));
-
-                Self::walk_directory(links, inner)
-            }
-            UnixFsType::HAMTShard => {
-                let inner = InnerEntry::new_root_bucket(metadata, root_name);
-
-                // using depth == Path::ancestors().count() ... maybe not so good idea.
-                let depth = if root_name.is_empty() { 1 } else { 2 };
-
-                let links = flat
-                    .links
-                    .into_iter()
-                    .enumerate()
-                    .map(move |(nth, link)| convert_sharded_link(depth, nth, link));
-
-                Self::walk_directory(links, inner)
-            }
-            UnixFsType::Raw | UnixFsType::File => {
-                let (bytes, file_size, metadata, step) =
-                    IdleFileVisit::default().start_from_parsed(flat, cache)?;
-
-                let last = step.is_none();
-                let segment = FileSegment::first(bytes, last);
-                let current = InnerEntry::new_root_file(metadata, root_name, step, file_size);
-
-                let state = if !last {
-                    State::Unfinished(Walker {
-                        current,
-                        next: None,
-                        pending: Vec::new(),
-                    })
-                } else {
-                    State::Last(current)
-                };
-
-                Ok(ContinuedWalk::File(segment, Item::from(state)))
-            }
-            UnixFsType::Metadata => Err(Error::UnsupportedType(flat.data.Type.into())),
-            UnixFsType::Symlink => {
-                let contents = match flat.data.Data {
-                    Some(Cow::Borrowed(bytes)) if !bytes.is_empty() => bytes,
-                    None | Some(Cow::Borrowed(_)) => &[][..],
-                    _ => unreachable!("never used into_owned"),
-                };
-
-                let current = InnerEntry::new_root_symlink(metadata, root_name);
-
-                Ok(ContinuedWalk::Symlink(
-                    contents,
-                    Item::from(State::Last(current)),
-                ))
-            }
+        Walker {
+            current: None,
+            next,
+            pending: Vec::new(),
         }
     }
 
-    fn walk_directory<'a, I>(mut links: I, current: InnerEntry) -> Result<ContinuedWalk<'a>, Error>
-    where
-        I: Iterator<Item = Result<(Cid, String, usize), InvalidCidInLink>> + 'a,
-    {
-        let state = if let Some(next) = links.next() {
-            let next = Some(next?);
-            let pending = links.collect::<Result<Vec<_>, _>>()?;
-
-            State::Unfinished(Walker {
-                current,
-                next,
-                pending,
-            })
-        } else {
-            State::Last(current)
-        };
-
-        Ok(ContinuedWalk::Directory(Item::from(state)))
-    }
-
-    /// Returns a description of a kind of node Walker is currently looking at.
-    pub fn as_entry(&'_ self) -> Entry<'_> {
-        self.current.as_entry()
+    /// Returns a description of a kind of node Walker is currently looking at, if the
+    /// continue_walk has been called after creating the value.
+    pub fn as_entry(&'_ self) -> Option<Entry<'_>> {
+        self.current.as_ref().map(|c| c.as_entry())
     }
 
     /// Returns the next cid to load and pass content of which to pass to `continue_walk`.
-    pub fn pending_links(&self) -> (&Cid, impl Iterator<Item = &Cid>) {
+    pub fn pending_links<'a>(&'a self) -> (&'a Cid, impl Iterator<Item = &'a Cid> + 'a) {
         use InnerKind::*;
         // rev: because we'll pop any of the pending
         let cids = self.pending.iter().map(|(cid, ..)| cid).rev();
 
-        match self.current.kind {
-            File(_, Some(ref visit), _) => {
+        match self.current.as_ref().map(|c| &c.kind) {
+            Some(File(_, Some(ref visit), _)) => {
                 let (first, rest) = visit.pending_links();
                 let next = self.next.iter().map(|(cid, _, _)| cid);
                 (first, Either::Left(rest.chain(next.chain(cids))))
@@ -219,7 +128,7 @@ impl Walker {
     ) -> Result<ContinuedWalk<'a>, Error> {
         use InnerKind::*;
 
-        if let File(_, visit @ Some(_), _) = &mut self.current.kind {
+        if let Some(File(_, visit @ Some(_), _)) = &mut self.current.as_mut().map(|c| &mut c.kind) {
             // we have an ongoing filevisit, the block must be related to it.
             let (bytes, step) = visit
                 .take()
@@ -234,7 +143,7 @@ impl Walker {
             let state = if file_continues || self.next.is_some() {
                 State::Unfinished(self)
             } else {
-                State::Last(self.current)
+                State::Last(self.current.unwrap())
             };
 
             return Ok(ContinuedWalk::File(segment, Item::from(state)));
@@ -246,7 +155,12 @@ impl Walker {
         match flat.data.Type {
             UnixFsType::Directory => {
                 let (cid, name, depth) = self.next.expect("validated at start and this method");
-                self.current.as_directory(cid, &name, depth, metadata);
+                match self.current.as_mut() {
+                    Some(current) => current.as_directory(cid, &name, depth, metadata),
+                    _ => {
+                        self.current = Some(InnerEntry::new_root_dir(cid, metadata, &name, depth));
+                    }
+                };
 
                 // depth + 1 because all entries below a directory are children of next, as in,
                 // deeper
@@ -275,7 +189,7 @@ impl Walker {
                         pending,
                     })
                 } else {
-                    State::Last(self.current)
+                    State::Last(self.current.unwrap())
                 };
 
                 Ok(ContinuedWalk::Directory(Item::from(state)))
@@ -284,12 +198,20 @@ impl Walker {
                 // TODO: the first hamtshard must have metadata!
                 let (cid, name, depth) = self.next.expect("validated at start and this method");
 
-                if name.is_empty() {
-                    // the name should be empty for all of the siblings
-                    self.current.as_bucket(cid, &name, depth);
-                } else {
-                    // but it should be non-empty for the directories
-                    self.current.as_bucket_root(cid, &name, depth, metadata);
+                match self.current.as_mut() {
+                    Some(current) => {
+                        if name.is_empty() {
+                            // the name should be empty for all of the siblings
+                            current.as_bucket(cid, &name, depth);
+                        } else {
+                            // but it should be non-empty for the directories
+                            current.as_bucket_root(cid, &name, depth, metadata);
+                        }
+                    }
+                    _ => {
+                        self.current =
+                            Some(InnerEntry::new_root_bucket(cid, metadata, &name, depth));
+                    }
                 }
 
                 // similar to directory the depth is +1 for nested entries, but the sibling buckets
@@ -320,7 +242,7 @@ impl Walker {
                         pending,
                     })
                 } else {
-                    State::Last(self.current)
+                    State::Last(self.current.unwrap())
                 };
 
                 Ok(ContinuedWalk::Directory(Item::from(state)))
@@ -329,10 +251,17 @@ impl Walker {
                 let (bytes, file_size, metadata, step) =
                     IdleFileVisit::default().start_from_parsed(flat, cache)?;
 
-                let (cid, name, depth) = self.next.expect("validated at start and this method");
+                let (cid, name, depth) = self.next.expect("validated at new and this method");
                 let file_continues = step.is_some();
-                self.current
-                    .as_file(cid, &name, depth, metadata, step, file_size);
+
+                match self.current.as_mut() {
+                    Some(current) => current.as_file(cid, &name, depth, metadata, step, file_size),
+                    _ => {
+                        self.current = Some(InnerEntry::new_root_file(
+                            cid, metadata, &name, step, file_size, depth,
+                        ))
+                    }
+                }
 
                 let next = self.pending.pop();
 
@@ -346,7 +275,7 @@ impl Walker {
                         pending: self.pending,
                     })
                 } else {
-                    State::Last(self.current)
+                    State::Last(self.current.unwrap())
                 };
 
                 Ok(ContinuedWalk::File(segment, Item::from(state)))
@@ -360,7 +289,13 @@ impl Walker {
                 };
 
                 let (cid, name, depth) = self.next.expect("continued without next");
-                self.current.as_symlink(cid, &name, depth, metadata);
+                match self.current.as_mut() {
+                    Some(current) => current.as_symlink(cid, &name, depth, metadata),
+                    _ => {
+                        self.current =
+                            Some(InnerEntry::new_root_symlink(cid, metadata, &name, depth));
+                    }
+                }
 
                 let state = if let Some(next) = self.pending.pop() {
                     State::Unfinished(Self {
@@ -369,7 +304,7 @@ impl Walker {
                         pending: self.pending,
                     })
                 } else {
-                    State::Last(self.current)
+                    State::Last(self.current.unwrap())
                 };
 
                 Ok(ContinuedWalk::Symlink(contents, Item::from(state)))
@@ -482,33 +417,35 @@ impl<'a> Entry<'a> {
 }
 
 impl InnerEntry {
-    fn new_root_dir(metadata: Metadata, name: &str) -> Self {
+    fn new_root_dir(_: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
             kind: InnerKind::RootDirectory,
             path,
             metadata,
-            depth: if name.is_empty() { 0 } else { 1 },
+            depth,
         }
     }
 
-    fn new_root_bucket(metadata: Metadata, name: &str) -> Self {
+    fn new_root_bucket(_: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
             kind: InnerKind::BucketAtRoot,
             path,
             metadata,
-            depth: if name.is_empty() { 0 } else { 1 },
+            depth,
         }
     }
 
     fn new_root_file(
+        _: Cid,
         metadata: Metadata,
         name: &str,
         step: Option<FileVisit>,
         file_size: u64,
+        depth: usize,
     ) -> Self {
         let mut path = PathBuf::new();
         path.push(name);
@@ -516,18 +453,18 @@ impl InnerEntry {
             kind: InnerKind::File(None, step, file_size),
             path,
             metadata,
-            depth: if name.is_empty() { 0 } else { 1 },
+            depth,
         }
     }
 
-    fn new_root_symlink(metadata: Metadata, name: &str) -> Self {
+    fn new_root_symlink(_: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
             kind: InnerKind::Symlink(None),
             path,
             metadata,
-            depth: if name.is_empty() { 0 } else { 1 },
+            depth,
         }
     }
 
@@ -677,7 +614,9 @@ impl Item {
     /// loaded block.
     pub fn as_entry(&self) -> Entry<'_> {
         match &self.state {
-            State::Unfinished(w) => w.as_entry(),
+            State::Unfinished(w) => w
+                .as_entry()
+                .expect("if the walk is unfinished, there has to be an entry"),
             State::Last(w) => w.as_entry(),
         }
     }
@@ -1004,16 +943,12 @@ mod tests {
         let mut ret = HashMap::new();
 
         let blocks = FakeBlockstore::with_fixtures();
-        let block = blocks.get_by_str(cid);
+
         let mut cache = None;
-
-        let item = Walker::start(block, root_name, &mut cache)
-            .unwrap()
-            .into_inner();
-
-        *ret.entry(PathBuf::from(item.as_entry().path()))
-            .or_insert(0) += 1;
-        let mut visit = item.into_inner();
+        let mut visit = Some(Walker::new(
+            cid::Cid::try_from(cid).unwrap(),
+            root_name.to_string(),
+        ));
 
         while let Some(walker) = visit {
             let (next, _) = walker.pending_links();

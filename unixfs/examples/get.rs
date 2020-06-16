@@ -61,26 +61,6 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
     let stdout = stdout();
     let mut stdout = stdout.lock();
 
-    // The blockstore-specific way of reading the block. Here we assume go-ipfs 0.5 default flatfs
-    // configuration, which puts the files at sharded directories and names the blocks as base32
-    // upper and a suffix of "data".
-    //
-    // For the ipfs-unixfs it is important that the raw block data lives long enough that the
-    // possible content gets to be processed, at minimum one step of the walk as shown in this
-    // example.
-    let mut buf = Vec::new();
-    blocks.as_file(&start.to_bytes())?.read_to_end(&mut buf)?;
-
-    let mut cache = None;
-
-    let mut visit = match Walker::start(&buf, "", &mut cache)? {
-        ContinuedWalk::Directory(item) => item.into_inner(),
-        x => todo!(
-            "Only root level directories are supported in this exporter, not: {:?}",
-            x
-        ),
-    };
-
     let mut header = tar::Header::new_gnu();
     header.set_mtime(0);
     header.set_uid(0);
@@ -110,6 +90,10 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
     long_filename_header.set_gid(0);
 
     let zeroes = [0; 512];
+
+    let mut buf = Vec::new();
+    let mut cache = None;
+    let mut visit = Some(Walker::new(start.to_owned(), String::new()));
 
     while let Some(walker) = visit {
         buf.clear();
