@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use std::ops::Range;
 
 use crate::file::reader::{FileContent, FileReader, Traversal};
-use crate::file::{FileMetadata, FileReadFailed};
+use crate::file::{Metadata, FileReadFailed};
 use crate::pb::{merkledag::PBLink, FlatUnixFs};
 use crate::InvalidCidInLink;
 
@@ -27,7 +27,7 @@ impl IdleFileVisit {
     pub fn start(
         self,
         block: &[u8],
-    ) -> Result<(&[u8], u64, FileMetadata, Option<FileVisit>), FileReadFailed> {
+    ) -> Result<(&[u8], u64, Metadata, Option<FileVisit>), FileReadFailed> {
         let fr = FileReader::from_block(block)?;
         self.start_from_reader(fr, &mut None)
     }
@@ -36,7 +36,7 @@ impl IdleFileVisit {
         self,
         block: FlatUnixFs<'a>,
         cache: &'_ mut Option<Cache>,
-    ) -> Result<(&'a [u8], u64, FileMetadata, Option<FileVisit>), FileReadFailed> {
+    ) -> Result<(&'a [u8], u64, Metadata, Option<FileVisit>), FileReadFailed> {
         let fr = FileReader::from_parsed(block)?;
         self.start_from_reader(fr, cache)
     }
@@ -45,7 +45,7 @@ impl IdleFileVisit {
         self,
         fr: FileReader<'a>,
         cache: &'_ mut Option<Cache>,
-    ) -> Result<(&'a [u8], u64, FileMetadata, Option<FileVisit>), FileReadFailed> {
+    ) -> Result<(&'a [u8], u64, Metadata, Option<FileVisit>), FileReadFailed> {
         let metadata = fr.as_ref().to_owned();
 
         let (content, traversal) = fr.content();
@@ -195,8 +195,8 @@ impl FileVisit {
     }
 }
 
-impl AsRef<FileMetadata> for FileVisit {
-    fn as_ref(&self) -> &FileMetadata {
+impl AsRef<Metadata> for FileVisit {
+    fn as_ref(&self) -> &Metadata {
         self.state.as_ref()
     }
 }

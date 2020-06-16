@@ -5,7 +5,7 @@ use std::io::{Error as IoError, Read};
 use std::path::{Path, PathBuf};
 use std::io;
 use std::borrow::Cow;
-use ipfs_unixfs::file::FileMetadata;
+use ipfs_unixfs::Metadata;
 
 fn main() {
     let cid = match std::env::args().nth(1).map(Cid::try_from) {
@@ -273,7 +273,7 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
     Ok(())
 }
 
-fn apply_file(header: &mut tar::Header, metadata: &FileMetadata, total_size: u64) {
+fn apply_file(header: &mut tar::Header, metadata: &Metadata, total_size: u64) {
     header.set_mode(metadata.mode()
         .map(|mode| mode & 0o7777)
         .unwrap_or(0o0644));

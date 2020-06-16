@@ -13,7 +13,7 @@ pub mod dir;
 pub use dir::{resolve, LookupError, MaybeResolved, ResolveError};
 
 mod pb;
-use crate::pb::UnixFsType;
+use pb::{UnixFs, UnixFsType};
 
 /// Support operations for the dag-pb, the outer shell of UnixFS.
 pub mod dagpb;
@@ -114,5 +114,53 @@ impl UnexpectedNodeType {
             UnixFsType::File => true,
             _ => false,
         }
+    }
+}
+
+/// Container for the unixfs metadata, which can be present at the root of the file trees.
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
+pub struct Metadata {
+    mode: Option<u32>,
+    mtime: Option<(i64, u32)>,
+}
+
+impl Metadata {
+    /// Returns the full file mode, if one has been specified.
+    ///
+    /// The full file mode is originally read through `st_mode` field of `stat` struct defined in
+    /// `sys/stat.h` and it's defining OpenGroup standard. Lowest 3 bytes will correspond to read,
+    /// write, and execute rights per user, group, and other and 4th byte determines sticky bits,
+    /// set user id or set group id. Following two bytes correspond to the different file types, as
+    /// defined by the same OpenGroup standard:
+    /// https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html
+    pub fn mode(&self) -> Option<u32> {
+        self.mode
+    }
+
+    /// Returns the raw timestamp of last modification time, if specified.
+    ///
+    /// The timestamp is `(seconds, nanos)` similar to `std::time::Duration` with the exception of
+    /// allowing seconds to be negative. The seconds are calculated from `1970-01-01 00:00:00` or
+    /// the common "unix epoch".
+    pub fn mtime(&self) -> Option<(i64, u32)> {
+        self.mtime
+    }
+
+    /// Returns the mtime metadata as an `FileTime`. Enabled only on feature `filetime`.
+    #[cfg(feature = "filetime")]
+    pub fn mtime_as_filetime(&self) -> Option<filetime::FileTime> {
+        self.mtime().map(|(seconds, nanos)| filetime::FileTime::from_unix_time(seconds, nanos))
+    }
+}
+
+impl<'a> From<&'a UnixFs<'_>> for Metadata {
+    fn from(data: &'a UnixFs<'_>) -> Self {
+        let mode = data.mode;
+        let mtime = data
+            .mtime
+            .clone()
+            .map(|ut| (ut.Seconds, ut.FractionalNanoseconds.unwrap_or(0)));
+
+        Metadata { mode, mtime }
     }
 }

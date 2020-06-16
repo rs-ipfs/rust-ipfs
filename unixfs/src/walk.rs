@@ -4,7 +4,8 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fmt;
 use crate::pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType};
-use crate::file::{FileMetadata, FileReadFailed, FileError};
+use crate::Metadata;
+use crate::file::{FileReadFailed, FileError};
 use crate::file::visit::{IdleFileVisit, FileVisit, Cache};
 use crate::{InvalidCidInLink, UnexpectedNodeType};
 use std::path::{Path, PathBuf};
@@ -86,7 +87,7 @@ impl Walker {
     /// data.
     pub fn start<'a>(data: &'a [u8], root_name: &str, cache: &mut Option<Cache>) -> Result<ContinuedWalk<'a>, Error> {
         let flat = FlatUnixFs::try_from(data)?;
-        let metadata = FileMetadata::from(&flat.data);
+        let metadata = Metadata::from(&flat.data);
 
         match flat.data.Type {
             UnixFsType::Directory => {
@@ -229,7 +230,7 @@ impl Walker {
         }
 
         let flat = FlatUnixFs::try_from(bytes)?;
-        let metadata = FileMetadata::from(&flat.data);
+        let metadata = Metadata::from(&flat.data);
 
         match flat.data.Type {
             UnixFsType::Directory => {
@@ -379,11 +380,11 @@ impl Walker {
 struct InnerEntry {
     kind: InnerKind,
     path: PathBuf,
-    metadata: FileMetadata,
+    metadata: Metadata,
     depth: usize,
 }
 
-impl From<InnerEntry> for FileMetadata {
+impl From<InnerEntry> for Metadata {
     fn from(e: InnerEntry) -> Self {
         e.metadata
     }
@@ -412,16 +413,16 @@ enum InnerKind {
 #[derive(Debug)]
 pub enum Entry<'a> {
     /// Current item is the root directory (HAMTShard or plain Directory).
-    RootDirectory(&'a Path, &'a FileMetadata),
+    RootDirectory(&'a Path, &'a Metadata),
     /// Current item is a continuation of a HAMTShard directory. Only the root HAMTShard will have
     /// file metadata.
     Bucket(&'a Cid, &'a Path),
     /// Current item is a non-root plain directory or a HAMTShard root directory.
-    Directory(&'a Cid, &'a Path, &'a FileMetadata),
+    Directory(&'a Cid, &'a Path, &'a Metadata),
     /// Current item is a possibly root file with a path, metadata, and total file size.
-    File(Option<&'a Cid>, &'a Path, &'a FileMetadata, u64),
+    File(Option<&'a Cid>, &'a Path, &'a Metadata, u64),
     /// Current item is a possibly root symlink.
-    Symlink(Option<&'a Cid>, &'a Path, &'a FileMetadata),
+    Symlink(Option<&'a Cid>, &'a Path, &'a Metadata),
 }
 
 impl<'a> Entry<'a> {
@@ -440,7 +441,7 @@ impl<'a> Entry<'a> {
 
     /// Returns the metadata for the latest entry. It exists for initial directory entries, files,
     /// and symlinks but not continued HamtShards.
-    pub fn metadata(&self) -> Option<&'a FileMetadata> {
+    pub fn metadata(&self) -> Option<&'a Metadata> {
         use Entry::*;
         match self {
             Bucket(_, _) => None,
@@ -476,7 +477,7 @@ impl<'a> Entry<'a> {
 }
 
 impl InnerEntry {
-    fn new_root_dir(metadata: FileMetadata, name: &str) -> Self {
+    fn new_root_dir(metadata: Metadata, name: &str) -> Self {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
@@ -487,7 +488,7 @@ impl InnerEntry {
         }
     }
 
-    fn new_root_bucket(metadata: FileMetadata, name: &str) -> Self {
+    fn new_root_bucket(metadata: Metadata, name: &str) -> Self {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
@@ -498,7 +499,7 @@ impl InnerEntry {
         }
     }
 
-    fn new_root_file(metadata: FileMetadata, name: &str, step: Option<FileVisit>, file_size: u64) -> Self {
+    fn new_root_file(metadata: Metadata, name: &str, step: Option<FileVisit>, file_size: u64) -> Self {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
@@ -509,7 +510,7 @@ impl InnerEntry {
         }
     }
 
-    fn new_root_symlink(metadata: FileMetadata, name: &str) -> Self {
+    fn new_root_symlink(metadata: Metadata, name: &str) -> Self {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
@@ -548,7 +549,7 @@ impl InnerEntry {
         cid: Cid,
         name: &str,
         depth: usize,
-        metadata: FileMetadata,
+        metadata: Metadata,
     ) {
         use InnerKind::*;
         match self.kind {
@@ -572,7 +573,7 @@ impl InnerEntry {
         cid: Cid,
         name: &str,
         depth: usize,
-        metadata: FileMetadata,
+        metadata: Metadata,
     ) {
         use InnerKind::*;
         match self.kind {
@@ -629,7 +630,7 @@ impl InnerEntry {
         cid: Cid,
         name: &str,
         depth: usize,
-        metadata: FileMetadata,
+        metadata: Metadata,
         step: Option<FileVisit>,
         file_size: u64,
     ) {
@@ -655,7 +656,7 @@ impl InnerEntry {
         cid: Cid,
         name: &str,
         depth: usize,
-        metadata: FileMetadata
+        metadata: Metadata
     ) {
         use InnerKind::*;
         match self.kind {

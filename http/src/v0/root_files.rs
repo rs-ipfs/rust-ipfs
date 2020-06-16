@@ -11,7 +11,7 @@ use warp::{path, query, Filter, Rejection, Reply};
 use bytes::{Bytes, BytesMut, buf::BufMut};
 use tar::{Header, EntryType};
 use futures::stream::TryStream;
-use ipfs::unixfs::ll::file::FileMetadata;
+use ipfs::unixfs::ll::Metadata;
 use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed};
 use crate::v0::refs::{walk_path, IpfsPath};
 use ipfs::unixfs::ll::walk::{self, Walker, ContinuedWalk};
@@ -338,7 +338,7 @@ impl TarHelper {
         long_filename_header
     }
 
-    fn apply_file(&mut self, path: &Path, metadata: &FileMetadata, total_size: u64) -> Result<[Option<Bytes>; 4], GetError> {
+    fn apply_file(&mut self, path: &Path, metadata: &Metadata, total_size: u64) -> Result<[Option<Bytes>; 4], GetError> {
         let mut ret: [Option<Bytes>; 4] = Default::default();
 
         if let Err(e) = self.header.set_path(path) {
@@ -382,7 +382,7 @@ impl TarHelper {
         ret
     }
 
-    fn apply_directory(&mut self, path: &Path, metadata: &FileMetadata) -> Result<[Option<Bytes>; 4], GetError> {
+    fn apply_directory(&mut self, path: &Path, metadata: &Metadata) -> Result<[Option<Bytes>; 4], GetError> {
         let mut ret: [Option<Bytes>; 4] = Default::default();
 
         if let Err(e) = self.header.set_path(path) {
@@ -413,7 +413,7 @@ impl TarHelper {
         Ok(ret)
     }
 
-    fn apply_symlink(&mut self, path: &Path, target: &Path, metadata: &FileMetadata) -> Result<[Option<Bytes>; 7], GetError> {
+    fn apply_symlink(&mut self, path: &Path, target: &Path, metadata: &Metadata) -> Result<[Option<Bytes>; 7], GetError> {
         let mut ret: [Option<Bytes>; 7] = Default::default();
 
         if let Err(e) = self.header.set_path(path) {
@@ -476,7 +476,7 @@ impl TarHelper {
         }
     }
 
-    fn set_metadata(header: &mut tar::Header, metadata: &FileMetadata, default_mode: u32) {
+    fn set_metadata(header: &mut tar::Header, metadata: &Metadata, default_mode: u32) {
         header.set_mode(metadata.mode()
             .map(|mode| mode & 0o7777)
             .unwrap_or(default_mode));
