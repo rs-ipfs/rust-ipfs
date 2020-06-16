@@ -847,6 +847,25 @@ impl From<FileReadFailed> for Error {
     }
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Error::*;
+
+        match self {
+            UnsupportedType(ut) => write!(fmt, "unsupported UnixFs type: {:?}", ut),
+            UnexpectedType(ut) => write!(fmt, "link to unexpected UnixFs type from File: {:?}", ut),
+            DagPbParsingFailed(e) => write!(fmt, "failed to parse the outer dag-pb: {}", e),
+            UnixFsParsingFailed(e) => write!(fmt, "failed to parse the inner UnixFs: {}", e),
+            EmptyDagPbNode => write!(fmt, "failed to parse the inner UnixFs: no data"),
+            InvalidCid(e) => write!(fmt, "link contained an invalid Cid: {}", e),
+            File(e) => write!(fmt, "invalid file: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

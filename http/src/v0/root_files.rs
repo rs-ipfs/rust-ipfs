@@ -5,17 +5,18 @@ use libipld::cid::{Cid, Codec};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::convert::TryFrom;
+use std::fmt;
 use std::path::{PathBuf, Path};
 use warp::{path, query, Filter, Rejection, Reply};
 use bytes::{Bytes, BytesMut, buf::BufMut};
 use tar::{Header, EntryType};
-use futures::stream::Stream;
+use futures::stream::TryStream;
 use ipfs::unixfs::ll::file::FileMetadata;
 use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed, ll::file::visit::Cache};
 use crate::v0::refs::{walk_path, IpfsPath};
-use ipfs::unixfs::ll::dir::walk::{Walker, ContinuedWalk};
+use ipfs::unixfs::ll::dir::walk::{self, Walker, ContinuedWalk};
 use ipfs::Block;
-use async_stream::stream;
+use async_stream::try_stream;
 
 #[derive(Debug, Deserialize)]
 pub struct CatArgs {
@@ -85,6 +86,7 @@ pub fn get<T: IpfsTypes>(
 }
 
 async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Reply, Rejection> {
+    use futures::stream::TryStreamExt;
 
     let mut path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
     path.set_follow_dagpb_data(false);
@@ -96,11 +98,11 @@ async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Re
         return Err(StringError::from("unknown node type").into());
     }
 
-    Ok(StreamResponse(Unshared::new(walk(ipfs, cid))))
+    Ok(StreamResponse(Unshared::new(walk(ipfs, cid).into_stream())))
 }
 
 fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
-    -> impl Stream<Item = Result<Bytes, std::convert::Infallible>> + 'static
+    -> impl TryStream<Ok = Bytes, Error = GetError> + 'static
 {
     let mut cache: Option<Cache> = None;
     let mut tar_helper = TarHelper::with_buffer_sizes(16 * 1024);
@@ -108,7 +110,7 @@ fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
     let mut root = Some(root);
     let mut maybe_walker: Option<Walker> = None;
 
-    stream! {
+    try_stream! {
         loop {
             // this mangling with the root and maybe_walker looks like this mainly because
             //
@@ -131,16 +133,16 @@ fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
                 None => return,
             };
 
-            let Block { data, .. } = ipfs.get_block(next).await.unwrap();
+            let Block { data, .. } = ipfs.get_block(next).await?;
 
             let res = match maybe_walker {
                 None => {
                     // the HTTP api uses the final Cid name as the root name in the generated tar
                     // archive; it will be copied to Walker internally so it can be temporary.
                     let root_name = next.to_string();
-                    Walker::start(&data, &root_name, &mut cache).unwrap()
+                    Walker::start(&data, &root_name, &mut cache)?
                 },
-                Some(walker) => walker.continue_walk(&data, &mut cache).unwrap(),
+                Some(walker) => walker.continue_walk(&data, &mut cache)?,
             };
 
             // make sure only first round uses the `root` cid.
@@ -148,15 +150,20 @@ fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
 
             let next_walker = match res {
                 ContinuedWalk::File(segment, item) => {
-                    let total_size = item.as_entry().total_file_size().unwrap();
+                    let total_size = item.as_entry()
+                        .total_file_size()
+                        .expect("files do have total_size");
 
                     if segment.is_first() {
                         let path = item.as_entry().path();
-                        let metadata = item.as_entry().metadata().expect("files must have metadata");
+                        let metadata = item
+                            .as_entry()
+                            .metadata()
+                            .expect("files must have metadata");
 
-                        for mut bytes in tar_helper.apply_file(path, metadata, total_size).iter_mut() {
+                        for mut bytes in tar_helper.apply_file(path, metadata, total_size)?.iter_mut() {
                             if let Some(bytes) = bytes.take() {
-                                yield Ok(bytes);
+                                yield bytes;
                             }
                         }
                     }
@@ -172,12 +179,12 @@ fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
                     while n < total {
                         let next = tar_helper.buffer_file_contents(&slice[n..]);
                         n += next.len();
-                        yield Ok(next);
+                        yield next;
                     }
 
                     if segment.is_last() {
                         if let Some(zeroes) = tar_helper.pad(total_size) {
-                            yield Ok(zeroes);
+                            yield zeroes;
                         }
                     }
 
@@ -189,9 +196,12 @@ fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
                     if let Some(metadata) = item.as_entry().metadata() {
                         let path = item.as_entry().path();
 
-                        for mut bytes in tar_helper.apply_directory(path, metadata).iter_mut() {
+                        // TODO: this is still wrong
+                        assert_ne!(path, Path::new(""), "had metadata but name was empty");
+
+                        for mut bytes in tar_helper.apply_directory(path, metadata)?.iter_mut() {
                             if let Some(bytes) = bytes.take() {
-                                yield Ok(bytes);
+                                yield bytes;
                             }
                         }
                     }
@@ -200,13 +210,13 @@ fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
                 },
                 ContinuedWalk::Symlink(bytes, item) => {
                     let path = item.as_entry().path();
-                    let target = std::str::from_utf8(bytes).unwrap();
+                    let target = std::str::from_utf8(bytes).map_err(|_| GetError::NonUtf8Symlink)?;
                     let target = Path::new(target);
                     let metadata = item.as_entry().metadata().expect("symlink must have metadata");
 
-                    for mut bytes in tar_helper.apply_symlink(path, target, metadata).iter_mut() {
+                    for mut bytes in tar_helper.apply_symlink(path, target, metadata)?.iter_mut() {
                         if let Some(bytes) = bytes.take() {
-                            yield Ok(bytes);
+                            yield bytes;
                         }
                     }
 
@@ -219,6 +229,50 @@ fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
     }
 }
 
+#[derive(Debug)]
+enum GetError {
+    NonUtf8Symlink,
+    InvalidFileName(Vec<u8>),
+    Walk(walk::Error),
+    Loading(ipfs::Error),
+}
+
+impl From<ipfs::Error> for GetError {
+    fn from(e: ipfs::Error) -> Self {
+        GetError::Loading(e)
+    }
+}
+
+impl From<walk::Error> for GetError {
+    fn from(e: walk::Error) -> Self {
+        GetError::Walk(e)
+    }
+}
+
+impl fmt::Display for GetError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use GetError::*;
+        match self {
+            NonUtf8Symlink => write!(fmt, "symlink target could not be converted to utf-8"),
+            Walk(e) => write!(fmt, "{}", e),
+            Loading(e) => write!(fmt, "loading failed: {}", e),
+            InvalidFileName(x) => write!(fmt, "filename cannot be put inside tar: {:?}", x),
+        }
+    }
+}
+
+impl std::error::Error for GetError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            GetError::Walk(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+/// Tar helper is internal to `get` implementation. It uses some private parts of the `tar-rs`
+/// crate to append the headers and the contents to a pair of `bytes::Bytes` operated in a
+/// round-robin fashion.
 struct TarHelper {
     bufsize: usize,
     written: BytesMut,
@@ -284,11 +338,11 @@ impl TarHelper {
         long_filename_header
     }
 
-    fn apply_file(&mut self, path: &Path, metadata: &FileMetadata, total_size: u64) -> [Option<Bytes>; 4] {
+    fn apply_file(&mut self, path: &Path, metadata: &FileMetadata, total_size: u64) -> Result<[Option<Bytes>; 4], GetError> {
         let mut ret: [Option<Bytes>; 4] = Default::default();
 
         if let Err(e) = self.header.set_path(path) {
-            let data = prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e);
+            let data = prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
 
             self.written.put_slice(self.long_filename_header.as_bytes());
             ret[0] = Some(self.written.split().freeze());
@@ -312,7 +366,7 @@ impl TarHelper {
         ret[3] = Some(self.written.split().freeze());
         std::mem::swap(&mut self.written, &mut self.other);
 
-        ret
+        Ok(ret)
     }
 
     fn buffer_file_contents(&mut self, contents: &[u8]) -> Bytes {
@@ -328,15 +382,11 @@ impl TarHelper {
         ret
     }
 
-    fn apply_directory(&mut self, path: &Path, metadata: &FileMetadata) -> [Option<Bytes>; 4] {
+    fn apply_directory(&mut self, path: &Path, metadata: &FileMetadata) -> Result<[Option<Bytes>; 4], GetError> {
         let mut ret: [Option<Bytes>; 4] = Default::default();
 
-        if path == Path::new("") {
-            return ret;
-        }
-
         if let Err(e) = self.header.set_path(path) {
-            let data = prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e);
+            let data = prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
 
             self.written.put_slice(self.long_filename_header.as_bytes());
             ret[0] = Some(self.written.split().freeze());
@@ -360,14 +410,14 @@ impl TarHelper {
         ret[3] = Some(self.written.split().freeze());
         std::mem::swap(&mut self.written, &mut self.other);
 
-        ret
+        Ok(ret)
     }
 
-    fn apply_symlink(&mut self, path: &Path, target: &Path, metadata: &FileMetadata) -> [Option<Bytes>; 7] {
+    fn apply_symlink(&mut self, path: &Path, target: &Path, metadata: &FileMetadata) -> Result<[Option<Bytes>; 7], GetError> {
         let mut ret: [Option<Bytes>; 7] = Default::default();
 
         if let Err(e) = self.header.set_path(path) {
-            let data = prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e);
+            let data = prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
 
             self.written.put_slice(self.long_filename_header.as_bytes());
             ret[0] = Some(self.written.split().freeze());
@@ -414,7 +464,7 @@ impl TarHelper {
         ret[6] = Some(self.written.split().freeze());
         std::mem::swap(&mut self.written, &mut self.other);
 
-        ret
+        Ok(ret)
     }
 
     pub fn pad(&self, total_size: u64) -> Option<Bytes> {
@@ -438,7 +488,7 @@ impl TarHelper {
 }
 
 /// Returns the raw bytes we need to write as a new entry into the tar
-fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut tar::Header, path: &'a Path, error: std::io::Error) -> &'a [u8] {
+fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut tar::Header, path: &'a Path, _error: std::io::Error) -> Result<&'a [u8], GetError> {
 
     #[cfg(unix)]
     /// On unix this operation can never fail.
@@ -486,7 +536,7 @@ fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut 
     let max = header.as_old().name.len();
 
     if data.len() < max {
-        panic!("path cannot be put into tar: {:?} ({})", path, error);
+        return Err(GetError::InvalidFileName(data.to_vec()));
     }
 
     // the plus one is documented as compliance to GNU tar, probably the null byte
@@ -501,7 +551,7 @@ fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut 
     header.set_path(&path)
         .expect("we already made sure the path is of fitting length");
 
-    data
+    Ok(data)
 }
 
 #[cfg(unix)]
