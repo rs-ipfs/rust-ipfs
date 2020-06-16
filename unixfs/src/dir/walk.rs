@@ -68,13 +68,24 @@ fn convert_sharded_link(
 }
 
 impl Walker {
-    pub fn start<'a>(data: &'a [u8], cache: &mut Option<Cache>) -> Result<Walk<'a>, Error> {
+    /// Starts a new walk on a block's `data`. Requires a `root_name` which can be empty, but
+    /// conventionally with ipfs `/get` API is a string version of the root CID. It will be used as
+    /// the filename for any top level file or symlink, or the directory name for the top level
+    /// directory.
+    ///
+    /// Cache is an option, used to cache a datastructure between walking different files at the
+    /// cost of more constantly higher memory usage. It can always be given as `&mut None` to
+    /// effectively disable caching of the said datastructures.
+    ///
+    /// Returns on success the means to continue the walk or the final element and it's related
+    /// data.
+    pub fn start<'a>(data: &'a [u8], root_name: &str, cache: &mut Option<Cache>) -> Result<ContinuedWalk<'a>, Error> {
         let flat = FlatUnixFs::try_from(data)?;
         let metadata = FileMetadata::from(&flat.data);
 
         match flat.data.Type {
             UnixFsType::Directory => {
-                let inner = InnerEntry::new_root_dir(metadata);
+                let inner = InnerEntry::new_root_dir(metadata, root_name);
 
                 let links = flat.links
                     .into_iter()
@@ -87,7 +98,7 @@ impl Walker {
                 Self::walk_directory(links, inner)
             },
             UnixFsType::HAMTShard => {
-                let inner = InnerEntry::new_root_bucket(metadata);
+                let inner = InnerEntry::new_root_bucket(metadata, root_name);
 
                 let links = flat.links
                     .into_iter()
@@ -98,43 +109,43 @@ impl Walker {
                 Self::walk_directory(links, inner)
             },
             UnixFsType::Raw | UnixFsType::File => {
-                let (bytes, _file_size, metadata, step) = IdleFileVisit::default()
+                let (bytes, file_size, metadata, step) = IdleFileVisit::default()
                     .start_from_parsed(flat, cache)?;
 
-                if let Some(visit) = step {
-                    Ok(Walk::MultiBlockFile {
-                        metadata,
-                        visit
+                let last = !step.is_some();
+                let segment = FileSegment::first(bytes, last);
+                let current = InnerEntry::new_root_file(metadata, root_name, step, file_size);
+
+                let state = if !last {
+                    State::Unfinished(Walker {
+                        current,
+                        next: None,
+                        pending: Vec::new(),
                     })
                 } else {
-                    Ok(Walk::SingleBlockFile {
-                        bytes,
-                        metadata
-                    })
-                }
+                    State::Last(current)
+                };
+
+                Ok(ContinuedWalk::File(segment, Item::from(state)))
             },
             UnixFsType::Metadata => todo!("metadata?"),
             UnixFsType::Symlink => todo!("?"),
         }
     }
 
-    fn walk_directory<'a, I>(mut links: I, current: InnerEntry) -> Result<Walk<'a>, Error>
+    fn walk_directory<'a, I>(mut links: I, current: InnerEntry) -> Result<ContinuedWalk<'a>, Error>
         where I: Iterator<Item = Result<(Cid, String, usize), InvalidCidInLink>> + 'a,
     {
-        if let Some(next) = links.next() {
+        let state = if let Some(next) = links.next() {
             let next = Some(next?);
             let pending = links.collect::<Result<Vec<_>, _>>()?;
 
-            Ok(Walk::Walker(Walker {
-                current,
-                next,
-                pending,
-            }))
+            State::Unfinished(Walker { current, next, pending })
         } else {
-            Ok(Walk::EmptyDirectory {
-                metadata: current.into(),
-            })
-        }
+            State::Last(current)
+        };
+
+        Ok(ContinuedWalk::Directory(Item::from(state)))
     }
 
     pub fn as_entry<'a>(&'a self) -> Entry<'a> {
@@ -143,11 +154,16 @@ impl Walker {
 
     pub fn pending_links(&self) -> (&Cid, impl Iterator<Item = &Cid>) {
         use InnerKind::*;
-        let cids = self.pending.iter().map(|(cid, ..)| cid).rev();
+        // rev: because we'll pop any of the pending
+        let cids = self.pending.iter()
+            .map(|(cid, ..)| cid)
+            .rev();
+
         match self.current.kind {
             File(_, Some(ref visit), _) => {
                 let (first, rest) = visit.pending_links();
-                (first, Either::Left(rest.chain(cids)))
+                let next = self.next.iter().map(|(cid, _, _)| cid);
+                (first, Either::Left(rest.chain(next.chain(cids))))
             },
             _ => {
                 let next = self.next.as_ref()
@@ -457,22 +473,34 @@ impl<'a> Entry<'a> {
 }
 
 impl InnerEntry {
-    fn new_root_dir(metadata: FileMetadata) -> Self {
+    fn new_root_dir(metadata: FileMetadata, name: &str) -> Self {
+        let mut path = PathBuf::new();
+        path.push(name);
         Self {
             kind: InnerKind::RootDirectory,
-            path: PathBuf::new(),
+            path,
             metadata,
-            depth: 0,
+            depth: if name.is_empty() { 0 } else { 1 },
         }
     }
 
-    fn new_root_bucket(metadata: FileMetadata) -> Self {
+    fn new_root_bucket(metadata: FileMetadata, name: &str) -> Self {
+        let mut path = PathBuf::new();
+        path.push(name);
         Self {
             kind: InnerKind::BucketAtRoot,
-            path: PathBuf::new(),
+            path,
             metadata,
-            depth: 0,
+            depth: if name.is_empty() { 0 } else { 1 },
         }
+    }
+
+    fn new_root_file(metadata: FileMetadata, name: &str, step: Option<FileVisit>, file_size: u64) -> Self {
+        todo!()
+    }
+
+    fn new_root_symlink(metadata: FileMetadata, name: &str) -> Self {
+        todo!()
     }
 
     pub fn as_entry<'a>(&'a self) -> Entry<'a> {
@@ -508,12 +536,8 @@ impl InnerEntry {
         use InnerKind::*;
         match self.kind {
             RootDirectory
-            | BucketAtRoot => {
-                self.kind = Directory(cid);
-                self.set_path(name, depth);
-                self.metadata = metadata;
-            },
-            Bucket(_)
+            | BucketAtRoot
+            | Bucket(_)
             | RootBucket(_)
             | Directory(_)
             | File(_, None, _)
@@ -558,7 +582,11 @@ impl InnerEntry {
     ) {
         use InnerKind::*;
         match self.kind {
-            BucketAtRoot | RootBucket(_) | Bucket(_) | File(_, None, _) | Symlink(_) => {
+            BucketAtRoot
+            | RootBucket(_)
+            | Bucket(_)
+            | File(_, None, _)
+            | Symlink(_) => {
                 self.kind = Bucket(cid);
 
                 if name.is_empty() {
@@ -626,31 +654,6 @@ impl InnerEntry {
             ref x => todo!("symlink from {:?}", x),
         }
     }
-}
-
-#[derive(Debug)]
-pub enum Walk<'a> {
-    /// Walk was started on a file node which we don't know any name for
-    SingleBlockFile {
-        bytes: &'a [u8],
-        metadata: FileMetadata,
-    },
-    Symlink {
-        metadata: FileMetadata,
-        target: &'a [u8],
-    },
-    /// Walk was started on a file which can be iterated further with the given FileVisit
-    // TODO: not sure why not expose this through the continue_block as well? the path will just be
-    // empty all the time.
-    MultiBlockFile {
-        metadata: FileMetadata,
-        visit: FileVisit,
-    },
-    EmptyDirectory {
-        metadata: FileMetadata,
-    },
-    /// Walk was started on a directory
-    Walker(Walker),
 }
 
 // Wrapper to hide the state
@@ -778,35 +781,56 @@ mod tests {
 
     #[test]
     fn walk_two_file_directory() {
-        let mut counts = walk_everything("QmPTotyhVnnfCu9R4qwR4cdhpi5ENaiP8ZJfdqsm8Dw2jB");
+        two_file_directory_scenario("");
+        two_file_directory_scenario("foo");
+    }
 
-        assert_eq!(counts.remove(&PathBuf::from("")), Some(1));
-        assert_eq!(counts.remove(&PathBuf::from("QmVkvLsSEm2uJx1h5Fqukje8mMPYg393o5C2kMCkF2bBTA")), Some(1));
-        assert_eq!(counts.remove(&PathBuf::from("QmVkvLsSEm2uJx1h5Fqukje8mMPYg393o5C2kMCkF2bBTA/foobar.balanced")), Some(5));
-        assert_eq!(counts.remove(&PathBuf::from("QmVkvLsSEm2uJx1h5Fqukje8mMPYg393o5C2kMCkF2bBTA/foobar.trickle")), Some(5));
+    fn two_file_directory_scenario(root_name: &str) {
+        let mut counts = walk_everything(root_name, "QmPTotyhVnnfCu9R4qwR4cdhpi5ENaiP8ZJfdqsm8Dw2jB");
+
+        let mut pb = PathBuf::from(root_name);
+        assert_eq!(counts.remove(&pb), Some(1));
+
+        pb.push("QmVkvLsSEm2uJx1h5Fqukje8mMPYg393o5C2kMCkF2bBTA");
+        assert_eq!(counts.remove(&pb), Some(1));
+
+        pb.push("foobar.balanced");
+        assert_eq!(counts.remove(&pb), Some(5));
+
+        assert!(pb.pop());
+        pb.push("foobar.trickle");
+        assert_eq!(counts.remove(&pb), Some(5));
 
         assert!(counts.is_empty(), "{:#?}", counts);
     }
 
     #[test]
-    fn sharded_dir() {
+    fn sharded_dir_different_root_names() {
         use std::fmt::Write;
 
         // the hamt sharded directory is such that the root only has buckets so all of the actual files
         // are at second level buckets, each bucket should have 2 files. the actual files is in fact a single empty
         // file, linked from many names.
-        let mut counts = walk_everything("QmZbFPTnDBMWbQ6iBxQAhuhLz8Nu9XptYS96e7cuf5wvbk");
 
-        assert_eq!(counts.remove(&PathBuf::from("")), Some(9));
+        sharded_dir_scenario("foo");
+        sharded_dir_scenario("");
+    }
+
+    fn sharded_dir_scenario(root_name: &str) {
+        use std::fmt::Write;
+
+        let mut counts = walk_everything(root_name, "QmZbFPTnDBMWbQ6iBxQAhuhLz8Nu9XptYS96e7cuf5wvbk");
+
+        assert_eq!(counts.remove(&PathBuf::from(root_name)), Some(9));
         let indices = [38, 48, 50, 58, 9, 33, 4, 34, 17, 37, 40, 16, 41, 3, 25, 49];
         let mut fmtbuf = String::new();
-        let mut buf = PathBuf::from("");
+        let mut buf = PathBuf::from(root_name);
 
         for i in &indices {
             fmtbuf.clear();
             write!(fmtbuf, "long-named-file-{:03}", i).unwrap();
 
-            buf.clear();
+            buf.pop();
             buf.push(&fmtbuf);
             assert_eq!(counts.remove(&buf), Some(1), "{:?}", buf);
 
@@ -815,17 +839,17 @@ mod tests {
         assert!(counts.is_empty(), "{:#?}", counts);
     }
 
-    fn walk_everything(s: &str) -> HashMap<PathBuf, usize> {
+    fn walk_everything(root_name: &str, cid: &str) -> HashMap<PathBuf, usize> {
         let mut ret = HashMap::new();
 
         let blocks = FakeBlockstore::with_fixtures();
-        let block = blocks.get_by_str(s);
+        let block = blocks.get_by_str(cid);
         let mut cache = None;
 
-        let mut visit = match Walker::start(block, &mut cache).unwrap() {
-            Walk::Walker(walker) => {
-                *ret.entry(PathBuf::from(walker.as_entry().path())).or_insert(0) += 1;
-                Some(walker)
+        let mut visit = match Walker::start(block, "foo", &mut cache).unwrap() {
+            ContinuedWalk::Directory(item) => {
+                *ret.entry(PathBuf::from(item.as_entry().path())).or_insert(0) += 1;
+                item.into_inner()
             }
             x => unreachable!("{:?}", x),
         };

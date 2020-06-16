@@ -6,6 +6,7 @@ use std::io::{Error as IoError, Read};
 use std::path::{Path, PathBuf};
 use std::io;
 use std::borrow::Cow;
+use ipfs_unixfs::file::FileMetadata;
 
 fn main() {
     let cid = match std::env::args().nth(1).map(Cid::try_from) {
@@ -56,7 +57,7 @@ fn main() {
 }
 
 fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
-    use ipfs_unixfs::dir::walk::{Walker, Walk, ContinuedWalk};
+    use ipfs_unixfs::dir::walk::{Walker, ContinuedWalk};
     use std::io::{stdout, Write};
 
     let stdout = stdout();
@@ -74,9 +75,9 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
 
     let mut cache = None;
 
-    let mut visit = match Walker::start(&buf, &mut cache).unwrap() {
-        Walk::Walker(walker) => {
-            Some(walker)
+    let mut visit = match Walker::start(&buf, "", &mut cache).unwrap() {
+        ContinuedWalk::Directory(item) => {
+            item.into_inner()
         },
         x => unreachable!("{:?}", x),
     };
