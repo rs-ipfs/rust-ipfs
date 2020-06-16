@@ -15,20 +15,3 @@ pub fn node_data(block: &[u8]) -> Result<Option<&[u8]>, quick_protobuf::Error> {
         None => None,
     })
 }
-
-/// Extracts the PBNode::Links as Cids usable for the ipfs `refs` operation.
-pub fn nameless_links(
-    block: &[u8],
-) -> Result<Result<Vec<Cid>, InvalidCidInLink>, quick_protobuf::Error> {
-    let doc = PBNode::try_from(block)?;
-
-    Ok(doc
-        .Links
-        .into_iter()
-        .enumerate()
-        .map(|(nth, link)| {
-            let hash = link.Hash.as_deref().unwrap_or_default();
-            Cid::try_from(hash).map_err(|e| InvalidCidInLink::from((nth, link, e)))
-        })
-        .collect::<Result<Vec<_>, _>>())
-}
