@@ -13,7 +13,7 @@ use futures::stream::Stream;
 use ipfs::unixfs::ll::file::FileMetadata;
 use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed, ll::file::visit::Cache};
 use crate::v0::refs::{walk_path, IpfsPath};
-use ipfs::unixfs::ll::dir::walk::{Walker, Walk, ContinuedWalk};
+use ipfs::unixfs::ll::dir::walk::{Walker, ContinuedWalk};
 use ipfs::Block;
 use async_stream::stream;
 
@@ -96,40 +96,44 @@ async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Re
         return Err(StringError::from("unknown node type").into());
     }
 
-    let mut cache = None;
+    let st = walk(ipfs, cid);
 
-    let Block { data, .. } = ipfs.get_block(&cid).await.map_err(StringError::from)?;
-
-    // FIXME: use Cid as the root name for everything, files or symlinks or whatnot
-    match Walker::start(&data, &mut cache).unwrap() {
-        Walk::Walker(w) => {
-
-            let n = 32 * 1024;
-            let tar_helper = TarHelper::with_buffer_sizes(n);
-            let next_walker = Some(w);
-
-            let st = walk(ipfs, tar_helper, next_walker, cache);
-
-            Ok(StreamResponse(Unshared::new(st)))
-
-            // do some either... or just simplify the return value to cover all cases (files,
-            // symlinks and dirs) uniformally
-        },
-        _ => panic!("these should be removed"),
-    }
+    Ok(StreamResponse(Unshared::new(st)))
 }
 
-fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, mut tar_helper: TarHelper, mut next_walker: Option<Walker>, mut cache: Option<Cache>)
+use libipld::cid::Cid;
+
+fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
     -> impl Stream<Item = Result<Bytes, std::convert::Infallible>> + 'static
 {
-    stream! {
-        while let Some(walker) = next_walker.take() {
+    let mut cache: Option<Cache> = None;
+    let mut tar_helper = TarHelper::with_buffer_sizes(16 * 1024);
 
-            let (next, _) = walker.pending_links();
+    let mut root = Some(root);
+    let mut maybe_walker: Option<Walker> = None;
+
+    stream! {
+        loop {
+            let next = root.as_ref().or_else(|| maybe_walker.as_ref().map(|w| w.pending_links().0));
+
+            let next = match next {
+                Some(cid_ref) => cid_ref,
+                None => return,
+            };
 
             let Block { data, .. } = ipfs.get_block(next).await.unwrap();
 
-            next_walker = match walker.continue_walk(&data, &mut cache).unwrap() {
+            let res = match maybe_walker {
+                None => {
+                    let root_name = next.to_string();
+                    Walker::start(&data, &root_name, &mut cache).unwrap()
+                },
+                Some(walker) => walker.continue_walk(&data, &mut cache).unwrap(),
+            };
+
+            root = None;
+
+            let next_walker = match res {
                 ContinuedWalk::File(segment, item) => {
                     let total_size = item.as_entry().total_file_size().unwrap();
 
@@ -192,6 +196,8 @@ fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, mut tar_helper: TarHelper, mut next
                     item.into_inner()
                 },
             };
+
+            maybe_walker = next_walker;
         }
     }
 }
