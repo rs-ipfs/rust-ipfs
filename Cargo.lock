@@ -1443,6 +1443,7 @@ name = "ipfs-unixfs"
 version = "0.1.0"
 dependencies = [
  "cid",
+ "either",
  "filetime",
  "hex-literal",
  "multibase",

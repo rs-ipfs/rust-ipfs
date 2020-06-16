@@ -9,6 +9,7 @@ use crate::file::visit::{IdleFileVisit, FileVisit, Cache};
 use crate::InvalidCidInLink;
 use std::path::{Path, PathBuf};
 use cid::Cid;
+use either::Either;
 
 /// Walker helps with walking an UnixFS tree, including all of the content and files.
 #[derive(Debug)]
@@ -364,35 +365,6 @@ impl Walker {
     // entries at a single level out to do some parallel walking, though the skipping could already
     // be used to do that... Maybe we could return the filevisit on Skipped to save user from
     // re-creating one? How to do the same for directories?
-}
-
-// FIXME: replace either::Either
-enum Either<A, B> {
-    Left(A),
-    Right(B),
-}
-
-impl<A, B> Iterator for Either<A, B>
-    where A: Iterator,
-          B: Iterator<Item = <A as Iterator>::Item>
-{
-    type Item = A::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use Either::*;
-        match self {
-            Left(a) => a.next(),
-            Right(b) => b.next(),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        use Either::*;
-        match self {
-            Left(a) => a.size_hint(),
-            Right(b) => b.size_hint(),
-        }
-    }
 }
 
 /// Represents what the `Walker` is currently looking at. Converted to `Entry` for public API.

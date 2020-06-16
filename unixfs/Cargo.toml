@@ -12,6 +12,7 @@ default = [ "filetime" ]
 quick-protobuf = "0.7.0"
 cid = "0.4.0"
 filetime = { version = "0.2.10", optional = true }
+either = ">=1.5.3"
 
 [dev-dependencies]
 multibase = "0.8.0"
