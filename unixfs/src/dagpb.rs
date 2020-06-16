@@ -1,9 +1,7 @@
-use crate::pb::PBNode;
-use crate::InvalidCidInLink;
-use cid::Cid;
-use std::borrow::Cow;
 ///! dag-pb support operations. Placing this module inside unixfs module is a bit unfortunate but
 ///! follows from the inseparability of dag-pb and UnixFS.
+use crate::pb::PBNode;
+use std::borrow::Cow;
 use std::convert::TryFrom;
 
 /// Extracts the PBNode::Data field from the block as it appears on the block.

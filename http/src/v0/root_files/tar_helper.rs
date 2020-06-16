@@ -188,7 +188,7 @@ impl TarHelper {
             ret[2] = self.pad(data.len() as u64 + 1);
         }
 
-        if let Err(_) = self.header.set_link_name(target) {
+        if self.header.set_link_name(target).is_err() {
             let data = path2bytes(target);
 
             if data.len() < self.header.as_old().linkname.len() {
@@ -305,7 +305,7 @@ fn prepare_long_header<'a>(
                 &format!(
                     "only Unicode paths are supported on Windows: {}",
                     String::from_utf8_lossy(v)
-                )
+                ),
             )
         }
     }
