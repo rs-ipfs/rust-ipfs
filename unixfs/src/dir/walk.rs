@@ -4,9 +4,9 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fmt;
 use crate::pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType};
-use crate::file::{FileMetadata, FileReadFailed};
+use crate::file::{FileMetadata, FileReadFailed, FileError};
 use crate::file::visit::{IdleFileVisit, FileVisit, Cache};
-use crate::InvalidCidInLink;
+use crate::{InvalidCidInLink, UnexpectedNodeType};
 use std::path::{Path, PathBuf};
 use cid::Cid;
 use either::Either;
@@ -16,13 +16,15 @@ use either::Either;
 pub struct Walker {
     current: InnerEntry,
     /// On the next call to `continue_walk` this will be the block, unless we have an ongoing file
-    /// walk in which case we shortcircuit to continue it.
+    /// walk in which case we shortcircuit to continue it. Failing any of the unwrappings of
+    /// `self.next` would be an logic error
     next: Option<(Cid, String, usize)>,
     pending: Vec<(Cid, String, usize)>,
     // tried to recycle the names but that was consistently as fast and used more memory than just
     // cloning the strings
 }
 
+/// Converts a link of a Directory, specifically not a link of HAMTShard.
 fn convert_link(
     depth: usize,
     nth: usize,
@@ -42,6 +44,7 @@ fn convert_link(
     Ok((cid, name, depth))
 }
 
+/// Converts a link of HAMTShard, specifically not a link of Directory.
 fn convert_sharded_link(
     depth: usize,
     nth: usize,
@@ -136,9 +139,8 @@ impl Walker {
 
                 Ok(ContinuedWalk::File(segment, Item::from(state)))
             },
-            UnixFsType::Metadata => todo!("metadata?"),
+            UnixFsType::Metadata => Err(Error::UnsupportedType(flat.data.Type.into())),
             UnixFsType::Symlink => {
-                // symlinks are single block so
 
                 let contents = match flat.data.Data {
                     Some(Cow::Borrowed(bytes)) if !bytes.is_empty() => bytes,
@@ -205,8 +207,9 @@ impl Walker {
 
         match &mut self.current.kind {
             File(_, visit @ Some(_), _) => {
+                // we have an ongoing filevisit, the block must be related to it.
                 let (bytes, step) = visit.take()
-                    .unwrap()
+                    .expect("matched visit was Some")
                     .continue_walk(bytes, cache)?;
 
                 let file_continues = step.is_some();
@@ -230,7 +233,7 @@ impl Walker {
 
         match flat.data.Type {
             UnixFsType::Directory => {
-                let (cid, name, depth) = self.next.expect("continued without next");
+                let (cid, name, depth) = self.next.expect("validated at start and this method");
                 self.current.as_directory(
                     cid,
                     &name,
@@ -270,8 +273,8 @@ impl Walker {
                 Ok(ContinuedWalk::Directory(Item::from(state)))
             },
             UnixFsType::HAMTShard => {
-                // FIXME: the first hamtshard must have metadata!
-                let (cid, name, depth) = self.next.expect("continued without next");
+                // TODO: the first hamtshard must have metadata!
+                let (cid, name, depth) = self.next.expect("validated at start and this method");
 
                 if name.is_empty() {
                     // the name should be empty for all of the siblings
@@ -288,6 +291,10 @@ impl Walker {
                     .enumerate()
                     .map(|(nth, link)| convert_sharded_link(depth + 1, nth, link))
                     .rev();
+
+                // TODO: it might be worthwhile to lose the `rev` and sort the pushed links using
+                // the depth ascending. This should make sure we are first visiting the shortest
+                // path items.
 
                 let mut pending = {
                     let mut pending = self.pending;
@@ -314,7 +321,7 @@ impl Walker {
                 let (bytes, file_size, metadata, step) = IdleFileVisit::default()
                     .start_from_parsed(flat, cache)?;
 
-                let (cid, name, depth) = self.next.expect("continued without next");
+                let (cid, name, depth) = self.next.expect("validated at start and this method");
                 let file_continues = step.is_some();
                 self.current.as_file(cid, &name, depth, metadata, step, file_size);
 
@@ -335,7 +342,7 @@ impl Walker {
 
                 Ok(ContinuedWalk::File(segment, Item::from(state)))
             },
-            UnixFsType::Metadata => todo!("metadata?"),
+            UnixFsType::Metadata => Err(Error::UnsupportedType(flat.data.Type.into())),
             UnixFsType::Symlink => {
                 let contents = match flat.data.Data {
                     Some(Cow::Borrowed(bytes)) if !bytes.is_empty() => bytes,
@@ -784,26 +791,59 @@ impl AsRef<[u8]> for FileSegment<'_> {
     }
 }
 
+/// Errors which can occur while walking a tree.
 #[derive(Debug)]
 pub enum Error {
+    /// An unsupported type of UnixFS node encountered. There should be a way to skip these. Of the
+    /// defined types only `Metadata` is unsupported, all undefined types as of 2020-06 are also
+    /// unsupported.
+    UnsupportedType(UnexpectedNodeType),
 
+    /// Error is returned when a file for example links to a non-Raw or non-File subtree.
+    UnexpectedType(UnexpectedNodeType),
+
+    /// dag-pb node parsing failed, perhaps the block is not a dag-pb node?
+    DagPbParsingFailed(quick_protobuf::Error),
+
+    /// The unixfs node inside the dag-pb node parsing failed.
+    UnixFsParsingFailed(quick_protobuf::Error),
+
+    /// dag-pb node contained no data.
+    EmptyDagPbNode,
+
+    /// dag-pb link could not be converted to a Cid
+    InvalidCid(InvalidCidInLink),
+
+    /// A file has invalid structure
+    File(FileError),
 }
 
 impl From<ParsingFailed<'_>> for Error {
     fn from(e: ParsingFailed<'_>) -> Self {
-        todo!()
+        use ParsingFailed::*;
+        match e {
+            InvalidDagPb(e) => Error::DagPbParsingFailed(e),
+            InvalidUnixFs(e, _) => Error::UnixFsParsingFailed(e),
+            NoData(_) => Error::EmptyDagPbNode,
+        }
     }
 }
 
 impl From<InvalidCidInLink> for Error {
     fn from(e: InvalidCidInLink) -> Self {
-        todo!()
+        Error::InvalidCid(e)
     }
 }
 
 impl From<FileReadFailed> for Error {
     fn from(e: FileReadFailed) -> Self {
-        todo!()
+        use FileReadFailed::*;
+        match e {
+            File(e) => todo!(),
+            UnexpectedType(ut) => Error::UnexpectedType(ut),
+            Read(_) => unreachable!("FileVisit does not parse any blocks"),
+            InvalidCid(l) => Error::InvalidCid(l),
+        }
     }
 }
 
