@@ -87,6 +87,19 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
     header.set_gid(0);
 
     let mut long_filename_header = tar::Header::new_gnu();
+    long_filename_header.set_mode(0o644);
+
+    {
+        let name = b"././@LongLink";
+        let gnu_header = long_filename_header.as_gnu_mut().unwrap();
+        // since we are reusing the header, zero out all of the bytes
+        let written = name.iter().copied().chain(std::iter::repeat(0)).enumerate().take(gnu_header.name.len());
+        // FIXME: there must be a better way to do this
+        for (i, b) in written {
+            gnu_header.name[i] = b;
+        }
+    }
+
     long_filename_header.set_mtime(0);
     long_filename_header.set_uid(0);
     long_filename_header.set_gid(0);
@@ -102,6 +115,8 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
         blocks.as_file(&next.to_bytes())?.read_to_end(&mut buf)?;
         visit = match walker.continue_walk(&buf, &mut cache).unwrap() {
             ContinuedWalk::File(segment, item) => {
+
+                let total_size = item.as_entry().total_file_size().unwrap();
 
                 if segment.is_first() {
                     // first write out the headers
@@ -124,27 +139,18 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
 
                     let metadata = item.as_entry().metadata().expect("files must have metadata");
 
-                    header.set_mode(metadata.mode()
-                        .map(|mode| mode & 0o7777)
-                        .unwrap_or(0o0644));
+                    apply_file(&mut header, metadata, total_size);
 
-                    header.set_mtime(metadata.mtime()
-                        .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
-                        .unwrap_or(0));
-
-                    header.set_size(item.as_entry().total_file_size().unwrap());
-                    header.set_entry_type(tar::EntryType::Regular);
                     header.set_cksum();
 
                     stdout.write_all(header.as_bytes()).unwrap();
                 }
 
                 stdout.write_all(segment.as_ref()).unwrap();
-                let total_file_size = item.as_entry().total_file_size().unwrap();
 
                 if segment.is_last() {
                     // write out the last data, then write padding
-                    let padding = 512 - (total_file_size % 512);
+                    let padding = 512 - (total_size % 512);
                     if padding < 512 {
                         stdout.write_all(&zeroes[..padding as usize]).unwrap();
                     }
@@ -219,36 +225,12 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                     }
                 }
 
-                header.set_mode(metadata.mode()
-                    .map(|mode| mode & 0o7777)
-                    .unwrap_or(0o0644));
-
-                header.set_mtime(metadata.mtime()
-                    .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
-                    .unwrap_or(0));
-
-                header.set_size(0);
-                header.set_entry_type(tar::EntryType::Symlink);
-
                 let target = Path::new(std::str::from_utf8(bytes).unwrap());
                 if let Err(e) = header.set_link_name(&target) {
                     let data = path2bytes(target);
                     if data.len() < header.as_old().linkname.len() {
                         // this might be an /ipfs/QmFoo which we should error and not allow
                         panic!("invalid link target: {:?} ({})", target, e)
-                    }
-
-                    long_filename_header.set_mode(0o644);
-
-                    {
-                        let name = b"././@LongLink";
-                        let gnu_header = long_filename_header.as_gnu_mut().unwrap();
-                        // since we are reusing the header, zero out all of the bytes
-                        let written = name.iter().copied().chain(std::iter::repeat(0)).enumerate().take(gnu_header.name.len());
-                        // FIXME: there must be a better way to do this
-                        for (i, b) in written {
-                            gnu_header.name[i] = b;
-                        }
                     }
 
                     long_filename_header.set_size(data.len() as u64 + 1);
@@ -267,7 +249,18 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                     }
                 }
 
+                header.set_mode(metadata.mode()
+                    .map(|mode| mode & 0o7777)
+                    .unwrap_or(0o0644));
+
+                header.set_mtime(metadata.mtime()
+                    .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
+                    .unwrap_or(0));
+
+                header.set_size(0);
+                header.set_entry_type(tar::EntryType::Symlink);
                 header.set_cksum();
+
                 stdout.write_all(header.as_bytes()).unwrap();
 
                 // no padding for the remaining
@@ -280,6 +273,18 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
     Ok(())
 }
 
+fn apply_file(header: &mut tar::Header, metadata: &FileMetadata, total_size: u64) {
+    header.set_mode(metadata.mode()
+        .map(|mode| mode & 0o7777)
+        .unwrap_or(0o0644));
+
+    header.set_mtime(metadata.mtime()
+        .and_then(|(seconds, _)| if seconds >= 0 { Some(seconds as u64) } else { None })
+        .unwrap_or(0));
+
+    header.set_size(total_size);
+    header.set_entry_type(tar::EntryType::Regular);
+}
 
 /// Returns the raw bytes we need to write as a new entry into the tar
 fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut tar::Header, path: &'a Path, error: std::io::Error) -> &'a [u8] {
@@ -331,20 +336,6 @@ fn prepare_long_header<'a>(header: &mut tar::Header, long_filename_header: &mut 
 
     if data.len() < max {
         panic!("path cannot be put into tar: {:?} ({})", path, error);
-    }
-
-    long_filename_header.set_mode(0o644);
-
-    // TODO: we could just set this once, like other fields except path?
-    {
-        let name = b"././@LongLink";
-        let gnu_header = long_filename_header.as_gnu_mut().unwrap();
-        // since we are reusing the header, zero out all of the bytes
-        let written = name.iter().copied().chain(std::iter::repeat(0)).enumerate().take(gnu_header.name.len());
-        // FIXME: there must be a better way to do this
-        for (i, b) in written {
-            gnu_header.name[i] = b;
-        }
     }
 
     // the plus one is documented as compliance to GNU tar, probably the null byte

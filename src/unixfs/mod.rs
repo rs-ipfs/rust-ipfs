@@ -16,6 +16,8 @@ pub use ipfs_unixfs as ll;
 mod cat;
 pub use cat::{cat, TraversalFailed};
 
+// No get provided at least as of now.
+
 pub struct File {
     data: Vec<u8>,
 }
