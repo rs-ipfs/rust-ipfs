@@ -17,7 +17,7 @@ pub struct Walker {
     /// walk in which case we shortcircuit to continue it.
     next: Option<(Cid, String, usize)>,
     pending: Vec<(Cid, String, usize)>,
-    // tried to recycle the names but that was consistently at fast and used more memory than just
+    // tried to recycle the names but that was consistently as fast and used more memory than just
     // cloning the strings
 }
 
@@ -80,7 +80,7 @@ impl Walker {
                     .into_iter()
                     .enumerate()
                     // 2 == number of ancestors this link needs to have on the path, this is after
-                    // some trial and error so not entirely sure why ... ancestors always includes
+                    // some trial and error so not entirely sure why ... ancestors always include
                     // the empty root in our case.
                     .map(|(nth, link)| convert_link(2, nth, link));
 
@@ -92,7 +92,7 @@ impl Walker {
                 let links = flat.links
                     .into_iter()
                     .enumerate()
-                    // 1 == ancestors should be only the [""]
+                    // 1 == ancestors should only be the [""]
                     .map(|(nth, link)| convert_sharded_link(1, nth, link));
 
                 Self::walk_directory(links, inner)
@@ -323,7 +323,7 @@ impl Walker {
         }
     }
 
-    // TODO: we could easily split an 'static value for a directory or bucket, which would pop all
+    // TODO: we could easily split a 'static value for a directory or bucket, which would pop all
     // entries at a single level out to do some parallel walking, though the skipping could already
     // be used to do that... Maybe we could return the filevisit on Skipped to save user from
     // re-creating one? How to do the same for directories?
@@ -621,7 +621,6 @@ enum State {
 
 #[derive(Debug)]
 pub enum ContinuedWalk<'a> {
-    // should this be just the description of what we just walked into?
     File(FileSegment<'a>, Item),
     Directory(Item),
     Symlink(&'a [u8], Item),
@@ -721,6 +720,9 @@ mod tests {
     fn sharded_dir() {
         use std::fmt::Write;
 
+        // the hamt sharded directory is such that the root only has buckets so all of the actual files
+        // are at second level buckets, each bucket should have 2 files. the actual files is in fact a single empty
+        // file, linked from many names.
         let mut counts = walk_everything("QmZbFPTnDBMWbQ6iBxQAhuhLz8Nu9XptYS96e7cuf5wvbk");
 
         assert_eq!(counts.remove(&PathBuf::from("")), Some(9));

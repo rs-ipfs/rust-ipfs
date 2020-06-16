@@ -57,7 +57,7 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
     use ipfs_unixfs::dir::walk::{Walker, Walk, ContinuedWalk};
     use sha2::{Digest, Sha256};
 
-    // The blockstore specific way of reading the block. Here we assume go-ipfs 0.5 default flatfs
+    // The blockstore-specific way of reading the block. Here we assume go-ipfs 0.5 default flatfs
     // configuration, which puts the files at sharded directories and names the blocks as base32
     // upper and a suffix of "data".
     //
