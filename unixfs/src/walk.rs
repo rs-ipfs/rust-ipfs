@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 /// Walker helps with walking an UnixFS tree, including all of the content and files.
 #[derive(Debug)]
 pub struct Walker {
-    /// This is `None` until the first block has been visited.
+    /// This is `None` until the first block has been visited. Failing any unwraps would be logic
+    /// errors.
     current: Option<InnerEntry>,
     /// On the next call to `continue_walk` this will be the block, unless we have an ongoing file
     /// walk in which case we shortcircuit to continue it. Failing any of the unwrappings of
@@ -264,8 +265,6 @@ impl Walker {
                 }
 
                 let next = self.pending.pop();
-
-                // FIXME: add test case for this being reversed and it's never the last
                 let segment = FileSegment::first(bytes, !file_continues);
 
                 let state = if file_continues || next.is_some() {
@@ -915,6 +914,51 @@ mod tests {
             walk_everything(root_name, "QmWfQ48ChJUj4vWKFsUDe4646xCBmXgdmNfhjz9T7crywd");
         let mut buf = PathBuf::from(root_name);
         counts.checked_removal(&buf, 5);
+    }
+
+    #[test]
+    fn test_walked_file_segments() {
+        let blocks = FakeBlockstore::with_fixtures();
+
+        let trickle_foobar = cid::Cid::try_from("QmWfQ48ChJUj4vWKFsUDe4646xCBmXgdmNfhjz9T7crywd").unwrap();
+        let mut visit = Some(Walker::new(trickle_foobar, String::new()));
+
+        let mut counter = 0;
+
+        while let Some(walker) = visit {
+            let (next, _) = walker.pending_links();
+
+            let block = blocks.get_by_cid(&next);
+
+            counter += 1;
+
+            visit = match walker.continue_walk(&block, &mut None).unwrap() {
+                ContinuedWalk::File(segment, item) => {
+                    match counter {
+                        1 => {
+                            // the root block has only links
+                            assert!(segment.as_ref().is_empty());
+                            assert!(segment.is_first());
+                            assert!(!segment.is_last());
+                        },
+                        2..=4 => {
+                            assert_eq!(segment.as_ref().len(), 2);
+                            assert!(!segment.is_first());
+                            assert!(!segment.is_last());
+                        },
+                        5 => {
+                            assert_eq!(segment.as_ref().len(), 1);
+                            assert!(!segment.is_first());
+                            assert!(segment.is_last());
+                        }
+                        _ => unreachable!(),
+                    }
+
+                    item.into_inner()
+                },
+                x => unreachable!("{:?}", x),
+            };
+        }
     }
 
     trait CountsExt {
