@@ -417,8 +417,9 @@ enum InnerKind {
     // This is a sibling to a previous named metadata containing bucket
     Bucket(Cid),
     Directory(Cid),
-    File(Cid, Option<FileVisit>, u64),
-    Symlink(Cid),
+    // FIXME: could simplify roots to optinal cid variants?
+    File(Option<Cid>, Option<FileVisit>, u64),
+    Symlink(Option<Cid>),
 }
 
 #[derive(Debug)]
@@ -427,8 +428,8 @@ pub enum Entry<'a> {
     Bucket(&'a Cid, &'a Path),
     Directory(&'a Cid, &'a Path, &'a FileMetadata),
     // TODO: add remaining bytes or something here?
-    File(&'a Cid, &'a Path, &'a FileMetadata, u64),
-    Symlink(&'a Cid, &'a Path, &'a FileMetadata),
+    File(Option<&'a Cid>, &'a Path, &'a FileMetadata, u64),
+    Symlink(Option<&'a Cid>, &'a Path, &'a FileMetadata),
 }
 
 impl<'a> Entry<'a> {
@@ -470,11 +471,13 @@ impl<'a> Entry<'a> {
     pub fn cid(&self) -> Option<&Cid> {
         use Entry::*;
         match self {
-            RootDirectory(_, _) => None,
+            RootDirectory(_, _)
+            | File(None, _, _, _)
+            | Symlink(None, _, _) => None,
             Bucket(cid, _)
             | Directory(cid, _, _)
-            | File(cid, _, _, _)
-            | Symlink(cid, _, _) => Some(cid),
+            | File(Some(cid), _, _, _)
+            | Symlink(Some(cid), _, _) => Some(cid),
         }
     }
 }
@@ -503,7 +506,14 @@ impl InnerEntry {
     }
 
     fn new_root_file(metadata: FileMetadata, name: &str, step: Option<FileVisit>, file_size: u64) -> Self {
-        todo!()
+        let mut path = PathBuf::new();
+        path.push(name);
+        Self {
+            kind: InnerKind::File(None, step, file_size),
+            path,
+            metadata,
+            depth: if name.is_empty() { 0 } else { 1 },
+        }
     }
 
     fn new_root_symlink(metadata: FileMetadata, name: &str) -> Self {
@@ -517,8 +527,8 @@ impl InnerEntry {
             RootBucket(cid) => Entry::Directory(cid, &self.path, &self.metadata),
             Bucket(cid) => Entry::Bucket(cid, &self.path),
             Directory(cid) => Entry::Directory(cid, &self.path, &self.metadata),
-            File(cid, _, sz) => Entry::File(cid, &self.path, &self.metadata, *sz),
-            Symlink(cid) => Entry::Symlink(cid, &self.path, &self.metadata),
+            File(cid, _, sz) => Entry::File(cid.as_ref(), &self.path, &self.metadata, *sz),
+            Symlink(cid) => Entry::Symlink(cid.as_ref(), &self.path, &self.metadata),
         }
     }
 
@@ -632,7 +642,7 @@ impl InnerEntry {
             | Directory(_)
             | File(_, None, _)
             | Symlink(_) => {
-                self.kind = File(cid, step, file_size);
+                self.kind = File(Some(cid), step, file_size);
                 self.set_path(name, depth);
                 self.metadata = metadata;
             },
@@ -656,7 +666,7 @@ impl InnerEntry {
             | Directory(_)
             | File(_, None, _)
             | Symlink(_) => {
-                self.kind = Symlink(cid);
+                self.kind = Symlink(Some(cid));
                 self.set_path(name, depth);
                 self.metadata = metadata;
             },
@@ -860,12 +870,12 @@ mod tests {
     }
 
     #[test]
-    fn single_block_top_level_file_empty() {
+    fn top_level_single_block_file_empty() {
         single_block_top_level_file_scenario("");
     }
 
     #[test]
-    fn single_block_top_level_file_named() {
+    fn top_level_single_block_file_named() {
         single_block_top_level_file_scenario("empty.txt");
     }
 
@@ -902,7 +912,7 @@ mod tests {
     }
 
     fn top_level_multiblock_file_scenario(root_name: &str) {
-        let mut counts = walk_everything(root_name, "QmNgQEdXVdLw79nH2bnxLMxnyWMaXrijfqMTiDVat3iyuz");
+        let mut counts = walk_everything(root_name, "QmWfQ48ChJUj4vWKFsUDe4646xCBmXgdmNfhjz9T7crywd");
         let mut buf = PathBuf::from(root_name);
         counts.checked_removal(&buf, 5);
     }
@@ -923,7 +933,6 @@ mod tests {
                     panic!("no such key {:?} (expected {}) in {:#?}", key, expected, self);
                 }
             }
-
         }
     }
 
@@ -934,13 +943,14 @@ mod tests {
         let block = blocks.get_by_str(cid);
         let mut cache = None;
 
-        let mut visit = match Walker::start(block, root_name, &mut cache).unwrap() {
-            ContinuedWalk::Directory(item) => {
-                *ret.entry(PathBuf::from(item.as_entry().path())).or_insert(0) += 1;
-                item.into_inner()
-            }
+        let item = match Walker::start(block, root_name, &mut cache).unwrap() {
+            ContinuedWalk::Directory(item) => item,
+            ContinuedWalk::File(_, item) => item,
             x => unreachable!("{:?}", x),
         };
+
+        *ret.entry(PathBuf::from(item.as_entry().path())).or_insert(0) += 1;
+        let mut visit = item.into_inner();
 
         while let Some(walker) = visit {
             let (next, _) = walker.pending_links();
