@@ -183,6 +183,7 @@ impl<'a> FileReader<'a> {
         (fc, traversal)
     }
 
+    /// Returns the total size of the file.
     pub fn file_size(&self) -> u64 {
         self.file_size
     }
@@ -216,6 +217,7 @@ impl Traversal {
         FileReader::from_continued(self, tree_range.start, next_block)
     }
 
+    /// Returns the total size of the file.
     pub fn file_size(&self) -> u64 {
         self.file_size
     }

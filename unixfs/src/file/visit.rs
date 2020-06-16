@@ -98,6 +98,8 @@ impl IdleFileVisit {
     }
 }
 
+/// Optional cache for datastructures which can be re-used without re-allocation between walks of
+/// different files.
 #[derive(Default)]
 pub struct Cache {
     inner: Vec<(Cid, Range<u64>)>
@@ -187,6 +189,7 @@ impl FileVisit {
         }
     }
 
+    /// Returns the total size of the file in bytes.
     pub fn file_size(&self) -> u64 {
         self.state.file_size()
     }

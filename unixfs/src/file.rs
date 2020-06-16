@@ -20,8 +20,6 @@ pub struct FileMetadata {
     mtime: Option<(i64, u32)>,
 }
 
-// TODO: add way to get std::fs::Permissions out of this, or maybe some libc like type? or
-// filetime::FileTime.
 impl FileMetadata {
     /// Returns the full file mode, if one has been specified.
     ///
@@ -44,6 +42,7 @@ impl FileMetadata {
         self.mtime
     }
 
+    /// Returns the mtime metadata as an `FileTime`. Enabled only on feature `filetime`.
     #[cfg(feature = "filetime")]
     pub fn mtime_as_filetime(&self) -> Option<filetime::FileTime> {
         self.mtime().map(|(seconds, nanos)| filetime::FileTime::from_unix_time(seconds, nanos))
