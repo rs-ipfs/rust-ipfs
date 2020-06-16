@@ -110,8 +110,22 @@ fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
 
     stream! {
         loop {
-            let next = root.as_ref().or_else(|| maybe_walker.as_ref().map(|w| w.pending_links().0));
+            // this mangling with the root and maybe_walker looks like this mainly because
+            //
+            // a) I could not come up with a simpler solution, as we cannot refactor the big match
+            // to a function given the non-uniform yield points
+            //
+            // b) adding more code here, like with an tri-state enum, goes quickly over the current
+            // #[recursion_limit = "512"], which is required due to how async_stream needs to parse
+            // this function (tt-muncher).
+            //
+            // the next will be the root on first round, and pending_links on the next rounds. root
+            // is read with `as_ref` and later dropped by assigning `None` to it on every
+            // iteration.
+            let next = root.as_ref()
+                .or_else(|| maybe_walker.as_ref().map(|w| w.pending_links().0));
 
+            // we either have a cid reference, or we are done
             let next = match next {
                 Some(cid_ref) => cid_ref,
                 None => return,
@@ -121,12 +135,15 @@ fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
 
             let res = match maybe_walker {
                 None => {
+                    // the HTTP api uses the final Cid name as the root name in the generated tar
+                    // archive; it will be copied to Walker internally so it can be temporary.
                     let root_name = next.to_string();
                     Walker::start(&data, &root_name, &mut cache).unwrap()
                 },
                 Some(walker) => walker.continue_walk(&data, &mut cache).unwrap(),
             };
 
+            // make sure only first round uses the `root` cid.
             root = None;
 
             let next_walker = match res {
@@ -143,6 +160,10 @@ fn walk<Types: IpfsTypes>(ipfs: Ipfs<Types>, root: Cid)
                             }
                         }
                     }
+
+                    // even if the largest of files can have 256 kB blocks and about the same
+                    // amount of content, try to consume it in small parts not to grow the buffers
+                    // too much.
 
                     let mut n = 0usize;
                     let slice = segment.as_ref();
