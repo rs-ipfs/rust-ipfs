@@ -237,3 +237,143 @@ impl std::error::Error for GetError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use futures::stream::{FuturesOrdered, TryStreamExt};
+    use hex_literal::hex;
+    use ipfs::{Block, Ipfs, IpfsTypes};
+    use libipld::cid::Cid;
+    use multihash::Sha2_256;
+
+    #[tokio::test]
+    async fn very_long_file_and_symlink_names() {
+        use std::path::PathBuf;
+
+        let options = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
+        let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
+            .await
+            .start()
+            .await
+            .unwrap();
+
+        let mut inorder = FuturesOrdered::new();
+
+        let blocks: &[&[u8]] = &[
+            // the root, QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD
+            &hex!("122f0a22122043217b633fbc72e90938d6dc43a34fcf8fe64e5c0d4f5d4b92a691e5a010c40912063337736f6d6518d90912aa020a2212208b346f875acc01ee2d277d2eadc00d42420a7a441a84247d5eb00e76e43e1fb8128102394634326133353338313761366265386231646561303130666138353663326664646236653131366338346561376132393766346637353163613462336461333637646435633638356566313931376232366334333961663765333032626538396163326432663936313132663363386631303262663766373531613836323738316630396536306536313831646333353565343466373664356162366662346463363265346438373532336538356663613765323965386463386333646438646336376133366239623761336134373031366138323761646336353839386635663930666161623632313861643139396234383161363031623433393261355f18280a1d0805121480000000000000000000000000800000000000002822308002"),
+            &hex!("12310a221220e2f1caec3161a8950e02ebcdfb3a9879a132041c48fc76fd003b7bcde1f68f08120845436e657374656418fd080a270805121e1000000000000000000000000000000000000000000000000000000000002822308002"),
+            &hex!("122e0a221220c710935f96b0b2fb670af9792570c560152ce4a60e7e6995605ebaccb84427371205324164697218bc080a0f080512060400000000002822308002"),
+            &hex!("12340a22122098e02ca8786af6b4895b66cfe5af6755b0ab0374c9c44b6ae62a6441cd399254120b324668696572617263687918f5070a0f080512068000000000002822308002"),
+            &hex!("12310a2212203a25dbf4a767b451a4c2601807f623f5e86e3758ba26a465c0a8675885537c55120833466c6f6e67657218af070a110805120880000000000000002822308002"),
+            &hex!("122e0a221220c16baf1b090a996a990e49136a205aad4e86da6279b20a7fabaf8b087f209f4812054634616e6418d5060a280805121f100000000000000000000000000000000000000000000000000000000000002822308002"),
+            &hex!("12310a2212206c28a669b54bb96b80a821162d1050e6c883f72020214c3a2b80afec9a27861e120833466c6f6e676572188f060a110805120880000000000000002822308002"),
+            &hex!("122e0a221220f4819507773b17e79ad51a0a56a1e2bfb58b880d8b81fc440fd932c29a6fce8e12054634616e6418b5050a280805121f100000000000000000000000000000000000000000000000000000000000002822308002"),
+            &hex!("12310a22122049ead3b060f85b80149d3bee5210b705618e13c40e4884f5a3153bf2f0aee535120833466c6f6e67657218ef040a110805120880000000000000002822308002"),
+            &hex!("12ab020a22122068080292b22f2ed1958079a9bcfdfa9affac9a092c141bda94d496af4b1712f8128102394634326133353338313761366265386231646561303130666138353663326664646236653131366338346561376132393766346637353163613462336461333637646435633638356566313931376232366334333961663765333032626538396163326432663936313132663363386631303262663766373531613836323738316630396536306536313831646333353565343466373664356162366662346463363265346438373532336538356663613765323965386463386333646438646336376133366239623761336134373031366138323761646336353839386635663930666161623632313861643139396234383161363031623433393261355f18a2020a1d0805121480000000000000000000000000000000000000002822308002"),
+            &hex!("0a9f020804129a022e2e2f2e2e2f2e2e2f2e2e2f2e2e2f2e2e2f2e2e2f2e2e2f2e2e2f34326133353338313761366265386231646561303130666138353663326664646236653131366338346561376132393766346637353163613462336461333637646435633638356566313931376232366334333961663765333032626538396163326432663936313132663363386631303262663766373531613836323738316630396536306536313831646333353565343466373664356162366662346463363265346438373532336538356663613765323965386463386333646438646336376133366239623761336134373031366138323761646336353839386635663930666161623632313861643139396234383161363031623433393261355f"),
+            &hex!("0a260802122077656c6c2068656c6c6f207468657265206c6f6e672066696c656e616d65730a1820"),
+        ];
+
+        for block in blocks {
+            inorder.push(put_block(&ipfs, block));
+        }
+
+        drop(inorder.try_collect::<Vec<_>>().await.unwrap());
+
+        let filter = super::get(&ipfs);
+
+        let response = warp::test::request()
+            .method("POST")
+            .path("/get?arg=QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD")
+            .reply(&filter)
+            .await;
+
+        assert_eq!(response.status(), 200);
+
+        let body: bytes::Bytes = response.body().to_owned();
+
+        let mut cursor = std::io::Cursor::new(body.as_ref());
+
+        let mut archive = tar::Archive::new(&mut cursor);
+        let entries = archive.entries().unwrap();
+
+        #[derive(Debug, PartialEq, Eq)]
+        enum Entry {
+            Dir(PathBuf),
+            File(PathBuf, u64, Vec<u8>),
+            Symlink(PathBuf, PathBuf),
+        }
+
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("temporary_file_for_testing.txt");
+
+        let found = entries
+            .map(|res| {
+                res.and_then(|mut entry| {
+                    let header = entry.header();
+
+                    let entry = match header.entry_type() {
+                        tar::EntryType::Directory => Entry::Dir(entry.path()?.into()),
+                        tar::EntryType::Regular => {
+                            let path = entry.path()?.into();
+                            let size = header.size()?;
+
+                            entry.unpack(&temp_file)?;
+
+                            let bytes = std::fs::read(&temp_file)?;
+
+                            Entry::File(path, size, bytes)
+                        }
+                        tar::EntryType::Symlink => Entry::Symlink(
+                            entry.path()?.into(),
+                            entry.link_name()?.as_deref().unwrap().into(),
+                        ),
+                        x => unreachable!("{:?}", x),
+                    };
+
+                    Ok(entry)
+                })
+            })
+            .collect::<Result<Vec<Entry>, _>>()
+            .unwrap();
+
+        std::fs::remove_file(&temp_file).unwrap();
+
+        let long_filename = "42a353817a6be8b1dea010fa856c2fddb6e116c84ea7a297f4f751ca4b3da367dd5c685ef1917b26c439af7e302be89ac2d2f96112f3c8f102bf7f751a862781f09e60e6181dc355e44f76d5ab6fb4dc62e4d87523e85fca7e29e8dc8c3dd8dc67a36b9b7a3a47016a827adc65898f5f90faab6218ad199b481a601b4392a5_";
+
+        let expected = vec![
+            Entry::Dir("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD".into()),
+            Entry::Dir("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/some".into()),
+            Entry::Dir("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/some/nested".into()),
+            Entry::Dir("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/some/nested/dir".into()),
+            Entry::Dir("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/some/nested/dir/hierarchy".into()),
+            Entry::Dir("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/some/nested/dir/hierarchy/longer".into()),
+            Entry::Dir("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/some/nested/dir/hierarchy/longer/and".into()),
+            Entry::Dir("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/some/nested/dir/hierarchy/longer/and/longer".into()),
+            Entry::Dir("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/some/nested/dir/hierarchy/longer/and/longer/and".into()),
+            Entry::Dir("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/some/nested/dir/hierarchy/longer/and/longer/and/longer".into()),
+            Entry::Symlink(
+                format!("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/some/nested/dir/hierarchy/longer/and/longer/and/longer/{}", long_filename).into(),
+                format!("../../../../../../../../../{}", long_filename).into()),
+            Entry::File(format!("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/{}", long_filename).into(), 32, b"well hello there long filenames\n".to_vec()),
+        ];
+
+        // sadly we cannot access the file content without...
+        assert_eq!(found, expected);
+    }
+
+    fn put_block<'a, T: IpfsTypes>(
+        ipfs: &'a Ipfs<T>,
+        block: &'static [u8],
+    ) -> impl std::future::Future<Output = Result<Cid, ipfs::Error>> + 'a {
+        let cid = Cid::new_v0(Sha2_256::digest(block)).unwrap();
+
+        let block = Block {
+            cid,
+            data: block.into(),
+        };
+
+        ipfs.put_block(block)
+    }
+}

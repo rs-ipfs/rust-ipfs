@@ -1417,6 +1417,7 @@ dependencies = [
  "env_logger",
  "futures 0.3.4",
  "hex",
+ "hex-literal",
  "ipfs",
  "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "log 0.4.8",
