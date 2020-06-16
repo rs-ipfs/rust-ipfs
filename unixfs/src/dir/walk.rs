@@ -10,6 +10,7 @@ use crate::InvalidCidInLink;
 use std::path::{Path, PathBuf};
 use cid::Cid;
 
+/// Walker helps with walking an UnixFS tree, including all of the content and files.
 #[derive(Debug)]
 pub struct Walker {
     current: InnerEntry,
@@ -166,6 +167,7 @@ impl Walker {
         Ok(ContinuedWalk::Directory(Item::from(state)))
     }
 
+    /// Returns a description of a kind of node Walker is currently looking at.
     pub fn as_entry<'a>(&'a self) -> Entry<'a> {
         self.current.as_entry()
     }
@@ -192,6 +194,11 @@ impl Walker {
         }
     }
 
+    /// Continues the walk.
+    ///
+    /// Returns a descriptor for the next element found as `ContinuedWalk` which includes the means
+    /// to further continue the walk. `bytes` is the raw data of the next block, `cache` is an
+    /// optional cache for data structures which can always be substituted for `&mut None`.
     pub fn continue_walk<'a>(mut self, bytes: &'a [u8], cache: &mut Option<Cache>) -> Result<ContinuedWalk<'a>, Error> {
         use InnerKind::*;
 
@@ -353,29 +360,13 @@ impl Walker {
         }
     }
 
-    fn skip_current_file(mut self) -> Skipped {
-        use InnerKind::*;
-        match &mut self.current.kind {
-            File(_, visit @ Some(_), _) => {
-                visit.take();
-
-                if self.next.is_some() {
-                    Skipped(State::Unfinished(self))
-                } else {
-                    Skipped(State::Last(self.current))
-                }
-            },
-            Bucket(_) => todo!("we could skip shards as well by ... maybe?"),
-            ref x => todo!("how to skip {:?}", x),
-        }
-    }
-
     // TODO: we could easily split a 'static value for a directory or bucket, which would pop all
     // entries at a single level out to do some parallel walking, though the skipping could already
     // be used to do that... Maybe we could return the filevisit on Skipped to save user from
     // re-creating one? How to do the same for directories?
 }
 
+// FIXME: replace either::Either
 enum Either<A, B> {
     Left(A),
     Right(B),
@@ -404,6 +395,7 @@ impl<A, B> Iterator for Either<A, B>
     }
 }
 
+/// Represents what the `Walker` is currently looking at. Converted to `Entry` for public API.
 #[derive(Debug)]
 struct InnerEntry {
     kind: InnerKind,
@@ -418,29 +410,38 @@ impl From<InnerEntry> for FileMetadata {
     }
 }
 
+// FIXME: could simplify roots to optinal cid variants?
 #[derive(Debug)]
 enum InnerKind {
-    // This is necessarily at the root of the walk
+    /// This is necessarily at the root of the walk
     RootDirectory,
-    // This is necessarily at the root of the walk
+    /// This is necessarily at the root of the walk
     BucketAtRoot,
-    // This is the metadata containing bucket, for which we have a name
+    /// This is the metadata containing bucket, for which we have a name
     RootBucket(Cid),
-    // This is a sibling to a previous named metadata containing bucket
+    /// This is a sibling to a previous named metadata containing bucket
     Bucket(Cid),
+    /// Directory on any level except root
     Directory(Cid),
-    // FIXME: could simplify roots to optinal cid variants?
+    /// File optionally on the root level
     File(Option<Cid>, Option<FileVisit>, u64),
+    /// Symlink optionally on the root level
     Symlink(Option<Cid>),
 }
 
+/// Representation of the current item of Walker or the last observed item.
 #[derive(Debug)]
 pub enum Entry<'a> {
+    /// Current item is the root directory (HAMTShard or plain Directory).
     RootDirectory(&'a Path, &'a FileMetadata),
+    /// Current item is a continuation of a HAMTShard directory. Only the root HAMTShard will have
+    /// file metadata.
     Bucket(&'a Cid, &'a Path),
+    /// Current item is a non-root plain directory or a HAMTShard root directory.
     Directory(&'a Cid, &'a Path, &'a FileMetadata),
-    // TODO: add remaining bytes or something here?
+    /// Current item is a possibly root file with a path, metadata, and total file size.
     File(Option<&'a Cid>, &'a Path, &'a FileMetadata, u64),
+    /// Current item is a possibly root symlink.
     Symlink(Option<&'a Cid>, &'a Path, &'a FileMetadata),
 }
 
@@ -480,6 +481,7 @@ impl<'a> Entry<'a> {
         }
     }
 
+    /// Returns the current Cid unelss for root elements.
     pub fn cid(&self) -> Option<&Cid> {
         use Entry::*;
         match self {
@@ -694,7 +696,8 @@ impl InnerEntry {
     }
 }
 
-// Wrapper to hide the state
+/// Structure to hide the internal `Walker` state and to provide an optional way to continue when
+/// there are any links left to continue with `Item::into_inner()`.
 #[derive(Debug)]
 pub struct Item {
     state: State,
@@ -709,8 +712,8 @@ impl From<State> for Item {
 }
 
 impl Item {
-    // TODO: add path(&self) -> &Path
-
+    /// Returns the representation of the tree node where the walk last continued to, or the last
+    /// loaded block.
     pub fn as_entry(&self) -> Entry<'_> {
         match &self.state {
             State::Unfinished(w) => w.as_entry(),
@@ -718,6 +721,7 @@ impl Item {
         }
     }
 
+    /// Returns `Some` when the walk can be continued, or `None` if all links have been exhausted.
     pub fn into_inner(self) -> Option<Walker> {
         match self.state {
             State::Unfinished(w) => Some(w),
@@ -732,10 +736,16 @@ enum State {
     Last(InnerEntry),
 }
 
+/// Representation of the walk progress. The common `Item` can be used to continue the walk.
 #[derive(Debug)]
 pub enum ContinuedWalk<'a> {
+    /// Currently looking at a file. First tuple value contains the file bytes accessible
+    /// from the block, which can also be empty slice.
     File(FileSegment<'a>, Item),
+    /// Currently looking at a directory.
     Directory(Item),
+    /// Currently looking at a symlink. First tuple value contains the symlink target path. It
+    /// might be convertable to UTF-8 but this is not specified in the spec.
     Symlink(&'a [u8], Item),
 }
 
@@ -743,16 +753,14 @@ impl ContinuedWalk<'_> {
     /// Returns the current entry describing Item, helpful when only listing the tree.
     pub fn into_inner(self) -> Item {
         use ContinuedWalk::*;
-
         match self {
             File(_, item) | Directory(item) | Symlink(_, item) => item,
         }
     }
 }
 
-#[derive(Debug)]
-pub struct Skipped(State);
-
+/// Slice of bytes of a possibly multi-block file. The slice can be accessed through `as_bytes()` or
+/// `AsRef<[u8]>::as_ref()`.
 #[derive(Debug)]
 pub struct FileSegment<'a> {
     bytes: &'a [u8],
@@ -789,6 +797,12 @@ impl<'a> FileSegment<'a> {
     /// Note: Last block can also be the first.
     pub fn is_last(&self) -> bool {
         self.last_block
+    }
+
+    /// Return access to the file bytes, which can be an empty slice. The slice is empty for any
+    /// intermediate blocks which only contain links to further blocks.
+    pub fn as_bytes(&self) -> &'a [u8] {
+        self.bytes
     }
 }
 
