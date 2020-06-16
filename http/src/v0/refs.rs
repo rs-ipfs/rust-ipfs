@@ -241,7 +241,7 @@ pub async fn walk_path<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
     mut path: IpfsPath,
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
-    use ipfs::unixfs::ll::MaybeResolved;
+    use ipfs::unixfs::ll::{MaybeResolved, ResolveError};
 
     let mut current = path.take_root().unwrap();
 
@@ -279,6 +279,13 @@ pub async fn walk_path<T: IpfsTypes>(
                 }
                 Ok(MaybeResolved::NotFound) => {
                     return handle_dagpb_not_found(current, &data, needle, &path)
+                }
+                Err(ResolveError::UnexpectedType(_)) => {
+                    // the conformance tests use a path which would end up going through a file
+                    // and the returned error string is tested against listed alternatives.
+                    // unexpected type is not one of them.
+                    let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
+                    return Err(WalkError::from((e, current)))
                 }
                 Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
             };
