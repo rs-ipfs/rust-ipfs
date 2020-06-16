@@ -135,7 +135,19 @@ impl Walker {
                 Ok(ContinuedWalk::File(segment, Item::from(state)))
             },
             UnixFsType::Metadata => todo!("metadata?"),
-            UnixFsType::Symlink => todo!("?"),
+            UnixFsType::Symlink => {
+                // symlinks are single block so
+
+                let contents = match flat.data.Data {
+                    Some(Cow::Borrowed(bytes)) if !bytes.is_empty() => bytes,
+                    None | Some(Cow::Borrowed(_)) => &[][..],
+                    _ => unreachable!("never used into_owned"),
+                };
+
+                let current = InnerEntry::new_root_symlink(metadata, root_name);
+
+                Ok(ContinuedWalk::Symlink(contents, Item::from(State::Last(current))))
+            },
         }
     }
 
@@ -517,7 +529,14 @@ impl InnerEntry {
     }
 
     fn new_root_symlink(metadata: FileMetadata, name: &str) -> Self {
-        todo!()
+        let mut path = PathBuf::new();
+        path.push(name);
+        Self {
+            kind: InnerKind::Symlink(None),
+            path,
+            metadata,
+            depth: if name.is_empty() { 0 } else { 1 },
+        }
     }
 
     pub fn as_entry<'a>(&'a self) -> Entry<'a> {
@@ -718,6 +737,17 @@ pub enum ContinuedWalk<'a> {
     File(FileSegment<'a>, Item),
     Directory(Item),
     Symlink(&'a [u8], Item),
+}
+
+impl ContinuedWalk<'_> {
+    /// Returns the current entry describing Item, helpful when only listing the tree.
+    pub fn into_inner(self) -> Item {
+        use ContinuedWalk::*;
+
+        match self {
+            File(_, item) | Directory(item) | Symlink(_, item) => item,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -943,11 +973,7 @@ mod tests {
         let block = blocks.get_by_str(cid);
         let mut cache = None;
 
-        let item = match Walker::start(block, root_name, &mut cache).unwrap() {
-            ContinuedWalk::Directory(item) => item,
-            ContinuedWalk::File(_, item) => item,
-            x => unreachable!("{:?}", x),
-        };
+        let item = Walker::start(block, root_name, &mut cache).unwrap().into_inner();
 
         *ret.entry(PathBuf::from(item.as_entry().path())).or_insert(0) += 1;
         let mut visit = item.into_inner();
@@ -955,17 +981,9 @@ mod tests {
         while let Some(walker) = visit {
             let (next, _) = walker.pending_links();
             let block = blocks.get_by_cid(next);
-            visit = match walker.continue_walk(block, &mut cache).unwrap() {
-                ContinuedWalk::File(bytes, item) => {
-                    *ret.entry(PathBuf::from(item.as_entry().path())).or_insert(0) += 1;
-                    item.into_inner()
-                },
-                ContinuedWalk::Directory(item) => {
-                    *ret.entry(PathBuf::from(item.as_entry().path())).or_insert(0) += 1;
-                    item.into_inner()
-                }
-                x => unreachable!("{:?}", x),
-            };
+            let item = walker.continue_walk(block, &mut cache).unwrap().into_inner();
+            *ret.entry(PathBuf::from(item.as_entry().path())).or_insert(0) += 1;
+            visit = item.into_inner();
         }
 
         ret
