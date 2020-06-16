@@ -199,6 +199,7 @@ fn walk<Types: IpfsTypes>(
 enum GetError {
     NonUtf8Symlink,
     InvalidFileName(Vec<u8>),
+    InvalidLinkName(Vec<u8>),
     Walk(walk::Error),
     Loading(ipfs::Error),
 }
@@ -223,6 +224,7 @@ impl fmt::Display for GetError {
             Walk(e) => write!(fmt, "{}", e),
             Loading(e) => write!(fmt, "loading failed: {}", e),
             InvalidFileName(x) => write!(fmt, "filename cannot be put inside tar: {:?}", x),
+            InvalidLinkName(x) => write!(fmt, "symlin link name cannot be put inside tar: {:?}", x),
         }
     }
 }

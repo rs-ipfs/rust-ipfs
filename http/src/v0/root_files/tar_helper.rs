@@ -188,13 +188,15 @@ impl TarHelper {
             ret[2] = self.pad(data.len() as u64 + 1);
         }
 
-        if let Err(e) = self.header.set_link_name(target) {
+        if let Err(_) = self.header.set_link_name(target) {
             let data = path2bytes(target);
 
             if data.len() < self.header.as_old().linkname.len() {
-                // this might be an /ipfs/QmFoo which we should error and not allow
-                panic!("invalid link target: {:?} ({})", target, e)
+                return Err(GetError::InvalidLinkName(data.to_vec()));
             }
+
+            // this is another long header trick, but this time we have different entry type but
+            // similarly the long file name is written as an separate entry with own headers.
 
             self.long_filename_header.set_size(data.len() as u64 + 1);
             self.long_filename_header
@@ -225,6 +227,7 @@ impl TarHelper {
         Ok(ret)
     }
 
+    /// Content is tar files is padded to 512 byte sectors which might be configurable as well.
     pub(super) fn pad(&self, total_size: u64) -> Option<Bytes> {
         let padding = 512 - (total_size % 512);
         if padding < 512 {
