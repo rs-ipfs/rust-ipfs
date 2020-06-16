@@ -362,6 +362,16 @@ pub(crate) mod tests {
                 // symlink linking to "foobar": QmNgQEdXVdLw79nH2bnxLMxnyWMaXrijfqMTiDVat3iyuz
                 &hex!("0a0a08041206666f6f626172"),
 
+                // sharded directory with single link to a non-sharded directory
+                // QmQXUANxYGpkwMTWQUdZBPx9jqfFP7acNgL4FHRWkndKCe
+                &hex!("12390a2212209b04586b8bdc01a7e0db04b8358a3717954572720f6b6803af5eec781cf73801121146416e6f6e5f736861726465645f64697218430a290805122004000000000000000000000000000000000000000000000000000000000000002822308002"),
+
+                // the non-sharded directory linked by the the above sharded directory
+                // QmYmmkD3dGZjuozuqSzDYjU4ZyhAgc4T4P4SUgY6qjzBi8
+                &hex!("122e0a22122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac331206666f6f626172180f0a020801"),
+
+                // single block version of "foobar\n" linked to by above non-sharded directory
+                &hex!("0a0d08021207666f6f6261720a1807"),
             ];
 
             for block in foobar_blocks {

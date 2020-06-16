@@ -233,6 +233,7 @@ mod tests {
     use cid::Cid;
     use hex_literal::hex;
     use std::convert::TryFrom;
+    use crate::file::tests::FakeBlockstore;
 
     #[test]
     fn resolve_paths_from_plain_dagpb() {
@@ -284,5 +285,29 @@ mod tests {
         // MaybeResolved::NotFound would be a possible answer as well, but this perhaps highlights
         // that we dont know how to resolve through this
         resolve(&payload[..], "anything", &mut None).unwrap_err();
+    }
+
+    #[test]
+    fn sharded_directory_linking_to_non_sharded() {
+        // created this test case out of doubt that we could fail a traversal as ShardedLookup
+        // expects the linked cids to be hamt shards. However that cannot happen as we only resolve
+        // a single step.
+        let blocks = FakeBlockstore::with_fixtures();
+
+        let block = blocks.get_by_str("QmQXUANxYGpkwMTWQUdZBPx9jqfFP7acNgL4FHRWkndKCe");
+
+        let next = match resolve(&block[..], "non_sharded_dir", &mut None).unwrap() {
+            MaybeResolved::Found(cid) => cid,
+            x => unreachable!("{:?}", x),
+        };
+
+        let block = blocks.get_by_cid(&next);
+
+        let next = match resolve(&block[..], "foobar", &mut None).unwrap() {
+            MaybeResolved::Found(cid) => cid,
+            x => unreachable!("{:?}", x),
+        };
+
+        assert_eq!(&next.to_string(), "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL");
     }
 }
