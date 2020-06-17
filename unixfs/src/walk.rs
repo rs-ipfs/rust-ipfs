@@ -155,7 +155,9 @@ impl Walker {
             UnixFsType::Directory => {
                 let flat = crate::dir::check_directory_supported(flat)?;
 
-                let (cid, name, depth) = self.next.expect("validated at new and earlier in this method");
+                let (cid, name, depth) = self
+                    .next
+                    .expect("validated at new and earlier in this method");
                 match self.current.as_mut() {
                     Some(current) => current.as_directory(cid, &name, depth, metadata),
                     _ => {
@@ -254,7 +256,9 @@ impl Walker {
                 let (bytes, file_size, metadata, step) =
                     IdleFileVisit::default().start_from_parsed(flat, cache)?;
 
-                let (cid, name, depth) = self.next.expect("validated at new and earlier in this method");
+                let (cid, name, depth) = self
+                    .next
+                    .expect("validated at new and earlier in this method");
                 let file_continues = step.is_some();
 
                 match self.current.as_mut() {
@@ -486,7 +490,9 @@ impl InnerEntry {
     pub fn as_entry(&self) -> Entry<'_> {
         use InnerKind::*;
         match &self.kind {
-            RootDirectory(cid) | BucketAtRoot(cid) => Entry::RootDirectory(cid, &self.path, &self.metadata),
+            RootDirectory(cid) | BucketAtRoot(cid) => {
+                Entry::RootDirectory(cid, &self.path, &self.metadata)
+            }
             RootBucket(cid) => Entry::Directory(cid, &self.path, &self.metadata),
             Bucket(cid) => Entry::Bucket(cid, &self.path),
             Directory(cid) => Entry::Directory(cid, &self.path, &self.metadata),
@@ -500,7 +506,10 @@ impl InnerEntry {
 
         while self.depth >= depth && self.depth > 0 {
             assert!(self.path.pop());
-            self.depth = self.depth.checked_sub(1).expect("undeflowed path components");
+            self.depth = self
+                .depth
+                .checked_sub(1)
+                .expect("undeflowed path components");
         }
 
         self.path.push(name);
@@ -541,7 +550,10 @@ impl InnerEntry {
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
-            ref x => unreachable!("root bucket ({}, {}, {}) following {:?}", cid, name, depth, x),
+            ref x => unreachable!(
+                "root bucket ({}, {}, {}) following {:?}",
+                cid, name, depth, x
+            ),
         }
     }
 
@@ -558,7 +570,10 @@ impl InnerEntry {
                 // continuation bucket going bucket -> bucket
                 while self.depth > depth {
                     assert!(self.path.pop());
-                    self.depth = self.depth.checked_sub(1).expect("underlowed depth calculation during bucket->bucket");
+                    self.depth = self
+                        .depth
+                        .checked_sub(1)
+                        .expect("underlowed depth calculation during bucket->bucket");
                 }
 
                 assert_eq!(self.depth, depth, "{:?}", self.path);
@@ -589,7 +604,10 @@ impl InnerEntry {
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
-            ref x => unreachable!("file ({}, {}, {}, {}) following {:?}", cid, name, depth, file_size, x),
+            ref x => unreachable!(
+                "file ({}, {}, {}, {}) following {:?}",
+                cid, name, depth, file_size, x
+            ),
         }
     }
 
