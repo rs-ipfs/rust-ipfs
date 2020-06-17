@@ -798,7 +798,7 @@ impl From<FileReadFailed> for Error {
     fn from(e: FileReadFailed) -> Self {
         use FileReadFailed::*;
         match e {
-            File(_e) => todo!(),
+            File(e) => Error::File(e),
             UnexpectedType(ut) => Error::UnexpectedType(ut),
             Read(_) => unreachable!("FileVisit does not parse any blocks"),
             InvalidCid(l) => Error::InvalidCid(l),
