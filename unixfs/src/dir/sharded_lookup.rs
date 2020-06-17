@@ -137,7 +137,7 @@ impl<'needle> ShardedLookup<'needle> {
     /// Takes the validated object as mutable reference to move data out of it in case of error.
     ///
     /// Returns an error if we don't support the properties on the HAMTShard-typed node
-    fn check_supported(hamt: &mut FlatUnixFs<'_>) -> Result<(), ShardError> {
+    pub(crate) fn check_supported(hamt: &mut FlatUnixFs<'_>) -> Result<(), ShardError> {
         assert_eq!(hamt.data.Type, UnixFsType::HAMTShard);
 
         if hamt.data.fanout != Some(256) || hamt.data.hashType != Some(34) {

@@ -7,6 +7,16 @@ use std::fmt;
 mod sharded_lookup;
 pub use sharded_lookup::{Cache, LookupError, ShardError, ShardedLookup};
 
+mod dir;
+pub(crate) use dir::{check_directory_supported, UnexpectedDirectoryProperties};
+
+pub(crate) fn check_hamtshard_supported(
+    mut flat: FlatUnixFs<'_>,
+) -> Result<FlatUnixFs<'_>, ShardError> {
+    ShardedLookup::check_supported(&mut flat)?;
+    Ok(flat)
+}
+
 /// Resolves a single path segment on `dag-pb` or UnixFS directories (normal, sharded).
 ///
 /// The third parameter can always be substituted with a None but when repeatedly resolving over
@@ -30,20 +40,7 @@ pub fn resolve<'needle>(
             return Ok(ShardedLookup::lookup_or_start(hamt, needle, cache)?)
         }
         Ok(flat) if flat.data.Type == UnixFsType::Directory => {
-            if flat.data.filesize.is_some()
-                || !flat.data.blocksizes.is_empty()
-                || flat.data.hashType.is_some()
-                || flat.data.fanout.is_some()
-            {
-                return Err(ResolveError::UnexpectedDirProperties {
-                    filesize: flat.data.filesize,
-                    blocksizes: flat.data.blocksizes,
-                    hash_type: flat.data.hashType,
-                    fanout: flat.data.fanout,
-                });
-            }
-
-            flat.links
+            check_directory_supported(flat)?.links
         }
         Err(ParsingFailed::InvalidUnixFs(_, PBNode { Links: links, .. }))
         | Err(ParsingFailed::NoData(PBNode { Links: links, .. })) => links,
@@ -103,16 +100,7 @@ pub enum ResolveError {
     UnexpectedType(UnexpectedNodeType),
     /// A directory had unsupported properties. These are not encountered during walking sharded
     /// directories.
-    UnexpectedDirProperties {
-        /// filesize is a property of Files
-        filesize: Option<u64>,
-        /// blocksizes is a property of Files
-        blocksizes: Vec<u64>,
-        /// hash_type is a property of HAMT Shards
-        hash_type: Option<u64>,
-        /// fanout is a property of HAMT shards
-        fanout: Option<u64>,
-    },
+    UnexpectedDirProperties(UnexpectedDirectoryProperties),
     /// Failed to read the block as a dag-pb node. Failure to read an inner UnixFS node is ignored
     /// and links of the outer dag-pb are processed.
     Read(quick_protobuf::Error),
@@ -120,23 +108,18 @@ pub enum ResolveError {
     Lookup(LookupError),
 }
 
+impl From<UnexpectedDirectoryProperties> for ResolveError {
+    fn from(e: UnexpectedDirectoryProperties) -> Self {
+        ResolveError::UnexpectedDirProperties(e)
+    }
+}
+
 impl fmt::Display for ResolveError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ResolveError::*;
         match self {
-            UnexpectedType(ut) => write!(
-                fmt,
-                "unexpected type for UnixFs: {:?}",
-                ut
-            ),
-            UnexpectedDirProperties { filesize, blocksizes, hash_type, fanout } => write!(
-                fmt,
-                "unexpected directory properties: filesize={:?}, {} blocksizes, hash_type={:?}, fanout={:?}",
-                filesize,
-                blocksizes.len(),
-                hash_type,
-                fanout
-            ),
+            UnexpectedType(ut) => write!(fmt, "unexpected type for UnixFs: {:?}", ut),
+            UnexpectedDirProperties(udp) => write!(fmt, "unexpected directory properties: {}", udp),
             Read(e) => write!(fmt, "parsing failed: {}", e),
             Lookup(e) => write!(fmt, "{}", e),
         }

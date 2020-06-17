@@ -1,10 +1,12 @@
 #![allow(unused, dead_code)]
 
+use crate::dir::{
+    check_directory_supported, check_hamtshard_supported, ShardError, UnexpectedDirectoryProperties,
+};
 use crate::file::visit::{Cache, FileVisit, IdleFileVisit};
 use crate::file::{FileError, FileReadFailed};
 use crate::pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType};
-use crate::Metadata;
-use crate::{InvalidCidInLink, UnexpectedNodeType};
+use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
 use cid::Cid;
 use either::Either;
 use std::borrow::Cow;
@@ -155,6 +157,8 @@ impl Walker {
 
         match flat.data.Type {
             UnixFsType::Directory => {
+                let flat = crate::dir::check_directory_supported(flat)?;
+
                 let (cid, name, depth) = self.next.expect("validated at start and this method");
                 match self.current.as_mut() {
                     Some(current) => current.as_directory(cid, &name, depth, metadata),
@@ -196,6 +200,8 @@ impl Walker {
                 Ok(ContinuedWalk::Directory(Item::from(state)))
             }
             UnixFsType::HAMTShard => {
+                let flat = crate::dir::check_hamtshard_supported(flat)?;
+
                 // TODO: the first hamtshard must have metadata!
                 let (cid, name, depth) = self.next.expect("validated at start and this method");
 
@@ -736,6 +742,12 @@ pub enum Error {
 
     /// A file has invalid structure
     File(FileError),
+
+    /// Directory has unsupported structure
+    UnsupportedDirectory(UnexpectedDirectoryProperties),
+
+    /// HAMTSharded directory has unsupported properties
+    UnsupportedHAMTShard(ShardError),
 }
 
 impl From<ParsingFailed<'_>> for Error {
@@ -767,6 +779,18 @@ impl From<FileReadFailed> for Error {
     }
 }
 
+impl From<UnexpectedDirectoryProperties> for Error {
+    fn from(e: UnexpectedDirectoryProperties) -> Self {
+        Error::UnsupportedDirectory(e)
+    }
+}
+
+impl From<ShardError> for Error {
+    fn from(e: ShardError) -> Self {
+        Error::UnsupportedHAMTShard(e)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Error::*;
@@ -779,6 +803,8 @@ impl fmt::Display for Error {
             EmptyDagPbNode => write!(fmt, "failed to parse the inner UnixFs: no data"),
             InvalidCid(e) => write!(fmt, "link contained an invalid Cid: {}", e),
             File(e) => write!(fmt, "invalid file: {}", e),
+            UnsupportedDirectory(udp) => write!(fmt, "unsupported directory: {}", udp),
+            UnsupportedHAMTShard(se) => write!(fmt, "unsupported hamtshard: {}", se),
         }
     }
 }
