@@ -72,7 +72,6 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
         // items.
         visit = match walker.continue_walk(&buf, &mut cache)? {
             ContinuedWalk::File(segment, item) => {
-
                 let entry = item.as_entry();
                 let total_size = entry.total_file_size().expect("all files have total size");
                 // metadata is picked up from the root file and carried until the last block
@@ -84,7 +83,6 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                 }
 
                 if segment.is_last() {
-
                     let path = entry.path();
                     let mode = metadata.mode().unwrap_or(0o0644) & 0o7777;
                     let (seconds, _) = metadata.mtime().unwrap_or((0, 0));
@@ -112,16 +110,17 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
             }
             ContinuedWalk::Symlink(bytes, item) => {
                 let entry = item.as_entry();
-                let metadata = entry
-                    .metadata()
-                    .expect("symlink must have metadata");
+                let metadata = entry.metadata().expect("symlink must have metadata");
 
                 let path = entry.path();
                 let target = Path::new(std::str::from_utf8(bytes).unwrap());
                 let mode = metadata.mode().unwrap_or(0o0755) & 0o7777;
                 let (seconds, _) = metadata.mtime().unwrap_or((0, 0));
 
-                println!("s {:o} {:>12} {:>16} {:?} -> {:?}", mode, seconds, "-", path, target);
+                println!(
+                    "s {:o} {:>12} {:>16} {:?} -> {:?}",
+                    mode, seconds, "-", path, target
+                );
 
                 item.into_inner()
             }

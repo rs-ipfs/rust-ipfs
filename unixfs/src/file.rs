@@ -179,8 +179,8 @@ impl<'a> UnwrapBorrowedExt<'a> for Option<Cow<'a, [u8]>> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::{reader::*, visit::*, UnwrapBorrowedExt};
-    use hex_literal::hex;
     use crate::test_support::FakeBlockstore;
+    use hex_literal::hex;
 
     const CONTENT_FILE: &[u8] = &hex!("0a0d08021207636f6e74656e741807");
 

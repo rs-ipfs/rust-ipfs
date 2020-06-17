@@ -245,8 +245,8 @@ mod tests {
     use ipfs::{Block, Ipfs, IpfsTypes};
     use libipld::cid::Cid;
     use multihash::Sha2_256;
-    use std::path::PathBuf;
     use std::convert::TryFrom;
+    use std::path::PathBuf;
 
     // Entry we'll use in expectations
     #[derive(Debug, PartialEq, Eq)]
@@ -294,7 +294,6 @@ mod tests {
 
     #[tokio::test]
     async fn very_long_file_and_symlink_names() {
-
         let options = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
         let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
             .await
@@ -356,7 +355,6 @@ mod tests {
 
     #[tokio::test]
     async fn get_multiblock_file() {
-
         let options = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
         let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
             .await
@@ -391,9 +389,11 @@ mod tests {
 
         let found = get_archive_entries(response.body());
 
-        let expected = vec![
-            Entry::File("QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6".into(), 7, b"foobar\n".to_vec()),
-        ];
+        let expected = vec![Entry::File(
+            "QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6".into(),
+            7,
+            b"foobar\n".to_vec(),
+        )];
 
         assert_eq!(found, expected);
     }
@@ -402,15 +402,20 @@ mod tests {
         let mut cursor = std::io::Cursor::new(bytes.as_ref());
 
         let mut archive = tar::Archive::new(&mut cursor);
-        archive.entries()
-            .and_then(|entries|
+        archive
+            .entries()
+            .and_then(|entries| {
                 entries
                     .map(|res| res.and_then(Entry::try_from))
                     .collect::<Result<Vec<Entry>, _>>()
-            ).unwrap()
+            })
+            .unwrap()
     }
 
-    fn put_all_blocks<'a, T: IpfsTypes>(ipfs: &'a Ipfs<T>, blocks: &'a [&'a [u8]]) -> impl std::future::Future<Output = Result<Vec<Cid>, ipfs::Error>> + 'a {
+    fn put_all_blocks<'a, T: IpfsTypes>(
+        ipfs: &'a Ipfs<T>,
+        blocks: &'a [&'a [u8]],
+    ) -> impl std::future::Future<Output = Result<Vec<Cid>, ipfs::Error>> + 'a {
         let mut inorder = FuturesOrdered::new();
         for block in blocks {
             inorder.push(put_block(&ipfs, block));
