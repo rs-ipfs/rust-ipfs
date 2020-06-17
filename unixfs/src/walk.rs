@@ -1,5 +1,3 @@
-#![allow(unused, dead_code)]
-
 use crate::dir::{
     check_directory_supported, check_hamtshard_supported, ShardError, UnexpectedDirectoryProperties,
 };
