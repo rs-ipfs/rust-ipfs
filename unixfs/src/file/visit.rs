@@ -9,6 +9,9 @@ use crate::InvalidCidInLink;
 
 /// IdleFileVisit represents a prepared file visit over a tree. The user has to know the CID and be
 /// able to get the block for the visit.
+///
+/// **Note**: For easier to use interface, you should consider using `ipfs_unixfs::walk::Walker`.
+/// It uses `IdleFileVisit` and `FileVisit` internally but has a better API.
 #[derive(Default, Debug)]
 pub struct IdleFileVisit {
     range: Option<Range<u64>>,
@@ -116,6 +119,9 @@ impl From<Vec<(Cid, Range<u64>)>> for Cache {
 ///
 /// The file visitor does **not** implement size validation of merkledag links at the moment. This
 /// could be implmented with generational storage and it would require an u64 per link.
+///
+/// **Note**: For easier to use interface, you should consider using `ipfs_unixfs::walk::Walker`.
+/// It uses `IdleFileVisit` and `FileVisit` internally but has a better API.
 #[derive(Debug)]
 pub struct FileVisit {
     /// The internal cache for pending work. Order is such that the next is always the last item,

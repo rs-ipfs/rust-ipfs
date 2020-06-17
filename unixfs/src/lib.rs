@@ -7,7 +7,7 @@ use std::fmt;
 /// UnixFS file support.
 pub mod file;
 
-/// UnixFS directory support.
+/// UnixFS directory support, currently only the re-exported resolving.
 pub mod dir;
 
 pub use dir::{resolve, LookupError, MaybeResolved, ResolveError};

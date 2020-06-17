@@ -14,7 +14,9 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Walker helps with walking an UnixFS tree, including all of the content and files.
+/// Walker helps with walking an UnixFS tree, including all of the content and files. Created with
+/// `Walker::new` and walked over each block with `Walker::continue_block`. Use
+/// `Walker::pending_links` to learn the next [`Cid`] to be loaded and the prefetchable links.
 #[derive(Debug)]
 pub struct Walker {
     /// This is `None` until the first block has been visited. Failing any unwraps would be logic
