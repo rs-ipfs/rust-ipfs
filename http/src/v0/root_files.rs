@@ -268,8 +268,8 @@ mod tests {
                     let size = header.size()?;
 
                     // writing to file is the only supported way to get the contents
-                    let mut temp_file = std::env::temp_dir();
-                    temp_file.push("temporary_file_for_testing.txt");
+                    let tempdir = tempfile::tempdir()?;
+                    let temp_file = tempdir.path().join("temporary_file_for_testing.txt");
                     entry.unpack(&temp_file)?;
 
                     let bytes = std::fs::read(&temp_file);
