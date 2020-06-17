@@ -33,7 +33,7 @@ pub struct Walker {
 
 /// Converts a link of specifically a Directory (and not a link of a HAMTShard).
 fn convert_link(
-    depth: usize,
+    nested_depth: usize,
     nth: usize,
     link: PBLink<'_>,
 ) -> Result<(Cid, String, usize), InvalidCidInLink> {
@@ -45,15 +45,16 @@ fn convert_link(
     let name = match link.Name {
         Some(Cow::Borrowed(s)) if !s.is_empty() => s.to_owned(),
         None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
-        Some(Cow::Owned(s)) => s,
+        Some(Cow::Owned(s)) => unreachable!("FlatUnixFs is never transformed to owned"),
     };
     assert!(!name.contains('/'));
-    Ok((cid, name, depth))
+    Ok((cid, name, nested_depth))
 }
 
 /// Converts a link of specifically a HAMTShard (and not a link of a Directory).
 fn convert_sharded_link(
-    depth: usize,
+    nested_depth: usize,
+    sibling_depth: usize,
     nth: usize,
     link: PBLink<'_>,
 ) -> Result<(Cid, String, usize), InvalidCidInLink> {
@@ -63,17 +64,10 @@ fn convert_sharded_link(
         Err(e) => return Err(InvalidCidInLink::from((nth, link, e))),
     };
     let (depth, name) = match link.Name {
-        Some(Cow::Borrowed(s)) if s.len() > 2 => (depth, s[2..].to_owned()),
-        Some(Cow::Borrowed(s)) if s.len() == 2 => (depth - 1, String::from("")),
+        Some(Cow::Borrowed(s)) if s.len() > 2 => (nested_depth, s[2..].to_owned()),
+        Some(Cow::Borrowed(s)) if s.len() == 2 => (sibling_depth, String::from("")),
         None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
-        Some(Cow::Owned(s)) => {
-            if s.len() == 2 {
-                (depth - 1, String::from(""))
-            } else {
-                assert!(s.len() > 2);
-                (depth, s[2..].to_owned())
-            }
-        }
+        Some(Cow::Owned(s)) => unreachable!("FlatUnixFs is never transformed to owned"),
     };
     assert!(!name.contains('/'));
     Ok((cid, name, depth))
@@ -229,7 +223,7 @@ impl Walker {
                     .links
                     .into_iter()
                     .enumerate()
-                    .map(|(nth, link)| convert_sharded_link(depth + 1, nth, link))
+                    .map(|(nth, link)| convert_sharded_link(depth + 1, depth, nth, link))
                     .rev();
 
                 // TODO: it might be worthwhile to lose the `rev` and sort the pushed links using
