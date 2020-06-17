@@ -402,7 +402,7 @@ impl<'a> Entry<'a> {
     }
 
     /// Returns the metadata for the latest entry. It exists for initial directory entries, files,
-    /// and symlinks but not continued HamtShards.
+    /// and symlinks but not for continued HamtShards.
     pub fn metadata(&self) -> Option<&'a Metadata> {
         use Entry::*;
         match self {
