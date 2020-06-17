@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::ops::Range;
 
-use crate::file::{FileError, FileMetadata, FileReadFailed, UnwrapBorrowedExt};
+use crate::file::{FileError, FileReadFailed, Metadata, UnwrapBorrowedExt};
 
 /// Navigates the UnixFs files, which are either:
 ///  - single block files which have everything needed to all of the contents
@@ -22,11 +22,12 @@ pub struct FileReader<'a> {
     links: Vec<PBLink<'a>>,
     data: &'a [u8],
     blocksizes: Vec<u64>,
-    metadata: FileMetadata,
+    metadata: Metadata,
+    file_size: u64,
 }
 
-impl AsRef<FileMetadata> for FileReader<'_> {
-    fn as_ref(&self) -> &FileMetadata {
+impl AsRef<Metadata> for FileReader<'_> {
+    fn as_ref(&self) -> &Metadata {
         &self.metadata
     }
 }
@@ -74,7 +75,12 @@ impl<'a> FileReader<'a> {
     /// Method for starting the file traversal. `data` is the raw data from unixfs block.
     pub fn from_block(data: &'a [u8]) -> Result<Self, FileReadFailed> {
         let inner = FlatUnixFs::try_from(data)?;
-        let metadata = FileMetadata::from(&inner.data);
+        let metadata = Metadata::from(&inner.data);
+        Self::from_parts(inner, 0, metadata)
+    }
+
+    pub(crate) fn from_parsed(inner: FlatUnixFs<'a>) -> Result<Self, FileReadFailed> {
+        let metadata = Metadata::from(&inner.data);
         Self::from_parts(inner, 0, metadata)
     }
 
@@ -87,7 +93,7 @@ impl<'a> FileReader<'a> {
         let inner = FlatUnixFs::try_from(data)?;
 
         if inner.data.mode.is_some() || inner.data.mtime.is_some() {
-            let metadata = FileMetadata::from(&inner.data);
+            let metadata = Metadata::from(&inner.data);
             return Err(FileError::NonRootDefinesMetadata(metadata).into());
         }
 
@@ -97,7 +103,7 @@ impl<'a> FileReader<'a> {
     fn from_parts(
         inner: FlatUnixFs<'a>,
         offset: u64,
-        metadata: FileMetadata,
+        metadata: Metadata,
     ) -> Result<Self, FileReadFailed> {
         let empty_or_no_content = inner
             .data
@@ -143,6 +149,7 @@ impl<'a> FileReader<'a> {
                 data,
                 blocksizes: inner.data.blocksizes,
                 metadata,
+                file_size: inner.data.filesize.unwrap(),
             })
         }
     }
@@ -160,6 +167,7 @@ impl<'a> FileReader<'a> {
             last_offset: self.offset,
 
             metadata: self.metadata,
+            file_size: self.file_size,
         };
 
         let fc = if self.links.is_empty() {
@@ -174,6 +182,11 @@ impl<'a> FileReader<'a> {
 
         (fc, traversal)
     }
+
+    /// Returns the total size of the file.
+    pub fn file_size(&self) -> u64 {
+        self.file_size
+    }
 }
 
 /// Carrier of validation data used between blocks during a walk on the merkle tree.
@@ -181,8 +194,9 @@ impl<'a> FileReader<'a> {
 pub struct Traversal {
     last_ending: Ending,
     last_offset: u64,
+    file_size: u64,
 
-    metadata: FileMetadata,
+    metadata: Metadata,
 }
 
 impl Traversal {
@@ -202,10 +216,15 @@ impl Traversal {
             .check_is_suitable_next(self.last_offset, tree_range)?;
         FileReader::from_continued(self, tree_range.start, next_block)
     }
+
+    /// Returns the total size of the file.
+    pub fn file_size(&self) -> u64 {
+        self.file_size
+    }
 }
 
-impl AsRef<FileMetadata> for Traversal {
-    fn as_ref(&self) -> &FileMetadata {
+impl AsRef<Metadata> for Traversal {
+    fn as_ref(&self) -> &Metadata {
         &self.metadata
     }
 }

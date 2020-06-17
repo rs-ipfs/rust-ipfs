@@ -3,12 +3,15 @@ use std::convert::TryFrom;
 use std::ops::Range;
 
 use crate::file::reader::{FileContent, FileReader, Traversal};
-use crate::file::{FileMetadata, FileReadFailed};
-use crate::pb::merkledag::PBLink;
+use crate::file::{FileReadFailed, Metadata};
+use crate::pb::{merkledag::PBLink, FlatUnixFs};
 use crate::InvalidCidInLink;
 
 /// IdleFileVisit represents a prepared file visit over a tree. The user has to know the CID and be
 /// able to get the block for the visit.
+///
+/// **Note**: For easier to use interface, you should consider using `ipfs_unixfs::walk::Walker`.
+/// It uses `IdleFileVisit` and `FileVisit` internally but has a better API.
 #[derive(Default, Debug)]
 pub struct IdleFileVisit {
     range: Option<Range<u64>>,
@@ -22,14 +25,33 @@ impl IdleFileVisit {
 
     /// Begins the visitation by processing the first block to be visited.
     ///
-    /// Returns on success a tuple of file bytes, any metadata associated, and optionally a
-    /// `FileVisit` to continue the walk.
+    /// Returns (on success) a tuple of file bytes, total file size, any metadata associated, and
+    /// optionally a `FileVisit` to continue the walk.
+    #[allow(clippy::type_complexity)]
     pub fn start(
         self,
         block: &[u8],
-    ) -> Result<(&[u8], FileMetadata, Option<FileVisit>), FileReadFailed> {
+    ) -> Result<(&[u8], u64, Metadata, Option<FileVisit>), FileReadFailed> {
         let fr = FileReader::from_block(block)?;
+        self.start_from_reader(fr, &mut None)
+    }
 
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn start_from_parsed<'a>(
+        self,
+        block: FlatUnixFs<'a>,
+        cache: &'_ mut Option<Cache>,
+    ) -> Result<(&'a [u8], u64, Metadata, Option<FileVisit>), FileReadFailed> {
+        let fr = FileReader::from_parsed(block)?;
+        self.start_from_reader(fr, cache)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn start_from_reader<'a>(
+        self,
+        fr: FileReader<'a>,
+        cache: &'_ mut Option<Cache>,
+    ) -> Result<(&'a [u8], u64, Metadata, Option<FileVisit>), FileReadFailed> {
         let metadata = fr.as_ref().to_owned();
 
         let (content, traversal) = fr.content();
@@ -38,32 +60,37 @@ impl IdleFileVisit {
             FileContent::Bytes(content) => {
                 let block = 0..content.len() as u64;
                 let content = maybe_target_slice(content, &block, self.range.as_ref());
-                Ok((content, metadata, None))
+                Ok((content, traversal.file_size(), metadata, None))
             }
             FileContent::Links(iter) => {
                 // we need to select suitable here
-                let mut pending = iter
-                    .enumerate()
-                    .filter_map(|(i, (link, range))| {
-                        if !block_is_in_target_range(&range, self.range.as_ref()) {
-                            return None;
-                        }
+                let mut links = cache.take().unwrap_or_default().inner;
 
-                        Some(to_pending(i, link, range))
-                    })
-                    .collect::<Result<Vec<(Cid, Range<u64>)>, _>>()?;
+                let pending = iter.enumerate().filter_map(|(i, (link, range))| {
+                    if !block_is_in_target_range(&range, self.range.as_ref()) {
+                        return None;
+                    }
+
+                    Some(to_pending(i, link, range))
+                });
+
+                for item in pending {
+                    links.push(item?);
+                }
 
                 // order is reversed to consume them in the depth first order
-                pending.reverse();
+                links.reverse();
 
-                if pending.is_empty() {
-                    Ok((&[][..], metadata, None))
+                if links.is_empty() {
+                    *cache = Some(links.into());
+                    Ok((&[][..], traversal.file_size(), metadata, None))
                 } else {
                     Ok((
                         &[][..],
+                        traversal.file_size(),
                         metadata,
                         Some(FileVisit {
-                            pending,
+                            pending: links,
                             state: traversal,
                             range: self.range,
                         }),
@@ -74,10 +101,27 @@ impl IdleFileVisit {
     }
 }
 
+/// Optional cache for datastructures which can be re-used without re-allocation between walks of
+/// different files.
+#[derive(Default)]
+pub struct Cache {
+    inner: Vec<(Cid, Range<u64>)>,
+}
+
+impl From<Vec<(Cid, Range<u64>)>> for Cache {
+    fn from(mut inner: Vec<(Cid, Range<u64>)>) -> Self {
+        inner.clear();
+        Cache { inner }
+    }
+}
+
 /// FileVisit represents an ongoing visitation over an UnixFs File tree.
 ///
 /// The file visitor does **not** implement size validation of merkledag links at the moment. This
 /// could be implmented with generational storage and it would require an u64 per link.
+///
+/// **Note**: For easier to use interface, you should consider using `ipfs_unixfs::walk::Walker`.
+/// It uses `IdleFileVisit` and `FileVisit` internally but has a better API.
 #[derive(Debug)]
 pub struct FileVisit {
     /// The internal cache for pending work. Order is such that the next is always the last item,
@@ -109,7 +153,11 @@ impl FileVisit {
     ///
     /// Returns on success a tuple of bytes and new version of `FileVisit` to continue the visit,
     /// when there is something more to visit.
-    pub fn continue_walk(mut self, next: &[u8]) -> Result<(&[u8], Option<Self>), FileReadFailed> {
+    pub fn continue_walk<'a>(
+        mut self,
+        next: &'a [u8],
+        cache: &mut Option<Cache>,
+    ) -> Result<(&'a [u8], Option<Self>), FileReadFailed> {
         let traversal = self.state;
         let (_, range) = self
             .pending
@@ -127,6 +175,7 @@ impl FileVisit {
                     self.state = traversal;
                     Ok((content, Some(self)))
                 } else {
+                    *cache = Some(self.pending.into());
                     Ok((content, None))
                 }
             }
@@ -149,10 +198,15 @@ impl FileVisit {
             }
         }
     }
+
+    /// Returns the total size of the file in bytes.
+    pub fn file_size(&self) -> u64 {
+        self.state.file_size()
+    }
 }
 
-impl AsRef<FileMetadata> for FileVisit {
-    fn as_ref(&self) -> &FileMetadata {
+impl AsRef<Metadata> for FileVisit {
+    fn as_ref(&self) -> &Metadata {
         self.state.as_ref()
     }
 }

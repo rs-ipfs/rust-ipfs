@@ -39,10 +39,11 @@ where
         }
     };
 
+    let mut cache = None;
     // Start the visit from the root block. We need to move the both components as Options into the
     // stream as we can't yet return them from this Future context.
     let (visit, bytes) = match visit.start(&data) {
-        Ok((bytes, _, visit)) => {
+        Ok((bytes, _, _, visit)) => {
             let bytes = if !bytes.is_empty() {
                 Some(bytes.to_vec())
             } else {
@@ -55,6 +56,9 @@ where
             return Err(TraversalFailed::Walking(cid, e));
         }
     };
+
+    // FIXME: we could use the above file_size to set the content-length ... but calculating it
+    // with the ranges is not ... trivial?
 
     // using async_stream here at least to get on faster; writing custom streams is not too easy
     // but this might be easy enough to write open.
@@ -86,7 +90,7 @@ where
                 },
             };
 
-            match visit.continue_walk(&data) {
+            match visit.continue_walk(&data, &mut cache) {
                 Ok((bytes, next_visit)) => {
                     if !bytes.is_empty() {
                         // TODO: manual implementation could allow returning just the slice

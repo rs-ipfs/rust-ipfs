@@ -896,6 +896,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
 
 [[package]]
+name = "filetime"
+version = "0.2.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "affc17579b132fc2461adf7c575cc6e8b134ebca52c51f5411388965227dc695"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "redox_syscall",
+ "winapi 0.3.8",
+]
+
+[[package]]
 name = "fixedbitset"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1401,9 +1413,11 @@ version = "0.1.0"
 dependencies = [
  "async-stream",
  "base64 0.12.0",
+ "bytes 0.5.4",
  "env_logger",
  "futures 0.3.4",
  "hex",
+ "hex-literal",
  "ipfs",
  "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "log 0.4.8",
@@ -1417,6 +1431,7 @@ dependencies = [
  "serde",
  "serde_json",
  "structopt",
+ "tar",
  "thiserror",
  "tokio 0.2.16",
  "url",
@@ -1429,11 +1444,14 @@ name = "ipfs-unixfs"
 version = "0.1.0"
 dependencies = [
  "cid",
+ "either",
+ "filetime",
  "hex-literal",
  "multibase",
  "multihash 0.10.1",
  "quick-protobuf",
  "sha2",
+ "tar",
 ]
 
 [[package]]
@@ -3419,6 +3437,17 @@ dependencies = [
  "quote 1.0.3",
  "syn 1.0.17",
  "unicode-xid 0.2.0",
+]
+
+[[package]]
+name = "tar"
+version = "0.4.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c058ad0bd6ccb84faa24cc44d4fc99bee8a5d7ba9ff33aa4d993122d1aeeac2"
+dependencies = [
+ "filetime",
+ "libc",
+ "redox_syscall",
 ]
 
 [[package]]

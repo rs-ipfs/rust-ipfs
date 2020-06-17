@@ -2,8 +2,8 @@
 ///!
 ///! Most usable for walking UnixFS file trees provided by the `visit::IdleFileVisit` and
 ///! `visit::FileVisit` types.
-use crate::pb::{ParsingFailed, UnixFs};
-use crate::{InvalidCidInLink, UnexpectedNodeType};
+use crate::pb::ParsingFailed;
+use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
 use std::borrow::Cow;
 use std::fmt;
 
@@ -12,49 +12,6 @@ pub mod reader;
 
 /// Higher level API for visiting the file tree.
 pub mod visit;
-
-/// Container for the unixfs metadata, which can be present at the root of the file trees.
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
-pub struct FileMetadata {
-    mode: Option<u32>,
-    mtime: Option<(i64, u32)>,
-}
-
-// TODO: add way to get std::fs::Permissions out of this, or maybe some libc like type?
-impl FileMetadata {
-    /// Returns the full file mode, if one has been specified.
-    ///
-    /// The full file mode is originally read through `st_mode` field of `stat` struct defined in
-    /// `sys/stat.h` and it's defining OpenGroup standard. Lowest 3 bytes will correspond to read,
-    /// write, and execute rights per user, group, and other and 4th byte determines sticky bits,
-    /// set user id or set group id. Following two bytes correspond to the different file types, as
-    /// defined by the same OpenGroup standard:
-    /// https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html
-    pub fn mode(&self) -> Option<u32> {
-        self.mode
-    }
-
-    /// Returns the raw timestamp of last modification time, if specified.
-    ///
-    /// The timestamp is `(seconds, nanos)` similar to `std::time::Duration` with the exception of
-    /// allowing seconds to be negative. The seconds are calculated from `1970-01-01 00:00:00` or
-    /// the common "unix epoch".
-    pub fn mtime(&self) -> Option<(i64, u32)> {
-        self.mtime
-    }
-}
-
-impl<'a> From<&'a UnixFs<'_>> for FileMetadata {
-    fn from(data: &'a UnixFs<'_>) -> Self {
-        let mode = data.mode;
-        let mtime = data
-            .mtime
-            .clone()
-            .map(|ut| (ut.Seconds, ut.FractionalNanoseconds.unwrap_or(0)));
-
-        FileMetadata { mode, mtime }
-    }
-}
 
 /// Describes the errors which can happen during a visit or lower level block-by-block walking of
 /// the DAG.
@@ -117,7 +74,7 @@ pub enum FileError {
     /// Errored when the filesize is non-zero.
     NoLinksNoContent,
     /// Unsupported: non-root block defines metadata.
-    NonRootDefinesMetadata(FileMetadata),
+    NonRootDefinesMetadata(Metadata),
     /// A non-leaf node in the tree has no filesize value which is used to determine the file range
     /// for this tree.
     IntermediateNodeWithoutFileSize,
@@ -220,12 +177,9 @@ impl<'a> UnwrapBorrowedExt<'a> for Option<Cow<'a, [u8]>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use cid::Cid;
-    use std::collections::HashMap;
-    use std::convert::TryFrom;
-
+pub(crate) mod tests {
     use super::{reader::*, visit::*, UnwrapBorrowedExt};
+    use crate::test_support::FakeBlockstore;
     use hex_literal::hex;
 
     const CONTENT_FILE: &[u8] = &hex!("0a0d08021207636f6e74656e741807");
@@ -244,7 +198,7 @@ mod tests {
     #[test]
     fn visiting_just_content() {
         let res = IdleFileVisit::default().start(CONTENT_FILE);
-        assert!(matches!(res, Ok((b"content", _, None))), "{:?}", res);
+        assert!(matches!(res, Ok((b"content", _, _, None))), "{:?}", res);
     }
 
     #[test]
@@ -253,7 +207,7 @@ mod tests {
             .with_target_range(500_000..600_000)
             .start(CONTENT_FILE);
 
-        assert!(matches!(res, Ok((b"", _, None))), "{:?}", res);
+        assert!(matches!(res, Ok((b"", _, _, None))), "{:?}", res);
     }
 
     #[test]
@@ -262,79 +216,6 @@ mod tests {
         let fr = FileReader::from_block(block).unwrap();
         let (content, _) = fr.content();
         assert!(matches!(content, FileContent::Bytes(b"")), "{:?}", content);
-    }
-
-    #[derive(Default)]
-    struct FakeBlockstore {
-        blocks: HashMap<Cid, Vec<u8>>,
-    }
-
-    impl FakeBlockstore {
-        fn get_by_cid<'a>(&'a self, cid: &Cid) -> &'a [u8] {
-            self.blocks.get(cid).unwrap()
-        }
-
-        fn get_by_raw<'a>(&'a self, key: &[u8]) -> &'a [u8] {
-            self.get_by_cid(&Cid::try_from(key).unwrap())
-        }
-
-        fn get_by_str<'a>(&'a self, key: &str) -> &'a [u8] {
-            self.get_by_cid(&Cid::try_from(key).unwrap())
-        }
-
-        fn insert_v0(&mut self, block: &[u8]) -> Cid {
-            use sha2::Digest;
-            let mut sha = sha2::Sha256::new();
-            sha.input(block);
-            let result = sha.result();
-
-            let mh = multihash::wrap(multihash::Code::Sha2_256, &result[..]);
-            let cid = Cid::new_v0(mh).unwrap();
-
-            assert!(
-                self.blocks.insert(cid.clone(), block.to_vec()).is_none(),
-                "duplicate cid {}",
-                cid
-            );
-
-            cid
-        }
-
-        fn with_fixtures() -> Self {
-            let mut this = Self::default();
-            let foobar_blocks: &[&[u8]] = &[
-                // root for "foobar\n" from go-ipfs 0.5 add -s size-2
-                //     root
-                //      |
-                //  ----+-----
-                //  |  |  |  |
-                // fo ob ar  \n
-                // QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6
-                &hex!("12280a221220fef9fe1804942b35e19e145a03f9c9d5ca9c997dda0a9416f3f515a52f1b3ce11200180a12280a221220dfb94b75acb208fd4873d84872af58bd65c731770a7d4c0deeb4088e87390bfe1200180a12280a221220054497ae4e89812c83276a48e3e679013a788b7c0eb02712df15095c02d6cd2c1200180a12280a221220cc332ceb37dea7d3d7c00d1393117638d3ed963575836c6d44a24951e444cf5d120018090a0c080218072002200220022001"),
-                // first bytes: fo
-                &hex!("0a0808021202666f1802"),
-                // ob
-                &hex!("0a08080212026f621802"),
-                // ar
-                &hex!("0a080802120261721802"),
-                // \n
-                &hex!("0a07080212010a1801"),
-
-                // same "foobar\n" but with go-ipfs 0.5 add --trickle -s size-2
-                &hex!("12280a2212200f20a024ce0152161bc23e7234573374dfc3999143deaebf9b07b9c67318f9bd1200180a12280a221220b424253c25b5a7345fc7945732e363a12a790341b7c2d758516bbad5bbaab4461200180a12280a221220b7ab6350c604a885be9bd72d833f026b1915d11abe7e8dda5d0bca689342b7411200180a12280a221220a8a826652c2a3e93a751456e71139df086a1fedfd3bd9f232ad52ea1d813720e120018090a0c080218072002200220022001"),
-                // the blocks have type raw instead of file, for some unknown reason
-                &hex!("0a0808001202666f1802"),
-                &hex!("0a08080012026f621802"),
-                &hex!("0a080800120261721802"),
-                &hex!("0a07080012010a1801"),
-            ];
-
-            for block in foobar_blocks {
-                this.insert_v0(block);
-            }
-
-            this
-        }
     }
 
     #[test]
@@ -379,14 +260,14 @@ mod tests {
     fn collect_bytes(blocks: &FakeBlockstore, visit: IdleFileVisit, start: &str) -> Vec<u8> {
         let mut ret = Vec::new();
 
-        let (content, _, mut step) = visit.start(blocks.get_by_str(start)).unwrap();
+        let (content, _, _, mut step) = visit.start(blocks.get_by_str(start)).unwrap();
         ret.extend(content);
 
         while let Some(visit) = step {
             let (first, _) = visit.pending_links();
             let block = blocks.get_by_cid(first);
 
-            let (content, next_step) = visit.continue_walk(block).unwrap();
+            let (content, next_step) = visit.continue_walk(block, &mut None).unwrap();
             ret.extend(content);
             step = next_step;
         }

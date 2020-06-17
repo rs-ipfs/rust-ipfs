@@ -51,11 +51,17 @@ async fn refs_inner<T: IpfsTypes>(
         formatter
     );
 
-    let paths = opts
+    let mut paths = opts
         .arg
         .iter()
         .map(|s| IpfsPath::try_from(s.as_str()).map_err(StringError::from))
         .collect::<Result<Vec<_>, _>>()?;
+
+    for path in paths.iter_mut() {
+        // this is needed because the paths should not error on matching on the final Data segment,
+        // it just becomes projected as `Loaded::Raw(_)`, however such items can have no links.
+        path.set_follow_dagpb_data(true);
+    }
 
     let st = refs_paths(ipfs, paths, max_depth, opts.unique)
         .await
@@ -241,7 +247,7 @@ pub async fn walk_path<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
     mut path: IpfsPath,
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
-    use ipfs::unixfs::ll::MaybeResolved;
+    use ipfs::unixfs::ll::{MaybeResolved, ResolveError};
 
     let mut current = path.take_root().unwrap();
 
@@ -279,6 +285,13 @@ pub async fn walk_path<T: IpfsTypes>(
                 }
                 Ok(MaybeResolved::NotFound) => {
                     return handle_dagpb_not_found(current, &data, needle, &path)
+                }
+                Err(ResolveError::UnexpectedType(_)) => {
+                    // the conformance tests use a path which would end up going through a file
+                    // and the returned error string is tested against listed alternatives.
+                    // unexpected type is not one of them.
+                    let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
+                    return Err(WalkError::from((e, current)));
                 }
                 Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
             };
@@ -360,10 +373,12 @@ fn handle_dagpb_not_found(
     needle: String,
     path: &IpfsPath,
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
-    if needle == "Data" && path.len() == 0 {
-        // /dag/resolve needs to "resolve through" a dag-pb node down to the "just
-        // data" even though we do not need to extract it ... however this might be
-        // good to just filter with refs, as no refs of such path exist
+    use ipfs::unixfs::ll::dagpb::node_data;
+
+    if needle == "Data" && path.len() == 0 && path.follow_dagpb_data() {
+        // /dag/resolve needs to "resolve through" a dag-pb node down to the "just data" even
+        // though we do not need to extract it ... however this might be good to just filter with
+        // refs, as no refs of such path can exist as the links are in the outer structure.
         //
         // testing with go-ipfs 0.5 reveals that dag resolve only follows links
         // which are actually present in the dag-pb, not numeric links like Links/5
@@ -372,7 +387,7 @@ fn handle_dagpb_not_found(
         // comment on this special casing: there cannot be any other such
         // special case as the Links do not work like Data so while this is not
         // pretty, it's not terrible.
-        let data = ipfs::unixfs::ll::dagpb::node_data(&data)
+        let data = node_data(&data)
             .expect("already parsed once, second time cannot fail")
             .unwrap_or_default();
         Ok((at, Loaded::Ipld(Ipld::Bytes(data.to_vec())), vec![needle]))

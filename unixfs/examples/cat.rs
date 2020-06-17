@@ -73,7 +73,7 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(u64, u64), Error> {
     read_bytes += blocks.as_file(&start.to_bytes())?.read_to_end(&mut buf)? as u64;
 
     // First step of the walk can give content or continued visitation but not both.
-    let (content, _metadata, mut step) = IdleFileVisit::default().start(&buf)?;
+    let (content, _, _metadata, mut step) = IdleFileVisit::default().start(&buf)?;
     stdout.write_all(content)?;
     content_bytes += content.len() as u64;
 
@@ -88,9 +88,9 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(u64, u64), Error> {
         read_bytes += blocks.as_file(&first.to_bytes())?.read_to_end(&mut buf)? as u64;
 
         // Similar to first step, except we no longer get the file metadata. It is still accessible
-        // from the `visit` via `AsRef<ipfs_unixfs::file::FileMetadata>` but likely only needed in
+        // from the `visit` via `AsRef<ipfs_unixfs::file::Metadata>` but likely only needed in
         // the first step.
-        let (content, next_step) = visit.continue_walk(&buf)?;
+        let (content, next_step) = visit.continue_walk(&buf, &mut None)?;
         stdout.write_all(content)?;
         content_bytes += content.len() as u64;
 
