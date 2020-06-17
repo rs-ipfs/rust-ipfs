@@ -546,14 +546,11 @@ impl InnerEntry {
             RootBucket(_) | Bucket(_) | File(_, None, _) | Symlink(_) => {
                 self.kind = Bucket(cid);
 
-                if name.is_empty() {
-                    // continuation bucket going bucket -> bucket
-                    while self.depth > depth {
-                        assert!(self.path.pop());
-                        self.depth -= 1;
-                    }
-                } else {
-                    self.set_path(name, depth);
+                assert!(name.is_empty());
+                // continuation bucket going bucket -> bucket
+                while self.depth > depth {
+                    assert!(self.path.pop());
+                    self.depth = self.depth.checked_sub(1).expect("underlowed depth calculation during bucket->bucket");
                 }
 
                 assert_eq!(self.depth, depth, "{:?}", self.path);
