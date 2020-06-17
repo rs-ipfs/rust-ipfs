@@ -1,6 +1,4 @@
-use crate::dir::{
-    ShardError, UnexpectedDirectoryProperties,
-};
+use crate::dir::{ShardError, UnexpectedDirectoryProperties};
 use crate::file::visit::{Cache, FileVisit, IdleFileVisit};
 use crate::file::{FileError, FileReadFailed};
 use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
