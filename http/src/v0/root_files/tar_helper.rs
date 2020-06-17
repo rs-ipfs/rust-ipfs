@@ -5,7 +5,6 @@
 ///! important copied parts are related to the long file name and long link name support. Issue
 ///! will be opened on the `tar-rs` to discuss if these could be made public, leaving us only the
 ///! Bytes (copying) code.
-
 use super::GetError;
 use bytes::{buf::BufMut, Bytes, BytesMut};
 use ipfs::unixfs::ll::Metadata;
