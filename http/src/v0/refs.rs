@@ -21,7 +21,6 @@ use format::EdgeFormatter;
 pub(crate) mod path;
 pub use path::{IpfsPath, WalkSuccess};
 
-use crate::v0::support::unshared::Unshared;
 use crate::v0::support::{HandledErr, StreamResponse};
 
 /// https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs
@@ -98,9 +97,7 @@ async fn refs_inner<T: IpfsTypes>(
         }
     });
 
-    // Note: Unshared has the unsafe impl Sync which sadly is needed.
-    // See documentation for `Unshared` for more information.
-    Ok(StreamResponse(Unshared::new(st)))
+    Ok(StreamResponse(st))
 }
 
 #[derive(Debug, Serialize, Deserialize)]

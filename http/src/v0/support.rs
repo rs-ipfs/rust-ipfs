@@ -8,7 +8,6 @@ use std::fmt;
 
 pub mod option_parsing;
 mod stream;
-pub mod unshared;
 pub use stream::StreamResponse;
 
 /// The common responses apparently returned by the go-ipfs HTTP api on errors.

@@ -1303,9 +1303,9 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "0.13.3"
+version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7b15203263d1faa615f9337d79c1d37959439dc46c2b4faab33286fadc2a1c5"
+checksum = "a6e7655b9594024ad0ee439f3b5a7299369dc2a3f459b47c696f9ff676f9aa1f"
 dependencies = [
  "bytes 0.5.4",
  "futures-channel",
@@ -1317,8 +1317,8 @@ dependencies = [
  "httparse",
  "itoa",
  "log 0.4.8",
- "net2",
  "pin-project",
+ "socket2",
  "time",
  "tokio 0.2.16",
  "tower-service",
@@ -1418,6 +1418,7 @@ dependencies = [
  "futures 0.3.4",
  "hex",
  "hex-literal",
+ "hyper",
  "ipfs",
  "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
  "log 0.4.8",
@@ -3959,9 +3960,9 @@ dependencies = [
 
 [[package]]
 name = "warp"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54cd1e2b3eb3539284d88b76a9afcf5e20f2ef2fab74db5b21a1c30d7d945e82"
+checksum = "0e95175b7a927258ecbb816bdada3cc469cb68593e7940b96a60f4af366a9970"
 dependencies = [
  "bytes 0.5.4",
  "futures 0.3.4",

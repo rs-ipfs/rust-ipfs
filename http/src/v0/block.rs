@@ -1,4 +1,3 @@
-use crate::v0::support::unshared::Unshared;
 use crate::v0::support::{
     with_ipfs, HandledErr, InvalidMultipartFormData, StreamResponse, StringError,
 };
@@ -195,7 +194,7 @@ async fn rm_query<T: IpfsTypes>(
         });
 
     let st = futures::stream::iter(responses);
-    Ok(StreamResponse(Unshared::new(st)))
+    Ok(StreamResponse(st))
 }
 
 #[derive(Debug, Deserialize)]

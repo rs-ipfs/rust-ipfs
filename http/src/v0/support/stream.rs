@@ -10,7 +10,7 @@ pub struct StreamResponse<S>(pub S);
 
 impl<S> Reply for StreamResponse<S>
 where
-    S: TryStream + Send + Sync + 'static,
+    S: TryStream + Send + 'static,
     S::Ok: Into<Bytes>,
     S::Error: StdError + Send + Sync + 'static,
 {

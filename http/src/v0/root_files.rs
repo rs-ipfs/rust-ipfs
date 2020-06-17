@@ -1,5 +1,4 @@
 use crate::v0::refs::{walk_path, IpfsPath};
-use crate::v0::support::unshared::Unshared;
 use crate::v0::support::{with_ipfs, StreamResponse, StringError};
 use async_stream::try_stream;
 use bytes::Bytes;
@@ -66,7 +65,7 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
         Err(e) => return Err(StringError::from(e).into()),
     };
 
-    Ok(StreamResponse(Unshared::new(stream)))
+    Ok(StreamResponse(stream))
 }
 
 #[derive(Deserialize)]
@@ -97,7 +96,7 @@ async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Re
         return Err(StringError::from("unknown node type").into());
     }
 
-    Ok(StreamResponse(Unshared::new(walk(ipfs, cid).into_stream())))
+    Ok(StreamResponse(walk(ipfs, cid).into_stream()))
 }
 
 fn walk<Types: IpfsTypes>(
