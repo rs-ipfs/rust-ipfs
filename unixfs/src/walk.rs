@@ -488,13 +488,17 @@ impl InnerEntry {
     }
 
     fn set_path(&mut self, name: &str, depth: usize) {
+        debug_assert_eq!(self.depth, self.path.ancestors().count());
+
         while self.depth >= depth && self.depth > 0 {
             assert!(self.path.pop());
-            self.depth -= 1;
+            self.depth = self.depth.checked_sub(1).expect("undeflowed path components");
         }
 
         self.path.push(name);
         self.depth = depth;
+
+        debug_assert_eq!(self.depth, self.path.ancestors().count());
     }
 
     fn as_directory(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
