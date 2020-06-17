@@ -341,12 +341,11 @@ impl From<InnerEntry> for Metadata {
 }
 
 // FIXME: could simplify roots to optinal cid variants?
-#[derive(Debug)]
 enum InnerKind {
     /// This is necessarily at the root of the walk
-    RootDirectory,
+    RootDirectory(Cid),
     /// This is necessarily at the root of the walk
-    BucketAtRoot,
+    BucketAtRoot(Cid),
     /// This is the metadata containing bucket, for which we have a name
     RootBucket(Cid),
     /// This is a sibling to a previous named metadata containing bucket
@@ -354,25 +353,40 @@ enum InnerKind {
     /// Directory on any level except root
     Directory(Cid),
     /// File optionally on the root level
-    File(Option<Cid>, Option<FileVisit>, u64),
+    File(Cid, Option<FileVisit>, u64),
     /// Symlink optionally on the root level
-    Symlink(Option<Cid>),
+    Symlink(Cid),
+}
+
+impl fmt::Debug for InnerKind {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use InnerKind::*;
+        match self {
+            RootDirectory(cid) => write!(fmt, "RootDirectory({})", cid),
+            BucketAtRoot(cid) => write!(fmt, "BucketAtRoot({})", cid),
+            RootBucket(cid) => write!(fmt, "RootBucket({})", cid),
+            Bucket(cid) => write!(fmt, "Bucket({})", cid),
+            Directory(cid) => write!(fmt, "Directory({})", cid),
+            File(cid, _, sz) => write!(fmt, "File({}, _, {})", cid, sz),
+            Symlink(cid) => write!(fmt, "Symlink({})", cid),
+        }
+    }
 }
 
 /// Representation of the current item of Walker or the last observed item.
 #[derive(Debug)]
 pub enum Entry<'a> {
     /// Current item is the root directory (HAMTShard or plain Directory).
-    RootDirectory(&'a Path, &'a Metadata),
+    RootDirectory(&'a Cid, &'a Path, &'a Metadata),
     /// Current item is a continuation of a HAMTShard directory. Only the root HAMTShard will have
     /// file metadata.
     Bucket(&'a Cid, &'a Path),
     /// Current item is a non-root plain directory or a HAMTShard root directory.
     Directory(&'a Cid, &'a Path, &'a Metadata),
     /// Current item is a possibly root file with a path, metadata, and total file size.
-    File(Option<&'a Cid>, &'a Path, &'a Metadata, u64),
+    File(&'a Cid, &'a Path, &'a Metadata, u64),
     /// Current item is a possibly root symlink.
-    Symlink(Option<&'a Cid>, &'a Path, &'a Metadata),
+    Symlink(&'a Cid, &'a Path, &'a Metadata),
 }
 
 impl<'a> Entry<'a> {
@@ -381,7 +395,7 @@ impl<'a> Entry<'a> {
     pub fn path(&self) -> &'a Path {
         use Entry::*;
         match self {
-            RootDirectory(p, _)
+            RootDirectory(_, p, _)
             | Bucket(_, p)
             | Directory(_, p, _)
             | File(_, p, _, _)
@@ -395,7 +409,7 @@ impl<'a> Entry<'a> {
         use Entry::*;
         match self {
             Bucket(_, _) => None,
-            RootDirectory(_, m) | Directory(_, _, m) | File(_, _, m, _) | Symlink(_, _, m) => {
+            RootDirectory(_, _, m) | Directory(_, _, m) | File(_, _, m, _) | Symlink(_, _, m) => {
                 Some(m)
             }
         }
@@ -414,32 +428,32 @@ impl<'a> Entry<'a> {
     pub fn cid(&self) -> Option<&Cid> {
         use Entry::*;
         match self {
-            RootDirectory(_, _) | File(None, _, _, _) | Symlink(None, _, _) => None,
-            Bucket(cid, _)
+            RootDirectory(cid, _, _)
+            | Bucket(cid, _)
             | Directory(cid, _, _)
-            | File(Some(cid), _, _, _)
-            | Symlink(Some(cid), _, _) => Some(cid),
+            | File(cid, _, _, _)
+            | Symlink(cid, _, _) => Some(cid),
         }
     }
 }
 
 impl InnerEntry {
-    fn new_root_dir(_: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
+    fn new_root_dir(cid: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
-            kind: InnerKind::RootDirectory,
+            kind: InnerKind::RootDirectory(cid),
             path,
             metadata,
             depth,
         }
     }
 
-    fn new_root_bucket(_: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
+    fn new_root_bucket(cid: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
-            kind: InnerKind::BucketAtRoot,
+            kind: InnerKind::BucketAtRoot(cid),
             path,
             metadata,
             depth,
@@ -447,7 +461,7 @@ impl InnerEntry {
     }
 
     fn new_root_file(
-        _: Cid,
+        cid: Cid,
         metadata: Metadata,
         name: &str,
         step: Option<FileVisit>,
@@ -457,18 +471,18 @@ impl InnerEntry {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
-            kind: InnerKind::File(None, step, file_size),
+            kind: InnerKind::File(cid, step, file_size),
             path,
             metadata,
             depth,
         }
     }
 
-    fn new_root_symlink(_: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
+    fn new_root_symlink(cid: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
-            kind: InnerKind::Symlink(None),
+            kind: InnerKind::Symlink(cid),
             path,
             metadata,
             depth,
@@ -478,12 +492,12 @@ impl InnerEntry {
     pub fn as_entry(&self) -> Entry<'_> {
         use InnerKind::*;
         match &self.kind {
-            RootDirectory | BucketAtRoot => Entry::RootDirectory(&self.path, &self.metadata),
+            RootDirectory(cid) | BucketAtRoot(cid) => Entry::RootDirectory(cid, &self.path, &self.metadata),
             RootBucket(cid) => Entry::Directory(cid, &self.path, &self.metadata),
             Bucket(cid) => Entry::Bucket(cid, &self.path),
             Directory(cid) => Entry::Directory(cid, &self.path, &self.metadata),
-            File(cid, _, sz) => Entry::File(cid.as_ref(), &self.path, &self.metadata, *sz),
-            Symlink(cid) => Entry::Symlink(cid.as_ref(), &self.path, &self.metadata),
+            File(cid, _, sz) => Entry::File(cid, &self.path, &self.metadata, *sz),
+            Symlink(cid) => Entry::Symlink(cid, &self.path, &self.metadata),
         }
     }
 
@@ -504,8 +518,8 @@ impl InnerEntry {
     fn as_directory(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
         use InnerKind::*;
         match self.kind {
-            RootDirectory
-            | BucketAtRoot
+            RootDirectory(_)
+            | BucketAtRoot(_)
             | Bucket(_)
             | RootBucket(_)
             | Directory(_)
@@ -515,15 +529,15 @@ impl InnerEntry {
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
-            ref x => todo!("dir after {:?}", x),
+            ref x => unreachable!("directory ({}, {}, {}) following {:?}", cid, name, depth, x),
         }
     }
 
     fn as_bucket_root(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
         use InnerKind::*;
         match self.kind {
-            RootDirectory
-            | BucketAtRoot
+            RootDirectory(_)
+            | BucketAtRoot(_)
             | Bucket(_)
             | RootBucket(_)
             | Directory(_)
@@ -533,14 +547,14 @@ impl InnerEntry {
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
-            ref x => todo!("root bucket after {:?}", x),
+            ref x => unreachable!("root bucket ({}, {}, {}) following {:?}", cid, name, depth, x),
         }
     }
 
     fn as_bucket(&mut self, cid: Cid, name: &str, depth: usize) {
         use InnerKind::*;
         match self.kind {
-            BucketAtRoot => {
+            BucketAtRoot(_) => {
                 assert_eq!(self.depth, depth, "{:?}", self.path);
             }
             RootBucket(_) | Bucket(_) | File(_, None, _) | Symlink(_) => {
@@ -555,7 +569,7 @@ impl InnerEntry {
 
                 assert_eq!(self.depth, depth, "{:?}", self.path);
             }
-            ref x => todo!("bucket after {:?}", x),
+            ref x => unreachable!("bucket ({}, {}, {}) following {:?}", cid, name, depth, x),
         }
     }
 
@@ -570,36 +584,36 @@ impl InnerEntry {
     ) {
         use InnerKind::*;
         match self.kind {
-            RootDirectory
-            | BucketAtRoot
+            RootDirectory(_)
+            | BucketAtRoot(_)
             | RootBucket(_)
             | Bucket(_)
             | Directory(_)
             | File(_, None, _)
             | Symlink(_) => {
-                self.kind = File(Some(cid), step, file_size);
+                self.kind = File(cid, step, file_size);
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
-            ref x => todo!("file from {:?}", x),
+            ref x => unreachable!("file ({}, {}, {}, {}) following {:?}", cid, name, depth, file_size, x),
         }
     }
 
     fn as_symlink(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
         use InnerKind::*;
         match self.kind {
-            RootDirectory
-            | BucketAtRoot
+            RootDirectory(_)
+            | BucketAtRoot(_)
             | RootBucket(_)
             | Bucket(_)
             | Directory(_)
             | File(_, None, _)
             | Symlink(_) => {
-                self.kind = Symlink(Some(cid));
+                self.kind = Symlink(cid);
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
-            ref x => todo!("symlink from {:?}", x),
+            ref x => unreachable!("symlink ({}, {}, {}) following {:?}", cid, name, depth, x),
         }
     }
 }
