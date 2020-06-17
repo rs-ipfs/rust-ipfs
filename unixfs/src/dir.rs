@@ -228,7 +228,7 @@ impl MultipleMatchingLinks {
 mod tests {
 
     use super::{resolve, MaybeResolved};
-    use crate::file::tests::FakeBlockstore;
+    use crate::test_support::FakeBlockstore;
     use cid::Cid;
     use hex_literal::hex;
     use std::convert::TryFrom;

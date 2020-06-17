@@ -21,6 +21,9 @@ pub mod dagpb;
 /// Support for walking over all UnixFs trees.
 pub mod walk;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 /// A link could not be transformed into a Cid.
 #[derive(Debug)]
 pub struct InvalidCidInLink {

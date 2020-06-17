@@ -788,7 +788,7 @@ impl std::error::Error for Error {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::file::tests::FakeBlockstore;
+    use crate::test_support::FakeBlockstore;
     use std::collections::HashMap;
     use std::path::PathBuf;
 
