@@ -268,14 +268,17 @@ mod tests {
                     let path = entry.path()?.into();
                     let size = header.size()?;
 
+                    // writing to file is the only supported way to get the contents
                     let mut temp_file = std::env::temp_dir();
                     temp_file.push("temporary_file_for_testing.txt");
                     entry.unpack(&temp_file)?;
 
                     let bytes = std::fs::read(&temp_file);
 
-                    std::fs::remove_file(&temp_file).unwrap();
+                    // regardless of read success let's prefer deleting the file
+                    std::fs::remove_file(&temp_file)?;
 
+                    // and only later check if the read succeeded
                     Entry::File(path, size, bytes?)
                 }
                 tar::EntryType::Symlink => Entry::Symlink(
@@ -327,17 +330,7 @@ mod tests {
 
         assert_eq!(response.status(), 200);
 
-        let body: bytes::Bytes = response.body().to_owned();
-
-        let mut cursor = std::io::Cursor::new(body.as_ref());
-
-        let mut archive = tar::Archive::new(&mut cursor);
-        let found = archive.entries()
-            .and_then(|entries|
-                entries
-                    .map(|res| res.and_then(Entry::try_from))
-                    .collect::<Result<Vec<Entry>, _>>()
-            ).unwrap();
+        let found = get_archive_entries(response.body());
 
         let long_filename = "42a353817a6be8b1dea010fa856c2fddb6e116c84ea7a297f4f751ca4b3da367dd5c685ef1917b26c439af7e302be89ac2d2f96112f3c8f102bf7f751a862781f09e60e6181dc355e44f76d5ab6fb4dc62e4d87523e85fca7e29e8dc8c3dd8dc67a36b9b7a3a47016a827adc65898f5f90faab6218ad199b481a601b4392a5_";
 
@@ -358,8 +351,63 @@ mod tests {
             Entry::File(format!("QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD/{}", long_filename).into(), 32, b"well hello there long filenames\n".to_vec()),
         ];
 
-        // sadly we cannot access the file content without...
         assert_eq!(found, expected);
+    }
+
+    #[tokio::test]
+    async fn get_multiblock_file() {
+
+        let options = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
+        let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
+            .await
+            .start()
+            .await
+            .unwrap();
+
+        let blocks: &[&[u8]] = &[
+            // the root, QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6
+            &hex!("12280a221220fef9fe1804942b35e19e145a03f9c9d5ca9c997dda0a9416f3f515a52f1b3ce11200180a12280a221220dfb94b75acb208fd4873d84872af58bd65c731770a7d4c0deeb4088e87390bfe1200180a12280a221220054497ae4e89812c83276a48e3e679013a788b7c0eb02712df15095c02d6cd2c1200180a12280a221220cc332ceb37dea7d3d7c00d1393117638d3ed963575836c6d44a24951e444cf5d120018090a0c080218072002200220022001"),
+            // first bytes: fo
+            &hex!("0a0808021202666f1802"),
+            // ob
+            &hex!("0a08080212026f621802"),
+            // ar
+            &hex!("0a080802120261721802"),
+            // \n
+            &hex!("0a07080212010a1801"),
+        ];
+
+        drop(put_all_blocks(&ipfs, &blocks).await.unwrap());
+
+        let filter = super::get(&ipfs);
+
+        let response = warp::test::request()
+            .method("POST")
+            .path("/get?arg=QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6")
+            .reply(&filter)
+            .await;
+
+        assert_eq!(response.status(), 200);
+
+        let found = get_archive_entries(response.body());
+
+        let expected = vec![
+            Entry::File("QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6".into(), 7, b"foobar\n".to_vec()),
+        ];
+
+        assert_eq!(found, expected);
+    }
+
+    fn get_archive_entries(bytes: impl AsRef<[u8]>) -> Vec<Entry> {
+        let mut cursor = std::io::Cursor::new(bytes.as_ref());
+
+        let mut archive = tar::Archive::new(&mut cursor);
+        archive.entries()
+            .and_then(|entries|
+                entries
+                    .map(|res| res.and_then(Entry::try_from))
+                    .collect::<Result<Vec<Entry>, _>>()
+            ).unwrap()
     }
 
     fn put_all_blocks<'a, T: IpfsTypes>(ipfs: &'a Ipfs<T>, blocks: &'a [&'a [u8]]) -> impl std::future::Future<Output = Result<Vec<Cid>, ipfs::Error>> + 'a {
