@@ -88,8 +88,8 @@ pub struct IpfsPath {
 }
 
 impl From<Cid> for IpfsPath {
-    /// Creates a new IpfsPath from just the Cid, which is the same as parsing from a string
-    /// representation of a Cid but cannot fail.
+    /// Creates a new `IpfsPath` from just the `Cid`, which is the same as parsing from a string
+    /// representation of a `Cid`, but cannot fail.
     fn from(root: Cid) -> IpfsPath {
         IpfsPath {
             root: Some(root),
@@ -180,9 +180,9 @@ fn walk(blocks: ShardedBlockStore, mut path: IpfsPath) -> Result<Option<Cid>, Er
             NotFound => return Ok(None),
 
             // when we stumble upon a HAMT shard, we'll need to look up other blocks in order to
-            // find the final link. The current implementation cannot lookup the directory by
+            // find the final link. The current implementation cannot search for the directory by
             // hashing the name and looking it up, but the implementation can be changed underneath
-            // but the API would stay the same.
+            // without changes to the API.
             //
             // HAMTDirecotories or HAMT shards are multi-block directories where the entires are
             // bucketed per their hash value.

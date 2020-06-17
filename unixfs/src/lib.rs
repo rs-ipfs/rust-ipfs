@@ -1,11 +1,11 @@
 #![warn(rust_2018_idioms, missing_docs)]
 //! ipfs-unixfs: UnixFs tree support in Rust.
 //!
-//! The crate aims to provide a blockstore implementation independent UnixFs implementation by
+//! The crate aims to provide a blockstore implementation independent of the UnixFs implementation by
 //! working on slices and not doing any IO operations.
 //!
 //! The main entry point for extracting information and/or data out of UnixFs trees is
-//! `ipfs_unixfs::walk::Walker`. To resolve IpfsPath segments over dag-pb nodes,
+//! `ipfs_unixfs::walk::Walker`. To resolve `IpfsPath` segments over dag-pb nodes,
 //! `ipfs_unixfs::resolve` should be used.
 
 use std::borrow::Cow;
@@ -127,7 +127,7 @@ impl UnexpectedNodeType {
     }
 }
 
-/// Container for the unixfs metadata, which can be present at the root of the file trees.
+/// A container for the UnixFs metadata, which can be present at the root of the file, directory, or symlink trees.
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct Metadata {
     mode: Option<u32>,
@@ -138,9 +138,9 @@ impl Metadata {
     /// Returns the full file mode, if one has been specified.
     ///
     /// The full file mode is originally read through `st_mode` field of `stat` struct defined in
-    /// `sys/stat.h` and it's defining OpenGroup standard. Lowest 3 bytes will correspond to read,
-    /// write, and execute rights per user, group, and other and 4th byte determines sticky bits,
-    /// set user id or set group id. Following two bytes correspond to the different file types, as
+    /// `sys/stat.h` and its defining OpenGroup standard. The lowest 3 bytes correspond to read,
+    /// write, and execute rights per user, group, and other, while the 4th byte determines sticky bits,
+    /// set user id or set group id. The following two bytes correspond to the different file types, as
     /// defined by the same OpenGroup standard:
     /// https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html
     pub fn mode(&self) -> Option<u32> {
@@ -149,14 +149,14 @@ impl Metadata {
 
     /// Returns the raw timestamp of last modification time, if specified.
     ///
-    /// The timestamp is `(seconds, nanos)` similar to `std::time::Duration` with the exception of
+    /// The timestamp is `(seconds, nanos)` - similar to `std::time::Duration`, with the exception of
     /// allowing seconds to be negative. The seconds are calculated from `1970-01-01 00:00:00` or
     /// the common "unix epoch".
     pub fn mtime(&self) -> Option<(i64, u32)> {
         self.mtime
     }
 
-    /// Returns the mtime metadata as an `FileTime`. Enabled only on feature `filetime`.
+    /// Returns the mtime metadata as a `FileTime`. Enabled only in the `filetime` feature.
     #[cfg(feature = "filetime")]
     pub fn mtime_as_filetime(&self) -> Option<filetime::FileTime> {
         self.mtime()

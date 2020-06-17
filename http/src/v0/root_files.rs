@@ -161,7 +161,7 @@ fn walk<Types: IpfsTypes>(
                 },
                 ContinuedWalk::Directory(item) => {
 
-                    // only first instances of directorys will have the metadata
+                    // only first instances of directories will have the metadata
                     if let Some(metadata) = item.as_entry().metadata() {
                         let path = item.as_entry().path();
 
@@ -224,7 +224,7 @@ impl fmt::Display for GetError {
             Walk(e) => write!(fmt, "{}", e),
             Loading(e) => write!(fmt, "loading failed: {}", e),
             InvalidFileName(x) => write!(fmt, "filename cannot be put inside tar: {:?}", x),
-            InvalidLinkName(x) => write!(fmt, "symlin link name cannot be put inside tar: {:?}", x),
+            InvalidLinkName(x) => write!(fmt, "symlink name cannot be put inside tar: {:?}", x),
         }
     }
 }

@@ -152,8 +152,8 @@ impl fmt::Display for Error {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Error::*;
         match self {
-            OpeningFailed(e) => write!(fmt, "File opening failed: {}", e),
-            Other(e) => write!(fmt, "Other file related io error: {}", e),
+            OpeningFailed(e) => write!(fmt, "Failed to open file: {}", e),
+            Other(e) => write!(fmt, "A file-related IO error: {}", e),
             Walk(e) => write!(fmt, "Walk failed, please report this as a bug: {}", e),
         }
     }

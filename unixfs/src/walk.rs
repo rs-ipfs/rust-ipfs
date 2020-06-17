@@ -14,24 +14,24 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Walker helps with walking an UnixFS tree, including all of the content and files. Created with
+/// `Walker` helps with walking a UnixFS tree, including all of the content and files. It is created with
 /// `Walker::new` and walked over each block with `Walker::continue_block`. Use
-/// `Walker::pending_links` to learn the next [`Cid`] to be loaded and the prefetchable links.
+/// `Walker::pending_links` to obtain the next [`Cid`] to be loaded and the prefetchable links.
 #[derive(Debug)]
 pub struct Walker {
-    /// This is `None` until the first block has been visited. Failing any unwraps would be logic
+    /// This is `None` until the first block has been visited. Any failing unwraps would be logic
     /// errors.
     current: Option<InnerEntry>,
     /// On the next call to `continue_walk` this will be the block, unless we have an ongoing file
-    /// walk in which case we shortcircuit to continue it. Failing any of the unwrappings of
-    /// `self.next` would be an logic error
+    /// walk, in which case we short-circuit to continue it. Any failing unwraps of
+    /// `self.next` would be logic errors.
     next: Option<(Cid, String, usize)>,
     pending: Vec<(Cid, String, usize)>,
     // tried to recycle the names but that was consistently as fast and used more memory than just
     // cloning the strings
 }
 
-/// Converts a link of a Directory, specifically not a link of HAMTShard.
+/// Converts a link of specifically a Directory (and not a link of a HAMTShard).
 fn convert_link(
     depth: usize,
     nth: usize,
@@ -51,7 +51,7 @@ fn convert_link(
     Ok((cid, name, depth))
 }
 
-/// Converts a link of HAMTShard, specifically not a link of Directory.
+/// Converts a link of specifically a HAMTShard (and not a link of a Directory).
 fn convert_sharded_link(
     depth: usize,
     nth: usize,
@@ -80,7 +80,7 @@ fn convert_sharded_link(
 }
 
 impl Walker {
-    /// Returns a new instance of a walker, ready to start from the given Cid.
+    /// Returns a new instance of a walker, ready to start from the given `Cid`.
     pub fn new(cid: Cid, root_name: String) -> Walker {
         // 1 == Path::ancestors().count() for an empty path
         let depth = if root_name.is_empty() { 1 } else { 2 };
@@ -93,13 +93,13 @@ impl Walker {
         }
     }
 
-    /// Returns a description of a kind of node Walker is currently looking at, if the
-    /// continue_walk has been called after creating the value.
+    /// Returns a description of the kind of node the `Walker` is currently looking at, if
+    /// `continue_walk` has been called after the value was created.
     pub fn as_entry(&'_ self) -> Option<Entry<'_>> {
         self.current.as_ref().map(|c| c.as_entry())
     }
 
-    /// Returns the next cid to load and pass content of which to pass to `continue_walk`.
+    /// Returns the next `Cid` to load and pass its associated content to `continue_walk`.
     pub fn pending_links<'a>(&'a self) -> (&'a Cid, impl Iterator<Item = &'a Cid> + 'a) {
         use InnerKind::*;
         // rev: because we'll pop any of the pending
@@ -115,7 +115,7 @@ impl Walker {
                 let next = self
                     .next
                     .as_ref()
-                    .expect("validated in start and continue_walk we have the next");
+                    .expect("we've validated that we have the next in new and continue_walk");
                 (&next.0, Either::Right(cids))
             }
         }
@@ -125,7 +125,7 @@ impl Walker {
     ///
     /// Returns a descriptor for the next element found as `ContinuedWalk` which includes the means
     /// to further continue the walk. `bytes` is the raw data of the next block, `cache` is an
-    /// optional cache for data structures which can always be substituted for `&mut None`.
+    /// optional cache for data structures which can always be substituted with `&mut None`.
     pub fn continue_walk<'a>(
         mut self,
         bytes: &'a [u8],
@@ -133,7 +133,7 @@ impl Walker {
     ) -> Result<ContinuedWalk<'a>, Error> {
         use InnerKind::*;
 
-        if let Some(File(_, visit @ Some(_), _)) = &mut self.current.as_mut().map(|c| &mut c.kind) {
+        if let Some(File(_, visit @ Some(_), _)) = self.current.as_mut().map(|c| &mut c.kind) {
             // we have an ongoing filevisit, the block must be related to it.
             let (bytes, step) = visit
                 .take()

@@ -25,7 +25,7 @@ impl IdleFileVisit {
 
     /// Begins the visitation by processing the first block to be visited.
     ///
-    /// Returns on success a tuple of file bytes, total file size, any metadata associated, and
+    /// Returns (on success) a tuple of file bytes, total file size, any metadata associated, and
     /// optionally a `FileVisit` to continue the walk.
     #[allow(clippy::type_complexity)]
     pub fn start(

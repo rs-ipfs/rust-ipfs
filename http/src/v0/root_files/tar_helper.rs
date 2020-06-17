@@ -1,10 +1,10 @@
 ///! Tar helper is internal to `/get` implementation. It uses some private parts of the `tar-rs`
-///! crate to provide a BytesMut writing implementation instead of one using `std::io` interfaces.
+///! crate to provide a `BytesMut` writing implementation instead of one using `std::io` interfaces.
 ///!
 ///! Code was originally taken and modified from the dependency version of `tar-rs`. The most
 ///! important copied parts are related to the long file name and long link name support. Issue
 ///! will be opened on the `tar-rs` to discuss if these could be made public, leaving us only the
-///! Bytes (copying) code.
+///! `Bytes` (copying) code.
 use super::GetError;
 use bytes::{buf::BufMut, Bytes, BytesMut};
 use ipfs::unixfs::ll::Metadata;
@@ -181,8 +181,8 @@ impl TarHelper {
                 return Err(GetError::InvalidLinkName(data.to_vec()));
             }
 
-            // this is another long header trick, but this time we have different entry type but
-            // similarly the long file name is written as an separate entry with own headers.
+            // this is another long header trick, but this time we have a different entry type and
+            // similarly the long file name is written as a separate entry with its own headers.
 
             self.long_filename_header.set_size(data.len() as u64 + 1);
             self.long_filename_header
@@ -208,7 +208,7 @@ impl TarHelper {
         Ok(ret)
     }
 
-    /// Content is tar files is padded to 512 byte sectors which might be configurable as well.
+    /// Content in tar is padded to 512 byte sectors which might be configurable as well.
     pub(super) fn pad(&self, total_size: u64) -> Option<Bytes> {
         let padding = 512 - (total_size % 512);
         if padding < 512 {
@@ -291,7 +291,7 @@ fn prepare_long_header<'a>(
     }
 
     // we **only** have utf8 paths as protobuf has already parsed this file
-    // name and all of the previous as utf8.
+    // name and all of the previous ones as utf8.
 
     let data = path2bytes(path);
 
@@ -301,7 +301,7 @@ fn prepare_long_header<'a>(
         return Err(GetError::InvalidFileName(data.to_vec()));
     }
 
-    // the plus one is documented as compliance to GNU tar, probably the null byte
+    // the plus one is documented as compliance with GNU tar, probably the null byte
     // termination?
     long_filename_header.set_size(data.len() as u64 + 1);
     long_filename_header.set_entry_type(tar::EntryType::new(b'L'));
