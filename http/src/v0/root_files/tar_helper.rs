@@ -264,10 +264,7 @@ fn prepare_long_header<'a>(
     /// On windows we cannot accept non-Unicode bytes because it
     /// is impossible to convert it to UTF-16.
     pub(super) fn bytes2path(bytes: Cow<[u8]>) -> std::io::Result<Cow<Path>> {
-        use std::ffi::{OsStr, OsString};
-        use std::os::windows::prelude::*;
-
-        return match bytes {
+        match bytes {
             Cow::Borrowed(bytes) => {
                 let s = std::str::from_utf8(bytes).map_err(|_| not_unicode(bytes))?;
                 Ok(Cow::Borrowed(Path::new(s)))
@@ -276,7 +273,7 @@ fn prepare_long_header<'a>(
                 let s = String::from_utf8(bytes).map_err(|uerr| not_unicode(&uerr.into_bytes()))?;
                 Ok(Cow::Owned(PathBuf::from(s)))
             }
-        };
+        }
     }
 
     // Used with windows.
@@ -328,7 +325,6 @@ fn path2bytes(p: &Path) -> &[u8] {
 
 #[cfg(windows)]
 fn path2bytes(p: &Path) -> &[u8] {
-    use std::os::windows::prelude::*;
     p.as_os_str()
         .to_str()
         .expect("we should only have unicode compatible bytes even on windows")
