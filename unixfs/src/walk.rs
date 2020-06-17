@@ -155,7 +155,7 @@ impl Walker {
             UnixFsType::Directory => {
                 let flat = crate::dir::check_directory_supported(flat)?;
 
-                let (cid, name, depth) = self.next.expect("validated at start and this method");
+                let (cid, name, depth) = self.next.expect("validated at new and earlier in this method");
                 match self.current.as_mut() {
                     Some(current) => current.as_directory(cid, &name, depth, metadata),
                     _ => {
@@ -217,7 +217,7 @@ impl Walker {
                     }
                 }
 
-                // similar to directory the depth is +1 for nested entries, but the sibling buckets
+                // similar to directory, the depth is +1 for nested entries, but the sibling buckets
                 // are at depth
                 let mut links = flat
                     .links
@@ -254,7 +254,7 @@ impl Walker {
                 let (bytes, file_size, metadata, step) =
                     IdleFileVisit::default().start_from_parsed(flat, cache)?;
 
-                let (cid, name, depth) = self.next.expect("validated at new and this method");
+                let (cid, name, depth) = self.next.expect("validated at new and earlier in this method");
                 let file_continues = step.is_some();
 
                 match self.current.as_mut() {
@@ -298,10 +298,10 @@ impl Walker {
                     }
                 }
 
-                let state = if let Some(next) = self.pending.pop() {
+                let state = if let next @ Some(_) = self.pending.pop() {
                     State::Unfinished(Self {
                         current: self.current,
-                        next: Some(next),
+                        next,
                         pending: self.pending,
                     })
                 } else {
@@ -375,17 +375,17 @@ pub enum Entry<'a> {
     /// Current item is a continuation of a HAMTShard directory. Only the root HAMTShard will have
     /// file metadata.
     Bucket(&'a Cid, &'a Path),
-    /// Current item is a non-root plain directory or a HAMTShard root directory.
+    /// Current item is a non-root plain Directory or a HAMTShard directory.
     Directory(&'a Cid, &'a Path, &'a Metadata),
-    /// Current item is a possibly root file with a path, metadata, and total file size.
+    /// Current item is possibly a root file with a path, metadata, and a total file size.
     File(&'a Cid, &'a Path, &'a Metadata, u64),
-    /// Current item is a possibly root symlink.
+    /// Current item is possibly a root symlink.
     Symlink(&'a Cid, &'a Path, &'a Metadata),
 }
 
 impl<'a> Entry<'a> {
-    /// Returns the path for the latest entry. This is created from UTF8 string and as such always
-    /// representable on all platforms.
+    /// Returns the path for the latest entry. This is created from a UTF-8 string and, as such, is always
+    /// representable on all supported platforms.
     pub fn path(&self) -> &'a Path {
         use Entry::*;
         match self {
@@ -409,7 +409,7 @@ impl<'a> Entry<'a> {
         }
     }
 
-    /// Returns the total size of the file this entry represents, or none if not a file.
+    /// Returns the total size of the file this entry represents, or `None` if not a file.
     pub fn total_file_size(&self) -> Option<u64> {
         use Entry::*;
         match self {
@@ -418,15 +418,15 @@ impl<'a> Entry<'a> {
         }
     }
 
-    /// Returns the current Cid unelss for root elements.
-    pub fn cid(&self) -> Option<&Cid> {
+    /// Returns the Cid for the latest entry.
+    pub fn cid(&self) -> &Cid {
         use Entry::*;
         match self {
             RootDirectory(cid, _, _)
             | Bucket(cid, _)
             | Directory(cid, _, _)
             | File(cid, _, _, _)
-            | Symlink(cid, _, _) => Some(cid),
+            | Symlink(cid, _, _) => cid,
         }
     }
 }
@@ -613,7 +613,7 @@ impl InnerEntry {
 }
 
 /// Structure to hide the internal `Walker` state and to provide an optional way to continue when
-/// there are any links left to continue with `Item::into_inner()`.
+/// there are links left to continue with `Item::into_inner()`.
 #[derive(Debug)]
 pub struct Item {
     state: State,
@@ -626,7 +626,7 @@ impl From<State> for Item {
 }
 
 impl Item {
-    /// Returns the representation of the tree node where the walk last continued to, or the last
+    /// Returns either the representation of the tree node where the walk last continued to, or the last
     /// loaded block.
     pub fn as_entry(&self) -> Entry<'_> {
         match &self.state {
@@ -655,18 +655,18 @@ enum State {
 /// Representation of the walk progress. The common `Item` can be used to continue the walk.
 #[derive(Debug)]
 pub enum ContinuedWalk<'a> {
-    /// Currently looking at a file. First tuple value contains the file bytes accessible
-    /// from the block, which can also be empty slice.
+    /// Currently looking at a file. The first tuple value contains the file bytes accessible
+    /// from the block, which can also be an empty slice.
     File(FileSegment<'a>, Item),
     /// Currently looking at a directory.
     Directory(Item),
-    /// Currently looking at a symlink. First tuple value contains the symlink target path. It
-    /// might be convertable to UTF-8 but this is not specified in the spec.
+    /// Currently looking at a symlink. The first tuple value contains the symlink target path. It
+    /// might be convertible to UTF-8, but this is not specified in the spec.
     Symlink(&'a [u8], Item),
 }
 
 impl ContinuedWalk<'_> {
-    /// Returns the current entry describing Item, helpful when only listing the tree.
+    /// Returns the `Item` describing the current entry; helpful when only listing the tree.
     pub fn into_inner(self) -> Item {
         use ContinuedWalk::*;
         match self {
@@ -675,7 +675,7 @@ impl ContinuedWalk<'_> {
     }
 }
 
-/// Slice of bytes of a possibly multi-block file. The slice can be accessed through `as_bytes()` or
+/// A slice of bytes of a possibly multi-block file. The slice can be accessed via `as_bytes()` or
 /// `AsRef<[u8]>::as_ref()`.
 #[derive(Debug)]
 pub struct FileSegment<'a> {
@@ -701,21 +701,21 @@ impl<'a> FileSegment<'a> {
         }
     }
 
-    /// Returns true if this is the first block of the file, false otherwise.
+    /// Returns `true` if this is the first block in the file, `false` otherwise.
     ///
-    /// Note: First block can also be the last.
+    /// Note: the first block can also be the last one.
     pub fn is_first(&self) -> bool {
         self.first_block
     }
 
-    /// Returns true if this is the last block of the file, false otherwise.
+    /// Returns `true` if this is the last block in the file, `false` otherwise.
     ///
-    /// Note: Last block can also be the first.
+    /// Note: the last block can also be the first one.
     pub fn is_last(&self) -> bool {
         self.last_block
     }
 
-    /// Return access to the file bytes, which can be an empty slice. The slice is empty for any
+    /// Returns a slice into the file's bytes, which can be empty, as is the case for any
     /// intermediate blocks which only contain links to further blocks.
     pub fn as_bytes(&self) -> &'a [u8] {
         self.bytes
@@ -731,18 +731,18 @@ impl AsRef<[u8]> for FileSegment<'_> {
 /// Errors which can occur while walking a tree.
 #[derive(Debug)]
 pub enum Error {
-    /// An unsupported type of UnixFS node encountered. There should be a way to skip these. Of the
+    /// An unsupported type of UnixFS node was encountered. There should be a way to skip these. Of the
     /// defined types only `Metadata` is unsupported, all undefined types as of 2020-06 are also
     /// unsupported.
     UnsupportedType(UnexpectedNodeType),
 
-    /// Error is returned when a file for example links to a non-Raw or non-File subtree.
+    /// This error is returned when a file e.g. links to a non-Raw or non-File subtree.
     UnexpectedType(UnexpectedNodeType),
 
     /// dag-pb node parsing failed, perhaps the block is not a dag-pb node?
     DagPbParsingFailed(quick_protobuf::Error),
 
-    /// The unixfs node inside the dag-pb node parsing failed.
+    /// Failed to parse the unixfs node inside the dag-pb node.
     UnixFsParsingFailed(quick_protobuf::Error),
 
     /// dag-pb node contained no data.
@@ -751,10 +751,10 @@ pub enum Error {
     /// dag-pb link could not be converted to a Cid
     InvalidCid(InvalidCidInLink),
 
-    /// A file has invalid structure
+    /// A File has an invalid structure
     File(FileError),
 
-    /// Directory has unsupported structure
+    /// A Directory has an unsupported structure
     UnsupportedDirectory(UnexpectedDirectoryProperties),
 
     /// HAMTSharded directory has unsupported properties
@@ -875,7 +875,7 @@ mod tests {
         use std::fmt::Write;
 
         // the hamt sharded directory is such that the root only has buckets so all of the actual files
-        // are at second level buckets, each bucket should have 2 files. the actual files is in fact a single empty
+        // are at second level buckets, each bucket should have 2 files. the actual files, in fact, constitute a single empty
         // file, linked from many names.
 
         let mut counts =
