@@ -1,5 +1,12 @@
 #![warn(rust_2018_idioms, missing_docs)]
-//! ipfs-unixfs
+//! ipfs-unixfs: UnixFs tree support in Rust.
+//!
+//! The crate aims to provide a blockstore implementation independent UnixFs implementation by
+//! working on slices and not doing any IO operations.
+//!
+//! The main entry point for extracting information and/or data out of UnixFs trees is
+//! `ipfs_unixfs::walk::Walker`. To resolve IpfsPath segments over dag-pb nodes,
+//! `ipfs_unixfs::resolve` should be used.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -7,7 +14,7 @@ use std::fmt;
 /// UnixFS file support.
 pub mod file;
 
-/// UnixFS directory support, currently only the re-exported resolving.
+/// UnixFS directory support, currently only the resolving re-exported at root level.
 pub mod dir;
 
 pub use dir::{resolve, LookupError, MaybeResolved, ResolveError};

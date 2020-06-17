@@ -1,3 +1,11 @@
+///! Tar helper is internal to `/get` implementation. It uses some private parts of the `tar-rs`
+///! crate to provide a BytesMut writing implementation instead of one using `std::io` interfaces.
+///!
+///! Code was originally taken and modified from the dependency version of `tar-rs`. The most
+///! important copied parts are related to the long file name and long link name support. Issue
+///! will be opened on the `tar-rs` to discuss if these could be made public, leaving us only the
+///! Bytes (copying) code.
+
 use super::GetError;
 use bytes::{buf::BufMut, Bytes, BytesMut};
 use ipfs::unixfs::ll::Metadata;
@@ -234,7 +242,7 @@ impl TarHelper {
     }
 }
 
-/// Returns the raw bytes we need to write as a new entry into the tar
+/// Returns the raw bytes we need to write as a new entry into the tar.
 fn prepare_long_header<'a>(
     header: &mut tar::Header,
     long_filename_header: &mut tar::Header,
