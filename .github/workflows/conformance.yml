@@ -80,8 +80,8 @@ jobs:
         if: matrix.platform.cross == false
         run: cargo build --workspace
 
-      - name: npm install
-        run: npm install
+      - name: Setup conformance tests
+        run: ./setup.sh
         working-directory: ./conformance
 
       - name: Symlink executable
