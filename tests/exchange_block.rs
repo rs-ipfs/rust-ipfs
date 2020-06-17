@@ -1,6 +1,8 @@
+use async_std::future::timeout;
 use ipfs::{Block, Node};
 use libipld::cid::{Cid, Codec};
 use multihash::Sha2_256;
+use std::time::Duration;
 
 #[async_std::test]
 async fn exchange_block() {
@@ -26,7 +28,12 @@ async fn exchange_block() {
     .await
     .unwrap();
 
-    let Block { data: data2, .. } = b.get_block(&cid).await.unwrap();
+    let f = timeout(Duration::from_secs(10), b.get_block(&cid));
+
+    let Block { data: data2, .. } = f
+        .await
+        .expect("get_block did not complete in time")
+        .unwrap();
 
     assert_eq!(data, data2);
 }
