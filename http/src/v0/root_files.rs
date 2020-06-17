@@ -105,7 +105,7 @@ fn walk<Types: IpfsTypes>(
     root: Cid,
 ) -> impl TryStream<Ok = Bytes, Error = GetError> + 'static {
     let mut cache = None;
-    let mut tar_helper = TarHelper::with_buffer_sizes(16 * 1024);
+    let mut tar_helper = TarHelper::with_capacity(16 * 1024);
 
     // the HTTP api uses the final Cid name as the root name in the generated tar
     // archive.

@@ -10,17 +10,15 @@ use tar::{EntryType, Header};
 /// round-robin fashion.
 pub(super) struct TarHelper {
     bufsize: usize,
-    written: BytesMut,
-    other: BytesMut,
+    bytes: BytesMut,
     header: Header,
     long_filename_header: Header,
     zeroes: Bytes,
 }
 
 impl TarHelper {
-    pub(super) fn with_buffer_sizes(n: usize) -> Self {
-        let written = BytesMut::with_capacity(n);
-        let other = BytesMut::with_capacity(n);
+    pub(super) fn with_capacity(n: usize) -> Self {
+        let bytes = BytesMut::with_capacity(n);
 
         // these are 512 a piece
         let header = Self::new_default_header();
@@ -34,8 +32,7 @@ impl TarHelper {
 
         Self {
             bufsize: n,
-            written,
-            other,
+            bytes,
             header,
             long_filename_header,
             zeroes,
@@ -83,23 +80,19 @@ impl TarHelper {
         path: &Path,
         metadata: &Metadata,
         total_size: u64,
-    ) -> Result<[Option<Bytes>; 4], GetError> {
-        let mut ret: [Option<Bytes>; 4] = Default::default();
+    ) -> Result<[Option<Bytes>; 3], GetError> {
+        let mut ret: [Option<Bytes>; 3] = Default::default();
 
         if let Err(e) = self.header.set_path(path) {
             let data =
                 prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
 
-            self.written.put_slice(self.long_filename_header.as_bytes());
-            ret[0] = Some(self.written.split().freeze());
-            std::mem::swap(&mut self.written, &mut self.other);
+            self.bytes.put_slice(self.long_filename_header.as_bytes());
+            self.bytes.put_slice(data);
+            self.bytes.put_u8(0);
+            ret[0] = Some(self.bytes.split().freeze());
 
-            self.written.put_slice(data);
-            self.written.put_u8(0);
-            ret[1] = Some(self.written.split().freeze());
-            std::mem::swap(&mut self.written, &mut self.other);
-
-            ret[2] = self.pad(data.len() as u64 + 1);
+            ret[1] = self.pad(data.len() as u64 + 1);
         }
 
         self.header.set_size(total_size);
@@ -107,11 +100,9 @@ impl TarHelper {
         Self::set_metadata(&mut self.header, metadata, 0o0644);
         self.header.set_cksum();
 
-        self.written.put_slice(self.header.as_bytes());
+        self.bytes.put_slice(self.header.as_bytes());
 
-        ret[3] = Some(self.written.split().freeze());
-        std::mem::swap(&mut self.written, &mut self.other);
-
+        ret[2] = Some(self.bytes.split().freeze());
         Ok(ret)
     }
 
@@ -122,33 +113,26 @@ impl TarHelper {
 
         // was initially thinking to check the capacity but we are round robining the buffers to
         // get a lucky chance at either of them being empty at this point
-        self.written.put_slice(&contents[..taken]);
-        let ret = self.written.split().freeze();
-        std::mem::swap(&mut self.written, &mut self.other);
-        ret
+        self.bytes.put_slice(&contents[..taken]);
+        self.bytes.split().freeze()
     }
 
     pub(super) fn apply_directory(
         &mut self,
         path: &Path,
         metadata: &Metadata,
-    ) -> Result<[Option<Bytes>; 4], GetError> {
-        let mut ret: [Option<Bytes>; 4] = Default::default();
+    ) -> Result<[Option<Bytes>; 3], GetError> {
+        let mut ret: [Option<Bytes>; 3] = Default::default();
 
         if let Err(e) = self.header.set_path(path) {
             let data =
                 prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
 
-            self.written.put_slice(self.long_filename_header.as_bytes());
-            ret[0] = Some(self.written.split().freeze());
-            std::mem::swap(&mut self.written, &mut self.other);
-
-            self.written.put_slice(data);
-            self.written.put_u8(0);
-            ret[1] = Some(self.written.split().freeze());
-            std::mem::swap(&mut self.written, &mut self.other);
-
-            ret[2] = self.pad(data.len() as u64 + 1);
+            self.bytes.put_slice(self.long_filename_header.as_bytes());
+            self.bytes.put_slice(data);
+            self.bytes.put_u8(0);
+            ret[0] = Some(self.bytes.split().freeze());
+            ret[1] = self.pad(data.len() as u64 + 1);
         }
 
         self.header.set_size(0);
@@ -156,10 +140,9 @@ impl TarHelper {
         Self::set_metadata(&mut self.header, metadata, 0o0755);
 
         self.header.set_cksum();
-        self.written.put_slice(self.header.as_bytes());
+        self.bytes.put_slice(self.header.as_bytes());
 
-        ret[3] = Some(self.written.split().freeze());
-        std::mem::swap(&mut self.written, &mut self.other);
+        ret[2] = Some(self.bytes.split().freeze());
 
         Ok(ret)
     }
@@ -169,23 +152,19 @@ impl TarHelper {
         path: &Path,
         target: &Path,
         metadata: &Metadata,
-    ) -> Result<[Option<Bytes>; 7], GetError> {
-        let mut ret: [Option<Bytes>; 7] = Default::default();
+    ) -> Result<[Option<Bytes>; 5], GetError> {
+        let mut ret: [Option<Bytes>; 5] = Default::default();
 
         if let Err(e) = self.header.set_path(path) {
             let data =
                 prepare_long_header(&mut self.header, &mut self.long_filename_header, path, e)?;
 
-            self.written.put_slice(self.long_filename_header.as_bytes());
-            ret[0] = Some(self.written.split().freeze());
-            std::mem::swap(&mut self.written, &mut self.other);
+            self.bytes.put_slice(self.long_filename_header.as_bytes());
+            self.bytes.put_slice(data);
+            self.bytes.put_u8(0);
+            ret[0] = Some(self.bytes.split().freeze());
 
-            self.written.put_slice(data);
-            self.written.put_u8(0);
-            ret[1] = Some(self.written.split().freeze());
-            std::mem::swap(&mut self.written, &mut self.other);
-
-            ret[2] = self.pad(data.len() as u64 + 1);
+            ret[1] = self.pad(data.len() as u64 + 1);
         }
 
         if self.header.set_link_name(target).is_err() {
@@ -203,16 +182,12 @@ impl TarHelper {
                 .set_entry_type(tar::EntryType::new(b'K'));
             self.long_filename_header.set_cksum();
 
-            self.written.put_slice(self.long_filename_header.as_bytes());
-            ret[3] = Some(self.written.split().freeze());
-            std::mem::swap(&mut self.written, &mut self.other);
+            self.bytes.put_slice(self.long_filename_header.as_bytes());
+            self.bytes.put_slice(data);
+            self.bytes.put_u8(0);
+            ret[2] = Some(self.bytes.split().freeze());
 
-            self.written.put_slice(data);
-            self.written.put_u8(0);
-            ret[4] = Some(self.written.split().freeze());
-            std::mem::swap(&mut self.written, &mut self.other);
-
-            ret[5] = self.pad(data.len() as u64 + 1);
+            ret[3] = self.pad(data.len() as u64 + 1);
         }
 
         Self::set_metadata(&mut self.header, metadata, 0o0644);
@@ -220,9 +195,8 @@ impl TarHelper {
         self.header.set_entry_type(tar::EntryType::Symlink);
         self.header.set_cksum();
 
-        self.written.put_slice(self.header.as_bytes());
-        ret[6] = Some(self.written.split().freeze());
-        std::mem::swap(&mut self.written, &mut self.other);
+        self.bytes.put_slice(self.header.as_bytes());
+        ret[4] = Some(self.bytes.split().freeze());
 
         Ok(ret)
     }
