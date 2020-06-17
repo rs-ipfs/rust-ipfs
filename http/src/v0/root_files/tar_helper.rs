@@ -270,18 +270,20 @@ fn prepare_long_header<'a>(
                 Ok(Cow::Owned(PathBuf::from(s)))
             }
         };
+    }
 
-        fn not_unicode(v: &[u8]) -> std::io::Error {
-            use std::io::{Error, ErrorKind};
+    // Used with windows.
+    #[allow(dead_code)]
+    fn not_unicode(v: &[u8]) -> std::io::Error {
+        use std::io::{Error, ErrorKind};
 
-            Error::new(
-                ErrorKind::Other,
-                &format!(
-                    "only Unicode paths are supported on Windows: {}",
-                    String::from_utf8_lossy(v)
-                ),
-            )
-        }
+        Error::new(
+            ErrorKind::Other,
+            format!(
+                "only Unicode paths are supported on Windows: {}",
+                String::from_utf8_lossy(v)
+            ),
+        )
     }
 
     // we **only** have utf8 paths as protobuf has already parsed this file
