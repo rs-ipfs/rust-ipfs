@@ -245,10 +245,52 @@ mod tests {
     use ipfs::{Block, Ipfs, IpfsTypes};
     use libipld::cid::Cid;
     use multihash::Sha2_256;
+    use std::path::PathBuf;
+    use std::convert::TryFrom;
+
+    // Entry we'll use in expectations
+    #[derive(Debug, PartialEq, Eq)]
+    enum Entry {
+        Dir(PathBuf),
+        File(PathBuf, u64, Vec<u8>),
+        Symlink(PathBuf, PathBuf),
+    }
+
+    impl<'a, R: std::io::Read> TryFrom<tar::Entry<'a, R>> for Entry {
+        type Error = std::io::Error;
+
+        fn try_from(mut entry: tar::Entry<'a, R>) -> Result<Self, Self::Error> {
+            let header = entry.header();
+
+            let entry = match header.entry_type() {
+                tar::EntryType::Directory => Entry::Dir(entry.path()?.into()),
+                tar::EntryType::Regular => {
+                    let path = entry.path()?.into();
+                    let size = header.size()?;
+
+                    let mut temp_file = std::env::temp_dir();
+                    temp_file.push("temporary_file_for_testing.txt");
+                    entry.unpack(&temp_file)?;
+
+                    let bytes = std::fs::read(&temp_file);
+
+                    std::fs::remove_file(&temp_file).unwrap();
+
+                    Entry::File(path, size, bytes?)
+                }
+                tar::EntryType::Symlink => Entry::Symlink(
+                    entry.path()?.into(),
+                    entry.link_name()?.as_deref().unwrap().into(),
+                ),
+                x => unreachable!("{:?}", x),
+            };
+
+            Ok(entry)
+        }
+    }
 
     #[tokio::test]
     async fn very_long_file_and_symlink_names() {
-        use std::path::PathBuf;
 
         let options = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
         let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
@@ -256,8 +298,6 @@ mod tests {
             .start()
             .await
             .unwrap();
-
-        let mut inorder = FuturesOrdered::new();
 
         let blocks: &[&[u8]] = &[
             // the root, QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD
@@ -275,11 +315,7 @@ mod tests {
             &hex!("0a260802122077656c6c2068656c6c6f207468657265206c6f6e672066696c656e616d65730a1820"),
         ];
 
-        for block in blocks {
-            inorder.push(put_block(&ipfs, block));
-        }
-
-        drop(inorder.try_collect::<Vec<_>>().await.unwrap());
+        drop(put_all_blocks(&ipfs, &blocks).await.unwrap());
 
         let filter = super::get(&ipfs);
 
@@ -296,49 +332,12 @@ mod tests {
         let mut cursor = std::io::Cursor::new(body.as_ref());
 
         let mut archive = tar::Archive::new(&mut cursor);
-        let entries = archive.entries().unwrap();
-
-        #[derive(Debug, PartialEq, Eq)]
-        enum Entry {
-            Dir(PathBuf),
-            File(PathBuf, u64, Vec<u8>),
-            Symlink(PathBuf, PathBuf),
-        }
-
-        let mut temp_file = std::env::temp_dir();
-        temp_file.push("temporary_file_for_testing.txt");
-
-        let found = entries
-            .map(|res| {
-                res.and_then(|mut entry| {
-                    let header = entry.header();
-
-                    let entry = match header.entry_type() {
-                        tar::EntryType::Directory => Entry::Dir(entry.path()?.into()),
-                        tar::EntryType::Regular => {
-                            let path = entry.path()?.into();
-                            let size = header.size()?;
-
-                            entry.unpack(&temp_file)?;
-
-                            let bytes = std::fs::read(&temp_file)?;
-
-                            Entry::File(path, size, bytes)
-                        }
-                        tar::EntryType::Symlink => Entry::Symlink(
-                            entry.path()?.into(),
-                            entry.link_name()?.as_deref().unwrap().into(),
-                        ),
-                        x => unreachable!("{:?}", x),
-                    };
-
-                    Ok(entry)
-                })
-            })
-            .collect::<Result<Vec<Entry>, _>>()
-            .unwrap();
-
-        std::fs::remove_file(&temp_file).unwrap();
+        let found = archive.entries()
+            .and_then(|entries|
+                entries
+                    .map(|res| res.and_then(Entry::try_from))
+                    .collect::<Result<Vec<Entry>, _>>()
+            ).unwrap();
 
         let long_filename = "42a353817a6be8b1dea010fa856c2fddb6e116c84ea7a297f4f751ca4b3da367dd5c685ef1917b26c439af7e302be89ac2d2f96112f3c8f102bf7f751a862781f09e60e6181dc355e44f76d5ab6fb4dc62e4d87523e85fca7e29e8dc8c3dd8dc67a36b9b7a3a47016a827adc65898f5f90faab6218ad199b481a601b4392a5_";
 
@@ -363,9 +362,18 @@ mod tests {
         assert_eq!(found, expected);
     }
 
+    fn put_all_blocks<'a, T: IpfsTypes>(ipfs: &'a Ipfs<T>, blocks: &'a [&'a [u8]]) -> impl std::future::Future<Output = Result<Vec<Cid>, ipfs::Error>> + 'a {
+        let mut inorder = FuturesOrdered::new();
+        for block in blocks {
+            inorder.push(put_block(&ipfs, block));
+        }
+
+        inorder.try_collect::<Vec<_>>()
+    }
+
     fn put_block<'a, T: IpfsTypes>(
         ipfs: &'a Ipfs<T>,
-        block: &'static [u8],
+        block: &'a [u8],
     ) -> impl std::future::Future<Output = Result<Cid, ipfs::Error>> + 'a {
         let cid = Cid::new_v0(Sha2_256::digest(block)).unwrap();
 
