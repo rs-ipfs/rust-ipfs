@@ -7,8 +7,8 @@ use std::fmt;
 mod sharded_lookup;
 pub use sharded_lookup::{Cache, LookupError, ShardError, ShardedLookup};
 
-mod dir;
-pub(crate) use dir::{check_directory_supported, UnexpectedDirectoryProperties};
+mod directory;
+pub(crate) use directory::{check_directory_supported, UnexpectedDirectoryProperties};
 
 pub(crate) fn check_hamtshard_supported(
     mut flat: FlatUnixFs<'_>,
