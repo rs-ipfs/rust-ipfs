@@ -4,6 +4,9 @@ version = "0.0.1"
 authors = ["Joonas Koivunen <joonas@equilibrium.co>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
+description = "UnixFs tree support"
+repository = "https://github.com/rs-ipfs/rust-ipfs"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
