@@ -1,11 +1,7 @@
-#![allow(unused, dead_code)]
-
-use crate::dir::{
-    check_directory_supported, check_hamtshard_supported, ShardError, UnexpectedDirectoryProperties,
-};
+use crate::dir::{ShardError, UnexpectedDirectoryProperties};
 use crate::file::visit::{Cache, FileVisit, IdleFileVisit};
 use crate::file::{FileError, FileReadFailed};
-use crate::pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType};
+use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
 use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
 use cid::Cid;
 use either::Either;
@@ -45,7 +41,7 @@ fn convert_link(
     let name = match link.Name {
         Some(Cow::Borrowed(s)) if !s.is_empty() => s.to_owned(),
         None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
-        Some(Cow::Owned(s)) => unreachable!("FlatUnixFs is never transformed to owned"),
+        Some(Cow::Owned(_s)) => unreachable!("FlatUnixFs is never transformed to owned"),
     };
     assert!(!name.contains('/'));
     Ok((cid, name, nested_depth))
@@ -67,7 +63,7 @@ fn convert_sharded_link(
         Some(Cow::Borrowed(s)) if s.len() > 2 => (nested_depth, s[2..].to_owned()),
         Some(Cow::Borrowed(s)) if s.len() == 2 => (sibling_depth, String::from("")),
         None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
-        Some(Cow::Owned(s)) => unreachable!("FlatUnixFs is never transformed to owned"),
+        Some(Cow::Owned(_s)) => unreachable!("FlatUnixFs is never transformed to owned"),
     };
     assert!(!name.contains('/'));
     Ok((cid, name, depth))
@@ -167,7 +163,7 @@ impl Walker {
 
                 // depth + 1 because all entries below a directory are children of next, as in,
                 // deeper
-                let mut links = flat
+                let links = flat
                     .links
                     .into_iter()
                     .enumerate()
@@ -221,7 +217,7 @@ impl Walker {
 
                 // similar to directory, the depth is +1 for nested entries, but the sibling buckets
                 // are at depth
-                let mut links = flat
+                let links = flat
                     .links
                     .into_iter()
                     .enumerate()
@@ -800,7 +796,7 @@ impl From<FileReadFailed> for Error {
     fn from(e: FileReadFailed) -> Self {
         use FileReadFailed::*;
         match e {
-            File(e) => todo!(),
+            File(e) => Error::File(e),
             UnexpectedType(ut) => Error::UnexpectedType(ut),
             Read(_) => unreachable!("FileVisit does not parse any blocks"),
             InvalidCid(l) => Error::InvalidCid(l),
@@ -933,7 +929,7 @@ mod tests {
     fn single_block_top_level_file_scenario(root_name: &str) {
         let mut counts =
             walk_everything(root_name, "QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH");
-        let mut buf = PathBuf::from(root_name);
+        let buf = PathBuf::from(root_name);
         counts.checked_removal(&buf, 1);
     }
 
@@ -950,7 +946,7 @@ mod tests {
     fn top_level_symlink_scenario(root_name: &str) {
         let mut counts =
             walk_everything(root_name, "QmNgQEdXVdLw79nH2bnxLMxnyWMaXrijfqMTiDVat3iyuz");
-        let mut buf = PathBuf::from(root_name);
+        let buf = PathBuf::from(root_name);
         counts.checked_removal(&buf, 1);
     }
 
@@ -967,7 +963,7 @@ mod tests {
     fn top_level_multiblock_file_scenario(root_name: &str) {
         let mut counts =
             walk_everything(root_name, "QmWfQ48ChJUj4vWKFsUDe4646xCBmXgdmNfhjz9T7crywd");
-        let mut buf = PathBuf::from(root_name);
+        let buf = PathBuf::from(root_name);
         counts.checked_removal(&buf, 5);
     }
 
