@@ -1,8 +1,12 @@
 [package]
 name = "ipfs-unixfs"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Joonas Koivunen <joonas@equilibrium.co>"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
+description = "UnixFs tree support"
+repository = "https://github.com/rs-ipfs/rust-ipfs"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
@@ -12,12 +16,10 @@ default = [ "filetime" ]
 quick-protobuf = "0.7.0"
 cid = "0.4.0"
 filetime = { version = "0.2.10", optional = true }
-either = ">=1.5.3"
+either = "1.5.3"
 
 [dev-dependencies]
 multibase = "0.8.0"
 multihash = "0.10.1"
 sha2 = "0.8.1"
 hex-literal = "0.2.1"
-# we don't need the xattr and we didn't actually need any filetime either
-tar = { version = "0.4.28", default-features = false }
