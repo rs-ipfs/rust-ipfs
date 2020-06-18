@@ -1453,7 +1453,6 @@ dependencies = [
  "multihash 0.10.1",
  "quick-protobuf",
  "sha2",
- "tar",
 ]
 
 [[package]]
