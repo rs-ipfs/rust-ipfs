@@ -126,7 +126,7 @@ jobs:
           sudo touch /cores/test || { ls -ld /cores; exit 1; }
           sudo rm /cores/test
           retval=0
-          cargo test --workspace || retval=$?
+          sudo cargo test --workspace || retval=$?
           sudo chmod -R a+rwx /cores
           exit $retval
 
