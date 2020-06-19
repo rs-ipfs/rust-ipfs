@@ -105,11 +105,11 @@ jobs:
       if: contains(matrix.platform.target, 'android')
       run: cargo install cargo-ndk
 
-    - name: Build
+    - name: Build (others)
       if: matrix.platform.cross == false
       run: cargo build --locked --workspace --tests --examples
 
-    - name: Build android
+    - name: Build (android)
       if: contains(matrix.platform.target, 'android')
       run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --locked --workspace --exclude ipfs-http
       # exclude http on android because openssl
