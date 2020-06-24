@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use std::fmt;
 
 /// Low level UnixFS file descriptor reader support.
-pub mod reader;
+mod reader;
 
 /// Higher level API for visiting the file tree.
 pub mod visit;
