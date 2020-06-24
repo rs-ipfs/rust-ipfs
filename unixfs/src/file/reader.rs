@@ -182,11 +182,6 @@ impl<'a> FileReader<'a> {
 
         (fc, traversal)
     }
-
-    /// Returns the total size of the file.
-    pub fn file_size(&self) -> u64 {
-        self.file_size
-    }
 }
 
 /// Carrier of validation data used between blocks during a walk on the merkle tree.
@@ -244,6 +239,7 @@ where
     Links(I),
 }
 
+#[cfg(test)]
 impl<'a, I> FileContent<'a, I>
 where
     I: Iterator<Item = (PBLink<'a>, Range<u64>)>,
