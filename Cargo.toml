@@ -24,7 +24,7 @@ domain = { default-features = false, version = "0.5" }
 domain-resolv = { default-features = false, version = "0.5" }
 futures = { default-features = false, features = ["compat", "io-compat"], version = "0.3.5" }
 ipfs-unixfs = { path = "unixfs" }
-libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-async-std", "mdns", "mplex", "ping", "secio", "yamux"], version = "0.22" }
+libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-async-std", "mdns", "mplex", "noise", "ping", "yamux"], version = "0.23" }
 multibase = { default-features = false, version = "0.8" }
 multihash = { default-features = false, version = "0.11" }
 prost = { default-features = false, version = "0.6" }
@@ -46,9 +46,6 @@ tracing-subscriber = { default-features = false, features = ["fmt", "tracing-log
 
 [workspace]
 members = [ "bitswap", "http", "unixfs" ]
-
-[patch.crates-io]
-ctr = { branch = "ctr128-64to128", git = "https://github.com/koivunej/stream-ciphers.git" }
 
 # at least these libp2p components need to be patched if you want to use a local version
 # libp2p = { path = "../libp2p" }
