@@ -85,6 +85,34 @@ pub(crate) struct FlatUnixFs<'a> {
     pub(crate) data: UnixFs<'a>,
 }
 
+use quick_protobuf::{errors::Result as ProtobufResult, Writer, WriterBackend};
+
+impl<'a> quick_protobuf::message::MessageWrite for FlatUnixFs<'a> {
+    fn get_size(&self) -> usize {
+        use quick_protobuf::sizeofs::sizeof_len;
+        let links = self
+            .links
+            .iter()
+            .map(|s| 1 + sizeof_len(s.get_size()))
+            .sum::<usize>();
+
+        let body = 1 + sizeof_len(self.data.get_size());
+
+        links + body
+    }
+
+    fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> ProtobufResult<()> {
+        // this has been monkeyd after PBNode::write_message
+        //
+        // important to note that while protobuf isn't so picky on field order, dag-pb is.
+        for link in &self.links {
+            w.write_with_tag(18, |w| w.write_message(link))?;
+        }
+        w.write_with_tag(10, |w| w.write_message(&self.data))?;
+        Ok(())
+    }
+}
+
 impl<'a> FlatUnixFs<'a> {
     pub(crate) fn try_parse(data: &'a [u8]) -> Result<Self, ParsingFailed<'a>> {
         Self::try_from(data)
