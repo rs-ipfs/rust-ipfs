@@ -43,7 +43,7 @@ sha2 = "0.8.1"
 hex-literal = "0.2.1"
 
 [workspace]
-members = [ "bitswap", "http", "examples", "unixfs" ]
+members = [ "bitswap", "http", "unixfs" ]
 
 [patch.crates-io]
 ctr = { git = "https://github.com/koivunej/stream-ciphers.git", branch = "ctr128-64to128" }
