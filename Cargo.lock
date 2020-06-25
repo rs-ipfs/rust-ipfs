@@ -1446,18 +1446,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ipfs-examples"
-version = "0.1.0"
-dependencies = [
- "async-std",
- "env_logger",
- "futures 0.3.4",
- "ipfs",
- "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
- "multihash 0.10.1",
-]
-
-[[package]]
 name = "ipfs-http"
 version = "0.1.0"
 dependencies = [
