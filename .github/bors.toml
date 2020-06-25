@@ -3,4 +3,8 @@
 # most useful command is "bors r+". The reviewers are configured manually via
 # bors-ng dashboard.
 status = ["ci"]
+
 delete_merged_branches = true
+
+# requires review approvals, which can also contain the bors command
+required_approvals = 1
