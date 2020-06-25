@@ -108,6 +108,18 @@ jobs:
       if: contains(matrix.platform.target, 'android')
       run: cargo install cargo-ndk
 
+    - name: Checkout conformance tests (non-cross targets)
+      if: matrix.platform.cross == false
+      uses: actions/checkout@v2
+      with:
+        repository: ipfs-rust/ipfs-rust-conformance
+        path: conformance
+
+    - name: Setup conformance tests (non-cross targets)
+      if: matrix.platform.cross == false
+      run: ./setup.sh
+      working-directory: ./conformance
+
     - name: Build (others)
       if: matrix.platform.cross == false
       run: cargo build --locked --workspace --all-targets
@@ -136,6 +148,11 @@ jobs:
     - name: Rust tests (other non-cross targets)
       if: matrix.platform.cross == false && matrix.platform.host != 'macos-latest'
       run: cargo test --workspace
+
+    - name: Conformance testing (non-cross targets)
+      if: matrix.platform.cross == false
+      run: IPFS_RUST_EXEC=../target/debug/ipfs-http npm test
+      working-directory: ./conformance
 
     - name: Upload crashes (macos)
       uses: actions/upload-artifact@v2
