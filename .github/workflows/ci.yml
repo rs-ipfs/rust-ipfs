@@ -1,13 +1,16 @@
 on:
   push:
-    branches: master
+    branches:
+      - master
+      - trying
+      - staging
   pull_request:
     branches: '*'
 
 name: Rust IPFS
 
 jobs:
-  ci:
+  ci-matrix:
     strategy:
       fail-fast: false
       matrix:
@@ -184,3 +187,30 @@ jobs:
 
     - name: cargo test --features nightly
       run: cargo test --features nightly
+
+  # adapted from https://github.com/taiki-e/pin-project/blob/5878410863f5f25e21f7cba97b035501749850f9/.github/workflows/ci.yml#L136-L167
+  ci-success:
+      # this is read by bors
+      name: ci
+      if: github.event_name == 'push' && success()
+      needs:
+        - ci-matrix
+        - lint-rust
+        - readme-doctest
+      runs-on: ubuntu-latest
+      steps:
+        - name: Mark the job as a success
+          run: exit 0
+
+  ci-failure:
+      # again, read by bors
+      name: ci
+      if: github.event_name == 'push' && !success()
+      needs:
+        - ci-matrix
+        - lint-rust
+        - readme-doctest
+      runs-on: ubuntu-latest
+      steps:
+        - name: Mark the job as failure
+          run: exit 1
