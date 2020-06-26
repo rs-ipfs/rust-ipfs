@@ -1,6 +1,7 @@
 use super::support::{with_ipfs, StringError};
 use ipfs::{Ipfs, IpfsTypes, Multiaddr};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use warp::{query, Filter};
 
@@ -45,7 +46,7 @@ struct PeersResponse {
 struct Peer {
     addr: String,
     peer: String,
-    latency: Option<String>,
+    latency: Option<Cow<'static, str>>,
 }
 
 async fn peers_query<T: IpfsTypes>(
@@ -59,7 +60,19 @@ async fn peers_query<T: IpfsTypes>(
         .into_iter()
         .map(|conn| {
             let latency = if let Some(true) = query.verbose {
-                conn.rtt.map(|d| format!("{}ms", d.as_millis() / 2))
+                // https://github.com/ipfs/js-ipfs/blob/343bd451ce7318751aab9934981e3727c6025234/packages/ipfs/src/core/components/swarm/peers.js#L25
+                // suggests that "n/a" is an ok value for latency. we could still follow up on
+                // #178 to give the best latency value we can.
+                let latency_text = conn
+                    .rtt
+                    .map(|d| format!("{}ms", d.as_millis() / 2))
+                    .map(Cow::Owned)
+                    .unwrap_or(Cow::Borrowed("n/a"));
+
+                // as documented in issue #178 the tests will sometimes fail if there is no value
+                // for latency (null is output for None, but it isn't truthy as inspected by the
+                // js-ipfs-http-client).
+                Some(latency_text)
             } else {
                 None
             };
