@@ -6,7 +6,7 @@
 //! The `Bitswap` struct implements the `NetworkBehaviour` trait. When used, it
 //! will allow providing and reciving IPFS blocks.
 use crate::block::Block;
-use crate::ledger::{Ledger, Message, Priority, I, O};
+use crate::ledger::{Ledger, Message, Priority};
 use crate::protocol::BitswapConfig;
 use crate::strategy::{Strategy, StrategyEvent};
 use fnv::FnvHashSet;
@@ -23,7 +23,7 @@ use std::collections::{HashMap, VecDeque};
 /// Network behaviour that handles sending and receiving IPFS blocks.
 pub struct Bitswap<TStrategy> {
     /// Queue of events to report to the user.
-    events: VecDeque<NetworkBehaviourAction<Message<O>, ()>>,
+    events: VecDeque<NetworkBehaviourAction<Message, ()>>,
     /// List of peers to send messages to.
     target_peers: FnvHashSet<PeerId>,
     /// Ledger
@@ -185,7 +185,7 @@ impl<TStrategy> Bitswap<TStrategy> {
 }
 
 impl<TStrategy: Strategy> NetworkBehaviour for Bitswap<TStrategy> {
-    type ProtocolsHandler = OneShotHandler<BitswapConfig, Message<O>, InnerMessage>;
+    type ProtocolsHandler = OneShotHandler<BitswapConfig, Message, InnerMessage>;
     type OutEvent = ();
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
@@ -315,14 +315,14 @@ impl<TStrategy: Strategy> NetworkBehaviour for Bitswap<TStrategy> {
 #[derive(Debug)]
 pub enum InnerMessage {
     /// We received a `Message` from a remote.
-    Rx(Message<I>),
+    Rx(Message),
     /// We successfully sent a `Message`.
     Tx,
 }
 
-impl From<Message<I>> for InnerMessage {
+impl From<Message> for InnerMessage {
     #[inline]
-    fn from(message: Message<I>) -> InnerMessage {
+    fn from(message: Message) -> InnerMessage {
         InnerMessage::Rx(message)
     }
 }
