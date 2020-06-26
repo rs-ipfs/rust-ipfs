@@ -44,6 +44,26 @@ For more info see: https://docs.ipfs.io/introduction/overview/
 
 ## Install
 
+Rust IPFS depends on `protoc` and `openssl`.
+
+### Dependencies
+
+First, install the dependencies.
+
+With apt:
+
+```bash
+# apt-get install protobuf-compiler libssl-dev
+```
+
+With yum
+
+```bash
+# yum install protobuf-compiler libssl-dev
+```
+
+### Install `rust-ipfs` itself
+
 The `rust-ipfs` binaries can be built from source. Our goal is to always be compatible with the **stable** release of Rust.
 
 ```bash
