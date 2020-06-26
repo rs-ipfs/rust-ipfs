@@ -100,12 +100,13 @@ More usage examples coming soon :+1:
 
 A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs](https://github.com/ipfs/devgrants/tree/master/open-grants/ipfs-rust). In the proposal, we discussed using implemented HTTP API endpoints as a metric to determine progress. _There are always opportunities for community members to contribute by helping out with endpoints not covered in the grant._
 
-### Devgrant Phase 1 - `Complete`
+### Devgrant Phases 1 and 2 - `Complete`
 
 * Project Setup
 * Testing Setup
     * Conformance testing
 * HTTP API Scaffolding
+* UnixFS Support
 * `/pubsub/{ publish, subscribe, unsubscribe, peers, ls }`
 * `/swarm/{connect, peers, addrs, localAddrs, disconnect }`
 * `/id`
@@ -115,27 +116,24 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
 * `/dag/{ put, resolve }`
 * `/refs` and `/refs/local`
 * `/bitswap/{ stat, wantlist }`
-
-### Devgrant Phase 2 - `In Progress`
-* UnixFS Support
 * `/cat`
 * `/get`
 
 ### Substrate Grant Milestone 2 - `Pending`
 * `/add`
 * DHT + Swarming
-### Work still required (APIs)
 
+### Work still required
 - Interop testing
-- /pin
-- /bootstrap
-- /dht
-- /name
-- /ping
-- /key
-- /config
-- /stats
-- /files (regular and mfs)
+- [/pin](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/2)
+- [/bootstrap](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/3)
+- [/dht](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/4)
+- [/name](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/5)
+- [/ping](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/6)
+- [/key](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/7)
+- [/config](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/8)
+- [/stats](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/9)
+- [/files](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/10) (regular and mfs)
 - a few other miscellaneous endpoints not enumerated here
 
 ## Maintainers
