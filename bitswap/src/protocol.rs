@@ -4,7 +4,7 @@ use crate::error::BitswapError;
 /// The protocol works the following way:
 ///
 /// - TODO
-use crate::ledger::{Message, I, O};
+use crate::ledger::Message;
 use core::future::Future;
 use core::iter;
 use core::pin::Pin;
@@ -33,7 +33,7 @@ impl<TSocket> InboundUpgrade<TSocket> for BitswapConfig
 where
     TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
-    type Output = Message<I>;
+    type Output = Message;
     type Error = BitswapError;
     #[allow(clippy::type_complexity)]
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
@@ -50,7 +50,7 @@ where
     }
 }
 
-impl UpgradeInfo for Message<O> {
+impl UpgradeInfo for Message {
     type Info = &'static [u8];
     type InfoIter = iter::Once<Self::Info>;
 
@@ -60,7 +60,7 @@ impl UpgradeInfo for Message<O> {
     }
 }
 
-impl<TSocket> OutboundUpgrade<TSocket> for Message<O>
+impl<TSocket> OutboundUpgrade<TSocket> for Message
 where
     TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {

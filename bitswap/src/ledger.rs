@@ -3,7 +3,6 @@ use crate::block::Block;
 use crate::error::BitswapError;
 use crate::prefix::Prefix;
 use core::convert::TryFrom;
-use core::marker::PhantomData;
 use libipld::cid::Cid;
 use prost::Message as ProstMessage;
 use std::collections::HashMap;
@@ -36,21 +35,21 @@ impl Ledger {
         Self::default()
     }
 
-    pub fn send_block(&mut self, block: Block) -> Message<O> {
-        let mut message = Message::new();
+    pub fn send_block(&mut self, block: Block) -> Message {
+        let mut message = Message::default();
         message.add_block(block);
         message
     }
 
-    pub fn want_block(&mut self, cid: &Cid, priority: Priority) -> Message<O> {
-        let mut message = Message::new();
+    pub fn want_block(&mut self, cid: &Cid, priority: Priority) -> Message {
+        let mut message = Message::default();
         message.want_block(cid, priority);
         message
     }
 
-    pub fn cancel_block(&mut self, cid: &Cid) -> Option<Message<O>> {
+    pub fn cancel_block(&mut self, cid: &Cid) -> Option<Message> {
         if self.sent_want_list.contains_key(cid) {
-            let mut message = Message::new();
+            let mut message = Message::default();
             message.cancel_block(cid);
             Some(message)
         } else {
@@ -58,7 +57,7 @@ impl Ledger {
         }
     }
 
-    pub fn update_outgoing_stats(&mut self, message: &Message<O>) {
+    pub fn update_outgoing_stats(&mut self, message: &Message) {
         self.sent_blocks += message.blocks.len() as u64;
         for cid in message.cancel() {
             self.sent_want_list.remove(cid);
@@ -68,7 +67,7 @@ impl Ledger {
         }
     }
 
-    pub fn update_incoming_stats(&mut self, message: &Message<I>) {
+    pub fn update_incoming_stats(&mut self, message: &Message) {
         for cid in message.cancel() {
             self.received_want_list.remove(cid);
         }
@@ -96,16 +95,9 @@ impl Ledger {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct I;
-#[derive(Debug, Clone, PartialEq)]
-pub struct O;
-
 /// A bitswap message.
-#[derive(Clone, PartialEq)]
-pub struct Message<T> {
-    /// Message tag
-    _phantom_data: PhantomData<T>,
+#[derive(Clone, PartialEq, Default)]
+pub struct Message {
     /// List of wanted blocks.
     want: HashMap<Cid, Priority>,
     /// List of blocks to cancel.
@@ -116,23 +108,7 @@ pub struct Message<T> {
     blocks: Vec<Block>,
 }
 
-impl<T> Default for Message<T> {
-    fn default() -> Self {
-        Message {
-            _phantom_data: PhantomData,
-            want: HashMap::new(),
-            cancel: Vec::new(),
-            full: false,
-            blocks: Vec::new(),
-        }
-    }
-}
-
-impl<T> Message<T> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
+impl Message {
     /// Returns the list of blocks.
     pub fn blocks(&self) -> &[Block] {
         &self.blocks
@@ -175,7 +151,7 @@ impl<T> Message<T> {
     }
 }
 
-impl Into<Vec<u8>> for &Message<O> {
+impl Into<Vec<u8>> for &Message {
     fn into(self) -> Vec<u8> {
         let mut proto = bitswap_pb::Message::default();
         let mut wantlist = bitswap_pb::message::Wantlist::default();
@@ -208,18 +184,23 @@ impl Into<Vec<u8>> for &Message<O> {
     }
 }
 
-impl Message<O> {
+impl Message {
     /// Turns this `Message` into a message that can be sent to a substream.
     pub fn to_bytes(&self) -> Vec<u8> {
         self.into()
     }
+
+    /// Creates a `Message` from bytes that were received from a substream.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, BitswapError> {
+        Self::try_from(bytes)
+    }
 }
 
-impl TryFrom<&[u8]> for Message<I> {
+impl TryFrom<&[u8]> for Message {
     type Error = BitswapError;
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         let proto: bitswap_pb::Message = bitswap_pb::Message::decode(bytes)?;
-        let mut message = Message::new();
+        let mut message = Message::default();
         for entry in proto.wantlist.unwrap_or_default().entries {
             let cid = Cid::try_from(entry.block)?;
             if entry.cancel {
@@ -241,14 +222,7 @@ impl TryFrom<&[u8]> for Message<I> {
     }
 }
 
-impl Message<I> {
-    /// Creates a `Message` from bytes that were received from a substream.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, BitswapError> {
-        Self::try_from(bytes)
-    }
-}
-
-impl<T> std::fmt::Debug for Message<T> {
+impl std::fmt::Debug for Message {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         for (cid, priority) in self.want() {
             writeln!(fmt, "want: {} {}", cid.to_string(), priority)?;
