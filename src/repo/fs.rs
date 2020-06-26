@@ -29,7 +29,7 @@ impl BlockStore for FsBlockStore {
     fn new(path: PathBuf) -> Self {
         FsBlockStore {
             path,
-            cids: Arc::new(Mutex::new(HashSet::new())),
+            cids: Default::default(),
         }
     }
 
@@ -45,7 +45,7 @@ impl BlockStore for FsBlockStore {
 
         let mut stream = fs::read_dir(path).await?;
 
-        fn append_cid(cids: &Arc<Mutex<HashSet<Cid>>>, path: PathBuf) {
+        fn append_cid(cids: &Mutex<HashSet<Cid>>, path: PathBuf) {
             if path.extension() != Some(OsStr::new("data")) {
                 return;
             }

@@ -12,7 +12,7 @@ use super::{BlockRm, BlockRmError};
 // FIXME: Transition to Persistent Map to make iterating more consistent
 use std::collections::HashMap;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MemBlockStore {
     blocks: Arc<Mutex<HashMap<Cid, Block>>>,
 }
@@ -20,9 +20,7 @@ pub struct MemBlockStore {
 #[async_trait]
 impl BlockStore for MemBlockStore {
     fn new(_path: PathBuf) -> Self {
-        MemBlockStore {
-            blocks: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Default::default()
     }
 
     async fn init(&self) -> Result<(), Error> {
@@ -74,7 +72,7 @@ impl BlockStore for MemBlockStore {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MemDataStore {
     ipns: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
     pin: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
@@ -83,10 +81,7 @@ pub struct MemDataStore {
 #[async_trait]
 impl DataStore for MemDataStore {
     fn new(_path: PathBuf) -> Self {
-        MemDataStore {
-            ipns: Arc::new(Mutex::new(HashMap::new())),
-            pin: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Default::default()
     }
 
     async fn init(&self) -> Result<(), Error> {
