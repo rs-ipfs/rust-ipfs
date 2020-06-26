@@ -1,13 +1,16 @@
 on:
   push:
-    branches: master
+    branches:
+      - master
+      - trying
+      - staging
   pull_request:
     branches: '*'
 
 name: Rust IPFS
 
 jobs:
-  ci:
+  ci-matrix:
     strategy:
       fail-fast: false
       matrix:
@@ -105,6 +108,19 @@ jobs:
       if: contains(matrix.platform.target, 'android')
       run: cargo install cargo-ndk
 
+    - name: Checkout conformance tests (non-cross targets)
+      if: matrix.platform.cross == false
+      uses: actions/checkout@v2
+      with:
+        repository: ipfs-rust/ipfs-rust-conformance
+        path: conformance
+
+    - name: Setup conformance tests (non-cross targets)
+      if: matrix.platform.cross == false
+      run: ./setup.sh
+      shell: bash
+      working-directory: ./conformance
+
     - name: Build (others)
       if: matrix.platform.cross == false
       run: cargo build --locked --workspace --all-targets
@@ -133,6 +149,12 @@ jobs:
     - name: Rust tests (other non-cross targets)
       if: matrix.platform.cross == false && matrix.platform.host != 'macos-latest'
       run: cargo test --workspace
+
+    - name: Conformance testing (non-cross targets)
+      if: matrix.platform.cross == false
+      run: IPFS_RUST_EXEC=../target/debug/ipfs-http npm test
+      shell: bash
+      working-directory: ./conformance
 
     - name: Upload crashes (macos)
       uses: actions/upload-artifact@v2
@@ -184,3 +206,30 @@ jobs:
 
     - name: cargo test --features nightly
       run: cargo test --features nightly
+
+  # adapted from https://github.com/taiki-e/pin-project/blob/5878410863f5f25e21f7cba97b035501749850f9/.github/workflows/ci.yml#L136-L167
+  ci-success:
+      # this is read by bors
+      name: ci
+      if: github.event_name == 'push' && success()
+      needs:
+        - ci-matrix
+        - lint-rust
+        - readme-doctest
+      runs-on: ubuntu-latest
+      steps:
+        - name: Mark the job as a success
+          run: exit 0
+
+  ci-failure:
+      # again, read by bors
+      name: ci
+      if: github.event_name == 'push' && !success()
+      needs:
+        - ci-matrix
+        - lint-rust
+        - readme-doctest
+      runs-on: ubuntu-latest
+      steps:
+        - name: Mark the job as failure
+          run: exit 1
