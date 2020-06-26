@@ -41,7 +41,10 @@ fn main() {
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
         let provided = ipfs.put_block(Block::new(data, cid)).await.unwrap();
 
-        eprintln!("After connecting the node, it can be used to get block: {}", provided);
+        eprintln!(
+            "After connecting the node, it can be used to get block: {}",
+            provided
+        );
         eprintln!("This should print out \"block-provide\\n\":");
         eprintln!("    ipfs block get {}", provided);
         eprintln!();
