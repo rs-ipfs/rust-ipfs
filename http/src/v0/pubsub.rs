@@ -318,11 +318,11 @@ struct PubsubHttpApiMessage {
     topics: Vec<String>,
 }
 
-impl<'a, T> From<&'a T> for PubsubHttpApiMessage
+impl<T> From<T> for PubsubHttpApiMessage
 where
     T: AsRef<ipfs::PubsubMessage>,
 {
-    fn from(msg: &'a T) -> Self {
+    fn from(msg: T) -> Self {
         use multibase::Base::Base64Pad;
         let msg = msg.as_ref();
 
