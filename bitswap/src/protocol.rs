@@ -16,6 +16,8 @@ use std::io;
 // https://github.com/ipfs/js-ipfs-bitswap/blob/d8f80408aadab94c962f6b88f343eb9f39fa0fcc/src/decision-engine/index.js#L16
 const MAX_BUF_SIZE: usize = 524_288;
 
+type FutureResult<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+
 #[derive(Clone, Debug, Default)]
 pub struct BitswapConfig {}
 
@@ -35,8 +37,7 @@ where
 {
     type Output = Message;
     type Error = BitswapError;
-    #[allow(clippy::type_complexity)]
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
+    type Future = FutureResult<Self::Output, Self::Error>;
 
     #[inline]
     fn upgrade_inbound(self, mut socket: TSocket, info: Self::Info) -> Self::Future {
@@ -66,8 +67,7 @@ where
 {
     type Output = ();
     type Error = io::Error;
-    #[allow(clippy::type_complexity)]
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
+    type Future = FutureResult<Self::Output, Self::Error>;
 
     #[inline]
     fn upgrade_outbound(self, mut socket: TSocket, info: Self::Info) -> Self::Future {
