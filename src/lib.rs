@@ -471,25 +471,25 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
     /// The subscription can be unsubscribed by dropping the stream or calling
     /// [`pubsub_unsubscribe`].
-    pub async fn pubsub_subscribe(&self, topic: &str) -> Result<SubscriptionStream, Error> {
+    pub async fn pubsub_subscribe(&self, topic: String) -> Result<SubscriptionStream, Error> {
         let (tx, rx) = oneshot_channel();
 
         self.to_task
             .clone()
-            .send(IpfsEvent::PubsubSubscribe(topic.into(), tx))
+            .send(IpfsEvent::PubsubSubscribe(topic, tx))
             .await?;
 
         rx.await?
-            .ok_or_else(|| format_err!("already subscribed to {:?}", topic))
+            .ok_or_else(|| format_err!("already subscribed to the given topic"))
     }
 
     /// Publishes to the topic which may have been subscribed to earlier
-    pub async fn pubsub_publish(&self, topic: &str, data: &[u8]) -> Result<(), Error> {
+    pub async fn pubsub_publish(&self, topic: String, data: Vec<u8>) -> Result<(), Error> {
         let (tx, rx) = oneshot_channel();
 
         self.to_task
             .clone()
-            .send(IpfsEvent::PubsubPublish(topic.into(), data.to_vec(), tx))
+            .send(IpfsEvent::PubsubPublish(topic, data, tx))
             .await?;
 
         Ok(rx.await?)
@@ -508,12 +508,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Returns all known pubsub peers with the optional topic filter
-    pub async fn pubsub_peers(&self, topic: Option<&str>) -> Result<Vec<PeerId>, Error> {
+    pub async fn pubsub_peers(&self, topic: Option<String>) -> Result<Vec<PeerId>, Error> {
         let (tx, rx) = oneshot_channel();
 
         self.to_task
             .clone()
-            .send(IpfsEvent::PubsubPeers(topic.map(String::from), tx))
+            .send(IpfsEvent::PubsubPeers(topic, tx))
             .await?;
 
         Ok(rx.await?)

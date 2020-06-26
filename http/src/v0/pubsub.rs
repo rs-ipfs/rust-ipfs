@@ -68,7 +68,7 @@ async fn inner_peers<T: IpfsTypes>(
     topic: Option<String>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let peers = ipfs
-        .pubsub_peers(topic.as_deref())
+        .pubsub_peers(topic)
         .await
         .map_err(|e| warp::reject::custom(StringError::from(e)))?;
 
@@ -112,8 +112,7 @@ async fn inner_publish<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     PublishArgs { topic, message }: PublishArgs,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    // FIXME: perhaps these should be taken by value as they are always moved?
-    ipfs.pubsub_publish(&topic, &message.into_inner())
+    ipfs.pubsub_publish(topic, message.into_inner())
         .await
         .map_err(|e| warp::reject::custom(StringError::from(e)))?;
     Ok(warp::reply::reply())
@@ -161,7 +160,7 @@ async fn inner_subscribe<T: IpfsTypes>(
 
             // the returned stream needs to be set up to be shoveled in a background task
             let shoveled = ipfs
-                .pubsub_subscribe(&topic)
+                .pubsub_subscribe(topic.clone())
                 .await
                 .expect("new subscriptions shouldn't fail while holding the lock");
 
@@ -257,7 +256,7 @@ async fn shovel<T: IpfsTypes>(
                         topic
                     );
                     shoveled = ipfs
-                        .pubsub_subscribe(&topic)
+                        .pubsub_subscribe(topic.clone())
                         .await
                         .expect("new subscriptions shouldn't fail while holding the lock");
                 } else {
