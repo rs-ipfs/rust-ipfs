@@ -107,15 +107,15 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
     * Conformance testing
 * HTTP API Scaffolding
 * UnixFS Support
-* `/pubsub/{ publish, subscribe, unsubscribe, peers, ls }`
-* `/swarm/{connect, peers, addrs, localAddrs, disconnect }`
+* `/pubsub/{publish,subscribe,peers,ls}`
+* `/swarm/{connect,peers,addrs,addrs/local,disconnect}`
 * `/id`
 * `/version`
-* `/stop`
-* `/block/{ get, add, rm, stat }`
-* `/dag/{ put, resolve }`
+* `/shutdown`
+* `/block/{get,put,rm,stat}`
+* `/dag/{put,resolve}`
 * `/refs` and `/refs/local`
-* `/bitswap/{ stat, wantlist }`
+* `/bitswap/{stat,wantlist}`
 * `/cat`
 * `/get`
 
