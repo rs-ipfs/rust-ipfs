@@ -4,7 +4,6 @@ use async_std::task;
 use ipfs::{Block, IpfsOptions, TestTypes, UninitializedIpfs};
 use libipld::cid::{Cid, Codec};
 use multihash::Sha2_256;
-use std::convert::TryInto;
 
 fn main() {
     let options = IpfsOptions::<TestTypes>::default();
