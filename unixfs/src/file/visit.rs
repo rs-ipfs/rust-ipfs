@@ -29,10 +29,7 @@ impl IdleFileVisit {
     ///
     /// Returns (on success) a tuple of file bytes, total file size, any metadata associated, and
     /// optionally a `FileVisit` to continue the walk.
-    pub fn start(
-        self,
-        block: &'_ [u8],
-    ) -> Result<FileVisitResult<'_>, FileReadFailed> {
+    pub fn start(self, block: &'_ [u8]) -> Result<FileVisitResult<'_>, FileReadFailed> {
         let fr = FileReader::from_block(block)?;
         self.start_from_reader(fr, &mut None)
     }

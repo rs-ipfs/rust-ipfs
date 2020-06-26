@@ -41,7 +41,9 @@ async fn unsubscribe_via_drop() {
 #[async_std::test]
 async fn can_publish_without_subscribing() {
     let a = Node::new(MDNS).await;
-    a.pubsub_publish("topic".into(), b"foobar".to_vec()).await.unwrap()
+    a.pubsub_publish("topic".into(), b"foobar".to_vec())
+        .await
+        .unwrap()
 }
 
 #[async_std::test]
@@ -60,8 +62,14 @@ async fn publish_between_two_nodes() {
     // need to wait to see both sides so that the messages will get through
     let mut appeared = false;
     for _ in 0..100usize {
-        if a.pubsub_peers(Some(topic.clone())).await.unwrap().contains(&b_id)
-            && b.pubsub_peers(Some(topic.clone())).await.unwrap().contains(&a_id)
+        if a.pubsub_peers(Some(topic.clone()))
+            .await
+            .unwrap()
+            .contains(&b_id)
+            && b.pubsub_peers(Some(topic.clone()))
+                .await
+                .unwrap()
+                .contains(&a_id)
         {
             appeared = true;
             break;
@@ -76,21 +84,22 @@ async fn publish_between_two_nodes() {
         "timed out before both nodes appeared as pubsub peers"
     );
 
-    a.pubsub_publish(topic.clone(), b"foobar".to_vec()).await.unwrap();
-    b.pubsub_publish(topic.clone(), b"barfoo".to_vec()).await.unwrap();
+    a.pubsub_publish(topic.clone(), b"foobar".to_vec())
+        .await
+        .unwrap();
+    b.pubsub_publish(topic.clone(), b"barfoo".to_vec())
+        .await
+        .unwrap();
 
     // the order is not defined, but both should see the other's message and the message they sent
-    let expected = [(&[topic.clone()], &a_id, b"foobar"), (&[topic.clone()], &b_id, b"barfoo")]
-        .iter()
-        .cloned()
-        .map(|(topics, id, data)| {
-            (
-                topics.to_vec(),
-                id.clone(),
-                data.to_vec(),
-            )
-        })
-        .collect::<HashSet<_>>();
+    let expected = [
+        (&[topic.clone()], &a_id, b"foobar"),
+        (&[topic.clone()], &b_id, b"barfoo"),
+    ]
+    .iter()
+    .cloned()
+    .map(|(topics, id, data)| (topics.to_vec(), id.clone(), data.to_vec()))
+    .collect::<HashSet<_>>();
 
     for st in &mut [b_msgs.by_ref(), a_msgs.by_ref()] {
         let actual = st
@@ -108,7 +117,12 @@ async fn publish_between_two_nodes() {
 
     let mut disappeared = false;
     for _ in 0..100usize {
-        if !a.pubsub_peers(Some(topic.clone())).await.unwrap().contains(&b_id) {
+        if !a
+            .pubsub_peers(Some(topic.clone()))
+            .await
+            .unwrap()
+            .contains(&b_id)
+        {
             disappeared = true;
             break;
         }
