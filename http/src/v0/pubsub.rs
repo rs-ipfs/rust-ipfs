@@ -232,7 +232,7 @@ async fn shovel<T: IpfsTypes>(
                 }
             };
 
-            if tx.send(next.clone()).is_err() {
+            if tx.send(next).is_err() {
                 // currently no more subscribers
                 unsubscribed = false;
                 break;
