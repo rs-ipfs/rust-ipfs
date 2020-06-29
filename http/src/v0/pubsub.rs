@@ -492,7 +492,7 @@ impl<'a> Iterator for QueryAsRawPartsParser<'a> {
             let mut split2 = self.input.splitn(2, |&b| b == b'&');
 
             let sequence = split2.next().expect("splitn will always return first");
-            self.input = split2.next().unwrap_or(&[][..]);
+            self.input = split2.next().unwrap_or_default();
 
             if sequence.is_empty() {
                 continue;
@@ -500,7 +500,7 @@ impl<'a> Iterator for QueryAsRawPartsParser<'a> {
 
             let mut split2 = sequence.splitn(2, |&b| b == b'=');
             let name = split2.next().expect("splitn will always return first");
-            let value = split2.next().unwrap_or(&[][..]);
+            let value = split2.next().unwrap_or_default();
             // original implementation calls percent_decode for both arguments into lossy Cow<str>
             return Some((name, value));
         }
