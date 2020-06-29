@@ -75,7 +75,7 @@ async fn put_query<T: IpfsTypes>(
         1 => Version::V1,
         _ => return Err(StringError::from("invalid cid version").into()),
     };
-    let mut buf = form
+    let buf = form
         .next()
         .await
         .ok_or(InvalidMultipartFormData)?
@@ -84,7 +84,7 @@ async fn put_query<T: IpfsTypes>(
         .await
         .ok_or(InvalidMultipartFormData)?
         .map_err(|_| InvalidMultipartFormData)?;
-    let data = buf.to_bytes().as_ref().to_vec().into_boxed_slice();
+    let data = Box::from(buf.bytes());
     let digest = hasher(&data);
     let cid = Cid::new(version, format, digest).map_err(StringError::from)?;
     let response = PutResponse {
