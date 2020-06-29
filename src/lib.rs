@@ -476,11 +476,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
         self.to_task
             .clone()
-            .send(IpfsEvent::PubsubSubscribe(topic, tx))
+            .send(IpfsEvent::PubsubSubscribe(topic.clone(), tx))
             .await?;
 
         rx.await?
-            .ok_or_else(|| format_err!("already subscribed to the given topic"))
+            .ok_or_else(|| format_err!("already subscribed to {:?}", topic))
     }
 
     /// Publishes to the topic which may have been subscribed to earlier
