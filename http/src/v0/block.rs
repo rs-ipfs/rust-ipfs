@@ -163,19 +163,10 @@ async fn rm_query<T: IpfsTypes>(
                 hash: cid.to_string(),
                 error: "".to_string(),
             },
-            Err((cid, e)) => {
-                if force {
-                    RmResponse {
-                        hash: cid.to_string(),
-                        error: "".to_string(),
-                    }
-                } else {
-                    RmResponse {
-                        hash: cid.to_string(),
-                        error: e.to_string(),
-                    }
-                }
-            }
+            Err((cid, e)) => RmResponse {
+                hash: cid.to_string(),
+                error: if force { "".to_string() } else { e.to_string() },
+            },
         })
         .map(|response: RmResponse| serde_json::to_string(&response))
         .map(move |result| match result {
