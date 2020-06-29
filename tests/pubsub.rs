@@ -9,27 +9,27 @@ const MDNS: bool = false;
 #[async_std::test]
 async fn subscribe_only_once() {
     let a = Node::new(MDNS).await;
-    let _stream = a.pubsub_subscribe("some_topic").await.unwrap();
-    a.pubsub_subscribe("some_topic").await.unwrap_err();
+    let _stream = a.pubsub_subscribe("some_topic".into()).await.unwrap();
+    a.pubsub_subscribe("some_topic".into()).await.unwrap_err();
 }
 
 #[async_std::test]
 async fn resubscribe_after_unsubscribe() {
     let a = Node::new(MDNS).await;
 
-    let mut stream = a.pubsub_subscribe("topic").await.unwrap();
+    let mut stream = a.pubsub_subscribe("topic".into()).await.unwrap();
     a.pubsub_unsubscribe("topic").await.unwrap();
     // sender has been dropped
     assert_eq!(stream.next().await, None);
 
-    drop(a.pubsub_subscribe("topic").await.unwrap());
+    drop(a.pubsub_subscribe("topic".into()).await.unwrap());
 }
 
 #[async_std::test]
 async fn unsubscribe_via_drop() {
     let a = Node::new(MDNS).await;
 
-    let msgs = a.pubsub_subscribe("topic").await.unwrap();
+    let msgs = a.pubsub_subscribe("topic".into()).await.unwrap();
     assert_eq!(a.pubsub_subscribed().await.unwrap(), &["topic"]);
 
     drop(msgs);
@@ -41,7 +41,9 @@ async fn unsubscribe_via_drop() {
 #[async_std::test]
 async fn can_publish_without_subscribing() {
     let a = Node::new(MDNS).await;
-    a.pubsub_publish("topic", b"foobar").await.unwrap()
+    a.pubsub_publish("topic".into(), b"foobar".to_vec())
+        .await
+        .unwrap()
 }
 
 #[async_std::test]
@@ -52,16 +54,22 @@ async fn publish_between_two_nodes() {
 
     let ((a, a_id), (b, b_id)) = two_connected_nodes().await;
 
-    let topic = "shared";
+    let topic = "shared".to_owned();
 
-    let mut a_msgs = a.pubsub_subscribe(topic).await.unwrap();
-    let mut b_msgs = b.pubsub_subscribe(topic).await.unwrap();
+    let mut a_msgs = a.pubsub_subscribe(topic.clone()).await.unwrap();
+    let mut b_msgs = b.pubsub_subscribe(topic.clone()).await.unwrap();
 
     // need to wait to see both sides so that the messages will get through
     let mut appeared = false;
     for _ in 0..100usize {
-        if a.pubsub_peers(Some(topic)).await.unwrap().contains(&b_id)
-            && b.pubsub_peers(Some(topic)).await.unwrap().contains(&a_id)
+        if a.pubsub_peers(Some(topic.clone()))
+            .await
+            .unwrap()
+            .contains(&b_id)
+            && b.pubsub_peers(Some(topic.clone()))
+                .await
+                .unwrap()
+                .contains(&a_id)
         {
             appeared = true;
             break;
@@ -76,21 +84,22 @@ async fn publish_between_two_nodes() {
         "timed out before both nodes appeared as pubsub peers"
     );
 
-    a.pubsub_publish(topic, b"foobar").await.unwrap();
-    b.pubsub_publish(topic, b"barfoo").await.unwrap();
+    a.pubsub_publish(topic.clone(), b"foobar".to_vec())
+        .await
+        .unwrap();
+    b.pubsub_publish(topic.clone(), b"barfoo".to_vec())
+        .await
+        .unwrap();
 
     // the order is not defined, but both should see the other's message and the message they sent
-    let expected = [(&[topic], &a_id, b"foobar"), (&[topic], &b_id, b"barfoo")]
-        .iter()
-        .cloned()
-        .map(|(topics, id, data)| {
-            (
-                topics.iter().map(|&s| s.to_string()).collect::<Vec<_>>(),
-                id.clone(),
-                data.to_vec(),
-            )
-        })
-        .collect::<HashSet<_>>();
+    let expected = [
+        (&[topic.clone()], &a_id, b"foobar"),
+        (&[topic.clone()], &b_id, b"barfoo"),
+    ]
+    .iter()
+    .cloned()
+    .map(|(topics, id, data)| (topics.to_vec(), id.clone(), data.to_vec()))
+    .collect::<HashSet<_>>();
 
     for st in &mut [b_msgs.by_ref(), a_msgs.by_ref()] {
         let actual = st
@@ -108,7 +117,12 @@ async fn publish_between_two_nodes() {
 
     let mut disappeared = false;
     for _ in 0..100usize {
-        if !a.pubsub_peers(Some(topic)).await.unwrap().contains(&b_id) {
+        if !a
+            .pubsub_peers(Some(topic.clone()))
+            .await
+            .unwrap()
+            .contains(&b_id)
+        {
             disappeared = true;
             break;
         }

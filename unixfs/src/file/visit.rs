@@ -17,6 +17,8 @@ pub struct IdleFileVisit {
     range: Option<Range<u64>>,
 }
 
+type FileVisitResult<'a> = (&'a [u8], u64, Metadata, Option<FileVisit>);
+
 impl IdleFileVisit {
     /// Target range represents the target byte range of the file we are interested in visiting.
     pub fn with_target_range(self, range: Range<u64>) -> Self {
@@ -27,31 +29,25 @@ impl IdleFileVisit {
     ///
     /// Returns (on success) a tuple of file bytes, total file size, any metadata associated, and
     /// optionally a `FileVisit` to continue the walk.
-    #[allow(clippy::type_complexity)]
-    pub fn start(
-        self,
-        block: &[u8],
-    ) -> Result<(&[u8], u64, Metadata, Option<FileVisit>), FileReadFailed> {
+    pub fn start(self, block: &'_ [u8]) -> Result<FileVisitResult<'_>, FileReadFailed> {
         let fr = FileReader::from_block(block)?;
         self.start_from_reader(fr, &mut None)
     }
 
-    #[allow(clippy::type_complexity)]
     pub(crate) fn start_from_parsed<'a>(
         self,
         block: FlatUnixFs<'a>,
         cache: &'_ mut Option<Cache>,
-    ) -> Result<(&'a [u8], u64, Metadata, Option<FileVisit>), FileReadFailed> {
+    ) -> Result<FileVisitResult<'a>, FileReadFailed> {
         let fr = FileReader::from_parsed(block)?;
         self.start_from_reader(fr, cache)
     }
 
-    #[allow(clippy::type_complexity)]
     fn start_from_reader<'a>(
         self,
         fr: FileReader<'a>,
         cache: &'_ mut Option<Cache>,
-    ) -> Result<(&'a [u8], u64, Metadata, Option<FileVisit>), FileReadFailed> {
+    ) -> Result<FileVisitResult<'a>, FileReadFailed> {
         let metadata = fr.as_ref().to_owned();
 
         let (content, traversal) = fr.content();

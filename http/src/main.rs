@@ -51,13 +51,10 @@ fn main() {
     // FIXME: need to process cmdline args here, but trying to understand js-ipfsd-ctl right now a
     // bit more.
 
-    let home = match home {
-        Some(path) => path,
-        None => {
-            eprintln!("IPFS_PATH and HOME unset");
-            std::process::exit(1);
-        }
-    };
+    let home = home.unwrap_or_else(|| {
+        eprintln!("IPFS_PATH and HOME unset");
+        std::process::exit(1);
+    });
 
     let config_path = home.join("config");
 
