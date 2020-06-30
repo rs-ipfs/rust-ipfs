@@ -32,7 +32,7 @@ async fn put_query<T: IpfsTypes>(
         "sha3-512" => (Sha3_512::digest as fn(&[u8]) -> Multihash, false),
         _ => return Err(StringError::from("unknown hash").into()),
     };
-    let mut buf = form
+    let buf = form
         .next()
         .await
         .ok_or(InvalidMultipartFormData)?
@@ -41,7 +41,7 @@ async fn put_query<T: IpfsTypes>(
         .await
         .ok_or(InvalidMultipartFormData)?
         .map_err(|_| InvalidMultipartFormData)?;
-    let data = buf.to_bytes().as_ref().to_vec().into_boxed_slice();
+    let data = Box::from(buf.bytes());
     let digest = hasher(&data);
     let cid = if v0_fmt && v0_hash {
         // this is quite ugly way but apparently js-ipfs generates a v0 cid for this combination

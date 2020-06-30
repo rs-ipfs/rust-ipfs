@@ -133,7 +133,7 @@ impl IpfsPath {
                 // FIXME: this would require the iterator to be peekable in addition.
                 return Ok(WalkSuccess::Link(key, cid));
             }
-            Ipld::Map(mut m) if m.contains_key(&key) => {
+            Ipld::Map(mut m) => {
                 if let Some(ipld) = m.remove(&key) {
                     ipld
                 } else {
