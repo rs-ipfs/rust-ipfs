@@ -312,9 +312,9 @@ dependencies = [
  "anyhow",
  "async-std",
  "async-trait",
+ "cid",
  "fnv",
  "futures 0.3.4",
- "libipld 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-core",
  "libp2p-swarm",
  "log 0.4.8",
@@ -719,18 +719,7 @@ version = "0.1.0"
 source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
 dependencies = [
  "byteorder 1.3.4",
- "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
- "thiserror",
-]
-
-[[package]]
-name = "dag-cbor"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c7f447fbe4922e1b8dfcc1b73803ef3d23861c1ce83f3f7be8acd8e5cf0d2d2"
-dependencies = [
- "byteorder 1.3.4",
- "libipld-base 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libipld-base",
  "thiserror",
 ]
 
@@ -738,18 +727,6 @@ dependencies = [
 name = "dag-cbor-derive"
 version = "0.1.0"
 source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
-dependencies = [
- "proc-macro2 1.0.10",
- "quote 1.0.3",
- "syn 1.0.17",
- "synstructure",
-]
-
-[[package]]
-name = "dag-cbor-derive"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ed5ba1ae6fafe47081c6b173d1de56c3bfe6e74e4d19395e9fbc1e19b0f5e6"
 dependencies = [
  "proc-macro2 1.0.10",
  "quote 1.0.3",
@@ -763,7 +740,7 @@ version = "0.1.0"
 source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
 dependencies = [
  "base64 0.12.0",
- "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
+ "libipld-base",
  "serde",
  "serde_json",
 ]
@@ -773,7 +750,7 @@ name = "dag-pb"
 version = "0.1.0"
 source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
 dependencies = [
- "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
+ "libipld-base",
  "prost",
  "prost-build",
  "thiserror",
@@ -1429,7 +1406,7 @@ dependencies = [
  "futures 0.3.4",
  "hex-literal",
  "ipfs-unixfs",
- "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
+ "libipld",
  "libp2p",
  "log 0.4.8",
  "multibase",
@@ -1458,7 +1435,7 @@ dependencies = [
  "hex-literal",
  "hyper",
  "ipfs",
- "libipld 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
+ "libipld",
  "log 0.4.8",
  "multibase",
  "multihash 0.10.1",
@@ -1584,33 +1561,13 @@ dependencies = [
  "async-trait",
  "byteorder 1.3.4",
  "cid",
- "dag-cbor 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
- "dag-cbor-derive 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
+ "dag-cbor",
+ "dag-cbor-derive",
  "dag-json",
  "dag-pb",
  "futures 0.3.4",
- "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
- "libipld-macro 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
- "multibase",
- "multihash 0.10.1",
- "thiserror",
-]
-
-[[package]]
-name = "libipld"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "344ea20e2360479a32658d1040a316f136bae135c51435a542752da22fbf5d56"
-dependencies = [
- "async-std",
- "async-trait",
- "byteorder 1.3.4",
- "cid",
- "dag-cbor 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "dag-cbor-derive 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "futures 0.3.4",
- "libipld-base 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "libipld-macro 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libipld-base",
+ "libipld-macro",
  "multibase",
  "multihash 0.10.1",
  "thiserror",
@@ -1628,32 +1585,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "libipld-base"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8c4f844ea2e357f53cb53a2dd28a1dd4ab9d61d75d121cb8468b1a12b621970"
-dependencies = [
- "cid",
- "multihash 0.10.1",
- "thiserror",
-]
-
-[[package]]
 name = "libipld-macro"
 version = "0.1.0"
 source = "git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9#b2286c53c13f3eeec2a3766387f2926838e8e4c9"
 dependencies = [
- "libipld-base 0.1.0 (git+https://github.com/ipfs-rust/rust-ipld?rev=b2286c53c13f3eeec2a3766387f2926838e8e4c9)",
- "multihash 0.10.1",
-]
-
-[[package]]
-name = "libipld-macro"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fbc55b3b493e909833fb7af7f5deed4e994e2c625c648777711f8791a02ebb5"
-dependencies = [
- "libipld-base 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libipld-base",
  "multihash 0.10.1",
 ]
 

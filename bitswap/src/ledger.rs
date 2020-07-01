@@ -2,8 +2,8 @@ use crate::bitswap_pb;
 use crate::block::Block;
 use crate::error::BitswapError;
 use crate::prefix::Prefix;
+use cid::Cid;
 use core::convert::TryFrom;
-use libipld::cid::Cid;
 use prost::Message as ProstMessage;
 use std::collections::HashMap;
 

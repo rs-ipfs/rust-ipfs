@@ -8,11 +8,11 @@
 use crate::block::Block;
 use crate::ledger::{Ledger, Message, Priority};
 use crate::protocol::BitswapConfig;
-use crate::strategy::{Strategy, StrategyEvent};
+use crate::strategy::{AltruisticStrategy, StrategyEvent};
+use cid::Cid;
 use fnv::FnvHashSet;
 use futures::task::Context;
 use futures::task::Poll;
-use libipld::cid::Cid;
 use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
 use libp2p_swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
 use libp2p_swarm::{
@@ -21,7 +21,7 @@ use libp2p_swarm::{
 use std::collections::{HashMap, VecDeque};
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
-pub struct Bitswap<TStrategy> {
+pub struct Bitswap {
     /// Queue of events to report to the user.
     events: VecDeque<NetworkBehaviourAction<Message, ()>>,
     /// List of peers to send messages to.
@@ -30,8 +30,8 @@ pub struct Bitswap<TStrategy> {
     connected_peers: HashMap<PeerId, Ledger>,
     /// Wanted blocks
     wanted_blocks: HashMap<Cid, Priority>,
-    /// Strategy
-    strategy: TStrategy,
+    // TODO: remove the strategy
+    strategy: AltruisticStrategy,
 }
 
 #[derive(Debug, Default)]
@@ -44,15 +44,15 @@ pub struct Stats {
     pub duplicate_data: u64,
 }
 
-impl<TStrategy> Bitswap<TStrategy> {
+impl Bitswap {
     /// Creates a `Bitswap`.
-    pub fn new(strategy: TStrategy) -> Self {
+    pub fn new(strategy: AltruisticStrategy) -> Self {
         debug!("bitswap: new");
         Bitswap {
-            events: VecDeque::new(),
-            target_peers: FnvHashSet::default(),
-            connected_peers: HashMap::new(),
-            wanted_blocks: HashMap::new(),
+            events: Default::default(),
+            target_peers: Default::default(),
+            connected_peers: Default::default(),
+            wanted_blocks: Default::default(),
             strategy,
         }
     }
@@ -184,7 +184,7 @@ impl<TStrategy> Bitswap<TStrategy> {
     }
 }
 
-impl<TStrategy: Strategy> NetworkBehaviour for Bitswap<TStrategy> {
+impl NetworkBehaviour for Bitswap {
     type ProtocolsHandler = OneShotHandler<BitswapConfig, Message, InnerMessage>;
     type OutEvent = ();
 

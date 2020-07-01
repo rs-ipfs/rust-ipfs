@@ -3,7 +3,7 @@ use super::swarm::{Connection, Disconnector, SwarmApi};
 use crate::p2p::{SwarmOptions, SwarmTypes};
 use crate::repo::Repo;
 use crate::subscription::SubscriptionFuture;
-use bitswap::{Bitswap, Strategy};
+use bitswap::{AltruisticStrategy, Bitswap};
 use libipld::cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{Identify, IdentifyEvent};
@@ -18,24 +18,24 @@ use std::sync::Arc;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
-pub struct Behaviour<TSwarmTypes: SwarmTypes> {
+pub struct Behaviour {
     mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
-    bitswap: Bitswap<TSwarmTypes::TStrategy>,
+    bitswap: Bitswap,
     ping: Ping,
     identify: Identify,
     pubsub: Pubsub,
     swarm: SwarmApi,
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<()> for Behaviour<TSwarmTypes> {
+impl NetworkBehaviourEventProcess<()> for Behaviour {
     fn inject_event(&mut self, _event: ()) {}
 }
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<void::Void> for Behaviour<TSwarmTypes> {
+impl NetworkBehaviourEventProcess<void::Void> for Behaviour {
     fn inject_event(&mut self, _event: void::Void) {}
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<TSwarmTypes> {
+impl NetworkBehaviourEventProcess<MdnsEvent> for Behaviour {
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
             MdnsEvent::Discovered(list) => {
@@ -54,9 +54,7 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behavi
     }
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<KademliaEvent>
-    for Behaviour<TSwarmTypes>
-{
+impl NetworkBehaviourEventProcess<KademliaEvent> for Behaviour {
     fn inject_event(&mut self, event: KademliaEvent) {
         use libp2p::kad::{GetProvidersError, GetProvidersOk, QueryResult};
 
@@ -101,7 +99,7 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<KademliaEvent>
     }
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<TSwarmTypes> {
+impl NetworkBehaviourEventProcess<PingEvent> for Behaviour {
     fn inject_event(&mut self, event: PingEvent) {
         use libp2p::ping::handler::{PingFailure, PingSuccess};
         match event {
@@ -139,17 +137,18 @@ impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<PingEvent> for Behavi
     }
 }
 
-impl<TSwarmTypes: SwarmTypes> NetworkBehaviourEventProcess<IdentifyEvent>
-    for Behaviour<TSwarmTypes>
-{
+impl NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour {
     fn inject_event(&mut self, event: IdentifyEvent) {
         log::trace!("identify: {:?}", event);
     }
 }
 
-impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
+impl Behaviour {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
-    pub async fn new(options: SwarmOptions<TSwarmTypes>, repo: Arc<Repo<TSwarmTypes>>) -> Self {
+    pub async fn new<TSwarmTypes: SwarmTypes>(
+        options: SwarmOptions<TSwarmTypes>,
+        repo: Arc<Repo<TSwarmTypes>>,
+    ) -> Self {
         info!("Local peer id: {}", options.peer_id.to_base58());
 
         let mdns = if options.mdns {
@@ -165,7 +164,7 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
             kademlia.add_address(peer_id, addr.to_owned());
         }
 
-        let strategy = TSwarmTypes::TStrategy::new(repo);
+        let strategy = AltruisticStrategy::new(repo);
         let bitswap = Bitswap::new(strategy);
         let ping = Ping::default();
         let identify = Identify::new(
@@ -244,7 +243,7 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
         &mut self.pubsub
     }
 
-    pub fn bitswap(&mut self) -> &mut Bitswap<TSwarmTypes::TStrategy> {
+    pub fn bitswap(&mut self) -> &mut Bitswap {
         &mut self.bitswap
     }
 }
@@ -253,6 +252,6 @@ impl<TSwarmTypes: SwarmTypes> Behaviour<TSwarmTypes> {
 pub async fn build_behaviour<TSwarmTypes: SwarmTypes>(
     options: SwarmOptions<TSwarmTypes>,
     repo: Arc<Repo<TSwarmTypes>>,
-) -> Behaviour<TSwarmTypes> {
+) -> Behaviour {
     Behaviour::new(options, repo).await
 }

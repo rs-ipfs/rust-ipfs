@@ -1,4 +1,4 @@
-use libipld::cid::Cid;
+use cid::Cid;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Block {
