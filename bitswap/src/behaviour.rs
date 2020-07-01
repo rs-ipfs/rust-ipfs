@@ -6,7 +6,7 @@
 //! The `Bitswap` struct implements the `NetworkBehaviour` trait. When used, it
 //! will allow providing and reciving IPFS blocks.
 use crate::block::Block;
-use crate::ledger::{Ledger, Message, Priority};
+use crate::ledger::{Ledger, Message, Priority, Stats};
 use crate::protocol::BitswapConfig;
 use crate::strategy::{AltruisticStrategy, StrategyEvent};
 use cid::Cid;
@@ -32,16 +32,6 @@ pub struct Bitswap {
     wanted_blocks: HashMap<Cid, Priority>,
     // TODO: remove the strategy
     strategy: AltruisticStrategy,
-}
-
-#[derive(Debug, Default)]
-pub struct Stats {
-    pub sent_blocks: u64,
-    pub sent_data: u64,
-    pub received_blocks: u64,
-    pub received_data: u64,
-    pub duplicate_blocks: u64,
-    pub duplicate_data: u64,
 }
 
 impl Bitswap {
@@ -75,12 +65,12 @@ impl Bitswap {
         self.connected_peers
             .values()
             .fold(Stats::default(), |mut acc, ledger| {
-                acc.sent_blocks += ledger.sent_blocks;
-                acc.sent_data += ledger.sent_data;
-                acc.received_blocks += ledger.received_blocks;
-                acc.received_data += ledger.received_data;
-                acc.duplicate_blocks += ledger.duplicate_blocks;
-                acc.duplicate_data += ledger.duplicate_data;
+                acc.sent_blocks += ledger.stats.sent_blocks;
+                acc.sent_data += ledger.stats.sent_data;
+                acc.received_blocks += ledger.stats.received_blocks;
+                acc.received_data += ledger.stats.received_data;
+                acc.duplicate_blocks += ledger.stats.duplicate_blocks;
+                acc.duplicate_data += ledger.stats.duplicate_data;
                 acc
             })
     }

@@ -9,24 +9,25 @@ use std::collections::HashMap;
 
 pub type Priority = i32;
 
+#[derive(Debug, Default)]
+pub struct Stats {
+    pub sent_blocks: u64,
+    pub sent_data: u64,
+    pub received_blocks: u64,
+    pub received_data: u64,
+    pub duplicate_blocks: u64,
+    pub duplicate_data: u64,
+}
+
 /// The Ledger contains the history of transactions with a peer.
 #[derive(Debug, Default)]
 pub struct Ledger {
-    /// The number of blocks sent to the peer.
-    pub(crate) sent_blocks: u64,
-    pub(crate) sent_data: u64,
-
-    /// The number of blocks received from the peer.
-    pub(crate) received_blocks: u64,
-    pub(crate) received_data: u64,
-
-    pub(crate) duplicate_blocks: u64,
-    pub(crate) duplicate_data: u64,
-
     /// The list of wanted blocks sent to the peer.
     sent_want_list: HashMap<Cid, Priority>,
     /// The list of wanted blocks received from the peer.
     received_want_list: HashMap<Cid, Priority>,
+    /// Statistics related to a given peer.
+    pub stats: Stats,
 }
 
 impl Ledger {
@@ -58,7 +59,7 @@ impl Ledger {
     }
 
     pub fn update_outgoing_stats(&mut self, message: &Message) {
-        self.sent_blocks += message.blocks.len() as u64;
+        self.stats.sent_blocks += message.blocks.len() as u64;
         for cid in message.cancel() {
             self.sent_want_list.remove(cid);
         }
@@ -77,13 +78,13 @@ impl Ledger {
     }
 
     pub(crate) fn update_incoming_stored(&mut self, bytes: u64) {
-        self.received_blocks += 1;
-        self.received_data += bytes;
+        self.stats.received_blocks += 1;
+        self.stats.received_data += bytes;
     }
 
     pub(crate) fn update_incoming_duplicate(&mut self, bytes: u64) {
-        self.duplicate_blocks += 1;
-        self.duplicate_data += bytes;
+        self.stats.duplicate_blocks += 1;
+        self.stats.duplicate_data += bytes;
     }
 
     /// Returns the blocks wanted by the peer in unspecified order
