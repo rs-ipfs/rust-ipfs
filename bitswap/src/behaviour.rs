@@ -8,9 +8,9 @@
 use crate::block::Block;
 use crate::ledger::{Ledger, Message, Priority, Stats};
 use crate::protocol::BitswapConfig;
-use crate::strategy::AltruisticStrategy;
 use cid::Cid;
 use fnv::FnvHashSet;
+use futures::channel::mpsc::Sender;
 use futures::task::Context;
 use futures::task::Poll;
 use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
@@ -18,8 +18,11 @@ use libp2p_swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, Prot
 use libp2p_swarm::{
     DialPeerCondition, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
 };
-use std::collections::{HashMap, VecDeque};
-use std::mem;
+use std::{
+    collections::{HashMap, VecDeque},
+    mem,
+    sync::{atomic::Ordering, Arc, Mutex},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BitswapEvent {
@@ -32,29 +35,29 @@ pub enum BitswapEvent {
 pub struct Bitswap {
     /// Queue of events to report to the user.
     events: VecDeque<NetworkBehaviourAction<Message, BitswapEvent>>,
+    /// The events that require storage access, accessible from IpfsFuture.
+    io_events: Sender<BitswapEvent>,
     /// List of peers to send messages to.
     target_peers: FnvHashSet<PeerId>,
     /// Ledger
-    connected_peers: HashMap<PeerId, Ledger>,
+    pub connected_peers: HashMap<PeerId, Ledger>,
     /// Wanted blocks
     wanted_blocks: HashMap<Cid, Priority>,
-    // TODO: remove the strategy
-    strategy: AltruisticStrategy,
+    /// Blocks queued to be sent
+    pub queued_blocks: Arc<Mutex<Vec<(PeerId, Block)>>>,
 }
 
 impl Bitswap {
-    /// Creates a `Bitswap`.
-    pub fn new(strategy: AltruisticStrategy) -> Self {
-        debug!("bitswap: new");
-        Bitswap {
+    pub fn new(io_event_sender: Sender<BitswapEvent>) -> Self {
+        Self {
             events: Default::default(),
+            io_events: io_event_sender,
             target_peers: Default::default(),
             connected_peers: Default::default(),
             wanted_blocks: Default::default(),
-            strategy,
+            queued_blocks: Default::default(),
         }
     }
-
     /// Return the wantlist of the local node
     pub fn local_wantlist(&self) -> Vec<(Cid, Priority)> {
         self.wanted_blocks
@@ -72,13 +75,31 @@ impl Bitswap {
         // we currently do not remove ledgers so this is ... good enough
         self.connected_peers
             .values()
-            .fold(Stats::default(), |mut acc, ledger| {
-                acc.sent_blocks += ledger.stats.sent_blocks;
-                acc.sent_data += ledger.stats.sent_data;
-                acc.received_blocks += ledger.stats.received_blocks;
-                acc.received_data += ledger.stats.received_data;
-                acc.duplicate_blocks += ledger.stats.duplicate_blocks;
-                acc.duplicate_data += ledger.stats.duplicate_data;
+            .fold(Stats::default(), |acc, ledger| {
+                acc.sent_blocks.fetch_add(
+                    ledger.stats.sent_blocks.load(Ordering::Relaxed),
+                    Ordering::Relaxed,
+                );
+                acc.sent_data.fetch_add(
+                    ledger.stats.sent_data.load(Ordering::Relaxed),
+                    Ordering::Relaxed,
+                );
+                acc.received_blocks.fetch_add(
+                    ledger.stats.received_blocks.load(Ordering::Relaxed),
+                    Ordering::Relaxed,
+                );
+                acc.received_data.fetch_add(
+                    ledger.stats.received_data.load(Ordering::Relaxed),
+                    Ordering::Relaxed,
+                );
+                acc.duplicate_blocks.fetch_add(
+                    ledger.stats.duplicate_blocks.load(Ordering::Relaxed),
+                    Ordering::Relaxed,
+                );
+                acc.duplicate_data.fetch_add(
+                    ledger.stats.duplicate_data.load(Ordering::Relaxed),
+                    Ordering::Relaxed,
+                );
                 acc
             })
     }
@@ -197,28 +218,36 @@ impl NetworkBehaviour for Bitswap {
             .connected_peers
             .get_mut(&source)
             .expect("Peer not in ledger?!");
-        ledger.update_incoming_stats(&message);
 
+        // Process the incoming cancel list.
         for cid in message.cancel() {
             ledger.received_want_list.remove(cid);
+
             let event = BitswapEvent::ReceivedCancel(source.clone(), cid.clone());
             self.events
                 .push_back(NetworkBehaviourAction::GenerateEvent(event));
         }
 
-        // Process incoming messages.
-        for block in mem::take(&mut message.blocks) {
-            // Cancel the block.
-            self.cancel_block(&block.cid());
-            let event = BitswapEvent::ReceivedBlock(source.clone(), block);
-            self.events
-                .push_back(NetworkBehaviourAction::GenerateEvent(event));
-        }
+        // Process the incoming wantlist.
         for (cid, priority) in message.want() {
+            ledger.received_want_list.insert(cid.to_owned(), *priority);
+
             let event = BitswapEvent::ReceivedWant(source.clone(), cid.clone(), *priority);
+            self.io_events.try_send(event.clone()).unwrap();
             self.events
                 .push_back(NetworkBehaviourAction::GenerateEvent(event));
         }
+
+        // Process the incoming blocks.
+        for block in mem::take(&mut message.blocks) {
+            self.cancel_block(&block.cid());
+
+            let event = BitswapEvent::ReceivedBlock(source.clone(), block);
+            self.io_events.try_send(event.clone()).unwrap();
+            self.events
+                .push_back(NetworkBehaviourAction::GenerateEvent(event));
+        }
+
         debug!("");
     }
 
@@ -226,6 +255,11 @@ impl NetworkBehaviour for Bitswap {
     fn poll(&mut self, _: &mut Context, _: &mut impl PollParameters)
         -> Poll<NetworkBehaviourAction<<<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>
     {
+        let queued_blocks = mem::take(&mut *self.queued_blocks.lock().unwrap());
+        for (peer_id, block) in queued_blocks.into_iter() {
+            self.send_block(peer_id, block);
+        }
+
         if let Some(event) = self.events.pop_front() {
             return Poll::Ready(event);
         }

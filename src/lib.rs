@@ -9,8 +9,8 @@
 extern crate log;
 
 use anyhow::format_err;
-use async_std::path::PathBuf;
-pub use bitswap::Block;
+use async_std::{path::PathBuf, task};
+pub use bitswap::{BitswapEvent, Block, Stats};
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use futures::sink::SinkExt;
@@ -28,7 +28,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 use std::task::{Context, Poll};
 
 mod config;
@@ -50,7 +50,7 @@ pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
-use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
+use self::repo::{create_repo, BlockPut, Repo, RepoEvent, RepoOptions};
 use self::subscription::SubscriptionFuture;
 use self::unixfs::File;
 
@@ -257,7 +257,7 @@ pub struct UninitializedIpfs<Types: IpfsTypes> {
     dag: IpldDag<Types>,
     ipns: Ipns<Types>,
     keys: Keypair,
-    moved_on_init: Option<(Receiver<RepoEvent>, TSwarm)>,
+    moved_on_init: Option<(Receiver<BitswapEvent>, Receiver<RepoEvent>, TSwarm)>,
 }
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
@@ -267,7 +267,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let keys = options.keypair.clone();
         let (repo, repo_events) = create_repo(repo_options);
         let swarm_options = SwarmOptions::<Types>::from(&options);
-        let swarm = create_swarm(swarm_options, repo.clone()).await;
+        let (swarm, bitswap_events) = create_swarm(swarm_options).await;
         let dag = IpldDag::new(repo.clone());
         let ipns = Ipns::new(repo.clone());
 
@@ -276,7 +276,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             dag,
             ipns,
             keys,
-            moved_on_init: Some((repo_events, swarm)),
+            moved_on_init: Some((bitswap_events, repo_events, swarm)),
         }
     }
 
@@ -287,19 +287,20 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     ) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
         use futures::stream::StreamExt;
 
-        let (repo_events, swarm) = self
+        let (bitswap_events, repo_events, swarm) = self
             .moved_on_init
             .take()
             .expect("start cannot be called twice");
 
         self.repo.init().await?;
-        self.repo.init().await?;
 
         let (to_task, receiver) = channel::<IpfsEvent>(1);
 
         let fut = IpfsFuture {
+            bitswap_events: bitswap_events.fuse(),
             repo_events: repo_events.fuse(),
             from_facade: receiver.fuse(),
+            repo: Arc::clone(&self.repo),
             swarm,
             listening_addresses: HashMap::new(),
         };
@@ -611,14 +612,16 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
 /// Background task of `Ipfs` created when calling `UninitializedIpfs::start`.
 // The receivers are Fuse'd so that we don't have to manage state on them being exhausted.
-struct IpfsFuture {
+struct IpfsFuture<TRepoTypes: RepoTypes> {
+    repo: Arc<Repo<TRepoTypes>>,
     swarm: TSwarm,
+    bitswap_events: Fuse<Receiver<BitswapEvent>>,
     repo_events: Fuse<Receiver<RepoEvent>>,
     from_facade: Fuse<Receiver<IpfsEvent>>,
     listening_addresses: HashMap<Multiaddr, (ListenerId, Option<Channel<Multiaddr>>)>,
 }
 
-impl IpfsFuture {
+impl<TRepoTypes: RepoTypes> IpfsFuture<TRepoTypes> {
     /// Completes the adding of listening address by matching the new listening address `addr` to
     /// the `self.listening_addresses` so that we can detect even the multiaddresses with ephemeral
     /// ports.
@@ -732,7 +735,7 @@ impl IpfsFuture {
     }
 }
 
-impl Future for IpfsFuture {
+impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
@@ -876,6 +879,80 @@ impl Future for IpfsFuture {
                 }
             }
 
+            while let Poll::Ready(Some(evt)) = Pin::new(&mut self.bitswap_events).poll_next(ctx) {
+                match evt {
+                    BitswapEvent::ReceivedBlock(peer_id, block) => {
+                        let repo = self.repo.clone();
+                        let peer_stats = Arc::clone(
+                            &self
+                                .swarm
+                                .bitswap()
+                                .connected_peers
+                                .get(&peer_id)
+                                .unwrap()
+                                .stats,
+                        );
+                        task::spawn(async move {
+                            let bytes = block.data().len() as u64;
+                            let res = repo.put_block(block.clone()).await;
+                            match res {
+                                Ok((_, uniqueness)) => match uniqueness {
+                                    BlockPut::NewBlock => {
+                                        peer_stats.received_blocks.fetch_add(1, Ordering::Relaxed);
+                                        peer_stats
+                                            .received_data
+                                            .fetch_add(bytes, Ordering::Relaxed);
+                                    }
+                                    BlockPut::Existed => {
+                                        peer_stats.duplicate_blocks.fetch_add(1, Ordering::Relaxed);
+                                        peer_stats
+                                            .duplicate_data
+                                            .fetch_add(bytes, Ordering::Relaxed);
+                                    }
+                                },
+                                Err(e) => {
+                                    debug!(
+                                        "Got block {} from peer {} but failed to store it: {}",
+                                        block.cid,
+                                        peer_id.to_base58(),
+                                        e
+                                    );
+                                    return;
+                                }
+                            };
+                        });
+                    }
+                    BitswapEvent::ReceivedWant(peer_id, cid, priority) => {
+                        info!(
+                            "Peer {} wants block {} with priority {}",
+                            peer_id.to_base58(),
+                            cid.to_string(),
+                            priority
+                        );
+
+                        let repo = self.repo.clone();
+                        let queued_blocks = Arc::clone(&self.swarm.bitswap().queued_blocks);
+                        task::spawn(async move {
+                            let block = match repo.get_block(&cid).await {
+                                Ok(block) => block,
+                                Err(err) => {
+                                    warn!(
+                                        "Peer {} wanted block {} but we failed: {}",
+                                        peer_id.to_base58(),
+                                        cid,
+                                        err,
+                                    );
+                                    return;
+                                }
+                            };
+
+                            queued_blocks.lock().unwrap().push((peer_id, block));
+                        });
+                    }
+                    BitswapEvent::ReceivedCancel(..) => {}
+                }
+            }
+
             done = true;
         }
     }
@@ -898,12 +975,12 @@ impl From<(bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>)> for Bits
         (stats, peers, wantlist): (bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>),
     ) -> Self {
         BitswapStats {
-            blocks_sent: stats.sent_blocks,
-            data_sent: stats.sent_data,
-            blocks_received: stats.received_blocks,
-            data_received: stats.received_data,
-            dup_blks_received: stats.duplicate_blocks,
-            dup_data_received: stats.duplicate_data,
+            blocks_sent: stats.sent_blocks.load(Ordering::Relaxed),
+            data_sent: stats.sent_data.load(Ordering::Relaxed),
+            blocks_received: stats.received_blocks.load(Ordering::Relaxed),
+            data_received: stats.received_data.load(Ordering::Relaxed),
+            dup_blks_received: stats.duplicate_blocks.load(Ordering::Relaxed),
+            dup_data_received: stats.duplicate_data.load(Ordering::Relaxed),
             peers,
             wantlist,
         }

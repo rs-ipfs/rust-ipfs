@@ -5,19 +5,25 @@ use crate::prefix::Prefix;
 use cid::Cid;
 use core::convert::TryFrom;
 use prost::Message as ProstMessage;
-use std::collections::HashMap;
-use std::mem;
+use std::{
+    collections::HashMap,
+    mem,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 pub type Priority = i32;
 
 #[derive(Debug, Default)]
 pub struct Stats {
-    pub sent_blocks: u64,
-    pub sent_data: u64,
-    pub received_blocks: u64,
-    pub received_data: u64,
-    pub duplicate_blocks: u64,
-    pub duplicate_data: u64,
+    pub sent_blocks: AtomicU64,
+    pub sent_data: AtomicU64,
+    pub received_blocks: AtomicU64,
+    pub received_data: AtomicU64,
+    pub duplicate_blocks: AtomicU64,
+    pub duplicate_data: AtomicU64,
 }
 
 /// The Ledger contains the history of transactions with a peer.
@@ -30,7 +36,7 @@ pub struct Ledger {
     /// Queued message.
     message: Message,
     /// Statistics related to a given peer.
-    pub stats: Stats,
+    pub stats: Arc<Stats>,
 }
 
 impl Ledger {
@@ -51,33 +57,22 @@ impl Ledger {
         self.message.cancel_block(cid);
     }
 
-    pub fn update_outgoing_stats(&mut self, message: &Message) {
-        self.stats.sent_blocks += message.blocks.len() as u64;
-        for cid in message.cancel() {
-            self.sent_want_list.remove(cid);
-        }
-        for (cid, priority) in message.want() {
-            self.sent_want_list.insert(cid.to_owned(), *priority);
-        }
+    pub fn update_outgoing_stats(&mut self) {
+        self.stats
+            .sent_blocks
+            .fetch_add(self.message.blocks.len() as u64, Ordering::Relaxed);
     }
 
-    pub fn update_incoming_stats(&mut self, message: &Message) {
-        for cid in message.cancel() {
-            self.received_want_list.remove(cid);
-        }
-        for (cid, priority) in message.want() {
-            self.received_want_list.insert(cid.to_owned(), *priority);
-        }
+    pub(crate) fn _update_incoming_unique(&mut self, bytes: u64) {
+        self.stats.received_blocks.fetch_add(1, Ordering::Relaxed);
+        self.stats.received_data.fetch_add(bytes, Ordering::Relaxed);
     }
 
-    pub(crate) fn update_incoming_stored(&mut self, bytes: u64) {
-        self.stats.received_blocks += 1;
-        self.stats.received_data += bytes;
-    }
-
-    pub(crate) fn update_incoming_duplicate(&mut self, bytes: u64) {
-        self.stats.duplicate_blocks += 1;
-        self.stats.duplicate_data += bytes;
+    pub(crate) fn _update_incoming_duplicate(&mut self, bytes: u64) {
+        self.stats.duplicate_blocks.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .duplicate_data
+            .fetch_add(bytes, Ordering::Relaxed);
     }
 
     /// Returns the blocks wanted by the peer in unspecified order
@@ -98,7 +93,10 @@ impl Ledger {
         for (cid, priority) in self.message.want() {
             self.sent_want_list.insert(cid.clone(), *priority);
         }
-        Some(mem::replace(&mut self.message, Message::default()))
+
+        self.update_outgoing_stats();
+
+        Some(mem::take(&mut self.message))
     }
 }
 
