@@ -12,7 +12,7 @@ use crate::strategy::{Strategy, StrategyEvent};
 use fnv::FnvHashSet;
 use futures::task::Context;
 use futures::task::Poll;
-use libipld::cid::Cid;
+use cid::Cid;
 use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
 use libp2p_swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
 use libp2p_swarm::{

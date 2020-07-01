@@ -3,7 +3,7 @@ use crate::ledger::Priority;
 use async_std::task;
 use async_trait::async_trait;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver as Receiver, UnboundedSender as Sender};
-use libipld::cid::Cid;
+use cid::Cid;
 use libp2p_core::PeerId;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};

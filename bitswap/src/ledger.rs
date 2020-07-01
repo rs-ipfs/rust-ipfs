@@ -3,7 +3,7 @@ use crate::block::Block;
 use crate::error::BitswapError;
 use crate::prefix::Prefix;
 use core::convert::TryFrom;
-use libipld::cid::Cid;
+use cid::Cid;
 use prost::Message as ProstMessage;
 use std::collections::HashMap;
 

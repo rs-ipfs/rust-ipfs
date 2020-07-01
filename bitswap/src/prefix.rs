@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-use libipld::cid::{self, Cid, Codec, Version};
+use cid::{self, Cid, Codec, Version};
 use multihash::Code;
 use unsigned_varint::{decode as varint_decode, encode as varint_encode};
 
