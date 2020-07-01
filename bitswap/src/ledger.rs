@@ -6,6 +6,7 @@ use cid::Cid;
 use core::convert::TryFrom;
 use prost::Message as ProstMessage;
 use std::collections::HashMap;
+use std::mem;
 
 pub type Priority = i32;
 
@@ -25,7 +26,9 @@ pub struct Ledger {
     /// The list of wanted blocks sent to the peer.
     sent_want_list: HashMap<Cid, Priority>,
     /// The list of wanted blocks received from the peer.
-    received_want_list: HashMap<Cid, Priority>,
+    pub(crate) received_want_list: HashMap<Cid, Priority>,
+    /// Queued message.
+    message: Message,
     /// Statistics related to a given peer.
     pub stats: Stats,
 }
@@ -36,26 +39,16 @@ impl Ledger {
         Self::default()
     }
 
-    pub fn send_block(&mut self, block: Block) -> Message {
-        let mut message = Message::default();
-        message.add_block(block);
-        message
+    pub fn add_block(&mut self, block: Block) {
+        self.message.add_block(block);
     }
 
-    pub fn want_block(&mut self, cid: &Cid, priority: Priority) -> Message {
-        let mut message = Message::default();
-        message.want_block(cid, priority);
-        message
+    pub fn want_block(&mut self, cid: &Cid, priority: Priority) {
+        self.message.want_block(cid, priority);
     }
 
-    pub fn cancel_block(&mut self, cid: &Cid) -> Option<Message> {
-        if self.sent_want_list.contains_key(cid) {
-            let mut message = Message::default();
-            message.cancel_block(cid);
-            Some(message)
-        } else {
-            None
-        }
+    pub fn cancel_block(&mut self, cid: &Cid) {
+        self.message.cancel_block(cid);
     }
 
     pub fn update_outgoing_stats(&mut self, message: &Message) {
@@ -94,6 +87,19 @@ impl Ledger {
             .map(|(cid, prio)| (cid.clone(), *prio))
             .collect()
     }
+
+    pub fn send(&mut self) -> Option<Message> {
+        if self.message.is_empty() {
+            return None;
+        }
+        for cid in self.message.cancel() {
+            self.sent_want_list.remove(cid);
+        }
+        for (cid, priority) in self.message.want() {
+            self.sent_want_list.insert(cid.clone(), *priority);
+        }
+        Some(mem::replace(&mut self.message, Message::default()))
+    }
 }
 
 /// A bitswap message.
@@ -106,10 +112,15 @@ pub struct Message {
     /// Wheather it is the full list of wanted blocks.
     full: bool,
     /// List of blocks to send.
-    blocks: Vec<Block>,
+    pub(crate) blocks: Vec<Block>,
 }
 
 impl Message {
+    /// Checks whether the queued message is empty.
+    pub fn is_empty(&self) -> bool {
+        self.want.is_empty() && self.cancel.is_empty() && self.blocks.is_empty()
+    }
+
     /// Returns the list of blocks.
     pub fn blocks(&self) -> &[Block] {
         &self.blocks
@@ -194,6 +205,12 @@ impl Message {
     /// Creates a `Message` from bytes that were received from a substream.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, BitswapError> {
         Self::try_from(bytes)
+    }
+}
+
+impl From<()> for Message {
+    fn from(_: ()) -> Self {
+        Default::default()
     }
 }
 

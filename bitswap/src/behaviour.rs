@@ -8,7 +8,7 @@
 use crate::block::Block;
 use crate::ledger::{Ledger, Message, Priority, Stats};
 use crate::protocol::BitswapConfig;
-use crate::strategy::{AltruisticStrategy, StrategyEvent};
+use crate::strategy::AltruisticStrategy;
 use cid::Cid;
 use fnv::FnvHashSet;
 use futures::task::Context;
@@ -19,11 +19,19 @@ use libp2p_swarm::{
     DialPeerCondition, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
 };
 use std::collections::{HashMap, VecDeque};
+use std::mem;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BitswapEvent {
+    ReceivedBlock(PeerId, Block),
+    ReceivedWant(PeerId, Cid, Priority),
+    ReceivedCancel(PeerId, Cid),
+}
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
 pub struct Bitswap {
     /// Queue of events to report to the user.
-    events: VecDeque<NetworkBehaviourAction<Message, ()>>,
+    events: VecDeque<NetworkBehaviourAction<Message, BitswapEvent>>,
     /// List of peers to send messages to.
     target_peers: FnvHashSet<PeerId>,
     /// Ledger
@@ -102,15 +110,8 @@ impl Bitswap {
             .connected_peers
             .get_mut(&peer_id)
             .expect("Peer not in ledger?!");
-        let message = ledger.send_block(block);
+        ledger.add_block(block);
         debug!("  queuing block for {}", peer_id.to_base58());
-        self.events
-            .push_back(NetworkBehaviourAction::NotifyHandler {
-                peer_id,
-                event: message,
-                handler: NotifyHandler::Any,
-            });
-        debug!("");
     }
 
     /// Sends the wantlist to the peer.
@@ -137,14 +138,8 @@ impl Bitswap {
     pub fn want_block(&mut self, cid: Cid, priority: Priority) {
         debug!("bitswap: want_block");
         for (peer_id, ledger) in self.connected_peers.iter_mut() {
-            let message = ledger.want_block(&cid, priority);
+            ledger.want_block(&cid, priority);
             debug!("  queuing want for {}", peer_id.to_base58());
-            self.events
-                .push_back(NetworkBehaviourAction::NotifyHandler {
-                    peer_id: peer_id.to_owned(),
-                    event: message,
-                    handler: NotifyHandler::Any,
-                });
         }
         self.wanted_blocks.insert(cid, priority);
         debug!("");
@@ -156,18 +151,8 @@ impl Bitswap {
     /// was received.
     pub fn cancel_block(&mut self, cid: &Cid) {
         debug!("bitswap: cancel_block");
-        for (peer_id, ledger) in self.connected_peers.iter_mut() {
-            let message = ledger.cancel_block(cid);
-            if let Some(event) = message {
-                let peer_id = peer_id.to_owned();
-                debug!("  queuing cancel for {}", peer_id.to_base58());
-                self.events
-                    .push_back(NetworkBehaviourAction::NotifyHandler {
-                        peer_id,
-                        event,
-                        handler: NotifyHandler::Any,
-                    });
-            }
+        for (_peer_id, ledger) in self.connected_peers.iter_mut() {
+            ledger.cancel_block(cid);
         }
         self.wanted_blocks.remove(cid);
         debug!("");
@@ -175,8 +160,8 @@ impl Bitswap {
 }
 
 impl NetworkBehaviour for Bitswap {
-    type ProtocolsHandler = OneShotHandler<BitswapConfig, Message, InnerMessage>;
-    type OutEvent = ();
+    type ProtocolsHandler = OneShotHandler<BitswapConfig, Message, Message>;
+    type OutEvent = BitswapEvent;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
         debug!("bitswap: new_handler");
@@ -200,16 +185,13 @@ impl NetworkBehaviour for Bitswap {
         //self.connected_peers.remove(peer_id);
     }
 
-    fn inject_event(&mut self, source: PeerId, _connection: ConnectionId, event: InnerMessage) {
-        debug!("bitswap: inject_node_event");
-        debug!("{:?}", event);
-        let message = match event {
-            InnerMessage::Rx(message) => message,
-            InnerMessage::Tx => {
-                return;
-            }
-        };
-        debug!("  received message");
+    fn inject_event(&mut self, source: PeerId, connection: ConnectionId, mut message: Message) {
+        debug!(
+            "bitswap: inject_event from {}/{:?}",
+            source.to_base58(),
+            connection
+        );
+        debug!("{:?}", message);
 
         let ledger = self
             .connected_peers
@@ -217,109 +199,45 @@ impl NetworkBehaviour for Bitswap {
             .expect("Peer not in ledger?!");
         ledger.update_incoming_stats(&message);
 
+        for cid in message.cancel() {
+            ledger.received_want_list.remove(cid);
+            let event = BitswapEvent::ReceivedCancel(source.clone(), cid.clone());
+            self.events
+                .push_back(NetworkBehaviourAction::GenerateEvent(event));
+        }
+
         // Process incoming messages.
-        for block in message.blocks() {
+        for block in mem::take(&mut message.blocks) {
             // Cancel the block.
             self.cancel_block(&block.cid());
-            self.strategy
-                .process_block(source.clone(), block.to_owned());
+            let event = BitswapEvent::ReceivedBlock(source.clone(), block);
+            self.events
+                .push_back(NetworkBehaviourAction::GenerateEvent(event));
         }
         for (cid, priority) in message.want() {
-            self.strategy
-                .process_want(source.clone(), cid.to_owned(), *priority);
+            let event = BitswapEvent::ReceivedWant(source.clone(), cid.clone(), *priority);
+            self.events
+                .push_back(NetworkBehaviourAction::GenerateEvent(event));
         }
-        // TODO: Remove cancelled `Want` events from the queue.
-        // TODO: Remove cancelled blocks from `NotifyHandler`.
         debug!("");
     }
 
     #[allow(clippy::type_complexity)]
-    fn poll(&mut self, ctx: &mut Context, _: &mut impl PollParameters)
+    fn poll(&mut self, _: &mut Context, _: &mut impl PollParameters)
         -> Poll<NetworkBehaviourAction<<<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>
     {
-        // TODO concat messages to same destination to reduce traffic.
         if let Some(event) = self.events.pop_front() {
-            if let NetworkBehaviourAction::NotifyHandler {
-                peer_id,
-                event,
-                handler,
-            } = event
-            {
-                match self.connected_peers.get_mut(&peer_id) {
-                    None => {
-                        debug!("  requeueing send event to {}", peer_id);
-                        // FIXME: I wonder if this should be
-                        self.events
-                            .push_back(NetworkBehaviourAction::NotifyHandler {
-                                peer_id,
-                                event,
-                                handler,
-                            })
-                    }
-                    Some(ref mut ledger) => {
-                        // FIXME: this is a bit early to update stats as the block hasn't been sent
-                        // to anywhere at this point.
-                        ledger.update_outgoing_stats(&event);
-                        debug!("  send_message to {}", peer_id);
-                        return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                            peer_id,
-                            event,
-                            handler,
-                        });
-                    }
-                }
-            } else {
-                debug!("{:?}", event);
-                debug!("");
-                return Poll::Ready(event);
+            return Poll::Ready(event);
+        }
+        for (peer_id, ledger) in &mut self.connected_peers {
+            if let Some(message) = ledger.send() {
+                return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                    peer_id: peer_id.clone(),
+                    handler: NotifyHandler::Any,
+                    event: message,
+                });
             }
         }
-
-        let inner = match self.strategy.poll(ctx) {
-            Poll::Ready(Some(inner)) => inner,
-            Poll::Ready(None) => return Poll::Pending,
-            Poll::Pending => {
-                return Poll::Pending;
-            }
-        };
-
-        match inner {
-            StrategyEvent::Send { peer_id, block } => self.send_block(peer_id, block),
-            StrategyEvent::NewBlockStored { source, bytes } => {
-                if let Some(ledger) = self.connected_peers.get_mut(&source) {
-                    ledger.update_incoming_stored(bytes)
-                }
-            }
-            StrategyEvent::DuplicateBlockReceived { source, bytes } => {
-                if let Some(ledger) = self.connected_peers.get_mut(&source) {
-                    ledger.update_incoming_duplicate(bytes)
-                }
-            }
-        }
-
         Poll::Pending
-    }
-}
-
-/// Transmission between the `OneShotHandler` and the `BitswapHandler`.
-#[derive(Debug)]
-pub enum InnerMessage {
-    /// We received a `Message` from a remote.
-    Rx(Message),
-    /// We successfully sent a `Message`.
-    Tx,
-}
-
-impl From<Message> for InnerMessage {
-    #[inline]
-    fn from(message: Message) -> InnerMessage {
-        InnerMessage::Rx(message)
-    }
-}
-
-impl From<()> for InnerMessage {
-    #[inline]
-    fn from(_: ()) -> InnerMessage {
-        InnerMessage::Tx
     }
 }
