@@ -57,9 +57,7 @@ use self::unixfs::File;
 /// All types can be changed at compile time by implementing
 /// `IpfsTypes`.
 pub trait IpfsTypes: SwarmTypes + RepoTypes {}
-impl<T: RepoTypes> SwarmTypes for T {
-    type TStrategy = bitswap::AltruisticStrategy;
-}
+impl<T: RepoTypes> SwarmTypes for T {}
 impl<T: SwarmTypes + RepoTypes> IpfsTypes for T {}
 
 /// Default IPFS types.
@@ -259,7 +257,7 @@ pub struct UninitializedIpfs<Types: IpfsTypes> {
     dag: IpldDag<Types>,
     ipns: Ipns<Types>,
     keys: Keypair,
-    moved_on_init: Option<(Receiver<RepoEvent>, TSwarm<Types>)>,
+    moved_on_init: Option<(Receiver<RepoEvent>, TSwarm)>,
 }
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
@@ -613,14 +611,14 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
 /// Background task of `Ipfs` created when calling `UninitializedIpfs::start`.
 // The receivers are Fuse'd so that we don't have to manage state on them being exhausted.
-struct IpfsFuture<Types: SwarmTypes> {
-    swarm: TSwarm<Types>,
+struct IpfsFuture {
+    swarm: TSwarm,
     repo_events: Fuse<Receiver<RepoEvent>>,
     from_facade: Fuse<Receiver<IpfsEvent>>,
     listening_addresses: HashMap<Multiaddr, (ListenerId, Option<Channel<Multiaddr>>)>,
 }
 
-impl<Types: SwarmTypes> IpfsFuture<Types> {
+impl IpfsFuture {
     /// Completes the adding of listening address by matching the new listening address `addr` to
     /// the `self.listening_addresses` so that we can detect even the multiaddresses with ephemeral
     /// ports.
@@ -734,7 +732,7 @@ impl<Types: SwarmTypes> IpfsFuture<Types> {
     }
 }
 
-impl<Types: SwarmTypes> Future for IpfsFuture<Types> {
+impl Future for IpfsFuture {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {

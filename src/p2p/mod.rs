@@ -1,7 +1,6 @@
 //! P2P handling for IPFS nodes.
 use crate::repo::{Repo, RepoTypes};
 use crate::IpfsOptions;
-use bitswap::Strategy;
 use core::marker::PhantomData;
 use libp2p::identity::Keypair;
 use libp2p::Swarm;
@@ -15,11 +14,9 @@ mod transport;
 
 pub use swarm::Connection;
 
-pub type TSwarm<SwarmTypes> = Swarm<behaviour::Behaviour<SwarmTypes>>;
+pub type TSwarm = Swarm<behaviour::Behaviour>;
 
-pub trait SwarmTypes: RepoTypes + Sized {
-    type TStrategy: Strategy;
-}
+pub trait SwarmTypes: RepoTypes + Sized {}
 
 pub struct SwarmOptions<TSwarmTypes: SwarmTypes> {
     _marker: PhantomData<TSwarmTypes>,
@@ -49,7 +46,7 @@ impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<T
 pub async fn create_swarm<TSwarmTypes: SwarmTypes>(
     options: SwarmOptions<TSwarmTypes>,
     repo: Arc<Repo<TSwarmTypes>>,
-) -> TSwarm<TSwarmTypes> {
+) -> TSwarm {
     let peer_id = options.peer_id.clone();
 
     // Set up an encrypted TCP transport over the Mplex protocol.

@@ -41,8 +41,8 @@ pub struct AltruisticStrategy {
     events: Mutex<Receiver<StrategyEvent>>,
 }
 
-impl Strategy for AltruisticStrategy {
-    fn new(store: Arc<dyn BitswapStore>) -> Self {
+impl AltruisticStrategy {
+    pub fn new(store: Arc<dyn BitswapStore>) -> Self {
         let (tx, rx) = unbounded();
         AltruisticStrategy {
             store,
@@ -51,7 +51,7 @@ impl Strategy for AltruisticStrategy {
         }
     }
 
-    fn process_want(&self, source: PeerId, cid: Cid, priority: Priority) {
+    pub fn process_want(&self, source: PeerId, cid: Cid, priority: Priority) {
         info!(
             "Peer {} wants block {} with priority {}",
             source.to_base58(),
@@ -85,7 +85,7 @@ impl Strategy for AltruisticStrategy {
         });
     }
 
-    fn process_block(&self, source: PeerId, block: Block) {
+    pub fn process_block(&self, source: PeerId, block: Block) {
         let cid = block.cid().to_string();
         info!("Received block {} from peer {}", cid, source.to_base58());
 
@@ -114,7 +114,7 @@ impl Strategy for AltruisticStrategy {
     }
 
     /// Can return Poll::Ready(None) multiple times, Poll::Pending
-    fn poll(&self, ctx: &mut Context) -> Poll<Option<StrategyEvent>> {
+    pub fn poll(&self, ctx: &mut Context) -> Poll<Option<StrategyEvent>> {
         use futures::stream::StreamExt;
 
         let mut g = self
