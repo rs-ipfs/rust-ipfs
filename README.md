@@ -53,13 +53,13 @@ First, install the dependencies.
 With apt:
 
 ```bash
-# apt-get install protobuf-compiler libssl-dev
+# apt-get install protobuf-compiler libssl-dev zlib1g-dev
 ```
 
 With yum
 
 ```bash
-# yum install protobuf-compiler libssl-dev
+# yum install protobuf-compiler libssl-dev zlib1g-dev
 ```
 
 ### Install `rust-ipfs` itself
