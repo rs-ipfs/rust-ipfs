@@ -9,10 +9,10 @@ use crate::block::Block;
 use crate::ledger::{Ledger, Message, Priority};
 use crate::protocol::BitswapConfig;
 use crate::strategy::{AltruisticStrategy, StrategyEvent};
+use cid::Cid;
 use fnv::FnvHashSet;
 use futures::task::Context;
 use futures::task::Poll;
-use cid::Cid;
 use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
 use libp2p_swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
 use libp2p_swarm::{
