@@ -412,7 +412,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn three_layers_all_subchunks() {
         let content = b"Lorem ipsum dolor sit amet, sit enim montes aliquam. Cras non lorem, \
             rhoncus condimentum, irure et ante. Pulvinar suscipit odio ante, et tellus a enim, \
