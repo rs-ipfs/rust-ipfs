@@ -33,22 +33,37 @@ impl fmt::Debug for FileAdder {
             self.chunker,
             self.block_buffer.len(),
             self.block_buffer.capacity(),
-            self.unflushed_links
-                .iter()
-                .fold(Vec::new(), |mut acc, (depth, ..)| {
-                    match acc.last_mut() {
-                        Some((other_depth, ctr)) if other_depth == &depth => *ctr += 1,
-                        Some(_) | None => {
-                            acc.push((depth, 1));
-                        }
-                    }
-                    acc
-                })
-                .into_iter()
-                .map(|(_depth, count)| count.to_string())
-                .collect::<Vec<_>>()
-                .join("/")
+            LinkFormatter(&self.unflushed_links),
         )
+    }
+}
+
+struct LinkFormatter<'a>(&'a [(usize, Cid, u64, u64)]);
+
+impl fmt::Display for LinkFormatter<'_> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut iter = self.0.iter().peekable();
+
+        write!(fmt, "[")?;
+
+        let mut current = match iter.peek() {
+            Some((depth, ..)) => depth,
+            None => return write!(fmt, "]"),
+        };
+
+        let mut count = 0;
+
+        for (next_depth, ..) in iter {
+            if current == next_depth {
+                count += 1;
+            } else {
+                write!(fmt, "{}/", count)?;
+                count = 1;
+                current = next_depth;
+            }
+        }
+
+        write!(fmt, "{}]", count)
     }
 }
 
