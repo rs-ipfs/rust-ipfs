@@ -79,7 +79,7 @@ impl FileAdder {
             (None, Vec::new())
         } else {
             // a new leaf must be output, as well as possibly a new link block
-            let leaf = Some(self.flush_buffered_leaf().unwrap());
+            let leaf = Some(self.flush_buffered_leaf(false).unwrap());
             let links = self.flush_buffered_links(NonZeroUsize::new(174).unwrap(), false);
 
             (leaf, links)
@@ -95,24 +95,37 @@ impl FileAdder {
     /// Note: the API will hopefully evolve to a direction which would not allocate new Vec for
     /// every block in the near-ish future.
     pub fn finish(mut self) -> impl Iterator<Item = (Cid, Vec<u8>)> {
-        let last_leaf = self.flush_buffered_leaf();
+        let last_leaf = self.flush_buffered_leaf(true);
         let root_links = self.flush_buffered_links(NonZeroUsize::new(1).unwrap(), true);
         // should probably error if there is neither?
         last_leaf.into_iter().chain(root_links.into_iter())
     }
 
-    fn flush_buffered_leaf(&mut self) -> Option<(Cid, Vec<u8>)> {
+    fn flush_buffered_leaf(&mut self, finishing: bool) -> Option<(Cid, Vec<u8>)> {
         if self.block_buffer.is_empty() {
-            return None;
+            if !finishing || !self.unflushed_links.is_empty() {
+                return None;
+            }
         }
+
         let bytes = self.block_buffer.len();
+
+        // for empty unixfs file the bytes is missing but filesize is present.
+
+        let data = if bytes > 0 {
+            Some(Cow::Borrowed(self.block_buffer.as_slice()))
+        } else {
+            None
+        };
+
+        let filesize = Some(bytes as u64);
 
         let inner = FlatUnixFs {
             links: Vec::new(),
             data: UnixFs {
                 Type: UnixFsType::File,
-                Data: Some(Cow::Borrowed(self.block_buffer.as_slice())),
-                filesize: Some(self.block_buffer.len() as u64),
+                Data: data,
+                filesize,
                 // no blocksizes as there are no links
                 ..Default::default()
             },
@@ -306,6 +319,7 @@ mod tests {
     use crate::test_support::FakeBlockstore;
     use cid::Cid;
     use std::convert::TryFrom;
+    use hex_literal::hex;
 
     #[test]
     fn test_size_chunker() {
@@ -427,5 +441,19 @@ mod tests {
                 amt
             );
         }
+    }
+
+    #[test]
+    fn empty_file() {
+        let blocks = FileAdder::default().collect_blocks(b"", 0);
+        assert_eq!(blocks.len(), 1);
+        // 0a == field dag-pb body (unixfs)
+        // 04 == dag-pb body len, varint, 4 bytes
+        // 08 == field type tag, varint, 1 byte
+        // 02 == field type (File)
+        // 18 == field data tag, varlen
+        // 00 == data length, varint, 1 byte
+        assert_eq!(blocks[0].1.as_slice(), &hex!("0a 04 08 02 18 00"));
+        assert_eq!(blocks[0].0.to_string(), "QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH");
     }
 }
