@@ -581,10 +581,7 @@ mod tests {
 
     #[test]
     fn full_link_block_and_a_byte() {
-        // FIXME: this test is a bit slow, should be done at a lower level, or just make the
-        // branching factor adjustable to any lower value
-
-        let buf = vec![0u8; 256 * 1024];
+        let buf = vec![0u8; 2];
 
         // this should produce a root with two links
         //             +----------^---+
@@ -593,7 +590,7 @@ mod tests {
         //   ^^^^^^^^^^^^^^^^^^^^^^   ^
         //          174 blocks        \--- 1 block
 
-        let mut adder = FileAdder::default();
+        let mut adder = FileAdder::with_chunker(Chunker::Size(2));
         let mut blocks_count = 0;
 
         for _ in 0..174 {
@@ -620,7 +617,7 @@ mod tests {
 
         assert_eq!(
             last_blocks.last().unwrap().0.to_string(),
-            "QmehMASWcBsX7VcEQqs6rpR5AHoBfKyBVEgmkJHjpPg8jq"
+            "QmcHNWF1d56uCDSfJPA7t9fadZRV9we5HGSTGSmwuqmMP9"
         );
     }
 }
