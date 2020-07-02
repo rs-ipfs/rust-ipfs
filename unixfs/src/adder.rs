@@ -8,6 +8,7 @@ use std::num::NonZeroUsize;
 
 use sha2::{Digest, Sha256};
 
+/// File tree builder
 pub struct FileAdder {
     chunker: Chunker,
     block_buffer: Vec<u8>,
@@ -40,6 +41,8 @@ impl fmt::Debug for FileAdder {
 }
 
 impl FileAdder {
+    /// Creates `FileAdder` with the given chunker. Typically one could just call
+    /// `FileAdder::default()`.
     pub fn with_chunker(chunker: Chunker) -> Self {
         let hint = chunker.size_hint();
         FileAdder {
@@ -49,10 +52,15 @@ impl FileAdder {
         }
     }
 
+    /// Returns a likely amount of buffering the file adding works the best.
     pub fn size_hint(&self) -> usize {
         self.chunker.size_hint()
     }
 
+    /// Called to push new file bytes into the tree builder.
+    ///
+    /// Returns the newly created blocks (at most 2) and their respective Cids, and the amount of
+    /// `input` consumed.
     pub fn push(
         &mut self,
         input: &[u8],
@@ -80,34 +88,10 @@ impl FileAdder {
         Ok((leaf.into_iter().chain(links.into_iter()), written))
     }
 
+    /// Called after the last [`FileAdder::push`] to finish the tree construction.
+    ///
+    /// Returns a list of Cids and their respective blocks.
     pub fn finish(mut self) -> impl Iterator<Item = (Cid, Vec<u8>)> {
-        /*
-
-        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
-        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
-        links#1 |-------|-------|-------|-------|-------|-------|-------|\   /
-        links#2 |-------------------------------|                         ^^^
-                                                                    one short
-
-        #finish(...) first iteration:
-
-        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
-        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
-        links#1 |-------|-------|-------|-------|-------|-------|-------|==1==|
-        links#2 |-------------------------------|==========================2==|
-
-        new blocks #1 and #2
-
-        #finish(...) second iteration:
-
-        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
-        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
-        links#1 |-------|-------|-------|-------|-------|-------|-------|--1--|
-        links#2 |-------------------------------|--------------------------2--|
-        links#3 |==========================================================3==|
-
-        new block #3 (the root block)
-        */
         let last_leaf = self.flush_buffered_leaf();
         let root_links = self.flush_buffered_links(NonZeroUsize::new(1).unwrap(), true);
         // should probably error if there is neither?
@@ -149,6 +133,33 @@ impl FileAdder {
 
     // FIXME: collapse the min_links and all into single type to avoid boolean args
     fn flush_buffered_links(&mut self, min_links: NonZeroUsize, all: bool) -> Vec<(Cid, Vec<u8>)> {
+        /*
+
+        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
+        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
+        links#1 |-------|-------|-------|-------|-------|-------|-------|\   /
+        links#2 |-------------------------------|                         ^^^
+                                                                    one short
+
+        #flush_buffered_links(...) first iterations:
+
+        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
+        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
+        links#1 |-------|-------|-------|-------|-------|-------|-------|==1==|
+        links#2 |-------------------------------|==========================2==|
+
+        new blocks #1 and #2
+
+        #flush_buffered_links(...) last iteration:
+
+        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
+        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
+        links#1 |-------|-------|-------|-------|-------|-------|-------|--1--|
+        links#2 |-------------------------------|--------------------------2--|
+        links#3 |==========================================================3==|
+
+        new block #3 (the root block)
+        */
         let mut ret = Vec::new();
 
         for level in 0.. {
@@ -236,7 +247,8 @@ impl FileAdder {
 
 fn render_and_hash(flat: FlatUnixFs<'_>) -> (Cid, Vec<u8>) {
     // as shown in later dagger we don't really need to render the FlatUnixFs fully; we could
-    // either just render a fixed header and continue with the body OR links.
+    // either just render a fixed header and continue with the body OR links, though the links are
+    // a bit more complicated.
     let mut out = Vec::with_capacity(flat.get_size());
     let mut writer = Writer::new(&mut out);
     flat.write_message(&mut writer)
@@ -249,12 +261,15 @@ fn render_and_hash(flat: FlatUnixFs<'_>) -> (Cid, Vec<u8>) {
     (cid, out)
 }
 
+/// Chunker strategy
 #[derive(Debug)]
 pub enum Chunker {
+    /// Size based chunking
     Size(usize),
 }
 
 impl std::default::Default for Chunker {
+    /// Returns a default chunker which matches go-ipfs 0.6
     fn default() -> Self {
         Chunker::Size(256 * 1024)
     }
@@ -378,9 +393,9 @@ mod tests {
 
         // go-ipfs 0.5 result: QmRQ6NZNUs4JrCT2y7tmCC1wUhjqYuTssB8VXbbN3rMffg, 239 blocks and root
         // root has two links:
-        // QmXUcuLGKc8SCMEqG4wgct6NKsSRZQfvB2FCfjDow1PfpB and QmeEn8dxWTzGAFKvyXoLj4oWbh9putL4vSw4uhLXJrSZhs
-        // left has 174 links, right has 63 links
-
+        //  - QmXUcuLGKc8SCMEqG4wgct6NKsSRZQfvB2FCfjDow1PfpB (174 links)
+        //  - QmeEn8dxWTzGAFKvyXoLj4oWbh9putL4vSw4uhLXJrSZhs (63 links)
+        //
         // in future, if we ever add inline Cid generation this test would need to be changed not
         // to use those inline cids or raw leaves
         let adder = FileAdder::with_chunker(Chunker::Size(1));
