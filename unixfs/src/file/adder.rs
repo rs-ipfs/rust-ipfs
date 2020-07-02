@@ -318,8 +318,8 @@ mod tests {
     use super::{Chunker, FileAdder};
     use crate::test_support::FakeBlockstore;
     use cid::Cid;
-    use std::convert::TryFrom;
     use hex_literal::hex;
+    use std::convert::TryFrom;
 
     #[test]
     fn test_size_chunker() {
@@ -454,6 +454,9 @@ mod tests {
         // 18 == field data tag, varlen
         // 00 == data length, varint, 1 byte
         assert_eq!(blocks[0].1.as_slice(), &hex!("0a 04 08 02 18 00"));
-        assert_eq!(blocks[0].0.to_string(), "QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH");
+        assert_eq!(
+            blocks[0].0.to_string(),
+            "QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH"
+        );
     }
 }
