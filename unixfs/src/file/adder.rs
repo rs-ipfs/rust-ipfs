@@ -186,8 +186,13 @@ impl FileAdder {
             } else if self.unflushed_links[level].len() == 1 {
                 // TODO: combine with above?
                 // we need to break here as otherwise we'd be looping for ever
+                // FIXME: this is bad as we'll break before we get to collecting all of the links
                 break;
             }
+
+            // there can also be situations where we have links in different levels; easiest case is
+            // when there are $limit or 174 chunks and a non-leaf link for the 174 chunks, and a final
+            // chunk.
 
             let mut links = Vec::with_capacity(self.unflushed_links.len());
             let mut blocksizes = Vec::with_capacity(self.unflushed_links.len());
@@ -457,6 +462,53 @@ mod tests {
         assert_eq!(
             blocks[0].0.to_string(),
             "QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH"
+        );
+    }
+
+    #[test]
+    fn full_link_block_and_a_byte() {
+        let mut buf = Vec::with_capacity(256 * 1024);
+
+        // this should produce a root with two links
+        //             +----------^---+
+        //             |              |
+        //  |----------------------| |-|
+        //   ^^^^^^^^^^^^^^^^^^^^^^   ^
+        //          174 blocks        \--- 1 block
+        let mut input = std::iter::repeat(0).take(174 * 256 * 1024 + 1);
+
+        let mut adder = FileAdder::default();
+
+        let mut blocks_count = 0;
+
+        loop {
+            buf.clear();
+            buf.extend((&mut input).take(256 * 1024));
+
+            let (blocks, written) = adder.push(buf.as_slice()).unwrap();
+            assert_eq!(written, buf.len());
+
+            // do not collect the blocks because this is some 45MB
+            blocks_count += blocks.count();
+
+            if buf.len() == 1 {
+                assert!(input.next().is_none());
+                break;
+            }
+        }
+
+        let last_blocks = adder.finish().collect::<Vec<_>>();
+
+        blocks_count += last_blocks.len();
+
+        // full link block == 174
+        // one is for the single byte block
+        // other is for the root block
+        assert_eq!(blocks_count, 174 + 1 + 1);
+
+        assert_eq!(
+            last_blocks.last().unwrap().0.to_string(),
+            "QmehMASWcBsX7VcEQqs6rpR5AHoBfKyBVEgmkJHjpPg8jq"
         );
     }
 }
