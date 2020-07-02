@@ -58,6 +58,9 @@ impl fmt::Display for LinkFormatter<'_> {
                 count += 1;
             } else {
                 write!(fmt, "{}/", count)?;
+                for _ in *next_depth..(*current - 1) {
+                    write!(fmt, "0/")?;
+                }
                 count = 1;
                 current = next_depth;
             }
