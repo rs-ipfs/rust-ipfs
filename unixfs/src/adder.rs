@@ -189,12 +189,19 @@ impl FileAdder {
     }
 
     #[cfg(test)]
-    fn collect_blocks(mut self, all_content: &[u8]) -> Vec<(Cid, Vec<u8>)> {
+    fn collect_blocks(mut self, all_content: &[u8], mut amt: usize) -> Vec<(Cid, Vec<u8>)> {
         let mut written = 0;
         let mut blocks_received = Vec::new();
 
+        if amt == 0 {
+            amt = all_content.len();
+        }
+
         while written < all_content.len() {
-            let (blocks, pushed) = self.push(&all_content[written..]).unwrap();
+            let end = written + (all_content.len() - written).min(amt);
+            let slice = &all_content[written..end];
+
+            let (blocks, pushed) = self.push(slice).unwrap();
             blocks_received.extend(blocks);
             written += pushed;
         }
@@ -257,11 +264,10 @@ impl Chunker {
 #[cfg(test)]
 mod tests {
 
-    use super::{Chunker, /*Adder,*/ FileAdder};
+    use super::{Chunker, FileAdder};
     use crate::test_support::FakeBlockstore;
     use cid::Cid;
     use std::convert::TryFrom;
-    // use std::str::FromStr;
 
     #[test]
     fn test_size_chunker() {
@@ -269,6 +275,9 @@ mod tests {
         assert_eq!(size_chunker_scenario(2, 4, 0), (2, true));
         assert_eq!(size_chunker_scenario(2, 1, 0), (1, false));
         assert_eq!(size_chunker_scenario(2, 1, 1), (1, true));
+        assert_eq!(size_chunker_scenario(32, 3, 29), (3, true));
+        // this took some debugging time:
+        assert_eq!(size_chunker_scenario(32, 4, 29), (3, true));
     }
 
     fn size_chunker_scenario(max: usize, input_len: usize, existing_len: usize) -> (usize, bool) {
@@ -314,7 +323,7 @@ mod tests {
         let content = b"foobar\n";
         let adder = FileAdder::with_chunker(Chunker::Size(2));
 
-        let blocks_received = adder.collect_blocks(content);
+        let blocks_received = adder.collect_blocks(content, 0);
 
         // the order here is "fo", "ob", "ar", "\n", root block
         // while verifying the root Cid would be *enough* this is easier to eyeball, ... not really
@@ -354,8 +363,32 @@ mod tests {
         // to use those inline cids or raw leaves
         let adder = FileAdder::with_chunker(Chunker::Size(1));
 
-        let blocks_received = adder.collect_blocks(content);
+        let blocks_received = adder.collect_blocks(content, 0);
 
         assert_eq!(blocks_received.len(), 240);
+
+        assert_eq!(
+            blocks_received.last().unwrap().0.to_string(),
+            "QmRQ6NZNUs4JrCT2y7tmCC1wUhjqYuTssB8VXbbN3rMffg"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn three_layers_all_subchunks() {
+        let content = b"Lorem ipsum dolor sit amet, sit enim montes aliquam. Cras non lorem, \
+            rhoncus condimentum, irure et ante. Pulvinar suscipit odio ante, et tellus a enim, \
+            wisi ipsum, vel rhoncus eget faucibus varius, luctus turpis nibh vel odio nulla pede.";
+
+        for amt in 1..32 {
+            let adder = FileAdder::with_chunker(Chunker::Size(32));
+            let blocks_received = adder.collect_blocks(content, amt);
+            assert_eq!(
+                blocks_received.last().unwrap().0.to_string(),
+                "QmYSLcVQqxKygiq7x9w1XGYxU29EShB8ZemiaQ8GAAw17h",
+                "amt: {}",
+                amt
+            );
+        }
     }
 }
