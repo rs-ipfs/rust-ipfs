@@ -16,7 +16,9 @@ pub struct FileAdder {
     // block for the last N=174 blocks
     unflushed_links: Vec<(usize, Cid, u64, u64)>,
 
+    // reused between link block generation
     reused_links: Vec<PBLink<'static>>,
+    // reused between link block generation
     reused_blocksizes: Vec<u64>,
 }
 
