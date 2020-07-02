@@ -15,6 +15,9 @@ pub struct FileAdder {
     // all unflushed links as a flat vec; this is compacted as we grow and need to create a link
     // block for the last N=174 blocks
     unflushed_links: Vec<(usize, Cid, u64, u64)>,
+
+    reused_links: Vec<PBLink<'static>>,
+    reused_blocksizes: Vec<u64>,
 }
 
 impl std::default::Default for FileAdder {
@@ -59,6 +62,9 @@ impl FileAdder {
             chunker,
             block_buffer: Vec::with_capacity(hint),
             unflushed_links: Default::default(),
+
+            reused_links: Vec::new(),
+            reused_blocksizes: Vec::new(),
         }
     }
 
@@ -141,7 +147,7 @@ impl FileAdder {
             },
         };
 
-        let (cid, vec) = render_and_hash(inner);
+        let (cid, vec) = render_and_hash(&inner);
 
         let total_size = vec.len();
 
@@ -182,14 +188,28 @@ impl FileAdder {
 
         new block #3 (the root block)
         */
+
         let mut ret = Vec::new();
 
+        let mut reused_links = std::mem::take(&mut self.reused_links);
+        let mut reused_blocksizes = std::mem::take(&mut self.reused_blocksizes);
+
+        if reused_links.capacity() < min_links.get() {
+            reused_links.reserve(min_links.get() - reused_links.capacity());
+        }
+
+        if reused_blocksizes.capacity() < min_links.get() {
+            reused_blocksizes.reserve(min_links.get() - reused_blocksizes.capacity());
+        }
+
         for level in 0.. {
-            if self.unflushed_links.len() == 1 && all || self.unflushed_links.len() < 174 && !all {
+            if self.unflushed_links.len() == 1 && all
+                || self.unflushed_links.len() < min_links.get() && !all
+            {
                 break;
             }
 
-            // this could be optimized...
+            // this could be optimized... perhaps by maintaining an index structure?
             let first_at = self
                 .unflushed_links
                 .iter()
@@ -198,38 +218,40 @@ impl FileAdder {
             if let Some(first_at) = first_at {
                 let to_compress = self.unflushed_links[first_at..].len();
 
-                if to_compress < 174 && !all {
+                if to_compress < min_links.get() && !all {
                     break;
                 }
 
-                let mut links = Vec::new();
-                let mut blocksizes = Vec::new();
+                reused_links.clear();
+                reused_blocksizes.clear();
 
                 let mut nested_size = 0;
                 let mut nested_total_size = 0;
 
                 for (depth, cid, total_size, block_size) in self.unflushed_links.drain(first_at..) {
-                    links.push(PBLink {
+                    assert_eq!(depth, level);
+
+                    reused_links.push(PBLink {
                         Hash: Some(cid.to_bytes().into()),
                         Name: Some("".into()),
                         Tsize: Some(total_size),
                     });
-                    blocksizes.push(block_size);
+                    reused_blocksizes.push(block_size);
                     nested_total_size += total_size;
                     nested_size += block_size;
                 }
 
                 let inner = FlatUnixFs {
-                    links,
+                    links: reused_links,
                     data: UnixFs {
                         Type: UnixFsType::File,
                         filesize: Some(nested_size),
-                        blocksizes,
+                        blocksizes: reused_blocksizes,
                         ..Default::default()
                     },
                 };
 
-                let (cid, vec) = render_and_hash(inner);
+                let (cid, vec) = render_and_hash(&inner);
 
                 self.unflushed_links.push((
                     level + 1,
@@ -238,9 +260,18 @@ impl FileAdder {
                     nested_size,
                 ));
 
-                ret.push((cid, vec))
+                ret.push((cid, vec));
+
+                reused_links = inner.links;
+                reused_links.clear();
+
+                reused_blocksizes = inner.data.blocksizes;
+                reused_blocksizes.clear();
             }
         }
+
+        self.reused_links = reused_links;
+        self.reused_blocksizes = reused_blocksizes;
 
         ret
     }
@@ -270,7 +301,7 @@ impl FileAdder {
     }
 }
 
-fn render_and_hash(flat: FlatUnixFs<'_>) -> (Cid, Vec<u8>) {
+fn render_and_hash(flat: &FlatUnixFs<'_>) -> (Cid, Vec<u8>) {
     // as shown in later dagger we don't really need to render the FlatUnixFs fully; we could
     // either just render a fixed header and continue with the body OR links, though the links are
     // a bit more complicated.
