@@ -10,15 +10,11 @@ use sha2::{Digest, Sha256};
 /// File tree builder
 pub struct FileAdder {
     chunker: Chunker,
+    collector: Collector,
     block_buffer: Vec<u8>,
     // all unflushed links as a flat vec; this is compacted as we grow and need to create a link
     // block for the last N=174 blocks
     unflushed_links: Vec<(usize, Cid, u64, u64)>,
-
-    // reused between link block generation
-    reused_links: Vec<PBLink<'static>>,
-    // reused between link block generation
-    reused_blocksizes: Vec<u64>,
 }
 
 impl std::default::Default for FileAdder {
@@ -61,11 +57,9 @@ impl FileAdder {
         let hint = chunker.size_hint();
         FileAdder {
             chunker,
+            collector: Default::default(),
             block_buffer: Vec::with_capacity(hint),
             unflushed_links: Default::default(),
-
-            reused_links: Vec::new(),
-            reused_blocksizes: Vec::new(),
         }
     }
 
@@ -161,130 +155,8 @@ impl FileAdder {
     }
 
     fn flush_buffered_links(&mut self, finishing: bool) -> Vec<(Cid, Vec<u8>)> {
-        /*
-
-        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
-        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
-        links#1 |-------|-------|-------|-------|-------|-------|-------|\   /
-        links#2 |-------------------------------|                         ^^^
-                                                                    one short
-
-        #flush_buffered_links(...) first iterations:
-
-        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
-        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
-        links#1 |-------|-------|-------|-------|-------|-------|-------|==1==|
-        links#2 |-------------------------------|==========================2==|
-
-        new blocks #1 and #2
-
-        #flush_buffered_links(...) last iteration:
-
-        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
-        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
-        links#1 |-------|-------|-------|-------|-------|-------|-------|--1--|
-        links#2 |-------------------------------|--------------------------2--|
-        links#3 |==========================================================3==|
-
-        new block #3 (the root block)
-        */
-
-        let mut ret = Vec::new();
-
-        let mut reused_links = std::mem::take(&mut self.reused_links);
-        let mut reused_blocksizes = std::mem::take(&mut self.reused_blocksizes);
-
-        let balanced_branching_factor = 174usize;
-
-        if let Some(reserved) = balanced_branching_factor.checked_sub(reused_links.capacity()) {
-            reused_links.reserve(reserved);
-        }
-
-        if let Some(reserved) = balanced_branching_factor.checked_sub(reused_blocksizes.capacity())
-        {
-            reused_blocksizes.reserve(reserved);
-        }
-
-        for level in 0.. {
-            if self.unflushed_links.len() == 1 && finishing
-                || self.unflushed_links.len() < balanced_branching_factor && !finishing
-            {
-                // when there is just a single linking block left and we are finishing, we are
-                // done. It might not be part of the `ret` as will be the case with single chunk
-                // files for example.
-                //
-                // normally when not finishing we do nothing if we don't have enough links.
-                break;
-            }
-
-            // this could be optimized... perhaps by maintaining an index structure?
-            let first_at = self
-                .unflushed_links
-                .iter()
-                .position(|(lvl, ..)| lvl == &level);
-
-            if let Some(first_at) = first_at {
-                let to_compress = self.unflushed_links[first_at..].len();
-
-                if to_compress < balanced_branching_factor && !finishing {
-                    // when not finishing recheck if we have enough work to do as we may have had
-                    // earlier higher level links which skipped, but we are still awaiting for a
-                    // full link block
-                    break;
-                }
-
-                reused_links.clear();
-                reused_blocksizes.clear();
-
-                let mut nested_size = 0;
-                let mut nested_total_size = 0;
-
-                for (depth, cid, total_size, block_size) in self.unflushed_links.drain(first_at..) {
-                    assert_eq!(depth, level);
-
-                    reused_links.push(PBLink {
-                        Hash: Some(cid.to_bytes().into()),
-                        Name: Some("".into()),
-                        Tsize: Some(total_size),
-                    });
-                    reused_blocksizes.push(block_size);
-                    nested_total_size += total_size;
-                    nested_size += block_size;
-                }
-
-                let inner = FlatUnixFs {
-                    links: reused_links,
-                    data: UnixFs {
-                        Type: UnixFsType::File,
-                        filesize: Some(nested_size),
-                        blocksizes: reused_blocksizes,
-                        ..Default::default()
-                    },
-                };
-
-                let (cid, vec) = render_and_hash(&inner);
-
-                self.unflushed_links.push((
-                    level + 1,
-                    cid.clone(),
-                    nested_total_size + vec.len() as u64,
-                    nested_size,
-                ));
-
-                ret.push((cid, vec));
-
-                reused_links = inner.links;
-                reused_links.clear();
-
-                reused_blocksizes = inner.data.blocksizes;
-                reused_blocksizes.clear();
-            }
-        }
-
-        self.reused_links = reused_links;
-        self.reused_blocksizes = reused_blocksizes;
-
-        ret
+        self.collector
+            .flush_links(&mut self.unflushed_links, finishing)
     }
 
     #[cfg(test)]
@@ -362,6 +234,200 @@ impl Chunker {
         match self {
             Size(max) => *max,
         }
+    }
+}
+
+/// Collector or layout strategy
+#[derive(Debug)]
+pub enum Collector {
+    /// Balanced trees.
+    Balanced(BalancedCollector),
+}
+
+impl std::default::Default for Collector {
+    fn default() -> Self {
+        Collector::Balanced(Default::default())
+    }
+}
+
+impl Collector {
+    fn flush_links(
+        &mut self,
+        pending: &mut Vec<(usize, Cid, u64, u64)>,
+        finishing: bool,
+    ) -> Vec<(Cid, Vec<u8>)> {
+        use Collector::*;
+
+        match self {
+            Balanced(bc) => bc.flush_links(pending, finishing),
+        }
+    }
+}
+
+/// BalancedCollector creates balanced UnixFs trees, most optimized for random access to different
+/// parts of the file. Currently supports only link count threshold or the branching factor.
+pub struct BalancedCollector {
+    branching_factor: usize,
+    // reused between link block generation
+    reused_links: Vec<PBLink<'static>>,
+    // reused between link block generation
+    reused_blocksizes: Vec<u64>,
+}
+
+impl fmt::Debug for BalancedCollector {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            fmt,
+            "BalancedCollector {{ branching_factor: {} }}",
+            self.branching_factor
+        )
+    }
+}
+
+impl std::default::Default for BalancedCollector {
+    fn default() -> Self {
+        Self::with_branching_factor(174)
+    }
+}
+
+impl BalancedCollector {
+    /// Configure Balanced collector with the given branching factor.
+    pub fn with_branching_factor(branching_factor: usize) -> Self {
+        assert!(branching_factor > 0);
+
+        Self {
+            branching_factor,
+            reused_links: Vec::new(),
+            reused_blocksizes: Vec::new(),
+        }
+    }
+
+    fn flush_links(
+        &mut self,
+        pending: &mut Vec<(usize, Cid, u64, u64)>,
+        finishing: bool,
+    ) -> Vec<(Cid, Vec<u8>)> {
+        /*
+
+        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
+        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
+        links#1 |-------|-------|-------|-------|-------|-------|-------|\   /
+        links#2 |-------------------------------|                         ^^^
+                                                                    one short
+
+        #flush_buffered_links(...) first iterations:
+
+        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
+        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
+        links#1 |-------|-------|-------|-------|-------|-------|-------|==1==|
+        links#2 |-------------------------------|==========================2==|
+
+        new blocks #1 and #2
+
+        #flush_buffered_links(...) last iteration:
+
+        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
+        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
+        links#1 |-------|-------|-------|-------|-------|-------|-------|--1--|
+        links#2 |-------------------------------|--------------------------2--|
+        links#3 |==========================================================3==|
+
+        new block #3 (the root block)
+        */
+
+        let mut ret = Vec::new();
+
+        let mut reused_links = std::mem::take(&mut self.reused_links);
+        let mut reused_blocksizes = std::mem::take(&mut self.reused_blocksizes);
+
+        if let Some(need) = self.branching_factor.checked_sub(reused_links.capacity()) {
+            reused_links.reserve(need);
+        }
+
+        if let Some(need) = self
+            .branching_factor
+            .checked_sub(reused_blocksizes.capacity())
+        {
+            reused_blocksizes.reserve(need);
+        }
+
+        for level in 0.. {
+            if pending.len() == 1 && finishing
+                || pending.len() < self.branching_factor && !finishing
+            {
+                // when there is just a single linking block left and we are finishing, we are
+                // done. It might not be part of the `ret` as will be the case with single chunk
+                // files for example.
+                //
+                // normally when not finishing we do nothing if we don't have enough links.
+                break;
+            }
+
+            // this could be optimized... perhaps by maintaining an index structure?
+            let first_at = pending.iter().position(|(lvl, ..)| lvl == &level);
+
+            if let Some(first_at) = first_at {
+                let to_compress = pending[first_at..].len();
+
+                if to_compress < self.branching_factor && !finishing {
+                    // when not finishing recheck if we have enough work to do as we may have had
+                    // earlier higher level links which skipped, but we are still awaiting for a
+                    // full link block
+                    break;
+                }
+
+                reused_links.clear();
+                reused_blocksizes.clear();
+
+                let mut nested_size = 0;
+                let mut nested_total_size = 0;
+
+                for (depth, cid, total_size, block_size) in pending.drain(first_at..) {
+                    assert_eq!(depth, level);
+
+                    reused_links.push(PBLink {
+                        Hash: Some(cid.to_bytes().into()),
+                        Name: Some("".into()),
+                        Tsize: Some(total_size),
+                    });
+                    reused_blocksizes.push(block_size);
+                    nested_total_size += total_size;
+                    nested_size += block_size;
+                }
+
+                let inner = FlatUnixFs {
+                    links: reused_links,
+                    data: UnixFs {
+                        Type: UnixFsType::File,
+                        filesize: Some(nested_size),
+                        blocksizes: reused_blocksizes,
+                        ..Default::default()
+                    },
+                };
+
+                let (cid, vec) = render_and_hash(&inner);
+
+                pending.push((
+                    level + 1,
+                    cid.clone(),
+                    nested_total_size + vec.len() as u64,
+                    nested_size,
+                ));
+
+                ret.push((cid, vec));
+
+                reused_links = inner.links;
+                reused_links.clear();
+
+                reused_blocksizes = inner.data.blocksizes;
+                reused_blocksizes.clear();
+            }
+        }
+
+        self.reused_links = reused_links;
+        self.reused_blocksizes = reused_blocksizes;
+
+        ret
     }
 }
 
