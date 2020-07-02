@@ -1,16 +1,19 @@
 use cid::Cid;
 use ipfs_unixfs::adder::FileAdder;
 use std::fmt;
-use std::io::BufRead;
+use std::io::{BufRead, BufReader};
 use std::time::Duration;
 
 fn main() {
     // read stdin, maybe produce stdout car?
 
     let stdin = std::io::stdin();
-    let mut stdin = stdin.lock();
+    let stdin = stdin.lock();
 
     let mut adder = FileAdder::default();
+
+    let mut stdin = BufReader::with_capacity(adder.size_hint(), stdin);
+
     let mut stats = Stats::default();
 
     let mut input = 0;
@@ -20,16 +23,27 @@ fn main() {
     loop {
         match stdin.fill_buf().unwrap() {
             x if x.is_empty() => {
+                eprintln!("finishing");
+                eprintln!("{:?}", adder);
                 let blocks = adder.finish();
                 stats.process(blocks);
                 break;
             }
             x => {
-                let (blocks, consumed) = adder.push(x).expect("no idea what could fail here?");
-                stdin.consume(consumed);
-                stats.process(blocks);
+                let mut total = 0;
 
-                input += consumed;
+                while total < x.len() {
+                    let (blocks, consumed) = adder
+                        .push(&x[total..])
+                        .expect("no idea what could fail here?");
+                    stats.process(blocks);
+
+                    input += consumed;
+                    total += consumed;
+                }
+
+                assert_eq!(total, x.len());
+                stdin.consume(total);
             }
         }
     }
@@ -49,12 +63,13 @@ fn main() {
     let megabytes = 1024.0 * 1024.0;
 
     eprintln!(
-        "Input: {} MB/s",
-        (input as f64 / megabytes) / total.as_secs_f64()
+        "Input: {:.2} MB/s (read {} bytes)",
+        (input as f64 / megabytes) / total.as_secs_f64(),
+        input
     );
 
     eprintln!(
-        "Output: {} MB/s",
+        "Output: {:.2} MB/s",
         (stats.block_bytes as f64 / megabytes) / total.as_secs_f64()
     );
 }
@@ -116,18 +131,16 @@ struct Stats {
 
 impl fmt::Display for Stats {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.last.as_ref() {
-            Some(cid) => write!(
-                fmt,
-                "{} blocks, {} block bytes, last_cid: {}",
-                self.blocks, self.block_bytes, cid
-            ),
-            None => write!(
-                fmt,
-                "{} blocks, {} block bytes",
-                self.blocks, self.block_bytes
-            ),
-        }
+        let hash = self.last.as_ref().unwrap().hash();
+        let cidv1 = Cid::new_v1(cid::Codec::DagProtobuf, hash.to_owned());
+        write!(
+            fmt,
+            "{} blocks, {} block bytes, {} or {}",
+            self.blocks,
+            self.block_bytes,
+            self.last.as_ref().unwrap(),
+            cidv1,
+        )
     }
 }
 
