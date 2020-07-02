@@ -3,6 +3,7 @@ use cid::Cid;
 use crate::pb::{FlatUnixFs, PBLink, UnixFs, UnixFsType};
 use quick_protobuf::{MessageWrite, Writer};
 use std::borrow::Cow;
+use std::fmt;
 use std::num::NonZeroUsize;
 
 use sha2::{Digest, Sha256};
@@ -21,6 +22,23 @@ impl std::default::Default for FileAdder {
     }
 }
 
+impl fmt::Debug for FileAdder {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            fmt,
+            "FileAdder {{ chunker: {:?}, block_buffer: {}/{}, unflushed_links: {} }}",
+            self.chunker,
+            self.block_buffer.len(),
+            self.block_buffer.capacity(),
+            self.unflushed_links
+                .iter()
+                .map(|l| l.len().to_string())
+                .collect::<Vec<_>>()
+                .join("/")
+        )
+    }
+}
+
 impl FileAdder {
     pub fn with_chunker(chunker: Chunker) -> Self {
         let hint = chunker.size_hint();
@@ -29,6 +47,10 @@ impl FileAdder {
             block_buffer: Vec::with_capacity(hint),
             unflushed_links: Default::default(),
         }
+    }
+
+    pub fn size_hint(&self) -> usize {
+        self.chunker.size_hint()
     }
 
     pub fn push(
@@ -227,6 +249,7 @@ fn render_and_hash(flat: FlatUnixFs<'_>) -> (Cid, Vec<u8>) {
     (cid, out)
 }
 
+#[derive(Debug)]
 pub enum Chunker {
     Size(usize),
 }
