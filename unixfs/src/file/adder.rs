@@ -4,7 +4,6 @@ use crate::pb::{FlatUnixFs, PBLink, UnixFs, UnixFsType};
 use quick_protobuf::{MessageWrite, Writer};
 use std::borrow::Cow;
 use std::fmt;
-use std::num::NonZeroUsize;
 
 use sha2::{Digest, Sha256};
 
@@ -98,7 +97,7 @@ impl FileAdder {
         } else {
             // a new leaf must be output, as well as possibly a new link block
             let leaf = Some(self.flush_buffered_leaf(false).unwrap());
-            let links = self.flush_buffered_links(NonZeroUsize::new(174).unwrap(), false);
+            let links = self.flush_buffered_links(false);
 
             (leaf, links)
         };
@@ -114,7 +113,7 @@ impl FileAdder {
     /// every block in the near-ish future.
     pub fn finish(mut self) -> impl Iterator<Item = (Cid, Vec<u8>)> {
         let last_leaf = self.flush_buffered_leaf(true);
-        let root_links = self.flush_buffered_links(NonZeroUsize::new(1).unwrap(), true);
+        let root_links = self.flush_buffered_links(true);
         // should probably error if there is neither?
         last_leaf.into_iter().chain(root_links.into_iter())
     }
@@ -161,8 +160,7 @@ impl FileAdder {
         Some((cid, vec))
     }
 
-    // FIXME: collapse the min_links and all into single type to avoid boolean args
-    fn flush_buffered_links(&mut self, min_links: NonZeroUsize, all: bool) -> Vec<(Cid, Vec<u8>)> {
+    fn flush_buffered_links(&mut self, finishing: bool) -> Vec<(Cid, Vec<u8>)> {
         /*
 
         file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
@@ -196,18 +194,26 @@ impl FileAdder {
         let mut reused_links = std::mem::take(&mut self.reused_links);
         let mut reused_blocksizes = std::mem::take(&mut self.reused_blocksizes);
 
-        if reused_links.capacity() < min_links.get() {
-            reused_links.reserve(min_links.get() - reused_links.capacity());
+        let balanced_branching_factor = 174usize;
+
+        if let Some(reserved) = balanced_branching_factor.checked_sub(reused_links.capacity()) {
+            reused_links.reserve(reserved);
         }
 
-        if reused_blocksizes.capacity() < min_links.get() {
-            reused_blocksizes.reserve(min_links.get() - reused_blocksizes.capacity());
+        if let Some(reserved) = balanced_branching_factor.checked_sub(reused_blocksizes.capacity())
+        {
+            reused_blocksizes.reserve(reserved);
         }
 
         for level in 0.. {
-            if self.unflushed_links.len() == 1 && all
-                || self.unflushed_links.len() < min_links.get() && !all
+            if self.unflushed_links.len() == 1 && finishing
+                || self.unflushed_links.len() < balanced_branching_factor && !finishing
             {
+                // when there is just a single linking block left and we are finishing, we are
+                // done. It might not be part of the `ret` as will be the case with single chunk
+                // files for example.
+                //
+                // normally when not finishing we do nothing if we don't have enough links.
                 break;
             }
 
@@ -220,7 +226,10 @@ impl FileAdder {
             if let Some(first_at) = first_at {
                 let to_compress = self.unflushed_links[first_at..].len();
 
-                if to_compress < min_links.get() && !all {
+                if to_compress < balanced_branching_factor && !finishing {
+                    // when not finishing recheck if we have enough work to do as we may have had
+                    // earlier higher level links which skipped, but we are still awaiting for a
+                    // full link block
                     break;
                 }
 
