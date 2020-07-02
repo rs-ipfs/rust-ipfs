@@ -7,7 +7,15 @@ use std::fmt;
 
 use sha2::{Digest, Sha256};
 
-/// File tree builder
+/// File tree builder. Implements `Default` which tracks the recent defaults.
+///
+/// Custom file tree builder can be created with [`FileAdder::builder()`] and configuring the
+/// chunker and collector.
+///
+/// Current implementation maintains an internal buffer for the block creation and uses a
+/// non-customizable hash function to produce Cid version 0 links. Currently does not support
+/// inline links.
+#[derive(Default)]
 pub struct FileAdder {
     chunker: Chunker,
     collector: Collector,
@@ -15,12 +23,6 @@ pub struct FileAdder {
     // all unflushed links as a flat vec; this is compacted as we grow and need to create a link
     // block for the last N blocks, as decided by the collector
     unflushed_links: Vec<(usize, Cid, u64, u64)>,
-}
-
-impl std::default::Default for FileAdder {
-    fn default() -> Self {
-        Self::with_chunker(Chunker::Size(1024 * 256))
-    }
 }
 
 impl fmt::Debug for FileAdder {
@@ -50,20 +52,50 @@ impl fmt::Debug for FileAdder {
     }
 }
 
-impl FileAdder {
-    /// Creates `FileAdder` with the given chunker. Typically one could just call
-    /// `FileAdder::default()`.
-    pub fn with_chunker(chunker: Chunker) -> Self {
-        let hint = chunker.size_hint();
+/// Convinience type to facilitate configuring FileAdders
+#[derive(Default)]
+pub struct FileAdderBuilder {
+    chunker: Chunker,
+    collector: Collector,
+}
+
+impl FileAdderBuilder {
+    /// Configures the builder to use the given chunker.
+    pub fn set_chunker(&mut self, chunker: Chunker) -> &mut Self {
+        self.chunker = chunker;
+        self
+    }
+
+    /// Configures the builder to use the given collector or layout.
+    pub fn set_collector(&mut self, collector: Collector) -> &mut Self {
+        self.collector = collector;
+        self
+    }
+
+    /// Returns a new FileAdder
+    pub fn build(&self) -> FileAdder {
+        let chunker = self.chunker.clone();
+        let collector = self.collector.clone();
+
         FileAdder {
             chunker,
-            collector: Default::default(),
-            block_buffer: Vec::with_capacity(hint),
+            collector,
+            block_buffer: Vec::new(),
             unflushed_links: Default::default(),
         }
     }
+}
+
+impl FileAdder {
+    /// Returns a [`FileAdderBuilder`] for creating a non-default FileAdder.
+    pub fn builder() -> FileAdderBuilder {
+        FileAdderBuilder::default()
+    }
 
     /// Returns a likely amount of buffering the file adding works the best.
+    ///
+    /// When using the size based chunker and input larger than or equal to the hint is `push()`'ed
+    /// to the chunker, the internal buffer will not be used.
     pub fn size_hint(&self) -> usize {
         self.chunker.size_hint()
     }
@@ -76,27 +108,30 @@ impl FileAdder {
         &mut self,
         input: &[u8],
     ) -> Result<(impl Iterator<Item = (Cid, Vec<u8>)>, usize), ()> {
-        // case 0: full chunk is not ready => empty iterator, full read
-        // case 1: full chunk becomes ready, maybe short read => at least one block
-        //     1a: not enough links => iterator of one
-        //     1b: link block is ready => iterator of two blocks
-
         let (accepted, ready) = self.chunker.accept(input, &self.block_buffer);
+
         if self.block_buffer.is_empty() && ready {
             // save single copy as the caller is giving us whole chunks.
             //
             // TODO: though, this path does make one question if there is any point in keeping
             // block_buffer and chunker here; perhaps FileAdder should only handle pre-chunked
             // blocks and user takes care of chunking (and buffering)?
-            let leaf = Some(
-                Self::flush_buffered_leaf(accepted, &mut self.unflushed_links, false)
-                    .expect("chunker filled a block, must produce one"),
-            );
+            //
+            // cat file | my_awesome_chunker | my_brilliant_collector
+            let leaf = Self::flush_buffered_leaf(accepted, &mut self.unflushed_links, false);
+            assert!(leaf.is_some(), "chunk completed, must produce a new block");
             self.block_buffer.clear();
             let links = self.flush_buffered_links(false);
             Ok((leaf.into_iter().chain(links.into_iter()), accepted.len()))
         } else {
             // slower path as we manage the buffer.
+
+            if self.block_buffer.capacity() == 0 {
+                // delay the internal buffer creation until this point, as the caller clearly wants
+                // to use it.
+                self.block_buffer.reserve(self.size_hint());
+            }
+
             self.block_buffer.extend_from_slice(accepted);
             let written = accepted.len();
 
@@ -105,14 +140,12 @@ impl FileAdder {
                 (None, Vec::new())
             } else {
                 // a new leaf must be output, as well as possibly a new link block
-                let leaf = Some(
-                    Self::flush_buffered_leaf(
-                        self.block_buffer.as_slice(),
-                        &mut self.unflushed_links,
-                        false,
-                    )
-                    .expect("chunker filled a block, must produce one"),
+                let leaf = Self::flush_buffered_leaf(
+                    self.block_buffer.as_slice(),
+                    &mut self.unflushed_links,
+                    false,
                 );
+                assert!(leaf.is_some(), "chunk completed, must produce a new block");
                 self.block_buffer.clear();
                 let links = self.flush_buffered_links(false);
 
@@ -152,17 +185,15 @@ impl FileAdder {
             }
         }
 
-        let bytes = input.len();
-
         // for empty unixfs file the bytes is missing but filesize is present.
 
-        let data = if bytes > 0 {
+        let data = if !input.is_empty() {
             Some(Cow::Borrowed(input))
         } else {
             None
         };
 
-        let filesize = Some(bytes as u64);
+        let filesize = Some(input.len() as u64);
 
         let inner = FlatUnixFs {
             links: Vec::new(),
@@ -179,7 +210,7 @@ impl FileAdder {
 
         let total_size = vec.len();
 
-        unflushed_links.push((0, cid.clone(), total_size as u64, bytes as u64));
+        unflushed_links.push((0, cid.clone(), total_size as u64, input.len() as u64));
 
         Some((cid, vec))
     }
@@ -189,6 +220,10 @@ impl FileAdder {
             .flush_links(&mut self.unflushed_links, finishing)
     }
 
+    /// Test helper for collecting all of the produced blocks; probably not a good idea outside
+    /// smaller test cases. When `amt` is zero, the whole content is processed at the speed of
+    /// chunker, otherwise `all_content` is pushed at `amt` sized slices with the idea of catching
+    /// bugs in chunkers.
     #[cfg(test)]
     fn collect_blocks(mut self, all_content: &[u8], mut amt: usize) -> Vec<(Cid, Vec<u8>)> {
         let mut written = 0;
@@ -215,7 +250,7 @@ impl FileAdder {
 }
 
 fn render_and_hash(flat: &FlatUnixFs<'_>) -> (Cid, Vec<u8>) {
-    // as shown in later dagger we don't really need to render the FlatUnixFs fully; we could
+    // TODO: as shown in later dagger we don't really need to render the FlatUnixFs fully; we could
     // either just render a fixed header and continue with the body OR links, though the links are
     // a bit more complicated.
     let mut out = Vec::with_capacity(flat.get_size());
@@ -231,7 +266,7 @@ fn render_and_hash(flat: &FlatUnixFs<'_>) -> (Cid, Vec<u8>) {
 }
 
 /// Chunker strategy
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Chunker {
     /// Size based chunking
     Size(usize),
@@ -268,7 +303,7 @@ impl Chunker {
 }
 
 /// Collector or layout strategy
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Collector {
     /// Balanced trees.
     Balanced(BalancedCollector),
@@ -296,6 +331,7 @@ impl Collector {
 
 /// BalancedCollector creates balanced UnixFs trees, most optimized for random access to different
 /// parts of the file. Currently supports only link count threshold or the branching factor.
+#[derive(Clone)]
 pub struct BalancedCollector {
     branching_factor: usize,
     // reused between link block generation
@@ -522,7 +558,7 @@ mod tests {
 
         let blocks = FakeBlockstore::with_fixtures();
         let content = b"foobar\n";
-        let adder = FileAdder::with_chunker(Chunker::Size(2));
+        let adder = FileAdder::builder().set_chunker(Chunker::Size(2)).build();
 
         let blocks_received = adder.collect_blocks(content, 0);
 
@@ -562,7 +598,7 @@ mod tests {
         //
         // in future, if we ever add inline Cid generation this test would need to be changed not
         // to use those inline cids or raw leaves
-        let adder = FileAdder::with_chunker(Chunker::Size(1));
+        let adder = FileAdder::builder().set_chunker(Chunker::Size(1)).build();
 
         let blocks_received = adder.collect_blocks(content, 0);
 
@@ -581,7 +617,7 @@ mod tests {
             wisi ipsum, vel rhoncus eget faucibus varius, luctus turpis nibh vel odio nulla pede.";
 
         for amt in 1..32 {
-            let adder = FileAdder::with_chunker(Chunker::Size(32));
+            let adder = FileAdder::builder().set_chunker(Chunker::Size(32)).build();
             let blocks_received = adder.collect_blocks(content, amt);
             assert_eq!(
                 blocks_received.last().unwrap().0.to_string(),
@@ -620,7 +656,7 @@ mod tests {
         //   ^^^^^^^^^^^^^^^^^^^^^^   ^
         //          174 blocks        \--- 1 block
 
-        let mut adder = FileAdder::with_chunker(Chunker::Size(2));
+        let mut adder = FileAdder::builder().set_chunker(Chunker::Size(2)).build();
         let mut blocks_count = 0;
 
         for _ in 0..174 {
