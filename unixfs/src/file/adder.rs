@@ -12,9 +12,9 @@ use sha2::{Digest, Sha256};
 pub struct FileAdder {
     chunker: Chunker,
     block_buffer: Vec<u8>,
-    // the index in the outer vec is the height (0 == leaf, 1 == first links to leafs, 2 == links
-    // to first link blocks)
-    unflushed_links: Vec<Vec<(Cid, u64, u64)>>,
+    // all unflushed links as a flat vec; this is compacted as we grow and need to create a link
+    // block for the last N=174 blocks
+    unflushed_links: Vec<(usize, Cid, u64, u64)>,
 }
 
 impl std::default::Default for FileAdder {
@@ -33,7 +33,17 @@ impl fmt::Debug for FileAdder {
             self.block_buffer.capacity(),
             self.unflushed_links
                 .iter()
-                .map(|l| l.len().to_string())
+                .fold(Vec::new(), |mut acc, (depth, ..)| {
+                    match acc.last_mut() {
+                        Some((other_depth, ctr)) if other_depth == &depth => *ctr += 1,
+                        Some(_) | None => {
+                            acc.push((depth, 1));
+                        }
+                    }
+                    acc
+                })
+                .into_iter()
+                .map(|(_depth, count)| count.to_string())
                 .collect::<Vec<_>>()
                 .join("/")
         )
@@ -137,12 +147,8 @@ impl FileAdder {
 
         self.block_buffer.clear();
 
-        // leafs always go to the lowest level
-        if self.unflushed_links.is_empty() {
-            self.unflushed_links.push(Vec::new());
-        }
-
-        self.unflushed_links[0].push((cid.clone(), total_size as u64, bytes as u64));
+        self.unflushed_links
+            .push((0, cid.clone(), total_size as u64, bytes as u64));
 
         Some((cid, vec))
     }
@@ -179,61 +185,61 @@ impl FileAdder {
         let mut ret = Vec::new();
 
         for level in 0.. {
-            if !all {
-                if self.unflushed_links[level].len() < min_links.get() {
-                    break;
-                }
-            } else if self.unflushed_links[level].len() == 1 {
-                // TODO: combine with above?
-                // we need to break here as otherwise we'd be looping for ever
-                // FIXME: this is bad as we'll break before we get to collecting all of the links
+            if self.unflushed_links.len() == 1 && all || self.unflushed_links.len() < 174 && !all {
                 break;
             }
 
-            // there can also be situations where we have links in different levels; easiest case is
-            // when there are $limit or 174 chunks and a non-leaf link for the 174 chunks, and a final
-            // chunk.
+            // this could be optimized...
+            let first_at = self
+                .unflushed_links
+                .iter()
+                .position(|(lvl, ..)| lvl == &level);
 
-            let mut links = Vec::with_capacity(self.unflushed_links.len());
-            let mut blocksizes = Vec::with_capacity(self.unflushed_links.len());
+            if let Some(first_at) = first_at {
+                let to_compress = self.unflushed_links[first_at..].len();
 
-            let mut nested_size = 0;
-            let mut nested_total_size = 0;
+                if to_compress < 174 && !all {
+                    break;
+                }
 
-            for (cid, total_size, block_size) in self.unflushed_links[level].drain(..) {
-                links.push(PBLink {
-                    Hash: Some(cid.to_bytes().into()),
-                    Name: Some("".into()),
-                    Tsize: Some(total_size),
-                });
-                blocksizes.push(block_size);
-                nested_total_size += total_size;
-                nested_size += block_size;
+                let mut links = Vec::new();
+                let mut blocksizes = Vec::new();
+
+                let mut nested_size = 0;
+                let mut nested_total_size = 0;
+
+                for (depth, cid, total_size, block_size) in self.unflushed_links.drain(first_at..) {
+                    links.push(PBLink {
+                        Hash: Some(cid.to_bytes().into()),
+                        Name: Some("".into()),
+                        Tsize: Some(total_size),
+                    });
+                    blocksizes.push(block_size);
+                    nested_total_size += total_size;
+                    nested_size += block_size;
+                }
+
+                let inner = FlatUnixFs {
+                    links,
+                    data: UnixFs {
+                        Type: UnixFsType::File,
+                        filesize: Some(nested_size),
+                        blocksizes,
+                        ..Default::default()
+                    },
+                };
+
+                let (cid, vec) = render_and_hash(inner);
+
+                self.unflushed_links.push((
+                    level + 1,
+                    cid.clone(),
+                    nested_total_size + vec.len() as u64,
+                    nested_size,
+                ));
+
+                ret.push((cid, vec))
             }
-
-            let inner = FlatUnixFs {
-                links,
-                data: UnixFs {
-                    Type: UnixFsType::File,
-                    filesize: Some(nested_size),
-                    blocksizes,
-                    ..Default::default()
-                },
-            };
-
-            let (cid, vec) = render_and_hash(inner);
-
-            if self.unflushed_links.len() <= level + 1 {
-                self.unflushed_links.push(Vec::new());
-            }
-
-            self.unflushed_links[level + 1].push((
-                cid.clone(),
-                nested_total_size + vec.len() as u64,
-                nested_size,
-            ));
-
-            ret.push((cid, vec))
         }
 
         ret
@@ -467,44 +473,42 @@ mod tests {
 
     #[test]
     fn full_link_block_and_a_byte() {
-        let mut buf = Vec::with_capacity(256 * 1024);
+        // FIXME: this test is a bit slow, should be done at a lower level, or just make the
+        // branching factor adjustable to any lower value
+
+        let buf = vec![0u8; 256 * 1024];
 
         // this should produce a root with two links
         //             +----------^---+
         //             |              |
-        //  |----------------------| |-|
+        //  |----------------------| |-| <-- link blocks
         //   ^^^^^^^^^^^^^^^^^^^^^^   ^
         //          174 blocks        \--- 1 block
-        let mut input = std::iter::repeat(0).take(174 * 256 * 1024 + 1);
 
         let mut adder = FileAdder::default();
-
         let mut blocks_count = 0;
 
-        loop {
-            buf.clear();
-            buf.extend((&mut input).take(256 * 1024));
-
+        for _ in 0..174 {
             let (blocks, written) = adder.push(buf.as_slice()).unwrap();
             assert_eq!(written, buf.len());
 
             // do not collect the blocks because this is some 45MB
             blocks_count += blocks.count();
-
-            if buf.len() == 1 {
-                assert!(input.next().is_none());
-                break;
-            }
         }
 
-        let last_blocks = adder.finish().collect::<Vec<_>>();
+        let (blocks, written) = adder.push(&buf[0..1]).unwrap();
+        assert_eq!(written, 1);
+        blocks_count += blocks.count();
 
+        let last_blocks = adder.finish().collect::<Vec<_>>();
         blocks_count += last_blocks.len();
 
-        // full link block == 174
+        // chunks == 174
+        // one link block for 174
         // one is for the single byte block
+        // one is a link block for the singular single byte block
         // other is for the root block
-        assert_eq!(blocks_count, 174 + 1 + 1);
+        assert_eq!(blocks_count, 174 + 1 + 1 + 1 + 1);
 
         assert_eq!(
             last_blocks.last().unwrap().0.to_string(),
