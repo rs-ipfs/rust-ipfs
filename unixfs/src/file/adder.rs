@@ -13,7 +13,7 @@ pub struct FileAdder {
     collector: Collector,
     block_buffer: Vec<u8>,
     // all unflushed links as a flat vec; this is compacted as we grow and need to create a link
-    // block for the last N=174 blocks
+    // block for the last N blocks, as decided by the collector
     unflushed_links: Vec<(usize, Cid, u64, u64)>,
 }
 
@@ -82,21 +82,44 @@ impl FileAdder {
         //     1b: link block is ready => iterator of two blocks
 
         let (accepted, ready) = self.chunker.accept(input, &self.block_buffer);
-        self.block_buffer.extend_from_slice(accepted);
-        let written = accepted.len();
-
-        let (leaf, links) = if !ready {
-            // a new block did not become ready, which means we couldn't have gotten a new cid.
-            (None, Vec::new())
-        } else {
-            // a new leaf must be output, as well as possibly a new link block
-            let leaf = Some(self.flush_buffered_leaf(false).unwrap());
+        if self.block_buffer.is_empty() && ready {
+            // save single copy as the caller is giving us whole chunks.
+            //
+            // TODO: though, this path does make one question if there is any point in keeping
+            // block_buffer and chunker here; perhaps FileAdder should only handle pre-chunked
+            // blocks and user takes care of chunking (and buffering)?
+            let leaf = Some(
+                Self::flush_buffered_leaf(accepted, &mut self.unflushed_links, false)
+                    .expect("chunker filled a block, must produce one"),
+            );
+            self.block_buffer.clear();
             let links = self.flush_buffered_links(false);
+            Ok((leaf.into_iter().chain(links.into_iter()), accepted.len()))
+        } else {
+            // slower path as we manage the buffer.
+            self.block_buffer.extend_from_slice(accepted);
+            let written = accepted.len();
 
-            (leaf, links)
-        };
+            let (leaf, links) = if !ready {
+                // a new block did not become ready, which means we couldn't have gotten a new cid.
+                (None, Vec::new())
+            } else {
+                // a new leaf must be output, as well as possibly a new link block
+                let leaf = Some(
+                    Self::flush_buffered_leaf(
+                        self.block_buffer.as_slice(),
+                        &mut self.unflushed_links,
+                        false,
+                    )
+                    .expect("chunker filled a block, must produce one"),
+                );
+                self.block_buffer.clear();
+                let links = self.flush_buffered_links(false);
 
-        Ok((leaf.into_iter().chain(links.into_iter()), written))
+                (leaf, links)
+            };
+            Ok((leaf.into_iter().chain(links.into_iter()), written))
+        }
     }
 
     /// Called after the last [`FileAdder::push`] to finish the tree construction.
@@ -106,25 +129,35 @@ impl FileAdder {
     /// Note: the API will hopefully evolve to a direction which would not allocate new Vec for
     /// every block in the near-ish future.
     pub fn finish(mut self) -> impl Iterator<Item = (Cid, Vec<u8>)> {
-        let last_leaf = self.flush_buffered_leaf(true);
+        let last_leaf = Self::flush_buffered_leaf(
+            &self.block_buffer.as_slice(),
+            &mut self.unflushed_links,
+            true,
+        );
         let root_links = self.flush_buffered_links(true);
         // should probably error if there is neither?
         last_leaf.into_iter().chain(root_links.into_iter())
     }
 
-    fn flush_buffered_leaf(&mut self, finishing: bool) -> Option<(Cid, Vec<u8>)> {
-        if self.block_buffer.is_empty() {
-            if !finishing || !self.unflushed_links.is_empty() {
+    /// Returns `None` when the input is empty but there are links, otherwise a new Cid and a
+    /// block.
+    fn flush_buffered_leaf(
+        input: &[u8],
+        unflushed_links: &mut Vec<(usize, Cid, u64, u64)>,
+        finishing: bool,
+    ) -> Option<(Cid, Vec<u8>)> {
+        if input.is_empty() {
+            if !finishing || !unflushed_links.is_empty() {
                 return None;
             }
         }
 
-        let bytes = self.block_buffer.len();
+        let bytes = input.len();
 
         // for empty unixfs file the bytes is missing but filesize is present.
 
         let data = if bytes > 0 {
-            Some(Cow::Borrowed(self.block_buffer.as_slice()))
+            Some(Cow::Borrowed(input))
         } else {
             None
         };
@@ -146,10 +179,7 @@ impl FileAdder {
 
         let total_size = vec.len();
 
-        self.block_buffer.clear();
-
-        self.unflushed_links
-            .push((0, cid.clone(), total_size as u64, bytes as u64));
+        unflushed_links.push((0, cid.clone(), total_size as u64, bytes as u64));
 
         Some((cid, vec))
     }
