@@ -110,7 +110,7 @@ impl FileAdder {
         FileAdderBuilder::default()
     }
 
-    /// Returns a likely amount of buffering the file adding works the best.
+    /// Returns the likely amount of buffering the file adding will work with best.
     ///
     /// When using the size based chunker and input larger than or equal to the hint is `push()`'ed
     /// to the chunker, the internal buffer will not be used.
@@ -174,7 +174,7 @@ impl FileAdder {
     ///
     /// Returns a list of Cids and their respective blocks.
     ///
-    /// Note: the API will hopefully evolve to a direction which would not allocate new Vec for
+    /// Note: the API will hopefully evolve in a direction which will not allocate a new Vec for
     /// every block in the near-ish future.
     pub fn finish(mut self) -> impl Iterator<Item = (Cid, Vec<u8>)> {
         let last_leaf = Self::flush_buffered_leaf(
