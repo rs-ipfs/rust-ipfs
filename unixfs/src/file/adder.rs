@@ -104,10 +104,7 @@ impl FileAdder {
     ///
     /// Returns the newly created blocks (at most 2) and their respective Cids, and the amount of
     /// `input` consumed.
-    pub fn push(
-        &mut self,
-        input: &[u8],
-    ) -> Result<(impl Iterator<Item = (Cid, Vec<u8>)>, usize), ()> {
+    pub fn push(&mut self, input: &[u8]) -> (impl Iterator<Item = (Cid, Vec<u8>)>, usize) {
         let (accepted, ready) = self.chunker.accept(input, &self.block_buffer);
 
         if self.block_buffer.is_empty() && ready {
@@ -122,7 +119,7 @@ impl FileAdder {
             assert!(leaf.is_some(), "chunk completed, must produce a new block");
             self.block_buffer.clear();
             let links = self.flush_buffered_links(false);
-            Ok((leaf.into_iter().chain(links.into_iter()), accepted.len()))
+            (leaf.into_iter().chain(links.into_iter()), accepted.len())
         } else {
             // slower path as we manage the buffer.
 
@@ -151,7 +148,7 @@ impl FileAdder {
 
                 (leaf, links)
             };
-            Ok((leaf.into_iter().chain(links.into_iter()), written))
+            (leaf.into_iter().chain(links.into_iter()), written)
         }
     }
 
@@ -237,7 +234,7 @@ impl FileAdder {
             let end = written + (all_content.len() - written).min(amt);
             let slice = &all_content[written..end];
 
-            let (blocks, pushed) = self.push(slice).unwrap();
+            let (blocks, pushed) = self.push(slice);
             blocks_received.extend(blocks);
             written += pushed;
         }
@@ -257,11 +254,8 @@ fn render_and_hash(flat: &FlatUnixFs<'_>) -> (Cid, Vec<u8>) {
     let mut writer = Writer::new(&mut out);
     flat.write_message(&mut writer)
         .expect("unsure how this could fail");
-    let cid = Cid::new_v0(multihash::wrap(
-        multihash::Code::Sha2_256,
-        &Sha256::digest(&out),
-    ))
-    .unwrap();
+    let mh = multihash::wrap(multihash::Code::Sha2_256, &Sha256::digest(&out));
+    let cid = Cid::new_v0(mh).expect("sha2_256 is the correct multihash for cidv0");
     (cid, out)
 }
 
@@ -534,7 +528,7 @@ mod tests {
         let mut adder = FileAdder::default();
 
         {
-            let (mut ready_blocks, bytes) = adder.push(content).unwrap();
+            let (mut ready_blocks, bytes) = adder.push(content);
             assert!(ready_blocks.next().is_none());
             assert_eq!(bytes, content.len());
         }
@@ -660,14 +654,14 @@ mod tests {
         let mut blocks_count = 0;
 
         for _ in 0..174 {
-            let (blocks, written) = adder.push(buf.as_slice()).unwrap();
+            let (blocks, written) = adder.push(buf.as_slice());
             assert_eq!(written, buf.len());
 
             // do not collect the blocks because this is some 45MB
             blocks_count += blocks.count();
         }
 
-        let (blocks, written) = adder.push(&buf[0..1]).unwrap();
+        let (blocks, written) = adder.push(&buf[0..1]);
         assert_eq!(written, 1);
         blocks_count += blocks.count();
 

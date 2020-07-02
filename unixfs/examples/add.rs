@@ -33,9 +33,7 @@ fn main() {
                 let mut total = 0;
 
                 while total < x.len() {
-                    let (blocks, consumed) = adder
-                        .push(&x[total..])
-                        .expect("no idea what could fail here?");
+                    let (blocks, consumed) = adder.push(&x[total..]);
                     stats.process(blocks);
 
                     input += consumed;
