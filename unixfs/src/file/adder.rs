@@ -191,10 +191,8 @@ impl FileAdder {
         unflushed_links: &mut Vec<(usize, Cid, u64, u64)>,
         finishing: bool,
     ) -> Option<(Cid, Vec<u8>)> {
-        if input.is_empty() {
-            if !finishing || !unflushed_links.is_empty() {
-                return None;
-            }
+        if input.is_empty() && (!finishing || !unflushed_links.is_empty()) {
+            return None;
         }
 
         // for empty unixfs file the bytes is missing but filesize is present.
