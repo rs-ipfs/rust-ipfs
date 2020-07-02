@@ -336,4 +336,26 @@ mod tests {
 
         assert_eq!(blocks_received, expected);
     }
+
+    #[test]
+    fn three_layers() {
+        let content = b"Lorem ipsum dolor sit amet, sit enim montes aliquam. Cras non lorem, \
+            rhoncus condimentum, irure et ante. Pulvinar suscipit odio ante, et tellus a enim, \
+            wisi ipsum, vel rhoncus eget faucibus varius, luctus turpis nibh vel odio nulla pede.";
+
+        assert!(content.len() > 174 && content.len() < 2 * 174);
+
+        // go-ipfs 0.5 result: QmRQ6NZNUs4JrCT2y7tmCC1wUhjqYuTssB8VXbbN3rMffg, 239 blocks and root
+        // root has two links:
+        // QmXUcuLGKc8SCMEqG4wgct6NKsSRZQfvB2FCfjDow1PfpB and QmeEn8dxWTzGAFKvyXoLj4oWbh9putL4vSw4uhLXJrSZhs
+        // left has 174 links, right has 63 links
+
+        // in future, if we ever add inline Cid generation this test would need to be changed not
+        // to use those inline cids or raw leaves
+        let adder = FileAdder::with_chunker(Chunker::Size(1));
+
+        let blocks_received = adder.collect_blocks(content);
+
+        assert_eq!(blocks_received.len(), 240);
+    }
 }
