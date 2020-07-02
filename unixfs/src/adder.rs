@@ -93,37 +93,36 @@ impl FileAdder {
     }
 
     fn flush_buffered_leaf(&mut self) -> Option<(Cid, Vec<u8>)> {
-        if !self.block_buffer.is_empty() {
-            let bytes = self.block_buffer.len();
-
-            let inner = FlatUnixFs {
-                links: Vec::new(),
-                data: UnixFs {
-                    Type: UnixFsType::File,
-                    Data: Some(Cow::Borrowed(self.block_buffer.as_slice())),
-                    filesize: Some(self.block_buffer.len() as u64),
-                    // no blocksizes as there are no links
-                    ..Default::default()
-                },
-            };
-
-            let (cid, vec) = render_and_hash(inner);
-
-            let total_size = vec.len();
-
-            self.block_buffer.clear();
-
-            // leafs always go to the lowest level
-            if self.unflushed_links.is_empty() {
-                self.unflushed_links.push(Vec::new());
-            }
-
-            self.unflushed_links[0].push((cid.clone(), total_size as u64, bytes as u64));
-
-            Some((cid, vec))
-        } else {
-            None
+        if self.block_buffer.is_empty() {
+            return None;
         }
+        let bytes = self.block_buffer.len();
+
+        let inner = FlatUnixFs {
+            links: Vec::new(),
+            data: UnixFs {
+                Type: UnixFsType::File,
+                Data: Some(Cow::Borrowed(self.block_buffer.as_slice())),
+                filesize: Some(self.block_buffer.len() as u64),
+                // no blocksizes as there are no links
+                ..Default::default()
+            },
+        };
+
+        let (cid, vec) = render_and_hash(inner);
+
+        let total_size = vec.len();
+
+        self.block_buffer.clear();
+
+        // leafs always go to the lowest level
+        if self.unflushed_links.is_empty() {
+            self.unflushed_links.push(Vec::new());
+        }
+
+        self.unflushed_links[0].push((cid.clone(), total_size as u64, bytes as u64));
+
+        Some((cid, vec))
     }
 
     // FIXME: collapse the min_links and all into single type to avoid boolean args
