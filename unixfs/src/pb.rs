@@ -1,3 +1,4 @@
+use quick_protobuf::{errors::Result as ProtobufResult, Writer, WriterBackend};
 use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fmt;
@@ -78,14 +79,12 @@ impl<'a> TryFrom<&'a [u8]> for merkledag::PBNode<'a> {
     }
 }
 
-/// Intermediate conversion structure suitable for creating multiple kinds of readers.
+/// Combined dag-pb (or MerkleDAG) with UnixFs payload.
 #[derive(Debug)]
 pub(crate) struct FlatUnixFs<'a> {
     pub(crate) links: Vec<PBLink<'a>>,
     pub(crate) data: UnixFs<'a>,
 }
-
-use quick_protobuf::{errors::Result as ProtobufResult, Writer, WriterBackend};
 
 impl<'a> quick_protobuf::message::MessageWrite for FlatUnixFs<'a> {
     fn get_size(&self) -> usize {
@@ -104,10 +103,13 @@ impl<'a> quick_protobuf::message::MessageWrite for FlatUnixFs<'a> {
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> ProtobufResult<()> {
         // this has been monkeyd after PBNode::write_message
         //
-        // important to note that while protobuf isn't so picky on field order, dag-pb is.
+        // important to note that while protobuf isn't so picky when reading on field order, dag-pb
+        // is, at least to produce the same Cids.
         for link in &self.links {
             w.write_with_tag(18, |w| w.write_message(link))?;
         }
+        // writing the self.data directly saves us the trouble of serializing it first to a vec,
+        // then using the vec to write this field.
         w.write_with_tag(10, |w| w.write_message(&self.data))?;
         Ok(())
     }

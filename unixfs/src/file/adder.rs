@@ -91,6 +91,9 @@ impl FileAdder {
     /// Called after the last [`FileAdder::push`] to finish the tree construction.
     ///
     /// Returns a list of Cids and their respective blocks.
+    ///
+    /// Note: the API will hopefully evolve to a direction which would not allocate new Vec for
+    /// every block in the near-ish future.
     pub fn finish(mut self) -> impl Iterator<Item = (Cid, Vec<u8>)> {
         let last_leaf = self.flush_buffered_leaf();
         let root_links = self.flush_buffered_links(NonZeroUsize::new(1).unwrap(), true);
