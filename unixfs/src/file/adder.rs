@@ -116,8 +116,7 @@ impl FileAdderBuilder {
         FileAdder {
             chunker,
             collector,
-            block_buffer: Vec::new(),
-            unflushed_links: Default::default(),
+            ..Default::default()
         }
     }
 }
