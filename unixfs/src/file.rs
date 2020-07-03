@@ -13,6 +13,9 @@ mod reader;
 /// Higher level API for visiting the file tree.
 pub mod visit;
 
+/// Initial version of file adder capable of constructing UnixFs v1 trees
+pub mod adder;
+
 /// Describes the errors which can happen during a visit or lower level block-by-block walking of
 /// the DAG.
 #[derive(Debug)]
