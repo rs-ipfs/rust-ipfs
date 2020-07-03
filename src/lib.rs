@@ -897,17 +897,9 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                             let res = repo.put_block(block.clone()).await;
                             match res {
                                 Ok((_, uniqueness)) => match uniqueness {
-                                    BlockPut::NewBlock => {
-                                        peer_stats.received_blocks.fetch_add(1, Ordering::Relaxed);
-                                        peer_stats
-                                            .received_data
-                                            .fetch_add(bytes, Ordering::Relaxed);
-                                    }
+                                    BlockPut::NewBlock => peer_stats.update_incoming_unique(bytes),
                                     BlockPut::Existed => {
-                                        peer_stats.duplicate_blocks.fetch_add(1, Ordering::Relaxed);
-                                        peer_stats
-                                            .duplicate_data
-                                            .fetch_add(bytes, Ordering::Relaxed);
+                                        peer_stats.update_incoming_duplicate(bytes)
                                     }
                                 },
                                 Err(e) => {

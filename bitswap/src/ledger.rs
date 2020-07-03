@@ -26,6 +26,45 @@ pub struct Stats {
     pub duplicate_data: AtomicU64,
 }
 
+impl Stats {
+    pub fn update_outgoing(&self, num_blocks: u64) {
+        self.sent_blocks.fetch_add(num_blocks, Ordering::Relaxed);
+    }
+
+    pub fn update_incoming_unique(&self, bytes: u64) {
+        self.received_blocks.fetch_add(1, Ordering::Relaxed);
+        self.received_data.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub fn update_incoming_duplicate(&self, bytes: u64) {
+        self.duplicate_blocks.fetch_add(1, Ordering::Relaxed);
+        self.duplicate_data.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub fn add_assign(&self, other: &Stats) {
+        self.sent_blocks
+            .fetch_add(other.sent_blocks.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.sent_data
+            .fetch_add(other.sent_data.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.received_blocks.fetch_add(
+            other.received_blocks.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        self.received_data.fetch_add(
+            other.received_data.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        self.duplicate_blocks.fetch_add(
+            other.duplicate_blocks.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        self.duplicate_data.fetch_add(
+            other.duplicate_data.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+    }
+}
+
 /// The Ledger contains the history of transactions with a peer.
 #[derive(Debug, Default)]
 pub struct Ledger {
@@ -57,24 +96,6 @@ impl Ledger {
         self.message.cancel_block(cid);
     }
 
-    pub fn update_outgoing_stats(&mut self) {
-        self.stats
-            .sent_blocks
-            .fetch_add(self.message.blocks.len() as u64, Ordering::Relaxed);
-    }
-
-    pub(crate) fn _update_incoming_unique(&mut self, bytes: u64) {
-        self.stats.received_blocks.fetch_add(1, Ordering::Relaxed);
-        self.stats.received_data.fetch_add(bytes, Ordering::Relaxed);
-    }
-
-    pub(crate) fn _update_incoming_duplicate(&mut self, bytes: u64) {
-        self.stats.duplicate_blocks.fetch_add(1, Ordering::Relaxed);
-        self.stats
-            .duplicate_data
-            .fetch_add(bytes, Ordering::Relaxed);
-    }
-
     /// Returns the blocks wanted by the peer in unspecified order
     pub fn wantlist(&self) -> Vec<(Cid, Priority)> {
         self.received_want_list
@@ -94,7 +115,7 @@ impl Ledger {
             self.sent_want_list.insert(cid.clone(), *priority);
         }
 
-        self.update_outgoing_stats();
+        self.stats.update_outgoing(self.message.blocks.len() as u64);
 
         Some(mem::take(&mut self.message))
     }

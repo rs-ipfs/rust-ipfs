@@ -21,7 +21,7 @@ use libp2p_swarm::{
 use std::{
     collections::{HashMap, VecDeque},
     mem,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{Arc, Mutex},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,31 +75,8 @@ impl Bitswap {
         // we currently do not remove ledgers so this is ... good enough
         self.connected_peers
             .values()
-            .fold(Stats::default(), |acc, ledger| {
-                acc.sent_blocks.fetch_add(
-                    ledger.stats.sent_blocks.load(Ordering::Relaxed),
-                    Ordering::Relaxed,
-                );
-                acc.sent_data.fetch_add(
-                    ledger.stats.sent_data.load(Ordering::Relaxed),
-                    Ordering::Relaxed,
-                );
-                acc.received_blocks.fetch_add(
-                    ledger.stats.received_blocks.load(Ordering::Relaxed),
-                    Ordering::Relaxed,
-                );
-                acc.received_data.fetch_add(
-                    ledger.stats.received_data.load(Ordering::Relaxed),
-                    Ordering::Relaxed,
-                );
-                acc.duplicate_blocks.fetch_add(
-                    ledger.stats.duplicate_blocks.load(Ordering::Relaxed),
-                    Ordering::Relaxed,
-                );
-                acc.duplicate_data.fetch_add(
-                    ledger.stats.duplicate_data.load(Ordering::Relaxed),
-                    Ordering::Relaxed,
-                );
+            .fold(Stats::default(), |acc, peer_ledger| {
+                acc.add_assign(&peer_ledger.stats);
                 acc
             })
     }
