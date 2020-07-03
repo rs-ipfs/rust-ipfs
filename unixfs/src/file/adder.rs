@@ -336,7 +336,10 @@ impl Chunker {
     }
 }
 
-/// Collector or layout strategy
+/// Collector or layout strategy. For more information, see the [Layout section of the spec].
+/// Currently only the default balanced collector/layout has been implemented.
+///
+/// [Layout section of the spec]: https://github.com/ipfs/specs/blob/master/UNIXFS.md#layout
 #[derive(Debug, Clone)]
 pub enum Collector {
     /// Balanced trees.
@@ -381,6 +384,13 @@ impl fmt::Debug for BalancedCollector {
 }
 
 impl std::default::Default for BalancedCollector {
+    /// Returns a default collector which matches go-ipfs 0.6
+    ///
+    /// The origin for 174 is not described in the the [specs], but has likely to do something
+    /// with being "good enough" regarding prefetching when reading and allows reusing some of the
+    /// link blocks if parts of a longer file change.
+    ///
+    /// [specs]: https://github.com/ipfs/specs/blob/master/UNIXFS.md
     fn default() -> Self {
         Self::with_branching_factor(174)
     }
@@ -402,29 +412,47 @@ impl BalancedCollector {
         /*
 
         file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
-        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
-        links#1 |-------|-------|-------|-------|-------|-------|-------|\   /
-        links#2 |-------------------------------|                         ^^^
-                                                                    one short
+        links-0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|E|F|G|
+        links-1 |-------|-------|-------|-------|-B-----|-C-----|-D-----|\   /
+        links-2 |-A-----------------------------|                         ^^^
+              ^                                                     one short
+               \--- link.depth
 
-        #flush_buffered_links(...) first iterations:
+        pending [A, B, C, D, E, F, G]
+
+        #flush_buffered_links(...) first iteration:
 
         file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
-        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
-        links#1 |-------|-------|-------|-------|-------|-------|-------|==1==|
-        links#2 |-------------------------------|==========================2==|
+        links-0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|E|F|G|
+        links-1 |-------|-------|-------|-------|-B-----|-C-----|-D-----|=#1==|
+        links-2 |-A-----------------------------|
 
-        new blocks #1 and #2
+        pending [A, B, C, D, E, F, G] => [A, B, C, D, 1]
+
+        new link block #1 is created for E, F, and G.
+
+        #flush_buffered_links(...) second iteration:
+
+        file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
+        links-0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
+        links-1 |-------|-------|-------|-------|-B-----|-C-----|-D-----|-#1--|
+        links-2 |-A-----------------------------|=========================#2==|
+
+        pending [A, B, C, D, 1] => [A, 2]
+
+        new link block #2 is created for B, C, D, and #1.
 
         #flush_buffered_links(...) last iteration:
 
         file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
-        links#0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
-        links#1 |-------|-------|-------|-------|-------|-------|-------|--1--|
-        links#2 |-------------------------------|--------------------------2--|
-        links#3 |==========================================================3==|
+        links-0 |-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
+        links-1 |-------|-------|-------|-------|-------|-------|-------|-#1--|
+        links-2 |-A-----------------------------|-------------------------#2--|
+        links-3 |=========================================================#3==|
 
-        new block #3 (the root block)
+        pending [A, 2] => [3]
+
+        new link block #3 is created for A, and #2. (the root block)
         */
 
         let mut ret = Vec::new();
@@ -464,8 +492,8 @@ impl BalancedCollector {
                 let to_compress = pending[first_at..].len();
 
                 if to_compress < self.branching_factor && !finishing {
-                    // when not finishing recheck if we have enough work to do as we may have had
-                    // earlier higher level links which skipped, but we are still awaiting for a
+                    // when not finishing recheck, if we have enough work to do (as we may have had
+                    // earlier higher level links which were skipped), but we are still waiting for a
                     // full link block
                     break;
                 }
@@ -670,8 +698,8 @@ mod tests {
         // 04 == dag-pb body len, varint, 4 bytes
         // 08 == field type tag, varint, 1 byte
         // 02 == field type (File)
-        // 18 == field data tag, varlen
-        // 00 == data length, varint, 1 byte
+        // 18 == field filesize tag, varint
+        // 00 == filesize, varint, 1 byte
         assert_eq!(blocks[0].1.as_slice(), &hex!("0a 04 08 02 18 00"));
         assert_eq!(
             blocks[0].0.to_string(),
@@ -697,7 +725,6 @@ mod tests {
             let (blocks, written) = adder.push(buf.as_slice());
             assert_eq!(written, buf.len());
 
-            // do not collect the blocks because this is some 45MB
             blocks_count += blocks.count();
         }
 
