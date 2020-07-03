@@ -10,7 +10,6 @@ use crate::ledger::{Ledger, Message, Priority, Stats};
 use crate::protocol::BitswapConfig;
 use cid::Cid;
 use fnv::FnvHashSet;
-use futures::channel::mpsc::Sender;
 use futures::task::Context;
 use futures::task::Poll;
 use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
@@ -32,11 +31,10 @@ pub enum BitswapEvent {
 }
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
+#[derive(Default)]
 pub struct Bitswap {
     /// Queue of events to report to the user.
     events: VecDeque<NetworkBehaviourAction<Message, BitswapEvent>>,
-    /// The events that require storage access, accessible from IpfsFuture.
-    io_events: Sender<BitswapEvent>,
     /// List of peers to send messages to.
     target_peers: FnvHashSet<PeerId>,
     /// Ledger
@@ -48,16 +46,6 @@ pub struct Bitswap {
 }
 
 impl Bitswap {
-    pub fn new(io_event_sender: Sender<BitswapEvent>) -> Self {
-        Self {
-            events: Default::default(),
-            io_events: io_event_sender,
-            target_peers: Default::default(),
-            connected_peers: Default::default(),
-            wanted_blocks: Default::default(),
-            queued_blocks: Default::default(),
-        }
-    }
     /// Return the wantlist of the local node
     pub fn local_wantlist(&self) -> Vec<(Cid, Priority)> {
         self.wanted_blocks
@@ -210,7 +198,6 @@ impl NetworkBehaviour for Bitswap {
             ledger.received_want_list.insert(cid.to_owned(), *priority);
 
             let event = BitswapEvent::ReceivedWant(source.clone(), cid.clone(), *priority);
-            self.io_events.try_send(event.clone()).unwrap();
             self.events
                 .push_back(NetworkBehaviourAction::GenerateEvent(event));
         }
@@ -220,7 +207,6 @@ impl NetworkBehaviour for Bitswap {
             self.cancel_block(&block.cid());
 
             let event = BitswapEvent::ReceivedBlock(source.clone(), block);
-            self.io_events.try_send(event.clone()).unwrap();
             self.events
                 .push_back(NetworkBehaviourAction::GenerateEvent(event));
         }

@@ -1,9 +1,8 @@
 //! P2P handling for IPFS nodes.
 use crate::repo::RepoTypes;
+use crate::Ipfs;
 use crate::IpfsOptions;
-use bitswap::BitswapEvent;
 use core::marker::PhantomData;
-use futures::channel::mpsc::{channel, Receiver};
 use libp2p::identity::Keypair;
 use libp2p::Swarm;
 use libp2p::{Multiaddr, PeerId};
@@ -15,7 +14,7 @@ mod transport;
 
 pub use swarm::Connection;
 
-pub type TSwarm = Swarm<behaviour::Behaviour>;
+pub type TSwarm<T> = Swarm<behaviour::Behaviour<T>>;
 
 pub trait SwarmTypes: RepoTypes + Sized {}
 
@@ -46,17 +45,15 @@ impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<T
 /// Creates a new IPFS swarm.
 pub async fn create_swarm<TSwarmTypes: SwarmTypes>(
     options: SwarmOptions<TSwarmTypes>,
-) -> (TSwarm, Receiver<BitswapEvent>) {
+    ipfs: Ipfs<TSwarmTypes>,
+) -> TSwarm<TSwarmTypes> {
     let peer_id = options.peer_id.clone();
 
     // Set up an encrypted TCP transport over the Mplex protocol.
     let transport = transport::build_transport(options.keypair.clone());
 
-    // HACK: this should instead be achieved with better encapsulation / event propagation.
-    let (bitswap_event_sender, bitswap_event_receiver) = channel(1);
-
     // Create a Kademlia behaviour
-    let behaviour = behaviour::build_behaviour(options, bitswap_event_sender).await;
+    let behaviour = behaviour::build_behaviour(options, ipfs).await;
 
     // Create a Swarm
     let mut swarm = libp2p::Swarm::new(transport, behaviour, peer_id);
@@ -65,5 +62,5 @@ pub async fn create_swarm<TSwarmTypes: SwarmTypes>(
     let addr = Swarm::listen_on(&mut swarm, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
     info!("Listening on {:?}", addr);
 
-    (swarm, bitswap_event_receiver)
+    swarm
 }

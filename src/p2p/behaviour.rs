@@ -1,9 +1,11 @@
 use super::pubsub::Pubsub;
 use super::swarm::{Connection, Disconnector, SwarmApi};
 use crate::p2p::{SwarmOptions, SwarmTypes};
+use crate::repo::BlockPut;
 use crate::subscription::SubscriptionFuture;
+use crate::{Ipfs, IpfsTypes};
+use async_std::task;
 use bitswap::{Bitswap, BitswapEvent};
-use futures::channel::mpsc::Sender;
 use libipld::cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{Identify, IdentifyEvent};
@@ -14,10 +16,13 @@ use libp2p::ping::{Ping, PingEvent};
 use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
+use std::sync::Arc;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
-pub struct Behaviour {
+pub struct Behaviour<Types: IpfsTypes> {
+    #[behaviour(ignore)]
+    ipfs: Ipfs<Types>,
     mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
     bitswap: Bitswap,
@@ -27,14 +32,14 @@ pub struct Behaviour {
     swarm: SwarmApi,
 }
 
-impl NetworkBehaviourEventProcess<()> for Behaviour {
+impl<Types: IpfsTypes> NetworkBehaviourEventProcess<()> for Behaviour<Types> {
     fn inject_event(&mut self, _event: ()) {}
 }
-impl NetworkBehaviourEventProcess<void::Void> for Behaviour {
+impl<Types: IpfsTypes> NetworkBehaviourEventProcess<void::Void> for Behaviour<Types> {
     fn inject_event(&mut self, _event: void::Void) {}
 }
 
-impl NetworkBehaviourEventProcess<MdnsEvent> for Behaviour {
+impl<Types: IpfsTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
             MdnsEvent::Discovered(list) => {
@@ -53,7 +58,7 @@ impl NetworkBehaviourEventProcess<MdnsEvent> for Behaviour {
     }
 }
 
-impl NetworkBehaviourEventProcess<KademliaEvent> for Behaviour {
+impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: KademliaEvent) {
         use libp2p::kad::{GetProvidersError, GetProvidersOk, QueryResult};
 
@@ -98,11 +103,66 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for Behaviour {
     }
 }
 
-impl NetworkBehaviourEventProcess<BitswapEvent> for Behaviour {
-    fn inject_event(&mut self, _event: BitswapEvent) {}
+impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<Types> {
+    fn inject_event(&mut self, event: BitswapEvent) {
+        match event {
+            BitswapEvent::ReceivedBlock(peer_id, block) => {
+                let ipfs = self.ipfs.clone();
+                let peer_stats =
+                    Arc::clone(&self.bitswap.connected_peers.get(&peer_id).unwrap().stats);
+                task::spawn(async move {
+                    let bytes = block.data().len() as u64;
+                    let res = ipfs.repo.put_block(block.clone()).await;
+                    match res {
+                        Ok((_, uniqueness)) => match uniqueness {
+                            BlockPut::NewBlock => peer_stats.update_incoming_unique(bytes),
+                            BlockPut::Existed => peer_stats.update_incoming_duplicate(bytes),
+                        },
+                        Err(e) => {
+                            debug!(
+                                "Got block {} from peer {} but failed to store it: {}",
+                                block.cid,
+                                peer_id.to_base58(),
+                                e
+                            );
+                            return;
+                        }
+                    };
+                });
+            }
+            BitswapEvent::ReceivedWant(peer_id, cid, priority) => {
+                info!(
+                    "Peer {} wants block {} with priority {}",
+                    peer_id.to_base58(),
+                    cid.to_string(),
+                    priority
+                );
+
+                let ipfs = self.ipfs.clone();
+                let queued_blocks = Arc::clone(&self.bitswap().queued_blocks);
+                task::spawn(async move {
+                    let block = match ipfs.repo.get_block(&cid).await {
+                        Ok(block) => block,
+                        Err(err) => {
+                            warn!(
+                                "Peer {} wanted block {} but we failed: {}",
+                                peer_id.to_base58(),
+                                cid,
+                                err,
+                            );
+                            return;
+                        }
+                    };
+
+                    queued_blocks.lock().unwrap().push((peer_id, block));
+                });
+            }
+            BitswapEvent::ReceivedCancel(..) => {}
+        }
+    }
 }
 
-impl NetworkBehaviourEventProcess<PingEvent> for Behaviour {
+impl<Types: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: PingEvent) {
         use libp2p::ping::handler::{PingFailure, PingSuccess};
         match event {
@@ -140,17 +200,17 @@ impl NetworkBehaviourEventProcess<PingEvent> for Behaviour {
     }
 }
 
-impl NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour {
+impl<Types: IpfsTypes> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: IdentifyEvent) {
         log::trace!("identify: {:?}", event);
     }
 }
 
-impl Behaviour {
+impl<Types: IpfsTypes> Behaviour<Types> {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
     pub async fn new<TSwarmTypes: SwarmTypes>(
         options: SwarmOptions<TSwarmTypes>,
-        bitswap_event_sender: Sender<BitswapEvent>,
+        ipfs: Ipfs<Types>,
     ) -> Self {
         info!("Local peer id: {}", options.peer_id.to_base58());
 
@@ -167,7 +227,7 @@ impl Behaviour {
             kademlia.add_address(peer_id, addr.to_owned());
         }
 
-        let bitswap = Bitswap::new(bitswap_event_sender);
+        let bitswap = Bitswap::default();
         let ping = Ping::default();
         let identify = Identify::new(
             "/ipfs/0.1.0".into(),
@@ -178,6 +238,7 @@ impl Behaviour {
         let swarm = SwarmApi::new();
 
         Behaviour {
+            ipfs,
             mdns,
             kademlia,
             bitswap,
@@ -245,15 +306,15 @@ impl Behaviour {
         &mut self.pubsub
     }
 
-    pub fn bitswap(&mut self) -> &mut Bitswap {
-        &mut self.bitswap
+    pub fn bitswap(&self) -> &Bitswap {
+        &self.bitswap
     }
 }
 
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
 pub async fn build_behaviour<TSwarmTypes: SwarmTypes>(
     options: SwarmOptions<TSwarmTypes>,
-    bitswap_event_sender: Sender<BitswapEvent>,
-) -> Behaviour {
-    Behaviour::new(options, bitswap_event_sender).await
+    ipfs: Ipfs<TSwarmTypes>,
+) -> Behaviour<TSwarmTypes> {
+    Behaviour::new(options, ipfs).await
 }

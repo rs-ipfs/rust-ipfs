@@ -9,7 +9,7 @@
 extern crate log;
 
 use anyhow::format_err;
-use async_std::{path::PathBuf, task};
+use async_std::path::PathBuf;
 pub use bitswap::{BitswapEvent, Block, Stats};
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
@@ -50,7 +50,7 @@ pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
-use self::repo::{create_repo, BlockPut, Repo, RepoEvent, RepoOptions};
+use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
 use self::subscription::SubscriptionFuture;
 use self::unixfs::File;
 
@@ -258,7 +258,8 @@ enum IpfsEvent {
 pub struct UninitializedIpfs<Types: IpfsTypes> {
     repo: Option<Repo<Types>>,
     keys: Keypair,
-    moved_on_init: Option<(Receiver<BitswapEvent>, Receiver<RepoEvent>, TSwarm)>,
+    options: IpfsOptions<Types>,
+    moved_on_init: Option<Receiver<RepoEvent>>,
 }
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
@@ -267,13 +268,12 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let repo_options = RepoOptions::<Types>::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let keys = options.keypair.clone();
-        let swarm_options = SwarmOptions::<Types>::from(&options);
-        let (swarm, bitswap_events) = create_swarm(swarm_options).await;
 
         UninitializedIpfs {
             repo: Some(repo),
             keys,
-            moved_on_init: Some((bitswap_events, repo_events, swarm)),
+            options,
+            moved_on_init: Some(repo_events),
         }
     }
 
@@ -287,7 +287,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let repo = Option::take(&mut self.repo).unwrap();
         repo.init().await?;
 
-        let (bitswap_events, repo_events, swarm) = self
+        let repo_events = self
             .moved_on_init
             .take()
             .expect("start cannot be called twice");
@@ -304,6 +304,9 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             to_task,
         }));
 
+        let swarm_options = SwarmOptions::<Types>::from(&self.options);
+        let swarm = create_swarm(swarm_options, ipfs.clone()).await;
+
         let dag = IpldDag::new(ipfs.clone());
         let ipns = Ipns::new(ipfs.clone());
 
@@ -317,10 +320,8 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         }
 
         let fut = IpfsFuture {
-            bitswap_events: bitswap_events.fuse(),
             repo_events: repo_events.fuse(),
             from_facade: receiver.fuse(),
-            ipfs: ipfs.clone(),
             swarm,
             listening_addresses: HashMap::new(),
         };
@@ -339,11 +340,11 @@ impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
 
 impl<Types: IpfsTypes> Ipfs<Types> {
     fn dag(&self) -> &IpldDag<Types> {
-        self.dag.as_ref().unwrap()
+        self.dag.as_ref().unwrap() // safe, always there
     }
 
     fn ipns(&self) -> &Ipns<Types> {
-        self.ipns.as_ref().unwrap()
+        self.ipns.as_ref().unwrap() // safe, always there
     }
 
     /// Puts a block into the ipfs repo.
@@ -631,9 +632,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 /// Background task of `Ipfs` created when calling `UninitializedIpfs::start`.
 // The receivers are Fuse'd so that we don't have to manage state on them being exhausted.
 struct IpfsFuture<Types: IpfsTypes> {
-    ipfs: Ipfs<Types>,
-    swarm: TSwarm,
-    bitswap_events: Fuse<Receiver<BitswapEvent>>,
+    swarm: TSwarm<Types>,
     repo_events: Fuse<Receiver<RepoEvent>>,
     from_facade: Fuse<Receiver<IpfsEvent>>,
     listening_addresses: HashMap<Multiaddr, (ListenerId, Option<Channel<Multiaddr>>)>,
@@ -894,72 +893,6 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
                     RepoEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
                     RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
-                }
-            }
-
-            while let Poll::Ready(Some(evt)) = Pin::new(&mut self.bitswap_events).poll_next(ctx) {
-                match evt {
-                    BitswapEvent::ReceivedBlock(peer_id, block) => {
-                        let ipfs = self.ipfs.clone();
-                        let peer_stats = Arc::clone(
-                            &self
-                                .swarm
-                                .bitswap()
-                                .connected_peers
-                                .get(&peer_id)
-                                .unwrap()
-                                .stats,
-                        );
-                        task::spawn(async move {
-                            let bytes = block.data().len() as u64;
-                            let res = ipfs.repo.put_block(block.clone()).await;
-                            match res {
-                                Ok((_, uniqueness)) => match uniqueness {
-                                    BlockPut::NewBlock => peer_stats.update_incoming_unique(bytes),
-                                    BlockPut::Existed => {
-                                        peer_stats.update_incoming_duplicate(bytes)
-                                    }
-                                },
-                                Err(e) => {
-                                    debug!(
-                                        "Got block {} from peer {} but failed to store it: {}",
-                                        block.cid,
-                                        peer_id.to_base58(),
-                                        e
-                                    );
-                                    return;
-                                }
-                            };
-                        });
-                    }
-                    BitswapEvent::ReceivedWant(peer_id, cid, priority) => {
-                        info!(
-                            "Peer {} wants block {} with priority {}",
-                            peer_id.to_base58(),
-                            cid.to_string(),
-                            priority
-                        );
-
-                        let ipfs = self.ipfs.clone();
-                        let queued_blocks = Arc::clone(&self.swarm.bitswap().queued_blocks);
-                        task::spawn(async move {
-                            let block = match ipfs.repo.get_block(&cid).await {
-                                Ok(block) => block,
-                                Err(err) => {
-                                    warn!(
-                                        "Peer {} wanted block {} but we failed: {}",
-                                        peer_id.to_base58(),
-                                        cid,
-                                        err,
-                                    );
-                                    return;
-                                }
-                            };
-
-                            queued_blocks.lock().unwrap().push((peer_id, block));
-                        });
-                    }
-                    BitswapEvent::ReceivedCancel(..) => {}
                 }
             }
 
