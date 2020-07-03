@@ -22,7 +22,7 @@ pub struct FileAdder {
     block_buffer: Vec<u8>,
     // all unflushed links as a flat vec; this is compacted as we grow and need to create a link
     // block for the last N blocks, as decided by the collector
-    unflushed_links: Vec<(usize, Cid, u64, u64)>,
+    unflushed_links: Vec<Link>,
 }
 
 impl fmt::Debug for FileAdder {
@@ -38,7 +38,7 @@ impl fmt::Debug for FileAdder {
     }
 }
 
-struct LinkFormatter<'a>(&'a [(usize, Cid, u64, u64)]);
+struct LinkFormatter<'a>(&'a [Link]);
 
 impl fmt::Display for LinkFormatter<'_> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -47,13 +47,16 @@ impl fmt::Display for LinkFormatter<'_> {
         write!(fmt, "[")?;
 
         let mut current = match iter.peek() {
-            Some((depth, ..)) => depth,
+            Some(Link { depth, .. }) => depth,
             None => return write!(fmt, "]"),
         };
 
         let mut count = 0;
 
-        for (next_depth, ..) in iter {
+        for Link {
+            depth: next_depth, ..
+        } in iter
+        {
             if current == next_depth {
                 count += 1;
             } else {
@@ -68,6 +71,21 @@ impl fmt::Display for LinkFormatter<'_> {
 
         write!(fmt, "{}]", count)
     }
+}
+
+/// Represents an intermediate structure which will be serialized into link blocks as both PBLink
+/// and UnixFs::blocksize. Also holds `depth`, which helps with compaction of the link blocks.
+struct Link {
+    /// Depth of this link. Zero is leaf, and anything above it is, at least for
+    /// [`BalancedCollector`], the compacted link blocks.
+    depth: usize,
+    /// The link target
+    target: Cid,
+    /// Total size is dag-pb specific part of the link: aggregated size of the linked subtree.
+    total_size: u64,
+    /// File size is the unixfs specific blocksize for this link. In UnixFs link blocks, there is a
+    /// UnixFs::blocksizes item for each link.
+    file_size: u64,
 }
 
 /// Convinience type to facilitate configuring FileAdders
@@ -191,7 +209,7 @@ impl FileAdder {
     /// block.
     fn flush_buffered_leaf(
         input: &[u8],
-        unflushed_links: &mut Vec<(usize, Cid, u64, u64)>,
+        unflushed_links: &mut Vec<Link>,
         finishing: bool,
     ) -> Option<(Cid, Vec<u8>)> {
         if input.is_empty() && (!finishing || !unflushed_links.is_empty()) {
@@ -223,7 +241,14 @@ impl FileAdder {
 
         let total_size = vec.len();
 
-        unflushed_links.push((0, cid.clone(), total_size as u64, input.len() as u64));
+        let link = Link {
+            depth: 0,
+            target: cid.clone(),
+            total_size: total_size as u64,
+            file_size: input.len() as u64,
+        };
+
+        unflushed_links.push(link);
 
         Some((cid, vec))
     }
@@ -326,11 +351,7 @@ impl std::default::Default for Collector {
 }
 
 impl Collector {
-    fn flush_links(
-        &mut self,
-        pending: &mut Vec<(usize, Cid, u64, u64)>,
-        finishing: bool,
-    ) -> Vec<(Cid, Vec<u8>)> {
+    fn flush_links(&mut self, pending: &mut Vec<Link>, finishing: bool) -> Vec<(Cid, Vec<u8>)> {
         use Collector::*;
 
         match self {
@@ -378,11 +399,7 @@ impl BalancedCollector {
         }
     }
 
-    fn flush_links(
-        &mut self,
-        pending: &mut Vec<(usize, Cid, u64, u64)>,
-        finishing: bool,
-    ) -> Vec<(Cid, Vec<u8>)> {
+    fn flush_links(&mut self, pending: &mut Vec<Link>, finishing: bool) -> Vec<(Cid, Vec<u8>)> {
         /*
 
         file    |- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|
@@ -440,7 +457,9 @@ impl BalancedCollector {
             }
 
             // this could be optimized... perhaps by maintaining an index structure?
-            let first_at = pending.iter().position(|(lvl, ..)| lvl == &level);
+            let first_at = pending
+                .iter()
+                .position(|Link { depth, .. }| depth == &level);
 
             if let Some(first_at) = first_at {
                 let to_compress = pending[first_at..].len();
@@ -458,7 +477,13 @@ impl BalancedCollector {
                 let mut nested_size = 0;
                 let mut nested_total_size = 0;
 
-                for (depth, cid, total_size, block_size) in pending.drain(first_at..) {
+                for Link {
+                    depth,
+                    target: cid,
+                    total_size,
+                    file_size,
+                } in pending.drain(first_at..)
+                {
                     assert_eq!(depth, level);
 
                     reused_links.push(PBLink {
@@ -466,9 +491,9 @@ impl BalancedCollector {
                         Name: Some("".into()),
                         Tsize: Some(total_size),
                     });
-                    reused_blocksizes.push(block_size);
+                    reused_blocksizes.push(file_size);
                     nested_total_size += total_size;
-                    nested_size += block_size;
+                    nested_size += file_size;
                 }
 
                 let inner = FlatUnixFs {
@@ -483,12 +508,12 @@ impl BalancedCollector {
 
                 let (cid, vec) = render_and_hash(&inner);
 
-                pending.push((
-                    level + 1,
-                    cid.clone(),
-                    nested_total_size + vec.len() as u64,
-                    nested_size,
-                ));
+                pending.push(Link {
+                    depth: level + 1,
+                    target: cid.clone(),
+                    total_size: nested_total_size + vec.len() as u64,
+                    file_size: nested_size,
+                });
 
                 ret.push((cid, vec));
 
