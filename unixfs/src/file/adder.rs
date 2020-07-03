@@ -97,21 +97,18 @@ pub struct FileAdderBuilder {
 
 impl FileAdderBuilder {
     /// Configures the builder to use the given chunker.
-    pub fn set_chunker(&mut self, chunker: Chunker) -> &mut Self {
-        self.chunker = chunker;
-        self
+    pub fn with_chunker(self, chunker: Chunker) -> Self {
+        FileAdderBuilder { chunker, ..self }
     }
 
     /// Configures the builder to use the given collector or layout.
-    pub fn set_collector(&mut self, collector: Collector) -> &mut Self {
-        self.collector = collector;
-        self
+    pub fn with_collector(self, collector: Collector) -> Self {
+        FileAdderBuilder { collector, ..self }
     }
 
     /// Returns a new FileAdder
-    pub fn build(&self) -> FileAdder {
-        let chunker = self.chunker.clone();
-        let collector = self.collector.clone();
+    pub fn build(self) -> FileAdder {
+        let FileAdderBuilder { chunker, collector } = self;
 
         FileAdder {
             chunker,
@@ -620,7 +617,7 @@ mod tests {
 
         let blocks = FakeBlockstore::with_fixtures();
         let content = b"foobar\n";
-        let adder = FileAdder::builder().set_chunker(Chunker::Size(2)).build();
+        let adder = FileAdder::builder().with_chunker(Chunker::Size(2)).build();
 
         let blocks_received = adder.collect_blocks(content, 0);
 
@@ -660,7 +657,7 @@ mod tests {
         //
         // in future, if we ever add inline Cid generation this test would need to be changed not
         // to use those inline cids or raw leaves
-        let adder = FileAdder::builder().set_chunker(Chunker::Size(1)).build();
+        let adder = FileAdder::builder().with_chunker(Chunker::Size(1)).build();
 
         let blocks_received = adder.collect_blocks(content, 0);
 
@@ -679,7 +676,7 @@ mod tests {
             wisi ipsum, vel rhoncus eget faucibus varius, luctus turpis nibh vel odio nulla pede.";
 
         for amt in 1..32 {
-            let adder = FileAdder::builder().set_chunker(Chunker::Size(32)).build();
+            let adder = FileAdder::builder().with_chunker(Chunker::Size(32)).build();
             let blocks_received = adder.collect_blocks(content, amt);
             assert_eq!(
                 blocks_received.last().unwrap().0.to_string(),
@@ -718,7 +715,7 @@ mod tests {
         //   ^^^^^^^^^^^^^^^^^^^^^^   ^
         //          174 blocks        \--- 1 block
 
-        let mut adder = FileAdder::builder().set_chunker(Chunker::Size(2)).build();
+        let mut adder = FileAdder::builder().with_chunker(Chunker::Size(2)).build();
         let mut blocks_count = 0;
 
         for _ in 0..174 {
