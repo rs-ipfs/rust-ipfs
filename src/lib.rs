@@ -207,13 +207,16 @@ impl<T: IpfsTypes> Default for IpfsOptions<T> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Ipfs<Types: IpfsTypes>(Arc<IpfsInner<Types>>);
+
 /// Ipfs struct creates a new IPFS node and is the main entry point
 /// for interacting with IPFS.
-#[derive(Clone, Debug)]
-pub struct Ipfs<Types: IpfsTypes> {
-    repo: Arc<Repo<Types>>,
-    dag: IpldDag<Types>,
-    ipns: Ipns<Types>,
+#[derive(Debug)]
+pub struct IpfsInner<Types: IpfsTypes> {
+    repo: Repo<Types>,
+    dag: Option<IpldDag<Types>>,
+    ipns: Option<Ipns<Types>>,
     keys: DebuggableKeypair<Keypair>,
     to_task: Sender<IpfsEvent>,
 }
@@ -253,9 +256,7 @@ enum IpfsEvent {
 
 /// Configured Ipfs instace or value which can be only initialized.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
-    repo: Arc<Repo<Types>>,
-    dag: IpldDag<Types>,
-    ipns: Ipns<Types>,
+    repo: Option<Repo<Types>>,
     keys: Keypair,
     moved_on_init: Option<(Receiver<BitswapEvent>, Receiver<RepoEvent>, TSwarm)>,
 }
@@ -264,17 +265,13 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// Configures a new UninitializedIpfs with from the given options.
     pub async fn new(options: IpfsOptions<Types>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
-        let keys = options.keypair.clone();
         let (repo, repo_events) = create_repo(repo_options);
+        let keys = options.keypair.clone();
         let swarm_options = SwarmOptions::<Types>::from(&options);
         let (swarm, bitswap_events) = create_swarm(swarm_options).await;
-        let dag = IpldDag::new(repo.clone());
-        let ipns = Ipns::new(repo.clone());
 
         UninitializedIpfs {
-            repo,
-            dag,
-            ipns,
+            repo: Some(repo),
             keys,
             moved_on_init: Some((bitswap_events, repo_events, swarm)),
         }
@@ -287,46 +284,68 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     ) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
         use futures::stream::StreamExt;
 
+        let repo = Option::take(&mut self.repo).unwrap();
+        repo.init().await?;
+
         let (bitswap_events, repo_events, swarm) = self
             .moved_on_init
             .take()
             .expect("start cannot be called twice");
 
-        self.repo.init().await?;
-
         let (to_task, receiver) = channel::<IpfsEvent>(1);
+
+        let UninitializedIpfs { keys, .. } = self;
+
+        let ipfs = Ipfs(Arc::new(IpfsInner {
+            repo,
+            dag: None,
+            ipns: None,
+            keys: DebuggableKeypair(keys),
+            to_task,
+        }));
+
+        let dag = IpldDag::new(ipfs.clone());
+        let ipns = Ipns::new(ipfs.clone());
+
+        // FIXME: instead use Arc::get_mut_unchecked when available (rust-lang #63292)
+        unsafe {
+            let dag_ref = &ipfs.0.dag as *const _ as *mut _;
+            let ipns_ref = &ipfs.0.ipns as *const _ as *mut _;
+
+            *dag_ref = Some(dag);
+            *ipns_ref = Some(ipns);
+        }
 
         let fut = IpfsFuture {
             bitswap_events: bitswap_events.fuse(),
             repo_events: repo_events.fuse(),
             from_facade: receiver.fuse(),
-            repo: Arc::clone(&self.repo),
+            ipfs: ipfs.clone(),
             swarm,
             listening_addresses: HashMap::new(),
         };
 
-        let UninitializedIpfs {
-            repo,
-            dag,
-            ipns,
-            keys,
-            ..
-        } = self;
+        Ok((ipfs, fut))
+    }
+}
 
-        Ok((
-            Ipfs {
-                repo,
-                dag,
-                ipns,
-                keys: DebuggableKeypair(keys),
-                to_task,
-            },
-            fut,
-        ))
+impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
+    type Target = IpfsInner<Types>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
+    fn dag(&self) -> &IpldDag<Types> {
+        self.dag.as_ref().unwrap()
+    }
+
+    fn ipns(&self) -> &Ipns<Types> {
+        self.ipns.as_ref().unwrap()
+    }
+
     /// Puts a block into the ipfs repo.
     pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
         Ok(self.repo.put_block(block).await?.0)
@@ -360,25 +379,25 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Puts an ipld dag node into the ipfs repo.
     pub async fn put_dag(&self, ipld: Ipld) -> Result<Cid, Error> {
-        Ok(self.dag.put(ipld, Codec::DagCBOR).await?)
+        Ok(self.dag().put(ipld, Codec::DagCBOR).await?)
     }
 
     /// Gets an ipld dag node from the ipfs repo.
     pub async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
-        Ok(self.dag.get(path).await?)
+        Ok(self.dag().get(path).await?)
     }
 
     /// Adds a file into the ipfs repo.
     pub async fn add(&self, path: PathBuf) -> Result<Cid, Error> {
-        let dag = self.dag.clone();
+        let dag = self.dag();
         let file = File::new(path).await?;
-        let path = file.put_unixfs_v1(&dag).await?;
+        let path = file.put_unixfs_v1(dag).await?;
         Ok(path)
     }
 
     /// Gets a file from the ipfs repo.
     pub async fn get(&self, path: IpfsPath) -> Result<File, Error> {
-        Ok(File::get_unixfs_v1(&self.dag, path).await?)
+        Ok(File::get_unixfs_v1(self.dag(), path).await?)
     }
 
     /// Creates a stream which will yield the bytes of an UnixFS file from the root Cid, with the
@@ -399,17 +418,17 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Resolves a ipns path to an ipld path.
     pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        Ok(self.ipns.resolve(path).await?)
+        Ok(self.ipns().resolve(path).await?)
     }
 
     /// Publishes an ipld path.
     pub async fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        Ok(self.ipns.publish(key, path).await?)
+        Ok(self.ipns().publish(key, path).await?)
     }
 
     /// Cancel an ipns path.
     pub async fn cancel_ipns(&self, key: &PeerId) -> Result<(), Error> {
-        self.ipns.cancel(key).await?;
+        self.ipns().cancel(key).await?;
         Ok(())
     }
 
@@ -599,21 +618,20 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Exit daemon.
-    pub async fn exit_daemon(mut self) {
+    pub async fn exit_daemon(self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
         // the background task or stream. After that this could be handled by dropping.
         self.repo.shutdown().await;
 
-        // ignoring the error because it'd mean that the background task would had already been
-        // dropped
-        let _ = self.to_task.send(IpfsEvent::Exit).await;
+        // ignoring the error because it'd mean that the background task had already been dropped
+        let _ = self.to_task.clone().try_send(IpfsEvent::Exit);
     }
 }
 
 /// Background task of `Ipfs` created when calling `UninitializedIpfs::start`.
 // The receivers are Fuse'd so that we don't have to manage state on them being exhausted.
-struct IpfsFuture<TRepoTypes: RepoTypes> {
-    repo: Arc<Repo<TRepoTypes>>,
+struct IpfsFuture<Types: IpfsTypes> {
+    ipfs: Ipfs<Types>,
     swarm: TSwarm,
     bitswap_events: Fuse<Receiver<BitswapEvent>>,
     repo_events: Fuse<Receiver<RepoEvent>>,
@@ -882,7 +900,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
             while let Poll::Ready(Some(evt)) = Pin::new(&mut self.bitswap_events).poll_next(ctx) {
                 match evt {
                     BitswapEvent::ReceivedBlock(peer_id, block) => {
-                        let repo = self.repo.clone();
+                        let ipfs = self.ipfs.clone();
                         let peer_stats = Arc::clone(
                             &self
                                 .swarm
@@ -894,7 +912,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         );
                         task::spawn(async move {
                             let bytes = block.data().len() as u64;
-                            let res = repo.put_block(block.clone()).await;
+                            let res = ipfs.repo.put_block(block.clone()).await;
                             match res {
                                 Ok((_, uniqueness)) => match uniqueness {
                                     BlockPut::NewBlock => peer_stats.update_incoming_unique(bytes),
@@ -922,10 +940,10 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                             priority
                         );
 
-                        let repo = self.repo.clone();
+                        let ipfs = self.ipfs.clone();
                         let queued_blocks = Arc::clone(&self.swarm.bitswap().queued_blocks);
                         task::spawn(async move {
-                            let block = match repo.get_block(&cid).await {
+                            let block = match ipfs.repo.get_block(&cid).await {
                                 Ok(block) => block,
                                 Err(err) => {
                                     warn!(
@@ -1085,6 +1103,14 @@ mod tests {
 
     const MDNS: bool = false;
 
+    pub async fn create_mock_ipfs() -> Ipfs<TestTypes> {
+        let options = IpfsOptions::inmemory_with_generated_keys(MDNS);
+        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        task::spawn(fut);
+
+        ipfs
+    }
+
     #[test]
     fn unspecified_multiaddrs() {
         assert!(starts_unspecified(&build_multiaddr!(
@@ -1152,13 +1178,11 @@ mod tests {
 
     #[async_std::test]
     async fn test_put_and_get_block() {
-        let options = IpfsOptions::inmemory_with_generated_keys(MDNS);
+        let ipfs = create_mock_ipfs().await;
+
         let data = b"hello block\n".to_vec().into_boxed_slice();
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
         let block = Block::new(data, cid);
-        let ipfs = UninitializedIpfs::new(options).await;
-        let (ipfs, fut) = ipfs.start().await.unwrap();
-        task::spawn(fut);
 
         let cid: Cid = ipfs.put_block(block.clone()).await.unwrap();
         let new_block = ipfs.get_block(&cid).await.unwrap();
@@ -1169,10 +1193,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_put_and_get_dag() {
-        let options = IpfsOptions::inmemory_with_generated_keys(MDNS);
-
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        task::spawn(fut);
+        let ipfs = create_mock_ipfs().await;
 
         let data = ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
@@ -1184,10 +1205,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_pin_and_unpin() {
-        let options = IpfsOptions::inmemory_with_generated_keys(MDNS);
-
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        task::spawn(fut);
+        let ipfs = create_mock_ipfs().await;
 
         let data = ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
