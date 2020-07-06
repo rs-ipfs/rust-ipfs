@@ -1,14 +1,15 @@
-use crate::v0::support::{
-    with_ipfs, HandledErr, InvalidMultipartFormData, StreamResponse, StringError,
-};
-use futures::stream::FuturesOrdered;
-use futures::stream::StreamExt;
+use crate::v0::support::{with_ipfs, HandledErr, StreamResponse, StringError};
+use bytes::Buf;
+use futures::stream::{FuturesOrdered, Stream, StreamExt, TryStreamExt};
 use ipfs::error::Error;
 use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::{Cid, Codec, Version};
+use mime::Mime;
+use mpart_async::server::MultipartStream;
+use multihash::Multihash;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
-use warp::{http::Response, multipart, path, query, reply, Buf, Filter, Rejection, Reply};
+use warp::{http::Response, path, query, reply, Filter, Rejection, Reply};
 
 mod options;
 use options::RmOptions;
@@ -46,54 +47,32 @@ pub struct PutQuery {
     version: Option<u8>,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct PutResponse {
-    key: String,
-    size: usize,
-}
+impl PutQuery {
+    fn format(&self) -> Result<Codec, Rejection> {
+        Ok(match self.format.as_deref().unwrap_or("dag-pb") {
+            "dag-cbor" => Codec::DagCBOR,
+            "dag-pb" => Codec::DagProtobuf,
+            "dag-json" => Codec::DagJSON,
+            "raw" => Codec::Raw,
+            _ => return Err(StringError::from("unknown codec").into()),
+        })
+    }
 
-async fn put_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    query: PutQuery,
-    mut form: multipart::FormData,
-) -> Result<impl Reply, Rejection> {
-    let format = match query.format.as_deref().unwrap_or("dag-pb") {
-        "dag-cbor" => Codec::DagCBOR,
-        "dag-pb" => Codec::DagProtobuf,
-        "dag-json" => Codec::DagJSON,
-        "raw" => Codec::Raw,
-        _ => return Err(StringError::from("unknown codec").into()),
-    };
-    let hasher = match query.mhtype.as_deref().unwrap_or("sha2-256") {
-        "sha2-256" => multihash::Sha2_256::digest,
-        "sha2-512" => multihash::Sha2_512::digest,
-        _ => return Err(StringError::from("unknown hash").into()),
-    };
-    let version = match query.version.unwrap_or(0) {
-        0 => Version::V0,
-        1 => Version::V1,
-        _ => return Err(StringError::from("invalid cid version").into()),
-    };
-    let buf = form
-        .next()
-        .await
-        .ok_or(InvalidMultipartFormData)?
-        .map_err(|_| InvalidMultipartFormData)?
-        .data()
-        .await
-        .ok_or(InvalidMultipartFormData)?
-        .map_err(|_| InvalidMultipartFormData)?;
-    let data = Box::from(buf.bytes());
-    let digest = hasher(&data);
-    let cid = Cid::new(version, format, digest).map_err(StringError::from)?;
-    let response = PutResponse {
-        key: cid.to_string(),
-        size: data.len(),
-    };
-    let block = ipfs::Block { cid, data };
-    ipfs.put_block(block).await.map_err(StringError::from)?;
-    Ok(reply::json(&response))
+    fn digest(&self) -> Result<fn(&'_ [u8]) -> Multihash, Rejection> {
+        Ok(match self.mhtype.as_deref().unwrap_or("sha2-256") {
+            "sha2-256" => multihash::Sha2_256::digest,
+            "sha2-512" => multihash::Sha2_512::digest,
+            _ => return Err(StringError::from("unknown hash").into()),
+        })
+    }
+
+    fn version(&self) -> Result<Version, Rejection> {
+        Ok(match self.version.unwrap_or(0) {
+            0 => Version::V0,
+            1 => Version::V1,
+            _ => return Err(StringError::from("invalid cid version").into()),
+        })
+    }
 }
 
 pub fn put<T: IpfsTypes>(
@@ -102,8 +81,106 @@ pub fn put<T: IpfsTypes>(
     path!("block" / "put")
         .and(with_ipfs(ipfs))
         .and(query::<PutQuery>())
-        .and(multipart::form())
-        .and_then(put_query)
+        .and(warp::header::<Mime>("content-type")) // TODO: rejects if missing
+        .and(warp::body::stream())
+        .and_then(inner_put)
+}
+
+async fn inner_put<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    opts: PutQuery,
+    mime: Mime,
+    body: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin,
+) -> Result<impl Reply, Rejection> {
+    let boundary = mime
+        .get_param("boundary")
+        .map(|v| v.to_string())
+        .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
+    let mut stream = MultipartStream::new(boundary, body.map_ok(|mut buf| buf.to_bytes()));
+
+    // store the first good field here; optimally this would just be an Option but couldn't figure
+    // out a way to handle the "field matched", "field not matched" cases while supporting empty
+    // fields.
+    let mut buffer = Vec::new();
+    let mut matched = false;
+
+    while let Some(mut field) = stream.try_next().await.map_err(StringError::from)? {
+        // [ipfs http api] says we should expect a "data" but examples use "file" as the
+        // form field name. newer conformance tests also use former, older latter.
+        //
+        // [ipfs http api]: https://docs.ipfs.io/reference/http/api/#api-v0-block-put
+
+        let name = field
+            .name()
+            .map_err(|_| StringError::from("invalid field name"))?;
+
+        let mut target = match name {
+            "data" => Some(&mut buffer),
+            name @ "file" => {
+                log::warn!("block/put: processing part with deprecated name {:?}", name);
+                Some(&mut buffer)
+            }
+            other => {
+                log::warn!("block/put: ignoring part named {:?}", other);
+                None
+            }
+        };
+
+        if matched {
+            // per spec: only one block should be uploaded at once
+            return Err(StringError::from("multiple blocks (blocks/put only accepts one)").into());
+        }
+
+        matched = target.is_some();
+
+        loop {
+            let next = field.try_next().await.map_err(|e| {
+                StringError::from(format!("IO error while reading field bytes: {}", e))
+            })?;
+
+            match (next, target.as_mut()) {
+                (Some(bytes), Some(target)) => {
+                    if target.len() + bytes.len() > 1024 * 1024 {
+                        return Err(StringError::from("block is too large").into());
+                    } else if target.is_empty() {
+                        target.reserve(1024 * 1024);
+                    }
+                    target.extend_from_slice(bytes.as_ref());
+                }
+                (Some(bytes), None) => {
+                    // noop: we must fully consume the part before moving on to next.
+                    if bytes.is_empty() {
+                        // this technically shouldn't be happening any more but erroring
+                        // out instead of spinning wildly is much better.
+                        return Err(StringError::from("internal error: zero read").into());
+                    }
+                }
+                (None, _) => break,
+            }
+        }
+    }
+
+    if !matched {
+        return Err(StringError::from("missing field: \"data\" (or \"file\")").into());
+    }
+
+    // bad thing about Box<[u8]>: converting to it forces an reallocation
+    let data = buffer.into_boxed_slice();
+
+    let digest = opts.digest()?(&data);
+    let cid = Cid::new(opts.version()?, opts.format()?, digest).map_err(StringError::from)?;
+
+    let size = data.len();
+    let key = cid.to_string();
+
+    let block = ipfs::Block { cid, data };
+
+    ipfs.put_block(block).await.map_err(StringError::from)?;
+
+    Ok(reply::json(&serde_json::json!({
+        "Key": key,
+        "Size": size,
+    })))
 }
 
 #[derive(Debug, Serialize)]
