@@ -141,6 +141,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
                 let ipfs = self.ipfs.clone();
                 let queued_blocks = Arc::clone(&self.bitswap().queued_blocks);
                 task::spawn(async move {
+                    // FIXME: need a better API to `get_block_now` or without waiting.
                     let block = match ipfs.repo.get_block(&cid).await {
                         Ok(block) => block,
                         Err(err) => {
