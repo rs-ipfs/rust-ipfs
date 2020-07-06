@@ -215,8 +215,6 @@ pub struct Ipfs<Types: IpfsTypes>(Arc<IpfsInner<Types>>);
 #[derive(Debug)]
 pub struct IpfsInner<Types: IpfsTypes> {
     repo: Repo<Types>,
-    dag: Option<IpldDag<Types>>,
-    ipns: Option<Ipns<Types>>,
     keys: DebuggableKeypair<Keypair>,
     to_task: Sender<IpfsEvent>,
 }
@@ -298,26 +296,12 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
         let ipfs = Ipfs(Arc::new(IpfsInner {
             repo,
-            dag: None,
-            ipns: None,
             keys: DebuggableKeypair(keys),
             to_task,
         }));
 
         let swarm_options = SwarmOptions::<Types>::from(&self.options);
         let swarm = create_swarm(swarm_options, ipfs.clone()).await;
-
-        let dag = IpldDag::new(ipfs.clone());
-        let ipns = Ipns::new(ipfs.clone());
-
-        // FIXME: instead use Arc::get_mut_unchecked when available (rust-lang #63292)
-        unsafe {
-            let dag_ref = &ipfs.0.dag as *const _ as *mut _;
-            let ipns_ref = &ipfs.0.ipns as *const _ as *mut _;
-
-            *dag_ref = Some(dag);
-            *ipns_ref = Some(ipns);
-        }
 
         let fut = IpfsFuture {
             repo_events: repo_events.fuse(),
@@ -339,12 +323,12 @@ impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
-    fn dag(&self) -> &IpldDag<Types> {
-        self.dag.as_ref().unwrap() // safe, always there
+    fn dag(&self) -> IpldDag<Types> {
+        IpldDag::new(self.clone())
     }
 
-    fn ipns(&self) -> &Ipns<Types> {
-        self.ipns.as_ref().unwrap() // safe, always there
+    fn ipns(&self) -> Ipns<Types> {
+        Ipns::new(self.clone())
     }
 
     /// Puts a block into the ipfs repo.
@@ -392,13 +376,13 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     pub async fn add(&self, path: PathBuf) -> Result<Cid, Error> {
         let dag = self.dag();
         let file = File::new(path).await?;
-        let path = file.put_unixfs_v1(dag).await?;
+        let path = file.put_unixfs_v1(&dag).await?;
         Ok(path)
     }
 
     /// Gets a file from the ipfs repo.
     pub async fn get(&self, path: IpfsPath) -> Result<File, Error> {
-        Ok(File::get_unixfs_v1(self.dag(), path).await?)
+        Ok(File::get_unixfs_v1(&self.dag(), path).await?)
     }
 
     /// Creates a stream which will yield the bytes of an UnixFS file from the root Cid, with the
