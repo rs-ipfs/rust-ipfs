@@ -4,7 +4,7 @@ use crate::path::IpfsPath;
 use crate::subscription::SubscriptionRegistry;
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
-use async_std::sync::{Arc, Mutex};
+use async_std::sync::Mutex;
 use async_trait::async_trait;
 use bitswap::Block;
 use core::fmt::Debug;
@@ -39,9 +39,9 @@ impl<TRepoTypes: RepoTypes> From<&IpfsOptions<TRepoTypes>> for RepoOptions<TRepo
 
 pub fn create_repo<TRepoTypes: RepoTypes>(
     options: RepoOptions<TRepoTypes>,
-) -> (Arc<Repo<TRepoTypes>>, Receiver<RepoEvent>) {
+) -> (Repo<TRepoTypes>, Receiver<RepoEvent>) {
     let (repo, ch) = Repo::new(options);
-    (Arc::new(repo), ch)
+    (repo, ch)
 }
 
 /// Describes the outcome of `BlockStore::put_block`
@@ -372,15 +372,14 @@ pub(crate) mod tests {
         type TDataStore = mem::MemDataStore;
     }
 
-    pub fn create_mock_repo() -> (Arc<Repo<Types>>, Receiver<RepoEvent>) {
+    pub fn create_mock_repo() -> (Repo<Types>, Receiver<RepoEvent>) {
         let mut tmp = temp_dir();
         tmp.push("rust-ipfs-repo");
         let options: RepoOptions<Types> = RepoOptions {
             _marker: PhantomData,
             path: tmp.into(),
         };
-        let (r, ch) = Repo::new(options);
-        (Arc::new(r), ch)
+        Repo::new(options)
     }
 
     #[async_std::test]
