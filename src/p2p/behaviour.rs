@@ -1,9 +1,9 @@
 use super::pubsub::Pubsub;
 use super::swarm::{Connection, Disconnector, SwarmApi};
 use crate::p2p::{SwarmOptions, SwarmTypes};
-use crate::repo::Repo;
 use crate::subscription::SubscriptionFuture;
-use bitswap::{AltruisticStrategy, Bitswap};
+use bitswap::{Bitswap, BitswapEvent};
+use futures::channel::mpsc::Sender;
 use libipld::cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{Identify, IdentifyEvent};
@@ -14,7 +14,6 @@ use libp2p::ping::{Ping, PingEvent};
 use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
-use std::sync::Arc;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
@@ -99,6 +98,10 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for Behaviour {
     }
 }
 
+impl NetworkBehaviourEventProcess<BitswapEvent> for Behaviour {
+    fn inject_event(&mut self, _event: BitswapEvent) {}
+}
+
 impl NetworkBehaviourEventProcess<PingEvent> for Behaviour {
     fn inject_event(&mut self, event: PingEvent) {
         use libp2p::ping::handler::{PingFailure, PingSuccess};
@@ -147,7 +150,7 @@ impl Behaviour {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
     pub async fn new<TSwarmTypes: SwarmTypes>(
         options: SwarmOptions<TSwarmTypes>,
-        repo: Arc<Repo<TSwarmTypes>>,
+        bitswap_event_sender: Sender<BitswapEvent>,
     ) -> Self {
         info!("Local peer id: {}", options.peer_id.to_base58());
 
@@ -164,8 +167,7 @@ impl Behaviour {
             kademlia.add_address(peer_id, addr.to_owned());
         }
 
-        let strategy = AltruisticStrategy::new(repo);
-        let bitswap = Bitswap::new(strategy);
+        let bitswap = Bitswap::new(bitswap_event_sender);
         let ping = Ping::default();
         let identify = Identify::new(
             "/ipfs/0.1.0".into(),
@@ -251,7 +253,7 @@ impl Behaviour {
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
 pub async fn build_behaviour<TSwarmTypes: SwarmTypes>(
     options: SwarmOptions<TSwarmTypes>,
-    repo: Arc<Repo<TSwarmTypes>>,
+    bitswap_event_sender: Sender<BitswapEvent>,
 ) -> Behaviour {
-    Behaviour::new(options, repo).await
+    Behaviour::new(options, bitswap_event_sender).await
 }

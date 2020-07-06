@@ -5,28 +5,77 @@ use crate::prefix::Prefix;
 use cid::Cid;
 use core::convert::TryFrom;
 use prost::Message as ProstMessage;
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    mem,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 pub type Priority = i32;
+
+#[derive(Debug, Default)]
+pub struct Stats {
+    pub sent_blocks: AtomicU64,
+    pub sent_data: AtomicU64,
+    pub received_blocks: AtomicU64,
+    pub received_data: AtomicU64,
+    pub duplicate_blocks: AtomicU64,
+    pub duplicate_data: AtomicU64,
+}
+
+impl Stats {
+    pub fn update_outgoing(&self, num_blocks: u64) {
+        self.sent_blocks.fetch_add(num_blocks, Ordering::Relaxed);
+    }
+
+    pub fn update_incoming_unique(&self, bytes: u64) {
+        self.received_blocks.fetch_add(1, Ordering::Relaxed);
+        self.received_data.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub fn update_incoming_duplicate(&self, bytes: u64) {
+        self.duplicate_blocks.fetch_add(1, Ordering::Relaxed);
+        self.duplicate_data.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub fn add_assign(&self, other: &Stats) {
+        self.sent_blocks
+            .fetch_add(other.sent_blocks.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.sent_data
+            .fetch_add(other.sent_data.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.received_blocks.fetch_add(
+            other.received_blocks.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        self.received_data.fetch_add(
+            other.received_data.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        self.duplicate_blocks.fetch_add(
+            other.duplicate_blocks.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        self.duplicate_data.fetch_add(
+            other.duplicate_data.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+    }
+}
 
 /// The Ledger contains the history of transactions with a peer.
 #[derive(Debug, Default)]
 pub struct Ledger {
-    /// The number of blocks sent to the peer.
-    pub(crate) sent_blocks: u64,
-    pub(crate) sent_data: u64,
-
-    /// The number of blocks received from the peer.
-    pub(crate) received_blocks: u64,
-    pub(crate) received_data: u64,
-
-    pub(crate) duplicate_blocks: u64,
-    pub(crate) duplicate_data: u64,
-
     /// The list of wanted blocks sent to the peer.
     sent_want_list: HashMap<Cid, Priority>,
     /// The list of wanted blocks received from the peer.
-    received_want_list: HashMap<Cid, Priority>,
+    pub(crate) received_want_list: HashMap<Cid, Priority>,
+    /// Queued message.
+    message: Message,
+    /// Statistics related to a given peer.
+    pub stats: Arc<Stats>,
 }
 
 impl Ledger {
@@ -35,55 +84,16 @@ impl Ledger {
         Self::default()
     }
 
-    pub fn send_block(&mut self, block: Block) -> Message {
-        let mut message = Message::default();
-        message.add_block(block);
-        message
+    pub fn add_block(&mut self, block: Block) {
+        self.message.add_block(block);
     }
 
-    pub fn want_block(&mut self, cid: &Cid, priority: Priority) -> Message {
-        let mut message = Message::default();
-        message.want_block(cid, priority);
-        message
+    pub fn want_block(&mut self, cid: &Cid, priority: Priority) {
+        self.message.want_block(cid, priority);
     }
 
-    pub fn cancel_block(&mut self, cid: &Cid) -> Option<Message> {
-        if self.sent_want_list.contains_key(cid) {
-            let mut message = Message::default();
-            message.cancel_block(cid);
-            Some(message)
-        } else {
-            None
-        }
-    }
-
-    pub fn update_outgoing_stats(&mut self, message: &Message) {
-        self.sent_blocks += message.blocks.len() as u64;
-        for cid in message.cancel() {
-            self.sent_want_list.remove(cid);
-        }
-        for (cid, priority) in message.want() {
-            self.sent_want_list.insert(cid.to_owned(), *priority);
-        }
-    }
-
-    pub fn update_incoming_stats(&mut self, message: &Message) {
-        for cid in message.cancel() {
-            self.received_want_list.remove(cid);
-        }
-        for (cid, priority) in message.want() {
-            self.received_want_list.insert(cid.to_owned(), *priority);
-        }
-    }
-
-    pub(crate) fn update_incoming_stored(&mut self, bytes: u64) {
-        self.received_blocks += 1;
-        self.received_data += bytes;
-    }
-
-    pub(crate) fn update_incoming_duplicate(&mut self, bytes: u64) {
-        self.duplicate_blocks += 1;
-        self.duplicate_data += bytes;
+    pub fn cancel_block(&mut self, cid: &Cid) {
+        self.message.cancel_block(cid);
     }
 
     /// Returns the blocks wanted by the peer in unspecified order
@@ -92,6 +102,22 @@ impl Ledger {
             .iter()
             .map(|(cid, prio)| (cid.clone(), *prio))
             .collect()
+    }
+
+    pub fn send(&mut self) -> Option<Message> {
+        if self.message.is_empty() {
+            return None;
+        }
+        for cid in self.message.cancel() {
+            self.sent_want_list.remove(cid);
+        }
+        for (cid, priority) in self.message.want() {
+            self.sent_want_list.insert(cid.clone(), *priority);
+        }
+
+        self.stats.update_outgoing(self.message.blocks.len() as u64);
+
+        Some(mem::take(&mut self.message))
     }
 }
 
@@ -105,10 +131,15 @@ pub struct Message {
     /// Wheather it is the full list of wanted blocks.
     full: bool,
     /// List of blocks to send.
-    blocks: Vec<Block>,
+    pub(crate) blocks: Vec<Block>,
 }
 
 impl Message {
+    /// Checks whether the queued message is empty.
+    pub fn is_empty(&self) -> bool {
+        self.want.is_empty() && self.cancel.is_empty() && self.blocks.is_empty()
+    }
+
     /// Returns the list of blocks.
     pub fn blocks(&self) -> &[Block] {
         &self.blocks
@@ -193,6 +224,12 @@ impl Message {
     /// Creates a `Message` from bytes that were received from a substream.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, BitswapError> {
         Self::try_from(bytes)
+    }
+}
+
+impl From<()> for Message {
+    fn from(_: ()) -> Self {
+        Default::default()
     }
 }
 

@@ -359,22 +359,6 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 }
 
-#[async_trait]
-impl<T: RepoTypes> bitswap::BitswapStore for Repo<T> {
-    async fn get_block(&self, cid: &Cid) -> Result<Option<Block>, anyhow::Error> {
-        self.block_store.get(cid).await
-    }
-
-    async fn put_block(&self, block: Block) -> Result<bitswap::BlockPut, anyhow::Error> {
-        let (_, res) = self.put_block(block).await?;
-        let res = match res {
-            BlockPut::NewBlock => bitswap::BlockPut::Stored,
-            BlockPut::Existed => bitswap::BlockPut::Duplicate,
-        };
-        Ok(res)
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
