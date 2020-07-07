@@ -158,10 +158,6 @@ impl<TResult> Subscription<TResult> {
             waker.wake();
         }
     }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled
-    }
 }
 
 impl<TResult> Default for Subscription<TResult> {
@@ -183,7 +179,7 @@ impl<TResult: Clone> Future for SubscriptionFuture<TResult> {
 
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
         let mut subscription = self.subscription.lock().unwrap();
-        if subscription.is_cancelled() {
+        if subscription.cancelled {
             return Poll::Ready(Err(Cancelled));
         }
 
