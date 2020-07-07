@@ -81,7 +81,7 @@ pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
 }
 
 #[async_trait]
-pub trait DataStore: Debug + Clone + Send + Sync + Unpin + 'static {
+pub trait DataStore: Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -287,7 +287,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub async fn get_ipns(&self, ipns: &PeerId) -> Result<Option<IpfsPath>, Error> {
         use std::str::FromStr;
 
-        let data_store = self.data_store.clone();
+        let data_store = &self.data_store;
         let key = ipns.to_owned();
         let bytes = data_store.get(Column::Ipns, key.as_bytes()).await?;
         match bytes {

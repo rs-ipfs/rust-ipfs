@@ -2,7 +2,7 @@
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore, Column, DataStore};
 use async_std::path::PathBuf;
-use async_std::sync::{Arc, Mutex};
+use async_std::sync::Mutex;
 use async_trait::async_trait;
 use bitswap::Block;
 use libipld::cid::Cid;
@@ -12,9 +12,9 @@ use super::{BlockRm, BlockRmError};
 // FIXME: Transition to Persistent Map to make iterating more consistent
 use std::collections::HashMap;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct MemBlockStore {
-    blocks: Arc<Mutex<HashMap<Cid, Block>>>,
+    blocks: Mutex<HashMap<Cid, Block>>,
 }
 
 #[async_trait]
@@ -72,10 +72,10 @@ impl BlockStore for MemBlockStore {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct MemDataStore {
-    ipns: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
-    pin: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
+    ipns: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+    pin: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
 }
 
 #[async_trait]
