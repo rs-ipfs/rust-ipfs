@@ -14,14 +14,13 @@ use futures::stream::StreamExt;
 use libipld::cid::Cid;
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::sync::Arc;
 
 use super::{BlockRm, BlockRmError};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FsBlockStore {
     path: PathBuf,
-    cids: Arc<Mutex<HashSet<Cid>>>,
+    cids: Mutex<HashSet<Cid>>,
 }
 
 #[async_trait]
@@ -40,8 +39,8 @@ impl BlockStore for FsBlockStore {
     }
 
     async fn open(&self) -> Result<(), Error> {
-        let path = self.path.clone();
-        let cids = self.cids.clone();
+        let path = &self.path;
+        let cids = &self.cids;
 
         let mut stream = fs::read_dir(path).await?;
 
@@ -91,7 +90,7 @@ impl BlockStore for FsBlockStore {
 
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
         let path = block_path(self.path.clone(), &block.cid());
-        let cids = self.cids.clone();
+        let cids = &self.cids;
         let data = block.data();
         let mut file = fs::File::create(path).await?;
         file.write_all(&*data).await?;
@@ -110,7 +109,7 @@ impl BlockStore for FsBlockStore {
 
     async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
         let path = block_path(self.path.clone(), cid);
-        let cids = self.cids.clone();
+        let cids = &self.cids;
 
         // We want to panic if there's a mutex unlock error
         // TODO: Check for pinned blocks here? Instead of repo?

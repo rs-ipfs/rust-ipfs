@@ -17,7 +17,7 @@ use libp2p::core::PeerId;
 pub mod fs;
 pub mod mem;
 
-pub trait RepoTypes: Clone + Send + Sync + 'static {
+pub trait RepoTypes: Send + Sync + 'static {
     type TBlockStore: BlockStore;
     type TDataStore: DataStore;
 }
@@ -69,7 +69,7 @@ pub enum BlockRmError {
 
 /// This API is being discussed and evolved, which will likely lead to breakage.
 #[async_trait]
-pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
+pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -216,7 +216,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.events
             .clone()
             // provide only cidv1
-            .send(RepoEvent::ProvideBlock(cid.clone()))
+            .send(RepoEvent::ProvideBlock(cid))
             .await
             .ok();
         Ok((original_cid, res))
