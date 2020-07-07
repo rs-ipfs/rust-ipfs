@@ -132,12 +132,11 @@ impl BlockStore for FsBlockStore {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 #[cfg(feature = "rocksdb")]
 pub struct RocksDataStore {
     path: PathBuf,
-    // FIXME: this lock is not from futures
-    db: Arc<Mutex<Option<rocksdb::DB>>>,
+    db: Mutex<Option<rocksdb::DB>>,
 }
 
 #[cfg(feature = "rocksdb")]
@@ -163,7 +162,7 @@ impl DataStore for RocksDataStore {
     fn new(path: PathBuf) -> Self {
         RocksDataStore {
             path,
-            db: Arc::new(Mutex::new(None)),
+            db: Default::default(),
         }
     }
 
@@ -172,7 +171,7 @@ impl DataStore for RocksDataStore {
     }
 
     async fn open(&self) -> Result<(), Error> {
-        let db = self.db.clone();
+        let db = &self.db;
         let path = self.path.clone();
         let mut db_opts = rocksdb::Options::default();
         db_opts.create_missing_column_families(true);
@@ -186,7 +185,7 @@ impl DataStore for RocksDataStore {
     }
 
     async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
-        let db = self.db.clone();
+        let db = &self.db;
         let key = key.to_owned();
         let db = db.lock().unwrap();
         let db = db.as_ref().unwrap();
@@ -196,7 +195,7 @@ impl DataStore for RocksDataStore {
     }
 
     async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        let db = self.db.clone();
+        let db = &self.db;
         let key = key.to_owned();
         let db = db.lock().unwrap();
         let db = db.as_ref().unwrap();
@@ -206,7 +205,7 @@ impl DataStore for RocksDataStore {
     }
 
     async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error> {
-        let db = self.db.clone();
+        let db = &self.db;
         let key = key.to_owned();
         let value = value.to_owned();
         let db = db.lock().unwrap();
