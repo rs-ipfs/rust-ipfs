@@ -126,6 +126,10 @@ impl BlockStore for FsBlockStore {
         let guard = self.cids.lock().await;
         Ok(guard.iter().cloned().collect())
     }
+
+    async fn wipe(&self) {
+        self.cids.lock().await.clear();
+    }
 }
 
 #[derive(Clone, Debug)]

@@ -78,6 +78,7 @@ pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error>;
     async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error>;
     async fn list(&self) -> Result<Vec<Cid>, Error>;
+    async fn wipe(&self);
 }
 
 #[async_trait]
@@ -89,6 +90,7 @@ pub trait DataStore: Debug + Send + Sync + Unpin + 'static {
     async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
     async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error>;
     async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error>;
+    async fn wipe(&self);
 }
 
 #[derive(Clone, Copy, Debug)]

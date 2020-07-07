@@ -70,6 +70,10 @@ impl BlockStore for MemBlockStore {
         let guard = self.blocks.lock().await;
         Ok(guard.iter().map(|(cid, _block)| cid).cloned().collect())
     }
+
+    async fn wipe(&self) {
+        self.blocks.lock().await.clear();
+    }
 }
 
 #[derive(Debug, Default)]
@@ -126,6 +130,11 @@ impl DataStore for MemDataStore {
         };
         map.lock().await.remove(key);
         Ok(())
+    }
+
+    async fn wipe(&self) {
+        self.ipns.lock().await.clear();
+        self.pin.lock().await.clear();
     }
 }
 
