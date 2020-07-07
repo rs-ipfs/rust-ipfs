@@ -217,13 +217,17 @@ impl DataStore for RocksDataStore {
     }
 
     async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error> {
-        let db = self.db.clone();
+        let db = &self.db;
         let key = key.to_owned();
-        let db = db.lock().unwrap();
+        let db = db.lock().await;
         let db = db.as_ref().unwrap();
         let cf = col.resolve(db);
         db.delete_cf(cf, &key)?;
         Ok(())
+    }
+
+    async fn wipe(&self) {
+        // this function is currently only intended to be used with in-memory test setups
     }
 }
 
