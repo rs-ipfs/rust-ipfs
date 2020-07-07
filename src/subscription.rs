@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 pub struct SubscriptionRegistry<TReq: Debug + Eq + Hash, TRes: Debug> {
     subscriptions: HashMap<TReq, Arc<Mutex<Subscription<TRes>>>>,
-    cancelled: bool,
+    shutting_down: bool,
 }
 
 impl<TReq: Debug + Eq + Hash, TRes: Debug> fmt::Debug for SubscriptionRegistry<TReq, TRes> {
@@ -29,13 +29,13 @@ impl<TReq: Debug + Eq + Hash, TRes: Debug> SubscriptionRegistry<TReq, TRes> {
     pub fn new() -> Self {
         Self {
             subscriptions: Default::default(),
-            cancelled: false,
+            shutting_down: false,
         }
     }
 
     pub fn create_subscription(&mut self, req: TReq) -> SubscriptionFuture<TRes> {
         let subscription = self.subscriptions.entry(req).or_default().clone();
-        if self.cancelled {
+        if self.shutting_down {
             subscription.lock().unwrap().cancel();
         }
         SubscriptionFuture { subscription }
@@ -49,10 +49,10 @@ impl<TReq: Debug + Eq + Hash, TRes: Debug> SubscriptionRegistry<TReq, TRes> {
 
     /// After shutdown all SubscriptionFutures will return Err(Cancelled)
     pub fn shutdown(&mut self) {
-        if self.cancelled {
+        if self.shutting_down {
             return;
         }
-        self.cancelled = true;
+        self.shutting_down = true;
 
         log::debug!("Shutting down {:?}", self);
 
