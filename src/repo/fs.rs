@@ -181,14 +181,14 @@ impl DataStore for RocksDataStore {
         let ipns_opts = rocksdb::Options::default();
         let ipns_cf = rocksdb::ColumnFamilyDescriptor::new("ipns", ipns_opts);
         let rdb = rocksdb::DB::open_cf_descriptors(&db_opts, &path, vec![ipns_cf])?;
-        *db.lock().unwrap() = Some(rdb);
+        *db.lock().await = Some(rdb);
         Ok(())
     }
 
     async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
         let db = &self.db;
         let key = key.to_owned();
-        let db = db.lock().unwrap();
+        let db = db.lock().await;
         let db = db.as_ref().unwrap();
         let cf = col.resolve(db);
         let contains = db.get_cf(cf, &key)?.is_some();
@@ -198,7 +198,7 @@ impl DataStore for RocksDataStore {
     async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let db = &self.db;
         let key = key.to_owned();
-        let db = db.lock().unwrap();
+        let db = db.lock().await;
         let db = db.as_ref().unwrap();
         let cf = col.resolve(db);
         let get = db.get_cf(cf, &key)?.map(|value| value.to_vec());
@@ -209,7 +209,7 @@ impl DataStore for RocksDataStore {
         let db = &self.db;
         let key = key.to_owned();
         let value = value.to_owned();
-        let db = db.lock().unwrap();
+        let db = db.lock().await;
         let db = db.as_ref().unwrap();
         let cf = col.resolve(db);
         db.put_cf(cf, &key, &value)?;
