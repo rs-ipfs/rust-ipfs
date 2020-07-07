@@ -164,12 +164,6 @@ impl<TResult> Subscription<TResult> {
     }
 }
 
-impl<TResult: Clone> Subscription<TResult> {
-    pub fn result(&self) -> Option<TResult> {
-        self.result.clone()
-    }
-}
-
 impl<TResult> Default for Subscription<TResult> {
     fn default() -> Self {
         Self {
@@ -193,8 +187,8 @@ impl<TResult: Clone> Future for SubscriptionFuture<TResult> {
             return Poll::Ready(Err(Cancelled));
         }
 
-        if let Some(result) = subscription.result() {
-            Poll::Ready(Ok(result))
+        if let Some(ref result) = subscription.result {
+            Poll::Ready(Ok(result.clone()))
         } else {
             subscription.add_waker(&context.waker());
             Poll::Pending
