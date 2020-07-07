@@ -136,8 +136,10 @@ impl<TResult> fmt::Debug for Subscription<TResult> {
 }
 
 impl<TResult> Subscription<TResult> {
-    pub fn add_waker(&mut self, waker: Waker) {
-        self.wakers.push(waker);
+    pub fn add_waker(&mut self, waker: &Waker) {
+        if !self.wakers.iter().any(|w| w.will_wake(waker)) {
+            self.wakers.push(waker.clone());
+        }
     }
 
     pub fn wake(&mut self, result: TResult) {
@@ -194,7 +196,7 @@ impl<TResult: Clone> Future for SubscriptionFuture<TResult> {
         if let Some(result) = subscription.result() {
             Poll::Ready(Ok(result))
         } else {
-            subscription.add_waker(context.waker().clone());
+            subscription.add_waker(&context.waker());
             Poll::Pending
         }
     }
