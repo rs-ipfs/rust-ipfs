@@ -26,13 +26,6 @@ impl<TReq: Debug + Eq + Hash, TRes: Debug> fmt::Debug for SubscriptionRegistry<T
 }
 
 impl<TReq: Debug + Eq + Hash, TRes: Debug> SubscriptionRegistry<TReq, TRes> {
-    pub fn new() -> Self {
-        Self {
-            subscriptions: Default::default(),
-            shutting_down: false,
-        }
-    }
-
     pub fn create_subscription(&mut self, req: TReq) -> SubscriptionFuture<TRes> {
         let subscription = self.subscriptions.entry(req).or_default().clone();
         if self.shutting_down {
@@ -94,7 +87,10 @@ impl<TReq: Debug + Eq + Hash, TRes: Debug> SubscriptionRegistry<TReq, TRes> {
 
 impl<TReq: Debug + Eq + Hash, TRes: Debug> Default for SubscriptionRegistry<TReq, TRes> {
     fn default() -> Self {
-        Self::new()
+        Self {
+            subscriptions: Default::default(),
+            shutting_down: false,
+        }
     }
 }
 
@@ -140,14 +136,6 @@ impl<TResult> fmt::Debug for Subscription<TResult> {
 }
 
 impl<TResult> Subscription<TResult> {
-    pub fn new() -> Self {
-        Self {
-            result: Default::default(),
-            wakers: Default::default(),
-            cancelled: false,
-        }
-    }
-
     pub fn add_waker(&mut self, waker: Waker) {
         self.wakers.push(waker);
     }
@@ -182,7 +170,11 @@ impl<TResult: Clone> Subscription<TResult> {
 
 impl<TResult> Default for Subscription<TResult> {
     fn default() -> Self {
-        Self::new()
+        Self {
+            result: Default::default(),
+            wakers: Default::default(),
+            cancelled: false,
+        }
     }
 }
 
@@ -224,7 +216,7 @@ mod tests {
 
     #[async_std::test]
     async fn subscription() {
-        let mut registry = SubscriptionRegistry::<u32, u32>::new();
+        let mut registry = SubscriptionRegistry::<u32, u32>::default();
         let s1 = registry.create_subscription(0);
         let s2 = registry.create_subscription(0);
         registry.finish_subscription(&0, 10);
@@ -234,7 +226,7 @@ mod tests {
 
     #[async_std::test]
     async fn subscription_cancelled_on_dropping_registry() {
-        let mut registry = SubscriptionRegistry::<u32, u32>::new();
+        let mut registry = SubscriptionRegistry::<u32, u32>::default();
         let s1 = registry.create_subscription(0);
         drop(registry);
         s1.await.unwrap_err();
@@ -242,7 +234,7 @@ mod tests {
 
     #[async_std::test]
     async fn subscription_cancelled_on_shutdown() {
-        let mut registry = SubscriptionRegistry::<u32, u32>::new();
+        let mut registry = SubscriptionRegistry::<u32, u32>::default();
         let s1 = registry.create_subscription(0);
         registry.shutdown();
         s1.await.unwrap_err();
@@ -250,7 +242,7 @@ mod tests {
 
     #[async_std::test]
     async fn new_subscriptions_cancelled_after_shutdown() {
-        let mut registry = SubscriptionRegistry::<u32, u32>::new();
+        let mut registry = SubscriptionRegistry::<u32, u32>::default();
         registry.shutdown();
         let s1 = registry.create_subscription(0);
         s1.await.unwrap_err();
@@ -261,7 +253,7 @@ mod tests {
         use async_std::future::timeout;
         use std::time::Duration;
 
-        let mut registry = SubscriptionRegistry::<u32, u32>::new();
+        let mut registry = SubscriptionRegistry::<u32, u32>::default();
         let s1 = timeout(Duration::from_millis(1), registry.create_subscription(0));
         let s2 = registry.create_subscription(0);
 
