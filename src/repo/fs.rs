@@ -149,6 +149,7 @@ impl ResolveColumnFamily for Column {
     fn resolve<'a>(&self, db: &'a rocksdb::DB) -> &'a rocksdb::ColumnFamily {
         let name = match *self {
             Column::Ipns => "ipns",
+            Column::Pin => "pin",
         };
 
         // not sure why this isn't always present?
