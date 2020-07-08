@@ -12,6 +12,22 @@ use warp::{path, query, reply, Buf, Filter, Rejection, Reply};
 pub struct PutQuery {
     format: Option<String>,
     hash: Option<String>,
+    #[serde(rename = "input-enc", default)]
+    encoding: InputEncoding,
+}
+
+#[derive(PartialEq, Eq, Debug, Deserialize)]
+pub enum InputEncoding {
+    #[serde(rename = "raw")]
+    Raw,
+    #[serde(rename = "json")]
+    Json,
+}
+
+impl Default for InputEncoding {
+    fn default() -> Self {
+        InputEncoding::Json
+    }
 }
 
 async fn put_query<T: IpfsTypes>(
@@ -21,6 +37,10 @@ async fn put_query<T: IpfsTypes>(
     body: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin,
 ) -> Result<impl Reply, Rejection> {
     use multihash::{Multihash, Sha2_256, Sha2_512, Sha3_512};
+
+    if query.encoding != InputEncoding::Raw {
+        return Err(NotImplemented.into());
+    }
 
     let (format, v0_fmt) = match query.format.as_deref().unwrap_or("dag-cbor") {
         "dag-cbor" => (Codec::DagCBOR, false),
