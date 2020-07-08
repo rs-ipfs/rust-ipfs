@@ -4,12 +4,12 @@ use crate::path::IpfsPath;
 use crate::subscription::SubscriptionRegistry;
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
-use async_std::sync::Mutex;
 use async_trait::async_trait;
 use bitswap::Block;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 use futures::channel::mpsc::{channel, Receiver, Sender};
+use futures::lock::Mutex;
 use futures::sink::SinkExt;
 use libipld::cid::{self, Cid};
 use libp2p::core::PeerId;
@@ -17,7 +17,7 @@ use libp2p::core::PeerId;
 pub mod fs;
 pub mod mem;
 
-pub trait RepoTypes: Clone + Send + Sync + 'static {
+pub trait RepoTypes: Send + Sync + 'static {
     type TBlockStore: BlockStore;
     type TDataStore: DataStore;
 }
@@ -69,7 +69,7 @@ pub enum BlockRmError {
 
 /// This API is being discussed and evolved, which will likely lead to breakage.
 #[async_trait]
-pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
+pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -78,10 +78,11 @@ pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error>;
     async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error>;
     async fn list(&self) -> Result<Vec<Cid>, Error>;
+    async fn wipe(&self);
 }
 
 #[async_trait]
-pub trait DataStore: Debug + Clone + Send + Sync + Unpin + 'static {
+pub trait DataStore: Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -89,6 +90,7 @@ pub trait DataStore: Debug + Clone + Send + Sync + Unpin + 'static {
     async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
     async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error>;
     async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error>;
+    async fn wipe(&self);
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -216,7 +218,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.events
             .clone()
             // provide only cidv1
-            .send(RepoEvent::ProvideBlock(cid.clone()))
+            .send(RepoEvent::ProvideBlock(cid))
             .await
             .ok();
         Ok((original_cid, res))
@@ -287,7 +289,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub async fn get_ipns(&self, ipns: &PeerId) -> Result<Option<IpfsPath>, Error> {
         use std::str::FromStr;
 
-        let data_store = self.data_store.clone();
+        let data_store = &self.data_store;
         let key = ipns.to_owned();
         let bytes = data_store.get(Column::Ipns, key.as_bytes()).await?;
         match bytes {

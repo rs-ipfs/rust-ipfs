@@ -9,19 +9,18 @@ use async_std::prelude::*;
 use async_trait::async_trait;
 use bitswap::Block;
 use core::convert::TryFrom;
+use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use libipld::cid::Cid;
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::sync::{Arc, Mutex};
 
 use super::{BlockRm, BlockRmError};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FsBlockStore {
     path: PathBuf,
-    // FIXME: this lock is not from futures
-    cids: Arc<Mutex<HashSet<Cid>>>,
+    cids: Mutex<HashSet<Cid>>,
 }
 
 #[async_trait]
@@ -40,25 +39,25 @@ impl BlockStore for FsBlockStore {
     }
 
     async fn open(&self) -> Result<(), Error> {
-        let path = self.path.clone();
-        let cids = self.cids.clone();
+        let path = &self.path;
+        let cids = &self.cids;
 
         let mut stream = fs::read_dir(path).await?;
 
-        fn append_cid(cids: &Mutex<HashSet<Cid>>, path: PathBuf) {
+        async fn append_cid(cids: &Mutex<HashSet<Cid>>, path: PathBuf) {
             if path.extension() != Some(OsStr::new("data")) {
                 return;
             }
             let cid_str = path.file_stem().unwrap();
             let cid = Cid::try_from(cid_str.to_str().unwrap()).unwrap();
-            cids.lock().unwrap_or_else(|p| p.into_inner()).insert(cid);
+            cids.lock().await.insert(cid);
         }
 
         loop {
             let dir = stream.next().await;
 
             match dir {
-                Some(Ok(dir)) => append_cid(&cids, dir.path()),
+                Some(Ok(dir)) => append_cid(&cids, dir.path()).await,
                 Some(Err(e)) => return Err(e.into()),
                 None => return Ok(()),
             }
@@ -66,7 +65,7 @@ impl BlockStore for FsBlockStore {
     }
 
     async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
-        let contains = self.cids.lock().unwrap().contains(cid);
+        let contains = self.cids.lock().await.contains(cid);
         Ok(contains)
     }
 
@@ -91,12 +90,12 @@ impl BlockStore for FsBlockStore {
 
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
         let path = block_path(self.path.clone(), &block.cid());
-        let cids = self.cids.clone();
+        let cids = &self.cids;
         let data = block.data();
         let mut file = fs::File::create(path).await?;
         file.write_all(&*data).await?;
         file.flush().await?;
-        let retval = if cids.lock().unwrap().insert(block.cid().to_owned()) {
+        let retval = if cids.lock().await.insert(block.cid().to_owned()) {
             BlockPut::NewBlock
         } else {
             BlockPut::Existed
@@ -110,11 +109,11 @@ impl BlockStore for FsBlockStore {
 
     async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
         let path = block_path(self.path.clone(), cid);
-        let cids = self.cids.clone();
+        let cids = &self.cids;
 
         // We want to panic if there's a mutex unlock error
         // TODO: Check for pinned blocks here? Instead of repo?
-        if cids.lock().unwrap().remove(&cid) {
+        if cids.lock().await.remove(&cid) {
             fs::remove_file(path).await?;
             Ok(Ok(BlockRm::Removed(cid.clone())))
         } else {
@@ -124,17 +123,20 @@ impl BlockStore for FsBlockStore {
 
     async fn list(&self) -> Result<Vec<Cid>, Error> {
         // unwrapping as we want to panic on poisoned lock
-        let guard = self.cids.lock().unwrap();
+        let guard = self.cids.lock().await;
         Ok(guard.iter().cloned().collect())
+    }
+
+    async fn wipe(&self) {
+        self.cids.lock().await.clear();
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 #[cfg(feature = "rocksdb")]
 pub struct RocksDataStore {
     path: PathBuf,
-    // FIXME: this lock is not from futures
-    db: Arc<Mutex<Option<rocksdb::DB>>>,
+    db: Mutex<Option<rocksdb::DB>>,
 }
 
 #[cfg(feature = "rocksdb")]
@@ -147,6 +149,7 @@ impl ResolveColumnFamily for Column {
     fn resolve<'a>(&self, db: &'a rocksdb::DB) -> &'a rocksdb::ColumnFamily {
         let name = match *self {
             Column::Ipns => "ipns",
+            Column::Pin => "pin",
         };
 
         // not sure why this isn't always present?
@@ -160,7 +163,7 @@ impl DataStore for RocksDataStore {
     fn new(path: PathBuf) -> Self {
         RocksDataStore {
             path,
-            db: Arc::new(Mutex::new(None)),
+            db: Default::default(),
         }
     }
 
@@ -169,7 +172,7 @@ impl DataStore for RocksDataStore {
     }
 
     async fn open(&self) -> Result<(), Error> {
-        let db = self.db.clone();
+        let db = &self.db;
         let path = self.path.clone();
         let mut db_opts = rocksdb::Options::default();
         db_opts.create_missing_column_families(true);
@@ -178,14 +181,14 @@ impl DataStore for RocksDataStore {
         let ipns_opts = rocksdb::Options::default();
         let ipns_cf = rocksdb::ColumnFamilyDescriptor::new("ipns", ipns_opts);
         let rdb = rocksdb::DB::open_cf_descriptors(&db_opts, &path, vec![ipns_cf])?;
-        *db.lock().unwrap() = Some(rdb);
+        *db.lock().await = Some(rdb);
         Ok(())
     }
 
     async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
-        let db = self.db.clone();
+        let db = &self.db;
         let key = key.to_owned();
-        let db = db.lock().unwrap();
+        let db = db.lock().await;
         let db = db.as_ref().unwrap();
         let cf = col.resolve(db);
         let contains = db.get_cf(cf, &key)?.is_some();
@@ -193,9 +196,9 @@ impl DataStore for RocksDataStore {
     }
 
     async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        let db = self.db.clone();
+        let db = &self.db;
         let key = key.to_owned();
-        let db = db.lock().unwrap();
+        let db = db.lock().await;
         let db = db.as_ref().unwrap();
         let cf = col.resolve(db);
         let get = db.get_cf(cf, &key)?.map(|value| value.to_vec());
@@ -203,10 +206,10 @@ impl DataStore for RocksDataStore {
     }
 
     async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error> {
-        let db = self.db.clone();
+        let db = &self.db;
         let key = key.to_owned();
         let value = value.to_owned();
-        let db = db.lock().unwrap();
+        let db = db.lock().await;
         let db = db.as_ref().unwrap();
         let cf = col.resolve(db);
         db.put_cf(cf, &key, &value)?;
@@ -214,13 +217,17 @@ impl DataStore for RocksDataStore {
     }
 
     async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error> {
-        let db = self.db.clone();
+        let db = &self.db;
         let key = key.to_owned();
-        let db = db.lock().unwrap();
+        let db = db.lock().await;
         let db = db.as_ref().unwrap();
         let cf = col.resolve(db);
         db.delete_cf(cf, &key)?;
         Ok(())
+    }
+
+    async fn wipe(&self) {
+        // this function is currently only intended to be used with in-memory test setups
     }
 }
 
