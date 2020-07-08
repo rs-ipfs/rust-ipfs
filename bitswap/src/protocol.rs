@@ -18,8 +18,8 @@ const MAX_BUF_SIZE: usize = 524_288;
 
 type FutureResult<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
 
-#[derive(Clone, Debug, Default)]
-pub struct BitswapConfig {}
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BitswapConfig;
 
 impl UpgradeInfo for BitswapConfig {
     type Info = &'static [u8];

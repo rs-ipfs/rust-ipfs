@@ -114,7 +114,7 @@ pub struct RmResponse {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct EmptyResponse {}
+pub struct EmptyResponse;
 
 pub fn rm<T: IpfsTypes>(
     ipfs: &Ipfs<T>,

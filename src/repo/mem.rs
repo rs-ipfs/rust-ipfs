@@ -2,9 +2,9 @@
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore, Column, DataStore};
 use async_std::path::PathBuf;
-use async_std::sync::Mutex;
 use async_trait::async_trait;
 use bitswap::Block;
+use futures::lock::Mutex;
 use libipld::cid::Cid;
 
 use super::{BlockRm, BlockRmError};

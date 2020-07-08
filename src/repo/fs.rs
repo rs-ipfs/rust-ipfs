@@ -335,7 +335,7 @@ mod tests {
 
     #[async_std::test]
     #[cfg(feature = "rocksdb")]
-    fn test_rocks_datastore() {
+    async fn test_rocks_datastore() {
         let mut tmp = temp_dir();
         tmp.push("datastore1");
         std::fs::remove_dir_all(&tmp).ok();
