@@ -10,6 +10,9 @@ pub mod option_parsing;
 mod stream;
 pub use stream::StreamResponse;
 
+mod body;
+pub use body::try_only_named_multipart;
+
 /// The common responses apparently returned by the go-ipfs HTTP api on errors.
 /// See also: https://github.com/ferristseng/rust-ipfs-api/blob/master/ipfs-api/src/response/error.rs
 #[derive(Debug, Serialize)]
