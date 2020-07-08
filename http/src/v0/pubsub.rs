@@ -104,7 +104,7 @@ pub fn publish<T: IpfsTypes>(
     warp::path!("pub")
         .and(warp::post())
         .and(with_ipfs(ipfs))
-        .and(publish_args(b"arg"))
+        .and(publish_args("arg"))
         .and_then(inner_publish)
 }
 
@@ -417,14 +417,23 @@ impl QueryOrBody {
     }
 }
 
+impl AsRef<[u8]> for PublishArgs {
+    fn as_ref(&self) -> &[u8] {
+        use QueryOrBody::*;
+        match &self.message {
+            Query(b) | Body(b) => b.as_slice(),
+        }
+    }
+}
+
 /// `parameter_name` is byte slice because there is no percent decoding done for that component.
 fn publish_args(
-    parameter_name: &'static [u8],
+    parameter_name: &'static str,
 ) -> impl warp::Filter<Extract = (PublishArgs,), Error = warp::Rejection> + Copy {
     warp::filters::query::raw()
         .and_then(move |s: String| {
             let ret = if s.is_empty() {
-                Err(warp::reject::custom(RequiredArgumentMissing(b"topic")))
+                Err(warp::reject::custom(RequiredArgumentMissing("topic")))
             } else {
                 // sadly we can't use url::form_urlencoded::parse here as it will do lossy
                 // conversion to utf8 without us being able to recover the raw bytes, which are
@@ -433,13 +442,13 @@ fn publish_args(
                 let mut args = QueryAsRawPartsParser {
                     input: s.as_bytes(),
                 }
-                .filter(|&(k, _)| k == parameter_name)
+                .filter(|&(k, _)| k == parameter_name.as_bytes())
                 .map(|t| t.1);
 
                 let first = args
                     .next()
                     // can't be missing
-                    .ok_or_else(|| warp::reject::custom(RequiredArgumentMissing(b"arg")))
+                    .ok_or_else(|| warp::reject::custom(RequiredArgumentMissing(parameter_name)))
                     // decode into Result<String, warp::Rejection>
                     .and_then(|raw_first| {
                         percent_encoding::percent_decode(raw_first)
@@ -469,7 +478,7 @@ fn publish_args(
                 // using that so we can leave it probably for now. Looks like warp doesn't support
                 // multipart bodies without Content-Length so `go-ipfs` is not supported at this
                 // time.
-                Err(warp::reject::custom(RequiredArgumentMissing(b"data")))
+                Err(warp::reject::custom(RequiredArgumentMissing("data")))
             };
             futures::future::ready(ret)
         })
@@ -504,5 +513,39 @@ impl<'a> Iterator for QueryAsRawPartsParser<'a> {
             // original implementation calls percent_decode for both arguments into lossy Cow<str>
             return Some((name, value));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{publish_args, PublishArgs};
+    use futures::executor::block_on;
+    use futures::future::ready;
+    use std::str;
+    use warp::reply::json;
+    use warp::{test::request, Filter, Rejection, Reply};
+
+    fn publish_args_as_json(
+        param: &'static str,
+    ) -> impl Filter<Extract = impl Reply, Error = Rejection> {
+        publish_args(param).and_then(|p: PublishArgs| {
+            let message = str::from_utf8(p.as_ref()).unwrap();
+            ready(Ok::<_, warp::Rejection>(json(&serde_json::json!({
+                "message": message,
+                "topic": p.topic,
+            }))))
+        })
+    }
+
+    #[test]
+    fn url_hacked_args() {
+        let response = block_on(
+            request()
+                .path("/pubsub/pub?arg=some_channel&arg=foobar")
+                .reply(&publish_args_as_json("arg")),
+        );
+
+        let body = str::from_utf8(response.body()).unwrap();
+        assert_eq!(body, r#"{"message":"foobar","topic":"some_channel"}"#);
     }
 }

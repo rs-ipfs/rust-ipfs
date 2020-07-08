@@ -75,7 +75,7 @@ impl warp::reject::Reject for NonUtf8Topic {}
 
 /// Used by `pubsub/pub`
 #[derive(Debug)]
-pub(crate) struct RequiredArgumentMissing(pub(crate) &'static [u8]);
+pub(crate) struct RequiredArgumentMissing(pub(crate) &'static str);
 impl warp::reject::Reject for RequiredArgumentMissing {}
 
 #[derive(Debug)]
