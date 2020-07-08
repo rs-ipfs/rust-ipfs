@@ -17,10 +17,8 @@ impl<TReq: Debug + Eq + Hash, TRes: Debug> fmt::Debug for SubscriptionRegistry<T
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,
-            "{}<{}, {}>(subscriptions: {:?})",
+            "{}(subscriptions: {:?})",
             std::any::type_name::<Self>(),
-            std::any::type_name::<TReq>(),
-            std::any::type_name::<TRes>(),
             self.subscriptions
         )
     }
