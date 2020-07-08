@@ -199,7 +199,7 @@ mod tests {
         let mut registry = SubscriptionRegistry::<u32, u32>::default();
         let s1 = registry.create_subscription(0);
         drop(registry);
-        s1.await.unwrap_err();
+        assert_eq!(s1.await, Err(Cancelled));
     }
 
     #[async_std::test]
@@ -207,7 +207,7 @@ mod tests {
         let mut registry = SubscriptionRegistry::<u32, u32>::default();
         let s1 = registry.create_subscription(0);
         registry.shutdown();
-        s1.await.unwrap_err();
+        assert_eq!(s1.await, Err(Cancelled));
     }
 
     #[async_std::test]
@@ -215,7 +215,7 @@ mod tests {
         let mut registry = SubscriptionRegistry::<u32, u32>::default();
         registry.shutdown();
         let s1 = registry.create_subscription(0);
-        s1.await.unwrap_err();
+        assert_eq!(s1.await, Err(Cancelled));
     }
 
     #[async_std::test]
@@ -227,7 +227,7 @@ mod tests {
         let s1 = timeout(Duration::from_millis(1), registry.create_subscription(0));
         let s2 = registry.create_subscription(0);
 
-        // make sure it timeouted but had time to register the waker
+        // make sure it timed out but had time to register the waker
         s1.await.unwrap_err();
 
         // this will cause a call to waker installed by s1, but it shouldn't be a problem.
