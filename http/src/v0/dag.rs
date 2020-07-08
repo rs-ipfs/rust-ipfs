@@ -30,6 +30,17 @@ impl Default for InputEncoding {
     }
 }
 
+pub fn put<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    path!("dag" / "put")
+        .and(with_ipfs(ipfs))
+        .and(query::<PutQuery>())
+        .and(warp::header::<Mime>("content-type")) // TODO: rejects if missing
+        .and(warp::body::stream())
+        .and_then(put_query)
+}
+
 async fn put_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: PutQuery,
@@ -79,17 +90,6 @@ async fn put_query<T: IpfsTypes>(
     let block = ipfs::Block { cid, data };
     ipfs.put_block(block).await.map_err(StringError::from)?;
     Ok(reply::json(&reply))
-}
-
-pub fn put<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("dag" / "put")
-        .and(with_ipfs(ipfs))
-        .and(query::<PutQuery>())
-        .and(warp::header::<Mime>("content-type")) // TODO: rejects if missing
-        .and(warp::body::stream())
-        .and_then(put_query)
 }
 
 /// Per https://docs-beta.ipfs.io/reference/http/api/#api-v0-block-resolve this endpoint takes in a
