@@ -881,7 +881,12 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
             while let Poll::Ready(Some(evt)) = Pin::new(&mut self.repo_events).poll_next(ctx) {
                 match evt {
                     RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
-                    RepoEvent::ProvideBlock(cid) => self.swarm.provide_block(cid),
+                    RepoEvent::ProvideBlock(cid) => {
+                        // TODO: consider if cancel is applicable in cases where we provide the
+                        // associated Block ourselves
+                        self.swarm.bitswap().cancel_block(&cid);
+                        self.swarm.provide_block(cid)
+                    }
                     RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
                 }
             }
