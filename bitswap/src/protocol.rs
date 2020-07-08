@@ -12,7 +12,7 @@ use futures::io::{AsyncRead, AsyncWrite};
 use libp2p_core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
 use std::io;
 
-// Undocumented, but according to JS we our messages have a max size of 512*1024
+// Undocumented, but according to JS the bitswap messages have a max size of 512*1024 bytes
 // https://github.com/ipfs/js-ipfs-bitswap/blob/d8f80408aadab94c962f6b88f343eb9f39fa0fcc/src/decision-engine/index.js#L16
 const MAX_BUF_SIZE: usize = 524_288;
 
