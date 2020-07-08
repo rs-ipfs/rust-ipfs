@@ -406,7 +406,6 @@ struct PublishArgs {
 #[derive(Debug)]
 enum QueryOrBody {
     Query(Vec<u8>),
-    #[allow(dead_code)]
     Body(Vec<u8>),
 }
 
@@ -486,10 +485,6 @@ async fn publish_args_inner(
     if let Some(message) = opt_arg {
         Ok(PublishArgs { topic, message })
     } else {
-        // this branch should check for multipart body, however the js-http client is not
-        // using that so we can leave it probably for now. Looks like warp doesn't support
-        // multipart bodies without Content-Length so `go-ipfs` is not supported at this
-        // time.
         let boundary = content_type
             .ok_or_else(|| StringError::from("message needs to be query or in multipart body"))?
             .get_param("boundary")
@@ -503,6 +498,7 @@ async fn publish_args_inner(
             Err(e) => Err(StringError::from(e)),
         }?;
 
+        // this error is from conformance tests; the field name is different
         let buffer = buffer.ok_or_else(|| StringError::from("argument \"data\" is required"))?;
 
         Ok(PublishArgs {
