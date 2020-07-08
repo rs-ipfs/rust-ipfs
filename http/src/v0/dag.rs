@@ -73,7 +73,9 @@ async fn put_query<T: IpfsTypes>(
         .map(|v| v.to_string())
         .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
 
-    let buf = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body).await?;
+    let buf = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body)
+        .await
+        .map_err(StringError::from)?;
 
     let data = buf.into_boxed_slice();
     let digest = hasher(&data);

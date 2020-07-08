@@ -29,8 +29,8 @@ use bytes::{Buf, Bytes};
 use warp::{Filter, Rejection};
 
 use crate::v0::support::{
-    try_only_named_multipart, with_ipfs, NonUtf8Topic, RequiredArgumentMissing, StreamResponse,
-    StringError,
+    try_only_named_multipart, with_ipfs, NonUtf8Topic, OnlyMultipartFailure,
+    RequiredArgumentMissing, StreamResponse, StringError,
 };
 use mime::Mime;
 
@@ -496,7 +496,14 @@ async fn publish_args_inner(
             .map(|v| v.to_string())
             .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
 
-        let buffer = try_only_named_multipart(&["file"], 1024 * 100, boundary, body).await?;
+        let buffer = match try_only_named_multipart(&["file"], 1024 * 100, boundary, body).await {
+            Ok(buffer) if buffer.is_empty() => Ok(None),
+            Ok(buffer) => Ok(Some(buffer)),
+            Err(OnlyMultipartFailure::NotFound) => Ok(None),
+            Err(e) => Err(StringError::from(e)),
+        }?;
+
+        let buffer = buffer.ok_or_else(|| StringError::from("argument \"data\" is required"))?;
 
         Ok(PublishArgs {
             topic,
