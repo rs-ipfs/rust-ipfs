@@ -99,15 +99,23 @@ async fn inner_put<T: IpfsTypes>(
         .map(|v| v.to_string())
         .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
 
-    let buffer = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body)
+    let data = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body)
         .await
         .map_err(StringError::from)?;
 
-    // bad thing about Box<[u8]>: converting to it forces an reallocation
-    let data = buffer.into_boxed_slice();
-
+    // FIXME: digest calculation should be done in line with the reception of new blocks, but
+    // because of the old multihash version we use, we don't at least yet have access to that api.
     let digest = opts.digest()?(&data);
+
+    // cid generation can fail if we try some other hash or format with cidv0 which only supports
+    // SHA2-256 and dag-pb, both are even implicit. could be that these parameters we use here are
+    // not supported by go-ipfs or something, as in, the `block/put` should mostly return CidV0.
+    // Haven't researched this deeply.
     let cid = Cid::new(opts.version()?, opts.format()?, digest).map_err(StringError::from)?;
+
+    // bad thing about Box<[u8]>: converting to it forces a reallocation; do it now that we know
+    // the cid was generated successfully.
+    let data = data.into_boxed_slice();
 
     let size = data.len();
     let key = cid.to_string();
