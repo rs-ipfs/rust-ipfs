@@ -1,14 +1,17 @@
 use crate::v0::support::{
-    with_ipfs, HandledErr, InvalidMultipartFormData, StreamResponse, StringError,
+    try_only_named_multipart, with_ipfs, HandledErr, StreamResponse, StringError,
 };
-use futures::stream::FuturesOrdered;
-use futures::stream::StreamExt;
+use bytes::Buf;
+use futures::stream::{FuturesOrdered, Stream, StreamExt};
 use ipfs::error::Error;
 use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::{Cid, Codec, Version};
+use mime::Mime;
+
+use multihash::Multihash;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
-use warp::{http::Response, multipart, path, query, reply, Buf, Filter, Rejection, Reply};
+use warp::{http::Response, path, query, reply, Filter, Rejection, Reply};
 
 mod options;
 use options::RmOptions;
@@ -46,54 +49,32 @@ pub struct PutQuery {
     version: Option<u8>,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct PutResponse {
-    key: String,
-    size: usize,
-}
+impl PutQuery {
+    fn format(&self) -> Result<Codec, Rejection> {
+        Ok(match self.format.as_deref().unwrap_or("dag-pb") {
+            "dag-cbor" => Codec::DagCBOR,
+            "dag-pb" => Codec::DagProtobuf,
+            "dag-json" => Codec::DagJSON,
+            "raw" => Codec::Raw,
+            _ => return Err(StringError::from("unknown codec").into()),
+        })
+    }
 
-async fn put_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    query: PutQuery,
-    mut form: multipart::FormData,
-) -> Result<impl Reply, Rejection> {
-    let format = match query.format.as_deref().unwrap_or("dag-pb") {
-        "dag-cbor" => Codec::DagCBOR,
-        "dag-pb" => Codec::DagProtobuf,
-        "dag-json" => Codec::DagJSON,
-        "raw" => Codec::Raw,
-        _ => return Err(StringError::from("unknown codec").into()),
-    };
-    let hasher = match query.mhtype.as_deref().unwrap_or("sha2-256") {
-        "sha2-256" => multihash::Sha2_256::digest,
-        "sha2-512" => multihash::Sha2_512::digest,
-        _ => return Err(StringError::from("unknown hash").into()),
-    };
-    let version = match query.version.unwrap_or(0) {
-        0 => Version::V0,
-        1 => Version::V1,
-        _ => return Err(StringError::from("invalid cid version").into()),
-    };
-    let buf = form
-        .next()
-        .await
-        .ok_or(InvalidMultipartFormData)?
-        .map_err(|_| InvalidMultipartFormData)?
-        .data()
-        .await
-        .ok_or(InvalidMultipartFormData)?
-        .map_err(|_| InvalidMultipartFormData)?;
-    let data = Box::from(buf.bytes());
-    let digest = hasher(&data);
-    let cid = Cid::new(version, format, digest).map_err(StringError::from)?;
-    let response = PutResponse {
-        key: cid.to_string(),
-        size: data.len(),
-    };
-    let block = ipfs::Block { cid, data };
-    ipfs.put_block(block).await.map_err(StringError::from)?;
-    Ok(reply::json(&response))
+    fn digest(&self) -> Result<fn(&'_ [u8]) -> Multihash, Rejection> {
+        Ok(match self.mhtype.as_deref().unwrap_or("sha2-256") {
+            "sha2-256" => multihash::Sha2_256::digest,
+            "sha2-512" => multihash::Sha2_512::digest,
+            _ => return Err(StringError::from("unknown hash").into()),
+        })
+    }
+
+    fn version(&self) -> Result<Version, Rejection> {
+        Ok(match self.version.unwrap_or(0) {
+            0 => Version::V0,
+            1 => Version::V1,
+            _ => return Err(StringError::from("invalid cid version").into()),
+        })
+    }
 }
 
 pub fn put<T: IpfsTypes>(
@@ -102,8 +83,41 @@ pub fn put<T: IpfsTypes>(
     path!("block" / "put")
         .and(with_ipfs(ipfs))
         .and(query::<PutQuery>())
-        .and(multipart::form())
-        .and_then(put_query)
+        .and(warp::header::<Mime>("content-type")) // TODO: rejects if missing
+        .and(warp::body::stream())
+        .and_then(inner_put)
+}
+
+async fn inner_put<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    opts: PutQuery,
+    mime: Mime,
+    body: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin,
+) -> Result<impl Reply, Rejection> {
+    let boundary = mime
+        .get_param("boundary")
+        .map(|v| v.to_string())
+        .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
+
+    let buffer = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body).await?;
+
+    // bad thing about Box<[u8]>: converting to it forces an reallocation
+    let data = buffer.into_boxed_slice();
+
+    let digest = opts.digest()?(&data);
+    let cid = Cid::new(opts.version()?, opts.format()?, digest).map_err(StringError::from)?;
+
+    let size = data.len();
+    let key = cid.to_string();
+
+    let block = ipfs::Block { cid, data };
+
+    ipfs.put_block(block).await.map_err(StringError::from)?;
+
+    Ok(reply::json(&serde_json::json!({
+        "Key": key,
+        "Size": size,
+    })))
 }
 
 #[derive(Debug, Serialize)]

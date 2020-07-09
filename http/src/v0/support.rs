@@ -10,6 +10,9 @@ pub mod option_parsing;
 mod stream;
 pub use stream::StreamResponse;
 
+mod body;
+pub use body::try_only_named_multipart;
+
 /// The common responses apparently returned by the go-ipfs HTTP api on errors.
 /// See also: https://github.com/ferristseng/rust-ipfs-api/blob/master/ipfs-api/src/response/error.rs
 #[derive(Debug, Serialize)]
@@ -135,7 +138,7 @@ pub async fn recover_as_message_response(
     err: warp::reject::Rejection,
 ) -> Result<impl warp::Reply, Infallible> {
     use warp::http::StatusCode;
-    use warp::reject::{InvalidQuery, MethodNotAllowed};
+    use warp::reject::{InvalidQuery, LengthRequired, MethodNotAllowed};
 
     let resp: Box<dyn warp::Reply>;
     let status;
@@ -195,6 +198,14 @@ pub async fn recover_as_message_response(
         // go-ipfs sends back a "404 Not Found" with body "404 page not found"
         resp = Box::new("404 page not found");
         status = StatusCode::NOT_FOUND;
+    } else if err.find::<LengthRequired>().is_some() {
+        resp = Box::new(
+            MessageKind::Error
+                .with_code(0)
+                .with_message("Missing header: content-length")
+                .to_json_reply(),
+        );
+        status = StatusCode::BAD_REQUEST;
     } else {
         // FIXME: use log
         warn!("unhandled rejection: {:?}", err);

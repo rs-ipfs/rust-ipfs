@@ -1,23 +1,46 @@
-use crate::v0::support::{with_ipfs, InvalidMultipartFormData, StringError};
-use futures::stream::StreamExt;
+use crate::v0::support::{try_only_named_multipart, with_ipfs, NotImplemented, StringError};
+use futures::stream::Stream;
 use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::{Cid, Codec};
+use mime::Mime;
+
 use serde::Deserialize;
 use serde_json::json;
-use warp::{multipart, path, query, reply, Buf, Filter, Rejection, Reply};
+use warp::{path, query, reply, Buf, Filter, Rejection, Reply};
 
 #[derive(Debug, Deserialize)]
 pub struct PutQuery {
     format: Option<String>,
     hash: Option<String>,
+    #[serde(rename = "input-enc", default)]
+    encoding: InputEncoding,
+}
+
+#[derive(PartialEq, Eq, Debug, Deserialize)]
+pub enum InputEncoding {
+    #[serde(rename = "raw")]
+    Raw,
+    #[serde(rename = "json")]
+    Json,
+}
+
+impl Default for InputEncoding {
+    fn default() -> Self {
+        InputEncoding::Json
+    }
 }
 
 async fn put_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: PutQuery,
-    mut form: multipart::FormData,
+    mime: Mime,
+    body: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin,
 ) -> Result<impl Reply, Rejection> {
     use multihash::{Multihash, Sha2_256, Sha2_512, Sha3_512};
+
+    if query.encoding != InputEncoding::Raw {
+        return Err(NotImplemented.into());
+    }
 
     let (format, v0_fmt) = match query.format.as_deref().unwrap_or("dag-cbor") {
         "dag-cbor" => (Codec::DagCBOR, false),
@@ -26,22 +49,22 @@ async fn put_query<T: IpfsTypes>(
         "raw" => (Codec::Raw, false),
         _ => return Err(StringError::from("unknown codec").into()),
     };
+
     let (hasher, v0_hash) = match query.hash.as_deref().unwrap_or("sha2-256") {
         "sha2-256" => (Sha2_256::digest as fn(&[u8]) -> Multihash, true),
         "sha2-512" => (Sha2_512::digest as fn(&[u8]) -> Multihash, false),
         "sha3-512" => (Sha3_512::digest as fn(&[u8]) -> Multihash, false),
         _ => return Err(StringError::from("unknown hash").into()),
     };
-    let buf = form
-        .next()
-        .await
-        .ok_or(InvalidMultipartFormData)?
-        .map_err(|_| InvalidMultipartFormData)?
-        .data()
-        .await
-        .ok_or(InvalidMultipartFormData)?
-        .map_err(|_| InvalidMultipartFormData)?;
-    let data = Box::from(buf.bytes());
+
+    let boundary = mime
+        .get_param("boundary")
+        .map(|v| v.to_string())
+        .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
+
+    let buf = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body).await?;
+
+    let data = buf.into_boxed_slice();
     let digest = hasher(&data);
     let cid = if v0_fmt && v0_hash {
         // this is quite ugly way but apparently js-ipfs generates a v0 cid for this combination
@@ -64,7 +87,8 @@ pub fn put<T: IpfsTypes>(
     path!("dag" / "put")
         .and(with_ipfs(ipfs))
         .and(query::<PutQuery>())
-        .and(multipart::form())
+        .and(warp::header::<Mime>("content-type")) // TODO: rejects if missing
+        .and(warp::body::stream())
         .and_then(put_query)
 }
 
