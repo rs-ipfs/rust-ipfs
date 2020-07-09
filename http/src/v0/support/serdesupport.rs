@@ -1,6 +1,11 @@
 use std::fmt::{self, Display};
+use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
+/// Wrapper for anything which implements FromStr to get make it serde::Deserialize. Will turn
+/// Display to serde::Serialize. Probably should be used with Cid, PeerId and such.
+///
+/// Monkeyd from: https://github.com/serde-rs/serde/issues/1316
 #[derive(Clone, Copy)]
 pub struct StringSerialized<T>(pub T);
 
@@ -13,6 +18,20 @@ impl<T> StringSerialized<T> {
 impl<T> From<T> for StringSerialized<T> {
     fn from(t: T) -> Self {
         StringSerialized(t)
+    }
+}
+
+impl<T> Deref for StringSerialized<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for StringSerialized<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
     }
 }
 
