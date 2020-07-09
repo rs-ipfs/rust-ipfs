@@ -213,13 +213,6 @@ async fn rm_query<T: IpfsTypes>(
     Ok(StreamResponse(st))
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct StatResponse {
-    key: String,
-    size: usize,
-}
-
 async fn stat_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: GetStatOptions,
@@ -232,11 +225,10 @@ async fn stat_query<T: IpfsTypes>(
         .map_err(StringError::from)?
         .map_err(StringError::from)?;
 
-    let response = StatResponse {
-        key: query.arg,
-        size: block.data().len(),
-    };
-    Ok(reply::json(&response))
+    Ok(reply::json(&serde_json::json!({
+        "Key": query.arg,
+        "Size": block.data().len(),
+    })))
 }
 
 pub fn stat<T: IpfsTypes>(
