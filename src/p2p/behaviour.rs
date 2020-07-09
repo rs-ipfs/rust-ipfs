@@ -307,8 +307,8 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         &mut self.pubsub
     }
 
-    pub fn bitswap(&self) -> &Bitswap {
-        &self.bitswap
+    pub fn bitswap(&mut self) -> &mut Bitswap {
+        &mut self.bitswap
     }
 }
 

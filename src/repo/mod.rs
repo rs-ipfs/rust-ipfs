@@ -40,8 +40,7 @@ impl<TRepoTypes: RepoTypes> From<&IpfsOptions<TRepoTypes>> for RepoOptions<TRepo
 pub fn create_repo<TRepoTypes: RepoTypes>(
     options: RepoOptions<TRepoTypes>,
 ) -> (Repo<TRepoTypes>, Receiver<RepoEvent>) {
-    let (repo, ch) = Repo::new(options);
-    (repo, ch)
+    Repo::new(options)
 }
 
 /// Describes the outcome of `BlockStore::put_block`

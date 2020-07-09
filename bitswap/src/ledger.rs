@@ -6,7 +6,7 @@ use cid::Cid;
 use core::convert::TryFrom;
 use prost::Message as ProstMessage;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     mem,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -127,7 +127,7 @@ pub struct Message {
     /// List of wanted blocks.
     want: HashMap<Cid, Priority>,
     /// List of blocks to cancel.
-    cancel: Vec<Cid>,
+    cancel: HashSet<Cid>,
     /// Wheather it is the full list of wanted blocks.
     full: bool,
     /// List of blocks to send.
@@ -151,7 +151,7 @@ impl Message {
     }
 
     /// Returns the list of cancelled blocks.
-    pub fn cancel(&self) -> &[Cid] {
+    pub fn cancel(&self) -> &HashSet<Cid> {
         &self.cancel
     }
 
@@ -172,7 +172,7 @@ impl Message {
 
     /// Adds a block to the cancel list.
     pub fn cancel_block(&mut self, cid: &Cid) {
-        self.cancel.push(cid.to_owned());
+        self.cancel.insert(cid.to_owned());
     }
 
     /// Removes the block from the want list.
