@@ -17,13 +17,18 @@ use warp::{http::Response, path, query, reply, Filter, Rejection, Reply};
 mod options;
 use options::RmOptions;
 
+// This is parsed for both `block/get` and `block/stat`. Should there be any need to add stuff to
+// either which isn't relevant in the other, go ahead and split these again.
 #[derive(Debug, Deserialize)]
-pub struct GetQuery {
+pub struct GetStatOptions {
     arg: String,
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-async fn get_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: GetQuery) -> Result<impl Reply, Rejection> {
+async fn get_query<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    query: GetStatOptions,
+) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
     let data = ipfs
         .get_block(&cid)
@@ -42,7 +47,7 @@ pub fn get<T: IpfsTypes>(
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "get")
         .and(with_ipfs(ipfs))
-        .and(query::<GetQuery>())
+        .and(query::<GetStatOptions>())
         .and_then(get_query)
 }
 
@@ -208,12 +213,6 @@ async fn rm_query<T: IpfsTypes>(
     Ok(StreamResponse(st))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct StatQuery {
-    arg: String,
-    timeout: Option<StringSerialized<humantime::Duration>>,
-}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct StatResponse {
@@ -223,7 +222,7 @@ pub struct StatResponse {
 
 async fn stat_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    query: StatQuery,
+    query: GetStatOptions,
 ) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
     let block = ipfs
@@ -245,6 +244,6 @@ pub fn stat<T: IpfsTypes>(
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "stat")
         .and(with_ipfs(ipfs))
-        .and(query::<StatQuery>())
+        .and(query::<GetStatOptions>())
         .and_then(stat_query)
 }
