@@ -41,7 +41,7 @@ type NetworkBehaviourAction = swarm::NetworkBehaviourAction<<<<SwarmApi as Netwo
 pub struct SwarmApi {
     events: VecDeque<NetworkBehaviourAction>,
     peers: HashSet<PeerId>,
-    connect_registry: SubscriptionRegistry<Multiaddr, Result<(), String>>,
+    connect_registry: SubscriptionRegistry<Result<(), String>>,
     connections: HashMap<Multiaddr, PeerId>,
     roundtrip_times: HashMap<PeerId, Duration>,
     connected_peers: HashMap<PeerId, Vec<Multiaddr>>,
@@ -92,7 +92,8 @@ impl SwarmApi {
         self.events.push_back(NetworkBehaviourAction::DialAddress {
             address: address.clone(),
         });
-        self.connect_registry.create_subscription(address)
+        self.connect_registry
+            .create_subscription(address.into(), None)
     }
 
     pub fn disconnect(&mut self, address: Multiaddr) -> Option<Disconnector> {
@@ -154,7 +155,8 @@ impl NetworkBehaviour for SwarmApi {
         connections.push(addr.clone());
 
         self.connections.insert(addr.clone(), peer_id.clone());
-        self.connect_registry.finish_subscription(&addr, Ok(()));
+        self.connect_registry
+            .finish_subscription(&addr.clone().into(), Ok(()));
     }
 
     fn inject_connected(&mut self, _peer_id: &PeerId) {
@@ -183,7 +185,7 @@ impl NetworkBehaviour for SwarmApi {
         self.connections.remove(closed_addr);
         // FIXME: should be an error
         self.connect_registry
-            .finish_subscription(closed_addr, Ok(()));
+            .finish_subscription(&closed_addr.clone().into(), Ok(()));
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
@@ -202,7 +204,7 @@ impl NetworkBehaviour for SwarmApi {
     ) {
         log::trace!("inject_addr_reach_failure {} {}", addr, error);
         self.connect_registry
-            .finish_subscription(addr, Err(format!("{}", error)));
+            .finish_subscription(&addr.clone().into(), Err(format!("{}", error)));
     }
 
     fn poll(

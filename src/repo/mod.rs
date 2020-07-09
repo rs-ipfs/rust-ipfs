@@ -1,7 +1,7 @@
 //! IPFS repo
 use crate::error::Error;
 use crate::path::IpfsPath;
-use crate::subscription::SubscriptionRegistry;
+use crate::subscription::{Request, SubscriptionRegistry};
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
 use async_trait::async_trait;
@@ -103,14 +103,25 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
-    subscriptions: Mutex<SubscriptionRegistry<Cid, Block>>,
+    subscriptions: Mutex<SubscriptionRegistry<Block>>,
 }
 
 #[derive(Clone, Debug)]
 pub enum RepoEvent {
     WantBlock(Cid),
+    UnwantBlock(Cid),
     ProvideBlock(Cid),
     UnprovideBlock(Cid),
+}
+
+impl From<Request> for RepoEvent {
+    fn from(req: Request) -> Self {
+        if let Request::GetBlock(cid) = req {
+            RepoEvent::UnwantBlock(cid)
+        } else {
+            panic!("logic error: RepoEvent can only be created from a Request::GetBlock");
+        }
+    }
 }
 
 /// Extension trait to easily upgrade owned values from possibly cidv0 to cidv1. The Cid version
@@ -211,7 +222,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             .lock()
             .await
             // subscriptions are per cidv1
-            .finish_subscription(&cid, block);
+            .finish_subscription(&cid.clone().into(), block);
         // sending only fails if no one is listening anymore
         // and that is okay with us.
         self.events
@@ -239,7 +250,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 .lock()
                 .await
                 // subscribe always by using the cidv1
-                .create_subscription(upgraded.clone());
+                .create_subscription(upgraded.clone().into(), Some(self.events.clone()));
             // sending only fails if no one is listening anymore
             // and that is okay with us.
             self.events
