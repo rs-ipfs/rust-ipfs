@@ -2,7 +2,7 @@ use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
-/// Wrapper for anything which implements FromStr to get make it serde::Deserialize. Will turn
+/// A wrapper for anything that implements FromStr to make it serde::Deserialize. Will turn
 /// Display to serde::Serialize. Probably should be used with Cid, PeerId and such.
 ///
 /// Monkeyd from: https://github.com/serde-rs/serde/issues/1316
