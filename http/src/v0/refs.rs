@@ -1,4 +1,4 @@
-use crate::v0::support::{maybe_timeout, with_ipfs, StringError};
+use crate::v0::support::{with_ipfs, MaybeTimeoutExt, StringError};
 use futures::stream;
 use futures::stream::Stream;
 use ipfs::{Block, Error};

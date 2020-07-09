@@ -1,5 +1,7 @@
 use crate::v0::refs::{walk_path, IpfsPath};
-use crate::v0::support::{with_ipfs, StreamResponse, StringError};
+use crate::v0::support::{
+    with_ipfs, MaybeTimeoutExt, StreamResponse, StringError, StringSerialized,
+};
 use async_stream::try_stream;
 use bytes::Bytes;
 use futures::stream::TryStream;
@@ -23,7 +25,7 @@ pub struct CatArgs {
     arg: String,
     offset: Option<u64>,
     length: Option<u64>,
-    // timeout: Option<?> // added in latest iterations
+    timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
 pub fn cat<T: IpfsTypes>(
@@ -47,15 +49,25 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
     };
 
     // FIXME: this is here until we have IpfsPath back at ipfs
+    // FIXME: this timeout here is ... not great; the end user could be waiting for 2*timeout
 
-    let (cid, _, _) = walk_path(&ipfs, path).await.map_err(StringError::from)?;
+    let (cid, _, _) = walk_path(&ipfs, path)
+        .maybe_timeout(args.timeout.clone().map(StringSerialized::into_inner))
+        .await
+        .map_err(StringError::from)?
+        .map_err(StringError::from)?;
 
     if cid.codec() != Codec::DagProtobuf {
         return Err(StringError::from("unknown node type").into());
     }
 
-    // TODO: timeout
-    let stream = match ipfs::unixfs::cat(ipfs, cid, range).await {
+    // TODO: timeout for the whole stream!
+    let ret = ipfs::unixfs::cat(ipfs, cid, range)
+        .maybe_timeout(args.timeout.map(StringSerialized::into_inner))
+        .await
+        .map_err(StringError::from)?;
+
+    let stream = match ret {
         Ok(stream) => stream,
         Err(TraversalFailed::Walking(_, FileReadFailed::UnexpectedType(ut)))
             if ut.is_directory() =>
@@ -72,6 +84,7 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
 struct GetArgs {
     // this could be an ipfs path again
     arg: String,
+    timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
 pub fn get<T: IpfsTypes>(
@@ -90,7 +103,12 @@ async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Re
     path.set_follow_dagpb_data(false);
 
     // FIXME: this is here until we have IpfsPath back at ipfs
-    let (cid, _, _) = walk_path(&ipfs, path).await.map_err(StringError::from)?;
+    // FIXME: this timeout is only for the first step, should be for the whole walk!
+    let (cid, _, _) = walk_path(&ipfs, path)
+        .maybe_timeout(args.timeout.map(StringSerialized::into_inner))
+        .await
+        .map_err(StringError::from)?
+        .map_err(StringError::from)?;
 
     if cid.codec() != Codec::DagProtobuf {
         return Err(StringError::from("unknown node type").into());

@@ -1,6 +1,7 @@
 use std::fmt::{self, Display};
 use std::str::FromStr;
 
+#[derive(Clone, Copy)]
 pub struct StringSerialized<T>(pub T);
 
 impl<T> StringSerialized<T> {
