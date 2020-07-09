@@ -1,5 +1,6 @@
 use crate::v0::support::{
-    try_only_named_multipart, with_ipfs, HandledErr, StreamResponse, StringError,
+    try_only_named_multipart, with_ipfs, HandledErr, MaybeTimeoutExt, StreamResponse, StringError,
+    StringSerialized,
 };
 use bytes::Buf;
 use futures::stream::{FuturesOrdered, Stream, StreamExt};
@@ -19,13 +20,16 @@ use options::RmOptions;
 #[derive(Debug, Deserialize)]
 pub struct GetQuery {
     arg: String,
+    timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
 async fn get_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: GetQuery) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
     let data = ipfs
         .get_block(&cid)
+        .maybe_timeout(query.timeout.map(StringSerialized::into_inner))
         .await
+        .map_err(StringError::from)?
         .map_err(StringError::from)?
         .into_vec();
 
