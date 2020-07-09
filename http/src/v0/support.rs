@@ -13,6 +13,9 @@ pub use stream::StreamResponse;
 mod body;
 pub use body::{try_only_named_multipart, OnlyMultipartFailure};
 
+mod timeout;
+pub use timeout::{maybe_timeout, MaybeTimeoutExt};
+
 mod serdesupport;
 pub use serdesupport::StringSerialized;
 
