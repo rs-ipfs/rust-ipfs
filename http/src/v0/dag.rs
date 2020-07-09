@@ -1,4 +1,7 @@
-use crate::v0::support::{try_only_named_multipart, with_ipfs, NotImplemented, StringError};
+use crate::v0::support::{
+    try_only_named_multipart, with_ipfs, MaybeTimeoutExt, NotImplemented, StringError,
+    StringSerialized,
+};
 use futures::stream::Stream;
 use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::{Cid, Codec};
@@ -113,9 +116,7 @@ pub fn resolve<T: IpfsTypes>(
 #[derive(Debug, Deserialize)]
 struct ResolveOptions {
     arg: String,
-    // with local_resolve, we should not start to fetch the block ever, this is available in
-    // (js-)ipfs-http-client >= 44.0.0 and the last failing test.
-    // TODO: #[serde(rename = "localResolve")] local_resolve: bool
+    timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
 async fn inner_resolve<T: IpfsTypes>(
@@ -127,7 +128,11 @@ async fn inner_resolve<T: IpfsTypes>(
 
     let path = IpfsPath::try_from(opts.arg.as_str()).map_err(StringError::from)?;
 
-    let (current, _, remaining) = walk_path(&ipfs, path).await.map_err(StringError::from)?;
+    let (current, _, remaining) = walk_path(&ipfs, path)
+        .maybe_timeout(opts.timeout.map(StringSerialized::into_inner))
+        .await
+        .map_err(StringError::from)?
+        .map_err(StringError::from)?;
 
     let remaining = {
         let slashes = remaining.len();

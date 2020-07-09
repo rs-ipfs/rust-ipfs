@@ -7,6 +7,7 @@ pub enum ParseError<'a> {
     MissingArg,
     InvalidNumber(Cow<'a, str>, Cow<'a, str>),
     InvalidBoolean(Cow<'a, str>, Cow<'a, str>),
+    InvalidDuration(Cow<'a, str>, humantime::DurationError),
 }
 
 impl<'a> fmt::Display for ParseError<'a> {
@@ -17,6 +18,9 @@ impl<'a> fmt::Display for ParseError<'a> {
             MissingArg => write!(fmt, "required field \"arg\" missing"),
             InvalidNumber(ref k, ref v) => write!(fmt, "field {:?} invalid number: {:?}", *k, *v),
             InvalidBoolean(ref k, ref v) => write!(fmt, "field {:?} invalid boolean: {:?}", *k, *v),
+            InvalidDuration(ref field, ref e) => {
+                write!(fmt, "field {:?} invalid duration: {:?}", field, e)
+            }
         }
     }
 }
