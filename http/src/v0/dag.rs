@@ -73,12 +73,12 @@ async fn put_query<T: IpfsTypes>(
         .map(|v| v.to_string())
         .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
 
-    let buf = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body)
+    let data = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body)
         .await
         .map_err(StringError::from)?;
 
-    let data = buf.into_boxed_slice();
     let digest = hasher(&data);
+
     let cid = if v0_fmt && v0_hash {
         // this is quite ugly way but apparently js-ipfs generates a v0 cid for this combination
         // which is also created by go-ipfs
@@ -86,9 +86,13 @@ async fn put_query<T: IpfsTypes>(
     } else {
         Cid::new_v1(format, digest)
     };
+
     let reply = json!({
         "Cid": { "/": cid.to_string() }
     });
+
+    // delay reallocation until cid has been generated
+    let data = data.into_boxed_slice();
     let block = ipfs::Block { cid, data };
     ipfs.put_block(block).await.map_err(StringError::from)?;
     Ok(reply::json(&reply))
