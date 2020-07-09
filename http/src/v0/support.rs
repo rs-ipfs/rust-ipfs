@@ -14,7 +14,7 @@ mod body;
 pub use body::{try_only_named_multipart, OnlyMultipartFailure};
 
 mod timeout;
-pub use timeout::{maybe_timeout, MaybeTimeoutExt};
+pub use timeout::MaybeTimeoutExt;
 
 mod serdesupport;
 pub use serdesupport::StringSerialized;
