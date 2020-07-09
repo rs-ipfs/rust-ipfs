@@ -114,6 +114,7 @@ jobs:
       with:
         repository: ipfs-rust/ipfs-rust-conformance
         path: conformance
+        ref: "422ee4913cb156e7b0a5662a7b3e9db1e147aa12"
 
     - name: Setup conformance tests (non-cross targets)
       if: matrix.platform.cross == false
