@@ -211,6 +211,7 @@ async fn rm_query<T: IpfsTypes>(
 #[derive(Debug, Deserialize)]
 pub struct StatQuery {
     arg: String,
+    timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -225,7 +226,13 @@ async fn stat_query<T: IpfsTypes>(
     query: StatQuery,
 ) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
-    let block = ipfs.get_block(&cid).await.map_err(StringError::from)?;
+    let block = ipfs
+        .get_block(&cid)
+        .maybe_timeout(query.timeout.map(StringSerialized::into_inner))
+        .await
+        .map_err(StringError::from)?
+        .map_err(StringError::from)?;
+
     let response = StatResponse {
         key: query.arg,
         size: block.data().len(),
