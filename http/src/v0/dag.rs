@@ -30,6 +30,17 @@ impl Default for InputEncoding {
     }
 }
 
+pub fn put<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    path!("dag" / "put")
+        .and(with_ipfs(ipfs))
+        .and(query::<PutQuery>())
+        .and(warp::header::<Mime>("content-type")) // TODO: rejects if missing
+        .and(warp::body::stream())
+        .and_then(put_query)
+}
+
 async fn put_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: PutQuery,
@@ -62,7 +73,9 @@ async fn put_query<T: IpfsTypes>(
         .map(|v| v.to_string())
         .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
 
-    let buf = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body).await?;
+    let buf = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body)
+        .await
+        .map_err(StringError::from)?;
 
     let data = buf.into_boxed_slice();
     let digest = hasher(&data);
@@ -79,17 +92,6 @@ async fn put_query<T: IpfsTypes>(
     let block = ipfs::Block { cid, data };
     ipfs.put_block(block).await.map_err(StringError::from)?;
     Ok(reply::json(&reply))
-}
-
-pub fn put<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("dag" / "put")
-        .and(with_ipfs(ipfs))
-        .and(query::<PutQuery>())
-        .and(warp::header::<Mime>("content-type")) // TODO: rejects if missing
-        .and(warp::body::stream())
-        .and_then(put_query)
 }
 
 /// Per https://docs-beta.ipfs.io/reference/http/api/#api-v0-block-resolve this endpoint takes in a

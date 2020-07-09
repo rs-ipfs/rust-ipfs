@@ -10,8 +10,7 @@
 //! `ipfs::Ipfs::pubsub_subscribe` and thus will panic if an subscription was made outside of this
 //! locking mechanism.
 
-use futures::stream::TryStream;
-use futures::stream::TryStreamExt;
+use futures::stream::{Stream, TryStream, TryStreamExt};
 use serde::{Deserialize, Serialize};
 
 use tokio::stream::StreamExt;
@@ -26,12 +25,14 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use warp::hyper::body::Bytes;
-use warp::Filter;
+use bytes::{Buf, Bytes};
+use warp::{Filter, Rejection};
 
 use crate::v0::support::{
-    with_ipfs, NonUtf8Topic, RequiredArgumentMissing, StreamResponse, StringError,
+    try_only_named_multipart, with_ipfs, NonUtf8Topic, OnlyMultipartFailure,
+    RequiredArgumentMissing, StreamResponse, StringError,
 };
+use mime::Mime;
 
 #[derive(Default)]
 pub struct Pubsub {
@@ -104,7 +105,7 @@ pub fn publish<T: IpfsTypes>(
     warp::path!("pub")
         .and(warp::post())
         .and(with_ipfs(ipfs))
-        .and(publish_args(b"arg"))
+        .and(publish_args("arg"))
         .and_then(inner_publish)
 }
 
@@ -405,7 +406,6 @@ struct PublishArgs {
 #[derive(Debug)]
 enum QueryOrBody {
     Query(Vec<u8>),
-    #[allow(dead_code)]
     Body(Vec<u8>),
 }
 
@@ -417,29 +417,40 @@ impl QueryOrBody {
     }
 }
 
+impl AsRef<[u8]> for PublishArgs {
+    fn as_ref(&self) -> &[u8] {
+        use QueryOrBody::*;
+        match &self.message {
+            Query(b) | Body(b) => b.as_slice(),
+        }
+    }
+}
+
 /// `parameter_name` is byte slice because there is no percent decoding done for that component.
 fn publish_args(
-    parameter_name: &'static [u8],
-) -> impl warp::Filter<Extract = (PublishArgs,), Error = warp::Rejection> + Copy {
+    parameter_name: &'static str,
+) -> impl Filter<Extract = (PublishArgs,), Error = warp::Rejection> + Clone {
     warp::filters::query::raw()
         .and_then(move |s: String| {
             let ret = if s.is_empty() {
-                Err(warp::reject::custom(RequiredArgumentMissing(b"topic")))
+                Err(warp::reject::custom(RequiredArgumentMissing("topic")))
             } else {
                 // sadly we can't use url::form_urlencoded::parse here as it will do lossy
                 // conversion to utf8 without us being able to recover the raw bytes, which are
                 // used by js-ipfs/ipfs-http-client to encode raw Buffers:
                 // https://github.com/ipfs/js-ipfs/blob/master/packages/ipfs-http-client/src/pubsub/publish.js
-                let mut args = QueryAsRawPartsParser {
+                let parser = QueryAsRawPartsParser {
                     input: s.as_bytes(),
-                }
-                .filter(|&(k, _)| k == parameter_name)
-                .map(|t| t.1);
+                };
+
+                let mut args = parser
+                    .filter(|&(k, _)| k == parameter_name.as_bytes())
+                    .map(|t| t.1);
 
                 let first = args
                     .next()
                     // can't be missing
-                    .ok_or_else(|| warp::reject::custom(RequiredArgumentMissing(b"arg")))
+                    .ok_or_else(|| warp::reject::custom(RequiredArgumentMissing(parameter_name)))
                     // decode into Result<String, warp::Rejection>
                     .and_then(|raw_first| {
                         percent_encoding::percent_decode(raw_first)
@@ -461,18 +472,40 @@ fn publish_args(
 
             futures::future::ready(ret)
         })
-        .and_then(|(topic, opt_arg): (String, Option<QueryOrBody>)| {
-            let ret = if let Some(message) = opt_arg {
-                Ok(PublishArgs { topic, message })
-            } else {
-                // this branch should check for multipart body, however the js-http client is not
-                // using that so we can leave it probably for now. Looks like warp doesn't support
-                // multipart bodies without Content-Length so `go-ipfs` is not supported at this
-                // time.
-                Err(warp::reject::custom(RequiredArgumentMissing(b"data")))
-            };
-            futures::future::ready(ret)
+        .and(warp::filters::header::optional::<Mime>("content-type"))
+        .and(warp::filters::body::stream())
+        .and_then(publish_args_inner)
+}
+
+async fn publish_args_inner(
+    (topic, opt_arg): (String, Option<QueryOrBody>),
+    content_type: Option<Mime>,
+    body: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin,
+) -> Result<PublishArgs, Rejection> {
+    if let Some(message) = opt_arg {
+        Ok(PublishArgs { topic, message })
+    } else {
+        let boundary = content_type
+            .ok_or_else(|| StringError::from("message needs to be query or in multipart body"))?
+            .get_param("boundary")
+            .map(|v| v.to_string())
+            .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
+
+        let buffer = match try_only_named_multipart(&["file"], 1024 * 100, boundary, body).await {
+            Ok(buffer) if buffer.is_empty() => Ok(None),
+            Ok(buffer) => Ok(Some(buffer)),
+            Err(OnlyMultipartFailure::NotFound) => Ok(None),
+            Err(e) => Err(StringError::from(e)),
+        }?;
+
+        // this error is from conformance tests; the field name is different
+        let buffer = buffer.ok_or_else(|| StringError::from("argument \"data\" is required"))?;
+
+        Ok(PublishArgs {
+            topic,
+            message: QueryOrBody::Body(buffer),
         })
+    }
 }
 
 struct QueryAsRawPartsParser<'a> {
@@ -504,5 +537,61 @@ impl<'a> Iterator for QueryAsRawPartsParser<'a> {
             // original implementation calls percent_decode for both arguments into lossy Cow<str>
             return Some((name, value));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{publish_args, PublishArgs};
+    use futures::executor::block_on;
+    use futures::future::ready;
+    use std::str;
+    use warp::reply::json;
+    use warp::{test::request, Filter, Rejection, Reply};
+
+    fn publish_args_as_json(
+        param: &'static str,
+    ) -> impl Filter<Extract = impl Reply, Error = Rejection> {
+        publish_args(param).and_then(|p: PublishArgs| {
+            let message = str::from_utf8(p.as_ref()).unwrap();
+            ready(Ok::<_, warp::Rejection>(json(&serde_json::json!({
+                "message": message,
+                "topic": p.topic,
+            }))))
+        })
+    }
+
+    #[test]
+    fn url_hacked_args() {
+        let response = block_on(
+            request()
+                .path("/pubsub/pub?arg=some_channel&arg=foobar")
+                .reply(&publish_args_as_json("arg")),
+        );
+
+        let body = str::from_utf8(response.body()).unwrap();
+        assert_eq!(body, r#"{"message":"foobar","topic":"some_channel"}"#);
+    }
+
+    #[test]
+    fn message_in_body() {
+        let response = block_on(
+            request()
+                .path("/pubsub/pub?arg=some_channel")
+                .header("content-type", "multipart/form-data; boundary=-----------------------------Z0oYi6XyTm7_x2L4ty8JL")
+                .body(&b"-------------------------------Z0oYi6XyTm7_x2L4ty8JL\r\n\
+                    Content-Disposition: form-data; name=\"file\"; filename=\"\"\r\n\
+                    Content-Type: application/octet-stream\r\n\
+                    \r\n\
+                    aedFIxDJZ2jS1eVB6Pkbv\r\n\
+                    -------------------------------Z0oYi6XyTm7_x2L4ty8JL--\r\n"[..])
+                .reply(&publish_args_as_json("arg")),
+        );
+
+        let body = str::from_utf8(response.body()).unwrap();
+        assert_eq!(
+            body,
+            r#"{"message":"aedFIxDJZ2jS1eVB6Pkbv","topic":"some_channel"}"#
+        );
     }
 }

@@ -11,7 +11,7 @@ mod stream;
 pub use stream::StreamResponse;
 
 mod body;
-pub use body::try_only_named_multipart;
+pub use body::{try_only_named_multipart, OnlyMultipartFailure};
 
 /// The common responses apparently returned by the go-ipfs HTTP api on errors.
 /// See also: https://github.com/ferristseng/rust-ipfs-api/blob/master/ipfs-api/src/response/error.rs
@@ -75,7 +75,7 @@ impl warp::reject::Reject for NonUtf8Topic {}
 
 /// Used by `pubsub/pub`
 #[derive(Debug)]
-pub(crate) struct RequiredArgumentMissing(pub(crate) &'static [u8]);
+pub(crate) struct RequiredArgumentMissing(pub(crate) &'static str);
 impl warp::reject::Reject for RequiredArgumentMissing {}
 
 #[derive(Debug)]

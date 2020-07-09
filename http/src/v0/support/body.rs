@@ -1,15 +1,54 @@
-use crate::v0::support::StringError;
 use bytes::Buf;
 use futures::stream::{Stream, TryStreamExt};
-use mpart_async::server::MultipartStream;
-use warp::Rejection;
+use mpart_async::server::{MultipartError, MultipartStream};
+use std::fmt;
+
+#[derive(Debug)]
+pub enum OnlyMultipartFailure {
+    UnparseableFieldName,
+    MultipleValues,
+    TooLargeValue,
+    NotFound,
+    ZeroRead,
+    IO(MultipartError),
+}
+
+impl fmt::Display for OnlyMultipartFailure {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use OnlyMultipartFailure::*;
+        match self {
+            UnparseableFieldName => write!(fmt, "multipart field name could not be parsed"),
+            MultipleValues => write!(fmt, "multiple values of the matching name, expected one"),
+            TooLargeValue => write!(fmt, "value is too long"),
+            NotFound => write!(fmt, "value not found"),
+            ZeroRead => write!(fmt, "internal error: read zero"),
+            IO(e) => write!(fmt, "parsing failed: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for OnlyMultipartFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use OnlyMultipartFailure::*;
+        match self {
+            IO(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<MultipartError> for OnlyMultipartFailure {
+    fn from(e: MultipartError) -> Self {
+        OnlyMultipartFailure::IO(e)
+    }
+}
 
 pub async fn try_only_named_multipart<'a>(
     allowed_names: &'a [impl AsRef<str> + 'a],
     size_limit: usize,
     boundary: String,
     st: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin + 'a,
-) -> Result<Vec<u8>, Rejection> {
+) -> Result<Vec<u8>, OnlyMultipartFailure> {
     use bytes::Bytes;
     let mut stream =
         MultipartStream::new(Bytes::from(boundary), st.map_ok(|mut buf| buf.to_bytes()));
@@ -20,7 +59,7 @@ pub async fn try_only_named_multipart<'a>(
     let mut buffer = Vec::new();
     let mut matched = false;
 
-    while let Some(mut field) = stream.try_next().await.map_err(StringError::from)? {
+    while let Some(mut field) = stream.try_next().await? {
         // [ipfs http api] says we should expect a "data" but examples use "file" as the
         // form field name. newer conformance tests also use former, older latter.
         //
@@ -28,7 +67,7 @@ pub async fn try_only_named_multipart<'a>(
 
         let name = field
             .name()
-            .map_err(|_| StringError::from("invalid field name"))?;
+            .map_err(|_| OnlyMultipartFailure::UnparseableFieldName)?;
 
         let mut target = if allowed_names.iter().any(|s| s.as_ref() == name) {
             Some(&mut buffer)
@@ -38,20 +77,18 @@ pub async fn try_only_named_multipart<'a>(
 
         if matched {
             // per spec: only one block should be uploaded at once
-            return Err(StringError::from("multiple blocks (expecting at most one)").into());
+            return Err(OnlyMultipartFailure::MultipleValues);
         }
 
         matched = target.is_some();
 
         loop {
-            let next = field.try_next().await.map_err(|e| {
-                StringError::from(format!("IO error while reading field bytes: {}", e))
-            })?;
+            let next = field.try_next().await?;
 
             match (next, target.as_mut()) {
                 (Some(bytes), Some(target)) => {
                     if target.len() + bytes.len() > size_limit {
-                        return Err(StringError::from("block is too large").into());
+                        return Err(OnlyMultipartFailure::TooLargeValue);
                     } else if target.is_empty() {
                         target.reserve(size_limit);
                     }
@@ -62,7 +99,7 @@ pub async fn try_only_named_multipart<'a>(
                     if bytes.is_empty() {
                         // this technically shouldn't be happening any more but erroring
                         // out instead of spinning wildly is much better.
-                        return Err(StringError::from("internal error: zero read").into());
+                        return Err(OnlyMultipartFailure::ZeroRead);
                     }
                 }
                 (None, _) => break,
@@ -71,7 +108,7 @@ pub async fn try_only_named_multipart<'a>(
     }
 
     if !matched {
-        return Err(StringError::from("missing field: \"data\" (or \"file\")").into());
+        return Err(OnlyMultipartFailure::NotFound);
     }
 
     Ok(buffer)

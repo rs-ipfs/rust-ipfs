@@ -99,7 +99,9 @@ async fn inner_put<T: IpfsTypes>(
         .map(|v| v.to_string())
         .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
 
-    let buffer = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body).await?;
+    let buffer = try_only_named_multipart(&["data", "file"], 1024 * 1024, boundary, body)
+        .await
+        .map_err(StringError::from)?;
 
     // bad thing about Box<[u8]>: converting to it forces an reallocation
     let data = buffer.into_boxed_slice();
