@@ -1,4 +1,4 @@
-use crate::v0::support::{with_ipfs, StringError};
+use crate::v0::support::{maybe_timeout, with_ipfs, StringError};
 use futures::stream;
 use futures::stream::Stream;
 use ipfs::{Block, Error};
@@ -63,12 +63,17 @@ async fn refs_inner<T: IpfsTypes>(
     }
 
     let st = refs_paths(ipfs, paths, max_depth, opts.unique)
+        .maybe_timeout(opts.timeout)
         .await
+        .map_err(StringError::from)?
         .map_err(|e| {
             log::warn!("refs path on {:?} failed with {}", &opts.arg, e);
             e
         })
         .map_err(StringError::from)?;
+
+    // FIXME: there should be a total timeout arching over path walking to the stream completion.
+    // hyper can't do trailer errors on chunked bodies so ... we can't do much.
 
     let st = st.map(move |res| {
         let res = match res {

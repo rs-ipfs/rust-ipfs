@@ -19,6 +19,9 @@ pub struct RefsOptions {
     // go-ipfs treats -2 as -1 when `recursive` is true.
     // go-ipfs doesn't use the json return value if this value is too large or non-int
     pub max_depth: Option<i64>,
+    /// Pretty much any other duration, but since we are not using serde, we can just have it
+    /// directly.
+    pub timeout: Option<humantime::Duration>,
 }
 
 impl RefsOptions {
@@ -52,6 +55,7 @@ impl<'a> TryFrom<&'a str> for RefsOptions {
 
         let mut args = Vec::new();
         let mut format = None;
+        let mut timeout: Option<humantime::Duration> = None;
         let mut edges = None;
         let mut unique = None;
         let mut recursive = None;
@@ -68,6 +72,18 @@ impl<'a> TryFrom<&'a str> for RefsOptions {
                         // not parsing this the whole way as there might be hope to have this
                         // function removed in the future.
                         format = Some(value.into_owned());
+                        continue;
+                    } else {
+                        return Err(DuplicateField(key));
+                    }
+                }
+                "timeout" => {
+                    if timeout.is_none() {
+                        timeout = Some(
+                            value
+                                .parse()
+                                .map_err(|e| ParseError::InvalidDuration("timeout".into(), e))?,
+                        );
                         continue;
                     } else {
                         return Err(DuplicateField(key));
@@ -115,6 +131,7 @@ impl<'a> TryFrom<&'a str> for RefsOptions {
             unique: unique.unwrap_or(false),
             recursive: recursive.unwrap_or(false),
             max_depth,
+            timeout,
         })
     }
 }
