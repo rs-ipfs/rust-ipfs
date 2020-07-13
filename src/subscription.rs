@@ -216,13 +216,12 @@ impl<TRes: Clone> Future for SubscriptionFuture<TRes> {
 
 impl<TRes> Drop for SubscriptionFuture<TRes> {
     fn drop(&mut self) {
-        let strong_refs = Arc::strong_count(&self.subscription);
-
+        // if a pending subscription is dropped, it either means that the caller doesn't care
+        // about the associated value (even if others are still active) or that all of them
+        // are being dropped due to an abort/shutdown; either way, cancel the associated
+        // wantlist entry when this happens
         if let sub @ Subscription::Pending { .. } = &mut *self.subscription.lock().unwrap() {
-            // if this is the last future related to the request, cancel the subscription
-            if strong_refs == 2 {
-                sub.cancel();
-            }
+            sub.cancel();
         }
     }
 }
