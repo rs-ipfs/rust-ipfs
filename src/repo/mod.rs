@@ -134,7 +134,7 @@ trait CidUpgrade: Sized {
 }
 
 /// Extension trait similar to [`CidUpgrade`] but for non-owned types.
-trait CidUpgradedRef: Sized {
+pub trait CidUpgradedRef: Sized {
     /// Returns the otherwise the equivalent value from `&self` but with Cid version 1
     fn as_upgraded_cid(&self) -> Self;
 }
@@ -221,8 +221,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.subscriptions
             .lock()
             .await
-            // subscriptions are per cidv1
-            .finish_subscription(&cid.clone().into(), block);
+            .finish_subscription(&original_cid.clone().into(), block);
         // sending only fails if no one is listening anymore
         // and that is okay with us.
         self.events
@@ -249,8 +248,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 .subscriptions
                 .lock()
                 .await
-                // subscribe always by using the cidv1
-                .create_subscription(upgraded.clone().into(), Some(self.events.clone()));
+                .create_subscription(cid.clone().into(), Some(self.events.clone()));
             // sending only fails if no one is listening anymore
             // and that is okay with us.
             self.events

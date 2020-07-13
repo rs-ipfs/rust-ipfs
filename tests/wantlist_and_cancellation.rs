@@ -1,3 +1,5 @@
+use ipfs::repo::CidUpgradedRef;
+
 use async_std::{
     future::{pending, timeout},
     task,
