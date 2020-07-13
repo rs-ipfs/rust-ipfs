@@ -30,6 +30,8 @@ pub enum BitswapEvent {
     ReceivedCancel(PeerId, Cid),
 }
 
+pub type SubscriberCount = usize;
+
 /// Network behaviour that handles sending and receiving IPFS blocks.
 #[derive(Default)]
 pub struct Bitswap {
@@ -40,7 +42,7 @@ pub struct Bitswap {
     /// Ledger
     pub connected_peers: HashMap<PeerId, Ledger>,
     /// Wanted blocks
-    wanted_blocks: HashMap<Cid, Priority>,
+    wanted_blocks: HashMap<Cid, (Priority, SubscriberCount)>,
     /// Blocks queued to be sent
     pub queued_blocks: Arc<Mutex<Vec<(PeerId, Block)>>>,
 }
@@ -50,7 +52,7 @@ impl Bitswap {
     pub fn local_wantlist(&self) -> Vec<(Cid, Priority)> {
         self.wanted_blocks
             .iter()
-            .map(|(cid, prio)| (cid.clone(), *prio))
+            .map(|(cid, (prio, _))| (cid.clone(), *prio))
             .collect()
     }
 
@@ -105,7 +107,7 @@ impl Bitswap {
         debug!("bitswap: send_want_list");
         if !self.wanted_blocks.is_empty() {
             let mut message = Message::default();
-            for (cid, priority) in &self.wanted_blocks {
+            for (cid, (priority, _)) in &self.wanted_blocks {
                 message.want_block(cid, *priority);
             }
             debug!("  queuing wanted blocks");
@@ -127,7 +129,13 @@ impl Bitswap {
             ledger.want_block(&cid, priority);
             debug!("  queuing want for {}", peer_id.to_base58());
         }
-        self.wanted_blocks.insert(cid, priority);
+        self.wanted_blocks
+            .entry(cid)
+            .and_modify(|(prio, subs)| {
+                *prio = priority;
+                *subs += 1;
+            })
+            .or_insert((priority, 1));
         debug!("");
     }
 
@@ -142,6 +150,16 @@ impl Bitswap {
         }
         self.wanted_blocks.remove(cid);
         debug!("");
+    }
+
+    pub fn cancel_subscription(&mut self, cid: &Cid) -> bool {
+        if let Some((_prio, ref mut subs)) = self.wanted_blocks.get_mut(cid) {
+            *subs -= 1;
+            if *subs == 0 {
+                return true;
+            }
+        }
+        false
     }
 }
 

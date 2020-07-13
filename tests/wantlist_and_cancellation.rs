@@ -2,8 +2,7 @@ use async_std::{
     future::{pending, timeout},
     task,
 };
-use futures::future::select;
-use futures::future::FutureExt;
+use futures::future::{select, Either, FutureExt};
 use libipld::Cid;
 
 use std::{
@@ -55,7 +54,10 @@ async fn wantlist_cancellation() {
     // start a get_request future and give it some time
     let get_request1 = ipfs_clone.get_block(&cid_clone);
     let get_timeout = timeout(Duration::from_millis(200), pending::<()>());
-    let get_request1 = select(get_timeout.boxed(), get_request1.boxed()).await;
+    let get_request1 = match select(get_timeout.boxed(), get_request1.boxed()).await {
+        Either::Left((_, fut)) => fut,
+        Either::Right(_) => unreachable!(),
+    };
 
     // verify that the requested Cid is in the wantlist
     let wantlist = ipfs.bitswap_wantlist(None).await;
@@ -68,22 +70,24 @@ async fn wantlist_cancellation() {
     // fire up an additional get request
     let get_request2 = ipfs_clone.get_block(&cid_clone);
     let get_timeout = timeout(Duration::from_millis(200), pending::<()>());
-    let get_request2 = select(get_timeout.boxed(), get_request2.boxed()).await;
+    let get_request2 = match select(get_timeout.boxed(), get_request2.boxed()).await {
+        Either::Left((_, fut)) => fut,
+        Either::Right(_) => unreachable!(),
+    };
 
     // cancel the first requested Cid
     drop(get_request1);
 
-    // make sure the drop has concluded
-    thread::sleep(Duration::from_millis(200));
-
     // verify that the requested Cid is STILL in the wantlist
-    let wantlist = ipfs.bitswap_wantlist(None).await;
+    let wantlist_partially_cleared = bounded_retry(
+        3,
+        Duration::from_millis(200),
+        || ipfs.bitswap_wantlist(None),
+        |ret| ret.unwrap().len() == 1,
+    );
+
     assert!(
-        wantlist
-            .iter()
-            .map(|list| list.iter())
-            .flatten()
-            .any(|(c, _)| *c == cid),
+        wantlist_partially_cleared.is_ok(),
         "the wantlist is empty despite there still being a live get request"
     );
 

@@ -1,7 +1,7 @@
 //! IPFS repo
 use crate::error::Error;
 use crate::path::IpfsPath;
-use crate::subscription::{Request, SubscriptionRegistry};
+use crate::subscription::{Request, RequestKind, SubscriptionRegistry};
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
 use async_trait::async_trait;
@@ -116,7 +116,11 @@ pub enum RepoEvent {
 
 impl From<Request> for RepoEvent {
     fn from(req: Request) -> Self {
-        if let Request::GetBlock(cid) = req {
+        if let Request {
+            kind: RequestKind::GetBlock(cid),
+            ..
+        } = req
+        {
             RepoEvent::UnwantBlock(cid)
         } else {
             panic!("logic error: RepoEvent can only be created from a Request::GetBlock");
@@ -134,7 +138,7 @@ trait CidUpgrade: Sized {
 }
 
 /// Extension trait similar to [`CidUpgrade`] but for non-owned types.
-pub trait CidUpgradedRef: Sized {
+trait CidUpgradedRef: Sized {
     /// Returns the otherwise the equivalent value from `&self` but with Cid version 1
     fn as_upgraded_cid(&self) -> Self;
 }
