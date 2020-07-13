@@ -1,5 +1,3 @@
-use ipfs::repo::CidUpgradedRef;
-
 use async_std::{
     future::{pending, timeout},
     task,
@@ -8,7 +6,12 @@ use futures::future::select;
 use futures::future::FutureExt;
 use libipld::Cid;
 
-use std::{convert::TryFrom, future::Future, time::Duration};
+use std::{
+    convert::TryFrom,
+    future::Future,
+    thread,
+    time::{Duration, Instant},
+};
 
 fn bounded_retry<Fun, Fut, F, T>(
     n_times: usize,
@@ -21,12 +24,12 @@ where
     Fut: Future<Output = T>,
     F: Fn(T) -> bool,
 {
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     for n in 0..n_times {
         if check(futures::executor::block_on(future())) {
             return Ok(n);
         }
-        std::thread::sleep(sleep_between);
+        thread::sleep(sleep_between);
     }
 
     Err(started.elapsed())
@@ -70,13 +73,19 @@ async fn wantlist_cancellation() {
     // cancel the first requested Cid
     drop(get_request1);
 
+    // make sure the drop has concluded
+    thread::sleep(Duration::from_millis(200));
+
     // verify that the requested Cid is STILL in the wantlist
     let wantlist = ipfs.bitswap_wantlist(None).await;
-    assert!(wantlist
-        .iter()
-        .map(|list| list.iter())
-        .flatten()
-        .any(|(c, _)| *c == cid));
+    assert!(
+        wantlist
+            .iter()
+            .map(|list| list.iter())
+            .flatten()
+            .any(|(c, _)| *c == cid),
+        "the wantlist is empty despite there still being a live get request"
+    );
 
     // cancel the second requested Cid
     drop(get_request2);
