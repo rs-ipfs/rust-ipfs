@@ -204,7 +204,7 @@ impl NetworkBehaviour for SwarmApi {
     ) {
         log::trace!("inject_addr_reach_failure {} {}", addr, error);
         self.connect_registry
-            .finish_subscription(&addr.clone().into(), Err(format!("{}", error)));
+            .finish_subscription(&addr.clone().into(), Err(error.to_string()));
     }
 
     fn poll(

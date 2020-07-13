@@ -127,7 +127,7 @@ impl From<StringError> for warp::Rejection {
 
 impl<D: std::fmt::Display> From<D> for StringError {
     fn from(d: D) -> Self {
-        Self(format!("{}", d).into())
+        Self(d.to_string().into())
     }
 }
 
