@@ -220,9 +220,7 @@ impl<TRes: Clone + Debug> Future for SubscriptionFuture<TRes> {
         match subscription {
             Subscription::Cancelled => Poll::Ready(Err(Cancelled)),
             Subscription::Pending { ref mut waker, .. } => {
-                if waker.is_none() {
-                    *waker = Some(context.waker().clone());
-                }
+                *waker = Some(context.waker().clone());
                 Poll::Pending
             }
             Subscription::Ready(result) => Poll::Ready(Ok(result.clone())),
