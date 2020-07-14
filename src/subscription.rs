@@ -1,6 +1,6 @@
 use crate::RepoEvent;
 use async_std::future::Future;
-use async_std::task::{Context, Poll, Waker};
+use async_std::task::{self, Context, Poll, Waker};
 use core::fmt::Debug;
 use core::hash::Hash;
 use core::pin::Pin;
@@ -53,12 +53,12 @@ impl From<Cid> for Request {
 type SubscriptionId = u64;
 type Subscriptions<T> = HashMap<SubscriptionId, Subscription<T>>;
 
-pub struct SubscriptionRegistry<TRes: Debug + Clone> {
+pub struct SubscriptionRegistry<TRes: Debug + Clone + PartialEq> {
     subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
     shutting_down: AtomicBool,
 }
 
-impl<TRes: Debug + Clone> fmt::Debug for SubscriptionRegistry<TRes> {
+impl<TRes: Debug + Clone + PartialEq> fmt::Debug for SubscriptionRegistry<TRes> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,
@@ -69,7 +69,7 @@ impl<TRes: Debug + Clone> fmt::Debug for SubscriptionRegistry<TRes> {
     }
 }
 
-impl<TRes: Debug + Clone> SubscriptionRegistry<TRes> {
+impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
     pub fn create_subscription(
         &self,
         req: Request,
@@ -79,12 +79,10 @@ impl<TRes: Debug + Clone> SubscriptionRegistry<TRes> {
         let mut subscription = Subscription::new(req, cancel_notifier);
 
         if self.shutting_down.load(Ordering::SeqCst) {
-            subscription.cancel();
+            subscription.cancel(true);
         }
 
-        async_std::task::block_on(async {
-            self.subscriptions.lock().await.insert(id, subscription)
-        });
+        task::block_on(async { self.subscriptions.lock().await.insert(id, subscription) });
 
         SubscriptionFuture {
             id,
@@ -93,8 +91,7 @@ impl<TRes: Debug + Clone> SubscriptionRegistry<TRes> {
     }
 
     pub fn finish_subscription(&self, req: &Request, res: TRes) {
-        let mut subscriptions =
-            async_std::task::block_on(async { self.subscriptions.lock().await });
+        let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
 
         for sub in subscriptions.values_mut() {
             if let Subscription::Pending { request, .. } = sub {
@@ -114,19 +111,18 @@ impl<TRes: Debug + Clone> SubscriptionRegistry<TRes> {
         log::debug!("Shutting down {:?}", self);
 
         let mut cancelled = 0;
-        let mut subscriptions =
-            async_std::task::block_on(async { self.subscriptions.lock().await });
+        let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
 
         for (_idx, mut sub) in subscriptions.drain() {
-            sub.cancel();
+            sub.cancel(true);
             cancelled += 1;
         }
 
-        log::trace!("Cancelled {} subscriptions", cancelled,);
+        log::trace!("Cancelled {} subscriptions", cancelled);
     }
 }
 
-impl<TRes: Debug + Clone> Default for SubscriptionRegistry<TRes> {
+impl<TRes: Debug + Clone + PartialEq> Default for SubscriptionRegistry<TRes> {
     fn default() -> Self {
         Self {
             subscriptions: Default::default(),
@@ -135,7 +131,7 @@ impl<TRes: Debug + Clone> Default for SubscriptionRegistry<TRes> {
     }
 }
 
-impl<TRes: Debug + Clone> Drop for SubscriptionRegistry<TRes> {
+impl<TRes: Debug + Clone + PartialEq> Drop for SubscriptionRegistry<TRes> {
     fn drop(&mut self) {
         self.shutdown();
     }
@@ -164,6 +160,21 @@ pub enum Subscription<TRes> {
     Cancelled,
 }
 
+impl<TRes: PartialEq> PartialEq for Subscription<TRes> {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Self::Pending { request: req1, .. } => {
+                if let Self::Pending { request: req2, .. } = other {
+                    req1 == req2
+                } else {
+                    false
+                }
+            }
+            done => done == other,
+        }
+    }
+}
+
 impl<TRes: Clone> Subscription<TRes> {
     fn new(request: Request, cancel_notifier: Option<Sender<RepoEvent>>) -> Self {
         Self::Pending {
@@ -182,7 +193,7 @@ impl<TRes: Clone> Subscription<TRes> {
         }
     }
 
-    fn cancel(&mut self) {
+    fn cancel(&mut self, is_last: bool) {
         let former_self = mem::replace(self, Subscription::Cancelled);
         if let Subscription::Pending {
             request,
@@ -190,27 +201,29 @@ impl<TRes: Clone> Subscription<TRes> {
             cancel_notifier,
         } = former_self
         {
+            if is_last {
+                if let Some(mut sender) = cancel_notifier {
+                    let _ = sender.try_send(RepoEvent::from(request));
+                }
+            }
+
             if let Some(waker) = waker {
                 waker.wake();
-            }
-            if let Some(mut sender) = cancel_notifier {
-                let _ = sender.try_send(RepoEvent::from(request));
             }
         }
     }
 }
 
-pub struct SubscriptionFuture<TRes: Clone + Debug> {
+pub struct SubscriptionFuture<TRes: Clone + Debug + PartialEq> {
     id: u64,
     subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
 }
 
-impl<TRes: Clone + Debug> Future for SubscriptionFuture<TRes> {
+impl<TRes: Clone + Debug + PartialEq> Future for SubscriptionFuture<TRes> {
     type Output = Result<TRes, Cancelled>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
-        let mut subscriptions =
-            async_std::task::block_on(async { self.subscriptions.lock().await });
+        let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
         let subscription = if let Some(sub) = subscriptions.get_mut(&self.id) {
             sub
         } else {
@@ -228,17 +241,25 @@ impl<TRes: Clone + Debug> Future for SubscriptionFuture<TRes> {
     }
 }
 
-impl<TRes: Clone + Debug> Drop for SubscriptionFuture<TRes> {
+impl<TRes: Clone + Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
     fn drop(&mut self) {
-        if let Some(mut sub) =
-            async_std::task::block_on(async { self.subscriptions.lock().await.remove(&self.id) })
-        {
-            sub.cancel();
+        let (sub, is_last) = task::block_on(async {
+            let mut subscriptions = self.subscriptions.lock().await;
+            let sub = subscriptions.remove(&self.id);
+            let is_last = !subscriptions.values().any(|s| Some(s) == sub.as_ref());
+
+            (sub, is_last)
+        });
+
+        if let Some(sub) = sub {
+            if let mut sub @ Subscription::Pending { .. } = sub {
+                sub.cancel(is_last);
+            }
         }
     }
 }
 
-impl<TRes: Clone + Debug> fmt::Debug for SubscriptionFuture<TRes> {
+impl<TRes: Clone + Debug + PartialEq> fmt::Debug for SubscriptionFuture<TRes> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,
