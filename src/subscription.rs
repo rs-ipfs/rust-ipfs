@@ -16,17 +16,24 @@ use std::sync::{
     Arc,
 };
 
+// a counter used to assign identifiers to subscription requests
 static GLOBAL_REQ_COUNT: AtomicU64 = AtomicU64::new(0);
 
+/// A request for a subscription to a specific resource.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Request {
+    /// The kind of resource being subscribed to.
     pub(crate) kind: RequestKind,
+    /// A unique identifier of the request.
     id: u64,
 }
 
+/// The type of a request for subscription.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum RequestKind {
+    /// A request to connect to the given `Multiaddr`.
     Connect(Multiaddr),
+    /// A request to obtain a `Block` with a specific `Cid`.
     GetBlock(Cid),
     #[cfg(test)]
     Empty,
@@ -95,6 +102,7 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
 
         for sub in subscriptions.values_mut() {
             if let Subscription::Pending { request, .. } = sub {
+                // wake up all tasks related to the requested resource
                 if request.kind == req.kind {
                     sub.wake(res.clone());
                 }
@@ -151,10 +159,15 @@ impl std::error::Error for Cancelled {}
 
 #[derive(Debug)]
 pub enum Subscription<TRes> {
+    /// A finished `Subscription` containing the desired `TRes`.
     Ready(TRes),
+    /// A `Subscription` that is not fulfilled yet.
     Pending {
+        /// The request related to this `Subscription`.
         request: Request,
+        /// The waker of the task assigned to check if the `Subscription` is complete.
         waker: Option<Waker>,
+        /// A `Sender` of a channel expecting notifications of subscription cancellations.
         cancel_notifier: Option<Sender<RepoEvent>>,
     },
     Cancelled,
@@ -201,6 +214,9 @@ impl<TRes> Subscription<TRes> {
             cancel_notifier,
         } = former_self
         {
+            // if this is the last `Subscription` related to the `request`,
+            // send a cancel notification to the repo - the wantlist needs
+            // to be updated
             if is_last {
                 if let Some(mut sender) = cancel_notifier {
                     let _ = sender.try_send(RepoEvent::from(request));
@@ -214,8 +230,12 @@ impl<TRes> Subscription<TRes> {
     }
 }
 
+/// A `Future` that resolves to the resource whose subscription was requested.
 pub struct SubscriptionFuture<TRes: Debug + PartialEq> {
+    /// The unique identifier of the subscription request, matching the one in
+    /// the `SubscriptionRegistry`.
     id: u64,
+    /// The collection of all the live subscriptions.
     subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
 }
 
@@ -224,10 +244,13 @@ impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
 
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
         let mut subscription = {
+            // don't hold the lock for too long, otherwise the `Drop` impl for `SubscriptionFuture`
+            // can cause a stack overflow
             let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
             if let Some(sub) = subscriptions.remove(&self.id) {
                 sub
             } else {
+                // the subscription must already have been cancelled
                 return Poll::Ready(Err(Cancelled));
             }
         };
@@ -250,12 +273,14 @@ impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
         let (sub, is_last) = task::block_on(async {
             let mut subscriptions = self.subscriptions.lock().await;
             let sub = subscriptions.remove(&self.id);
+            // check if this is the last subscription to this resource
             let is_last = !subscriptions.values().any(|s| Some(s) == sub.as_ref());
 
             (sub, is_last)
         });
 
         if let Some(sub) = sub {
+            // don't bother updating anything that isn't `Pending`
             if let mut sub @ Subscription::Pending { .. } = sub {
                 sub.cancel(is_last);
             }
