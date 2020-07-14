@@ -6,6 +6,9 @@ use ipfs::{Ipfs, IpfsTypes};
 use libipld::cid::Cid;
 use mime::Mime;
 use mpart_async::server::MultipartStream;
+use serde::Serialize;
+use std::borrow::Cow;
+use std::fmt;
 use warp::{Rejection, Reply};
 
 pub(super) async fn add_inner<T: IpfsTypes>(
@@ -25,7 +28,9 @@ pub(super) async fn add_inner<T: IpfsTypes>(
     let mut stream =
         MultipartStream::new(Bytes::from(boundary), body.map_ok(|mut buf| buf.to_bytes()));
 
-    while let Some(mut field) = stream
+    // this should be a while loop but clippy will warn if this is a while loop which will only get
+    // executed once.
+    if let Some(mut field) = stream
         .try_next()
         .await
         .map_err(|e| StringError::from(format!("IO error: {}", e)))?
@@ -35,7 +40,7 @@ pub(super) async fn add_inner<T: IpfsTypes>(
             .map_err(|e| StringError::from(format!("unparseable headers: {}", e)))?;
 
         if field_name != "file" {
-            return Err(StringError::from("unexpected field").into());
+            return Err(StringError::from(format!("unsupported field: {}", field_name)).into());
         }
 
         let filename = field
@@ -77,11 +82,20 @@ pub(super) async fn add_inner<T: IpfsTypes>(
 
         total += subtotal;
 
-        return Ok(warp::reply::json(&serde_json::json!({
-            "Name": filename,
-            "Hash": root.to_string(),
-            "Size": total.to_string(),
-        })));
+        let root = root.to_string();
+
+        let filename: Cow<'_, str> = if filename.is_empty() {
+            // cid needs to be repeated if no filename was given
+            Cow::Borrowed(&root)
+        } else {
+            Cow::Owned(filename)
+        };
+
+        return Ok(warp::reply::json(&AddResult {
+            name: filename,
+            hash: Cow::Borrowed(&root),
+            size: Quoted(total),
+        }));
     }
 
     Err(StringError::from("not implemented").into())
@@ -109,6 +123,26 @@ async fn import_all(
     }
 
     Ok(last.map(|cid| (cid, total)))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct AddResult<'a> {
+    name: Cow<'a, str>,
+    hash: Cow<'a, str>,
+    size: Quoted<u64>,
+}
+
+#[derive(Debug)]
+struct Quoted<D>(pub D);
+
+impl<D: fmt::Display> serde::Serialize for Quoted<D> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(&self.0)
+    }
 }
 
 #[cfg(test)]
