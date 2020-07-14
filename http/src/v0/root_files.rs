@@ -19,6 +19,29 @@ use warp::{path, query, Filter, Rejection, Reply};
 mod tar_helper;
 use tar_helper::TarHelper;
 
+mod add;
+
+#[derive(Debug, Deserialize)]
+pub struct AddArgs {
+    // probably never interesting
+    #[serde(default)]
+    stream_channels: bool,
+    // unsure what this does
+    #[serde(default)]
+    progress: bool,
+}
+
+pub fn add<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    path!("add")
+        .and(with_ipfs(ipfs))
+        .and(query::<AddArgs>())
+        .and(warp::header::<mime::Mime>("content-type")) // TODO: rejects if missing
+        .and(warp::body::stream())
+        .and_then(add::add_inner)
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CatArgs {
     // this could be an ipfs path
