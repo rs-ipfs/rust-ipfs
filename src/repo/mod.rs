@@ -9,7 +9,6 @@ use bitswap::Block;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::lock::Mutex;
 use futures::sink::SinkExt;
 use libipld::cid::{self, Cid};
 use libp2p::core::PeerId;
@@ -103,7 +102,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
-    subscriptions: Mutex<SubscriptionRegistry<Block>>,
+    subscriptions: SubscriptionRegistry<Block>,
 }
 
 #[derive(Clone, Debug)]
@@ -191,8 +190,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Shutdowns the repo, cancelling any pending subscriptions; Likely going away after some
     /// refactoring, see notes on [`Ipfs::exit_daemon`].
-    pub async fn shutdown(&self) {
-        self.subscriptions.lock().await.shutdown();
+    pub fn shutdown(&self) {
+        self.subscriptions.shutdown();
     }
 
     pub async fn init(&self) -> Result<(), Error> {
@@ -223,8 +222,6 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let block = block.with_upgraded_cid();
         let (cid, res) = self.block_store.put(block.clone()).await?;
         self.subscriptions
-            .lock()
-            .await
             .finish_subscription(&original_cid.clone().into(), block);
         // sending only fails if no one is listening anymore
         // and that is okay with us.
@@ -250,8 +247,6 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         } else {
             let subscription = self
                 .subscriptions
-                .lock()
-                .await
                 .create_subscription(cid.clone().into(), Some(self.events.clone()));
             // sending only fails if no one is listening anymore
             // and that is okay with us.

@@ -612,7 +612,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     pub async fn exit_daemon(self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
         // the background task or stream. After that this could be handled by dropping.
-        self.repo.shutdown().await;
+        self.repo.shutdown();
 
         // ignoring the error because it'd mean that the background task had already been dropped
         let _ = self.to_task.clone().try_send(IpfsEvent::Exit);

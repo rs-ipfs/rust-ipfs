@@ -5,13 +5,15 @@ use core::fmt::Debug;
 use core::hash::Hash;
 use core::pin::Pin;
 use futures::channel::mpsc::Sender;
+use futures::lock::Mutex;
 use libipld::Cid;
 use libp2p::Multiaddr;
+use std::collections::HashMap;
 use std::fmt;
 use std::mem;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
 };
 
 static GLOBAL_REQ_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -48,9 +50,12 @@ impl From<Cid> for Request {
     }
 }
 
+type SubscriptionId = u64;
+type Subscriptions<T> = HashMap<SubscriptionId, Subscription<T>>;
+
 pub struct SubscriptionRegistry<TRes: Debug + Clone> {
-    subscriptions: Vec<Arc<Mutex<Subscription<TRes>>>>,
-    shutting_down: bool,
+    subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
+    shutting_down: AtomicBool,
 }
 
 impl<TRes: Debug + Clone> fmt::Debug for SubscriptionRegistry<TRes> {
@@ -66,83 +71,58 @@ impl<TRes: Debug + Clone> fmt::Debug for SubscriptionRegistry<TRes> {
 
 impl<TRes: Debug + Clone> SubscriptionRegistry<TRes> {
     pub fn create_subscription(
-        &mut self,
+        &self,
         req: Request,
         cancel_notifier: Option<Sender<RepoEvent>>,
     ) -> SubscriptionFuture<TRes> {
+        let id = req.id;
         let mut subscription = Subscription::new(req, cancel_notifier);
 
-        if self.shutting_down {
+        if self.shutting_down.load(Ordering::SeqCst) {
             subscription.cancel();
         }
 
-        let subscription = Arc::new(Mutex::new(subscription));
-        self.subscriptions.push(Arc::clone(&subscription));
+        async_std::task::block_on(async {
+            self.subscriptions.lock().await.insert(id, subscription)
+        });
 
-        SubscriptionFuture { subscription }
+        SubscriptionFuture {
+            id,
+            subscriptions: Arc::clone(&self.subscriptions),
+        }
     }
 
-    pub fn finish_subscription(&mut self, req: &Request, res: TRes) {
-        let mut to_remove = Vec::with_capacity(1);
-        for (idx, sub) in self.subscriptions.iter().enumerate() {
-            if let Subscription::Pending { request, .. } = &mut *sub.lock().unwrap() {
+    pub fn finish_subscription(&self, req: &Request, res: TRes) {
+        let mut subscriptions =
+            async_std::task::block_on(async { self.subscriptions.lock().await });
+
+        for sub in subscriptions.values_mut() {
+            if let Subscription::Pending { request, .. } = sub {
                 if request.kind == req.kind {
-                    to_remove.push(idx);
+                    sub.wake(res.clone());
                 }
             }
-        }
-
-        for (i, idx) in to_remove.iter().enumerate() {
-            self.subscriptions
-                .remove(idx - i)
-                .lock()
-                .unwrap()
-                .wake(res.clone());
         }
     }
 
     /// After shutdown all SubscriptionFutures will return Err(Cancelled)
-    pub fn shutdown(&mut self) {
-        if self.shutting_down {
+    pub fn shutdown(&self) {
+        if self.shutting_down.swap(true, Ordering::SeqCst) {
             return;
         }
-        self.shutting_down = true;
 
         log::debug!("Shutting down {:?}", self);
 
         let mut cancelled = 0;
-        let mut pending = Vec::new();
+        let mut subscriptions =
+            async_std::task::block_on(async { self.subscriptions.lock().await });
 
-        for sub in self.subscriptions.drain(..) {
-            {
-                if let Ok(mut sub) = sub.try_lock() {
-                    sub.cancel();
-                    cancelled += 1;
-                    continue;
-                }
-            }
-            pending.push(sub);
+        for (_idx, mut sub) in subscriptions.drain() {
+            sub.cancel();
+            cancelled += 1;
         }
 
-        log::trace!(
-            "Cancelled {} subscriptions and {} are pending (not immediatedly locked)",
-            cancelled,
-            pending.len()
-        );
-
-        let remaining = pending.len();
-
-        for sub in pending {
-            if let Ok(mut sub) = sub.lock() {
-                sub.cancel();
-            }
-        }
-
-        log::debug!(
-            "Remaining {} pending subscriptions cancelled (total of {})",
-            remaining,
-            cancelled + remaining
-        );
+        log::trace!("Cancelled {} subscriptions", cancelled,);
     }
 }
 
@@ -150,7 +130,7 @@ impl<TRes: Debug + Clone> Default for SubscriptionRegistry<TRes> {
     fn default() -> Self {
         Self {
             subscriptions: Default::default(),
-            shutting_down: false,
+            shutting_down: Default::default(),
         }
     }
 }
@@ -220,17 +200,24 @@ impl<TRes: Clone> Subscription<TRes> {
     }
 }
 
-pub struct SubscriptionFuture<TRes: Clone> {
-    subscription: Arc<Mutex<Subscription<TRes>>>,
+pub struct SubscriptionFuture<TRes: Clone + Debug> {
+    id: u64,
+    subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
 }
 
-impl<TRes: Clone> Future for SubscriptionFuture<TRes> {
+impl<TRes: Clone + Debug> Future for SubscriptionFuture<TRes> {
     type Output = Result<TRes, Cancelled>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
-        let mut subscription = self.subscription.lock().unwrap();
+        let mut subscriptions =
+            async_std::task::block_on(async { self.subscriptions.lock().await });
+        let subscription = if let Some(sub) = subscriptions.get_mut(&self.id) {
+            sub
+        } else {
+            return Poll::Ready(Err(Cancelled));
+        };
 
-        match &mut *subscription {
+        match subscription {
             Subscription::Cancelled => Poll::Ready(Err(Cancelled)),
             Subscription::Pending { ref mut waker, .. } => {
                 if waker.is_none() {
@@ -243,16 +230,17 @@ impl<TRes: Clone> Future for SubscriptionFuture<TRes> {
     }
 }
 
-impl<TRes: Clone> Drop for SubscriptionFuture<TRes> {
+impl<TRes: Clone + Debug> Drop for SubscriptionFuture<TRes> {
     fn drop(&mut self) {
-        // we only want this to fire for unresolved subscriptions
-        if let sub @ Subscription::Pending { .. } = &mut *self.subscription.lock().unwrap() {
+        if let Some(mut sub) =
+            async_std::task::block_on(async { self.subscriptions.lock().await.remove(&self.id) })
+        {
             sub.cancel();
         }
     }
 }
 
-impl<TRes: Clone> fmt::Debug for SubscriptionFuture<TRes> {
+impl<TRes: Clone + Debug> fmt::Debug for SubscriptionFuture<TRes> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,
@@ -277,7 +265,7 @@ mod tests {
 
     #[async_std::test]
     async fn subscription_basics() {
-        let mut registry = SubscriptionRegistry::<u32>::default();
+        let registry = SubscriptionRegistry::<u32>::default();
         let s1 = registry.create_subscription(0.into(), None);
         let s2 = registry.create_subscription(0.into(), None);
         let s3 = registry.create_subscription(0.into(), None);
@@ -289,7 +277,7 @@ mod tests {
 
     #[async_std::test]
     async fn subscription_cancelled_on_dropping_registry() {
-        let mut registry = SubscriptionRegistry::<u32>::default();
+        let registry = SubscriptionRegistry::<u32>::default();
         let s1 = registry.create_subscription(0.into(), None);
         drop(registry);
         assert_eq!(s1.await, Err(Cancelled));
@@ -297,7 +285,7 @@ mod tests {
 
     #[async_std::test]
     async fn subscription_cancelled_on_shutdown() {
-        let mut registry = SubscriptionRegistry::<u32>::default();
+        let registry = SubscriptionRegistry::<u32>::default();
         let s1 = registry.create_subscription(0.into(), None);
         registry.shutdown();
         assert_eq!(s1.await, Err(Cancelled));
@@ -305,7 +293,7 @@ mod tests {
 
     #[async_std::test]
     async fn new_subscriptions_cancelled_after_shutdown() {
-        let mut registry = SubscriptionRegistry::<u32>::default();
+        let registry = SubscriptionRegistry::<u32>::default();
         registry.shutdown();
         let s1 = registry.create_subscription(0.into(), None);
         assert_eq!(s1.await, Err(Cancelled));
@@ -316,7 +304,7 @@ mod tests {
         use async_std::future::timeout;
         use std::time::Duration;
 
-        let mut registry = SubscriptionRegistry::<u32>::default();
+        let registry = SubscriptionRegistry::<u32>::default();
         let s1 = timeout(
             Duration::from_millis(1),
             registry.create_subscription(0.into(), None),
