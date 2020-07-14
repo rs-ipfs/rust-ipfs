@@ -91,7 +91,7 @@ pub(super) async fn add_inner<T: IpfsTypes>(
             Cow::Owned(filename)
         };
 
-        return Ok(warp::reply::json(&AddResult {
+        return Ok(warp::reply::json(&Response::Added {
             name: filename,
             hash: Cow::Borrowed(&root),
             size: Quoted(total),
@@ -125,12 +125,29 @@ async fn import_all(
     Ok(last.map(|cid| (cid, total)))
 }
 
+/// The possible response messages from /add.
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "PascalCase")]
-struct AddResult<'a> {
-    name: Cow<'a, str>,
-    hash: Cow<'a, str>,
-    size: Quoted<u64>,
+#[serde(rename_all = "PascalCase", untagged)]
+enum Response<'a> {
+    /// When progress=true query parameter has been given, this will be output every N bytes, or
+    /// perhaps every chunk.
+    #[allow(unused)] // unused == not implemented yet
+    Progress {
+        /// Probably the name of the file being added or empty if none was provided.
+        name: Cow<'a, str>,
+        /// Bytes processed since last progress; for a file, all progress reports must add up to
+        /// the total file size.
+        bytes: u64,
+    },
+    /// Output for every input item.
+    Added {
+        /// Name of the file added from filename or the resulting Cid.
+        name: Cow<'a, str>,
+        /// The resulting Cid as a string.
+        hash: Cow<'a, str>,
+        /// Stringified version of the total size in bytes.
+        size: Quoted<u64>,
+    },
 }
 
 #[derive(Debug)]
