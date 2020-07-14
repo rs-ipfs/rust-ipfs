@@ -127,7 +127,7 @@ async fn import_all(
 
 /// The possible response messages from /add.
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "PascalCase", untagged)]
+#[serde(untagged)] // rename_all="..." doesn't seem to work at this level
 enum Response<'a> {
     /// When progress=true query parameter has been given, this will be output every N bytes, or
     /// perhaps every chunk.
@@ -140,11 +140,12 @@ enum Response<'a> {
         bytes: u64,
     },
     /// Output for every input item.
+    #[serde(rename_all = "PascalCase")]
     Added {
-        /// Name of the file added from filename or the resulting Cid.
-        name: Cow<'a, str>,
         /// The resulting Cid as a string.
         hash: Cow<'a, str>,
+        /// Name of the file added from filename or the resulting Cid.
+        name: Cow<'a, str>,
         /// Stringified version of the total size in bytes.
         size: Quoted<u64>,
     },
@@ -190,8 +191,6 @@ mod tests {
             .await;
 
         let body = std::str::from_utf8(response.body()).unwrap();
-
-        // is the size the summed total or size of the block? must be total
 
         assert_eq!(
             body,
