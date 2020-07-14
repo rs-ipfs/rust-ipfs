@@ -1,8 +1,5 @@
-use async_std::{
-    future::{pending, timeout},
-    task,
-};
-use futures::future::{select, Either, FutureExt};
+use async_std::task;
+use futures::future::{AbortHandle, Abortable};
 use libipld::Cid;
 
 use std::{
@@ -48,35 +45,38 @@ async fn wantlist_cancellation() {
 
     // execute a get_block request
     let cid = Cid::try_from("QmSoLPppuBtQSGwKDZT2M73ULpjvfd3aZ6ha4oFGL1KaGa").unwrap();
+
+    // start a get_request future
     let ipfs_clone = ipfs.clone();
     let cid_clone = cid.clone();
-
-    // start a get_request future and give it some time
-    let get_request1 = ipfs_clone.get_block(&cid_clone);
-    let get_timeout = timeout(Duration::from_millis(200), pending::<()>());
-    let get_request1 = match select(get_timeout.boxed(), get_request1.boxed()).await {
-        Either::Left((_, fut)) => fut,
-        Either::Right(_) => unreachable!(),
-    };
+    let (abort_handle1, abort_reg) = AbortHandle::new_pair();
+    let abortable_req = Abortable::new(
+        async move { ipfs_clone.get_block(&cid_clone).await },
+        abort_reg,
+    );
+    let _get_request1 = task::spawn(abortable_req);
 
     // verify that the requested Cid is in the wantlist
-    let wantlist = ipfs.bitswap_wantlist(None).await;
-    assert!(wantlist
-        .iter()
-        .map(|list| list.iter())
-        .flatten()
-        .any(|(c, _)| *c == cid));
+    let wantlist_populated = bounded_retry(
+        3,
+        Duration::from_millis(200),
+        || ipfs.bitswap_wantlist(None),
+        |ret| ret.unwrap().get(0).map(|x| &x.0) == Some(&cid),
+    );
+
+    assert!(
+        wantlist_populated.is_ok(),
+        "the wantlist is still empty after the request was issued"
+    );
 
     // fire up an additional get request
-    let get_request2 = ipfs_clone.get_block(&cid_clone);
-    let get_timeout = timeout(Duration::from_millis(200), pending::<()>());
-    let get_request2 = match select(get_timeout.boxed(), get_request2.boxed()).await {
-        Either::Left((_, fut)) => fut,
-        Either::Right(_) => unreachable!(),
-    };
+    let ipfs_clone = ipfs.clone();
+    let (abort_handle2, abort_reg) = AbortHandle::new_pair();
+    let abortable_req = Abortable::new(async move { ipfs_clone.get_block(&cid).await }, abort_reg);
+    let _get_request2 = task::spawn(abortable_req);
 
     // cancel the first requested Cid
-    drop(get_request1);
+    abort_handle1.abort();
 
     // verify that the requested Cid is STILL in the wantlist
     let wantlist_partially_cleared = bounded_retry(
@@ -92,7 +92,7 @@ async fn wantlist_cancellation() {
     );
 
     // cancel the second requested Cid
-    drop(get_request2);
+    abort_handle2.abort();
 
     // verify that the requested Cid is no longer in the wantlist
     let wantlist_cleared = bounded_retry(
