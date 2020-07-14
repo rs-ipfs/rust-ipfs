@@ -175,7 +175,7 @@ impl<TRes: PartialEq> PartialEq for Subscription<TRes> {
     }
 }
 
-impl<TRes: Clone> Subscription<TRes> {
+impl<TRes> Subscription<TRes> {
     fn new(request: Request, cancel_notifier: Option<Sender<RepoEvent>>) -> Self {
         Self::Pending {
             request,
@@ -214,34 +214,38 @@ impl<TRes: Clone> Subscription<TRes> {
     }
 }
 
-pub struct SubscriptionFuture<TRes: Clone + Debug + PartialEq> {
+pub struct SubscriptionFuture<TRes: Debug + PartialEq> {
     id: u64,
     subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
 }
 
-impl<TRes: Clone + Debug + PartialEq> Future for SubscriptionFuture<TRes> {
+impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
     type Output = Result<TRes, Cancelled>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
-        let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
-        let subscription = if let Some(sub) = subscriptions.get_mut(&self.id) {
-            sub
-        } else {
-            return Poll::Ready(Err(Cancelled));
+        let mut subscription = {
+            let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
+            if let Some(sub) = subscriptions.remove(&self.id) {
+                sub
+            } else {
+                return Poll::Ready(Err(Cancelled));
+            }
         };
 
         match subscription {
             Subscription::Cancelled => Poll::Ready(Err(Cancelled)),
             Subscription::Pending { ref mut waker, .. } => {
                 *waker = Some(context.waker().clone());
+                task::block_on(async { self.subscriptions.lock().await })
+                    .insert(self.id, subscription);
                 Poll::Pending
             }
-            Subscription::Ready(result) => Poll::Ready(Ok(result.clone())),
+            Subscription::Ready(result) => Poll::Ready(Ok(result)),
         }
     }
 }
 
-impl<TRes: Clone + Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
+impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
     fn drop(&mut self) {
         let (sub, is_last) = task::block_on(async {
             let mut subscriptions = self.subscriptions.lock().await;
@@ -259,7 +263,7 @@ impl<TRes: Clone + Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
     }
 }
 
-impl<TRes: Clone + Debug + PartialEq> fmt::Debug for SubscriptionFuture<TRes> {
+impl<TRes: Debug + PartialEq> fmt::Debug for SubscriptionFuture<TRes> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,
