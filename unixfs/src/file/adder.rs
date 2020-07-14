@@ -744,4 +744,36 @@ mod tests {
             "QmcHNWF1d56uCDSfJPA7t9fadZRV9we5HGSTGSmwuqmMP9"
         );
     }
+
+    #[test]
+    #[ignore]
+    fn full_link_block() {
+        let buf = vec![0u8; 1];
+
+        let mut adder = FileAdder::builder().with_chunker(Chunker::Size(1)).build();
+        let mut blocks_count = 0;
+
+        for _ in 0..174 {
+            let (blocks, written) = adder.push(buf.as_slice());
+            assert_eq!(written, buf.len());
+
+            blocks_count += blocks.count();
+        }
+
+        let mut last_blocks = adder.finish();
+
+        // go-ipfs waits until finish to get a single link block, no additional root block
+
+        let last_block = last_blocks.next().unwrap();
+        blocks_count += 1;
+
+        assert_eq!(last_blocks.next(), None);
+
+        assert_eq!(
+            last_block.0.to_string(),
+            "QmdgQac8c6Bo3MP5bHAg2yQ25KebFUsmkZFvyByYzf8UCB"
+        );
+
+        assert_eq!(blocks_count, 175);
+    }
 }
