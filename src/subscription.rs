@@ -306,11 +306,11 @@ impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
 
         if let Some(sub) = sub {
             if let Subscription::Pending { ref request, .. } = sub {
-                debug!("Dropping subscription {}", request.id);
+                debug!("Dropping subscription {} to {}", request.id, request.kind);
             }
             // don't bother updating anything that isn't `Pending`
             if let mut sub @ Subscription::Pending { .. } = sub {
-                debug!("It was the last subscription to a resource, sending a cancel notification");
+                debug!("It was the last related subscription, sending a cancel notification");
                 sub.cancel(is_last);
             }
         }
