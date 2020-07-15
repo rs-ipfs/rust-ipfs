@@ -9,6 +9,7 @@ use futures::lock::Mutex;
 use libipld::Cid;
 use libp2p::Multiaddr;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::fmt;
 use std::mem;
 use std::sync::{
@@ -243,7 +244,7 @@ impl<TRes> Subscription<TRes> {
             // to be updated
             if is_last {
                 if let Some(mut sender) = cancel_notifier {
-                    let _ = sender.try_send(RepoEvent::from(request));
+                    let _ = sender.try_send(RepoEvent::try_from(request).unwrap());
                 }
             }
 

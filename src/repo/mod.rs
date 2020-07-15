@@ -6,6 +6,7 @@ use crate::IpfsOptions;
 use async_std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
+use core::convert::TryFrom;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 use futures::channel::mpsc::{channel, Receiver, Sender};
@@ -113,16 +114,18 @@ pub enum RepoEvent {
     UnprovideBlock(Cid),
 }
 
-impl From<Request> for RepoEvent {
-    fn from(req: Request) -> Self {
+impl TryFrom<Request> for RepoEvent {
+    type Error = &'static str;
+
+    fn try_from(req: Request) -> Result<Self, Self::Error> {
         if let Request {
             kind: RequestKind::GetBlock(cid),
             ..
         } = req
         {
-            RepoEvent::UnwantBlock(cid)
+            Ok(RepoEvent::UnwantBlock(cid))
         } else {
-            panic!("logic error: RepoEvent can only be created from a Request::GetBlock");
+            Err("logic error: RepoEvent can only be created from a Request::GetBlock")
         }
     }
 }
