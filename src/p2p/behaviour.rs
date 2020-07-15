@@ -134,7 +134,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
                 info!(
                     "Peer {} wants block {} with priority {}",
                     peer_id.to_base58(),
-                    cid.to_string(),
+                    cid,
                     priority
                 );
 
@@ -285,7 +285,6 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     }
 
     pub fn want_block(&mut self, cid: Cid) {
-        info!("Want block {}", cid.to_string());
         //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
         //self.kademlia.get_providers(hash);
         self.bitswap.want_block(cid, 1);

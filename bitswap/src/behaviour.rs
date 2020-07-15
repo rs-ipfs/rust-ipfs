@@ -77,9 +77,7 @@ impl Bitswap {
     ///
     /// Called from Kademlia behaviour.
     pub fn connect(&mut self, peer_id: PeerId) {
-        debug!("bitswap: connect");
         if self.target_peers.insert(peer_id.clone()) {
-            debug!("  queuing dial_peer to {}", peer_id.to_base58());
             self.events.push_back(NetworkBehaviourAction::DialPeer {
                 peer_id,
                 condition: DialPeerCondition::Disconnected,
@@ -91,24 +89,20 @@ impl Bitswap {
     ///
     /// Called from a Strategy.
     pub fn send_block(&mut self, peer_id: PeerId, block: Block) {
-        debug!("bitswap: send_block");
         let ledger = self
             .connected_peers
             .get_mut(&peer_id)
             .expect("Peer not in ledger?!");
         ledger.add_block(block);
-        debug!("  queuing block for {}", peer_id.to_base58());
     }
 
     /// Sends the wantlist to the peer.
     fn send_want_list(&mut self, peer_id: PeerId) {
-        debug!("bitswap: send_want_list");
         if !self.wanted_blocks.is_empty() {
             let mut message = Message::default();
             for (cid, priority) in &self.wanted_blocks {
                 message.want_block(cid, *priority);
             }
-            debug!("  queuing wanted blocks");
             self.events
                 .push_back(NetworkBehaviourAction::NotifyHandler {
                     peer_id,
@@ -122,13 +116,10 @@ impl Bitswap {
     ///
     /// A user request
     pub fn want_block(&mut self, cid: Cid, priority: Priority) {
-        debug!("bitswap: want_block");
-        for (peer_id, ledger) in self.connected_peers.iter_mut() {
+        for (_peer_id, ledger) in self.connected_peers.iter_mut() {
             ledger.want_block(&cid, priority);
-            debug!("  queuing want for {}", peer_id.to_base58());
         }
         self.wanted_blocks.insert(cid, priority);
-        debug!("");
     }
 
     /// Removes the block from our want list and updates all peers.
@@ -136,12 +127,10 @@ impl Bitswap {
     /// Can be either a user request or be called when the block
     /// was received.
     pub fn cancel_block(&mut self, cid: &Cid) {
-        debug!("bitswap: cancel_block");
         for (_peer_id, ledger) in self.connected_peers.iter_mut() {
             ledger.cancel_block(cid);
         }
         self.wanted_blocks.remove(cid);
-        debug!("");
     }
 }
 
@@ -171,13 +160,12 @@ impl NetworkBehaviour for Bitswap {
         //self.connected_peers.remove(peer_id);
     }
 
-    fn inject_event(&mut self, source: PeerId, connection: ConnectionId, mut message: Message) {
+    fn inject_event(&mut self, source: PeerId, _connection: ConnectionId, mut message: Message) {
         debug!(
-            "bitswap: inject_event from {}/{:?}",
+            "bitswap: inject_event from {}: {:?}",
             source.to_base58(),
-            connection
+            message
         );
-        debug!("{:?}", message);
 
         let current_wantlist = self.local_wantlist();
 
@@ -216,8 +204,6 @@ impl NetworkBehaviour for Bitswap {
             self.events
                 .push_back(NetworkBehaviourAction::GenerateEvent(event));
         }
-
-        debug!("");
     }
 
     #[allow(clippy::type_complexity)]

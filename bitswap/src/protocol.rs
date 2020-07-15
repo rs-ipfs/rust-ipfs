@@ -40,12 +40,10 @@ where
     type Future = FutureResult<Self::Output, Self::Error>;
 
     #[inline]
-    fn upgrade_inbound(self, mut socket: TSocket, info: Self::Info) -> Self::Future {
+    fn upgrade_inbound(self, mut socket: TSocket, _info: Self::Info) -> Self::Future {
         Box::pin(async move {
-            debug!("upgrade_inbound: {}", std::str::from_utf8(info).unwrap());
             let packet = upgrade::read_one(&mut socket, MAX_BUF_SIZE).await?;
             let message = Message::from_bytes(&packet)?;
-            debug!("inbound message: {:?}", message);
             Ok(message)
         })
     }
