@@ -70,6 +70,13 @@ impl From<Cid> for RequestKind {
     }
 }
 
+#[cfg(test)]
+impl From<u32> for RequestKind {
+    fn from(num: u32) -> Self {
+        Self::Num(num)
+    }
+}
+
 impl fmt::Display for RequestKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -358,7 +365,7 @@ mod tests {
         let s1 = registry.create_subscription(0.into(), None);
         let s2 = registry.create_subscription(0.into(), None);
         let s3 = registry.create_subscription(0.into(), None);
-        registry.finish_subscription(&0.into(), 10);
+        registry.finish_subscription(0.into(), 10);
         assert_eq!(s1.await.unwrap(), 10);
         assert_eq!(s2.await.unwrap(), 10);
         assert_eq!(s3.await.unwrap(), 10);
@@ -404,7 +411,7 @@ mod tests {
         s1.await.unwrap_err();
 
         // this will cause a call to waker installed by s1, but it shouldn't be a problem.
-        registry.finish_subscription(&0.into(), 0);
+        registry.finish_subscription(0.into(), 0);
 
         assert_eq!(s2.await.unwrap(), 0);
     }
