@@ -1,3 +1,8 @@
+//! The objects central to this module are the `Subscription`, which is created for each potentially
+//! long-standing request (currently `Ipfs::{connect, get_block}`), and the `SubscriptionRegistry`
+//! that contains them. `SubscriptionFuture` is the `Future` bound to pending `Subscription`s and
+//! sharing the same unique numeric identifier, the `SubscriptionId`.
+
 use crate::RepoEvent;
 use async_std::future::Future;
 use async_std::task::{self, Context, Poll, Waker};
@@ -17,10 +22,11 @@ use std::sync::{
     Arc,
 };
 
-// a counter used to assign identifiers to subscription requests
+// a counter used to assign unique identifiers to `Subscription`s and `SubscriptionFuture`s
+// (which obtain the same number as their counterpart `Subscription`)
 static GLOBAL_REQ_COUNT: AtomicU64 = AtomicU64::new(0);
 
-/// A request for a subscription to a specific resource.
+/// A request for a subscription to a specific resource; a part of a pending `Subscription`.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Request {
     /// The kind of resource being subscribed to.
@@ -47,7 +53,7 @@ impl From<Cid> for Request {
     }
 }
 
-/// The type of a request for subscription.
+/// The type of a request for subscription; a part of the `Request` object.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum RequestKind {
     /// A request to connect to the given `Multiaddr`.
@@ -96,9 +102,13 @@ impl fmt::Display for RequestKind {
     }
 }
 
+/// The unique identifier of a `Subscription`/`SubscriptionFuture`.
 type SubscriptionId = u64;
+
+/// The specific collection used to hold all the `Subscription`s.
 type Subscriptions<T> = HashMap<SubscriptionId, Subscription<T>>;
 
+/// A collection of all the live `Subscription`s.
 pub struct SubscriptionRegistry<TRes: Debug + Clone + PartialEq> {
     subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
     shutting_down: AtomicBool,
@@ -116,6 +126,7 @@ impl<TRes: Debug + Clone + PartialEq> fmt::Debug for SubscriptionRegistry<TRes> 
 }
 
 impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
+    /// Creates a `Subscription` and returns its associated `Future`, the `SubscriptionFuture`.
     pub fn create_subscription(
         &self,
         req: Request,
@@ -138,20 +149,24 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
         }
     }
 
-    pub fn finish_subscription(&self, req_kind: RequestKind, res: TRes) {
+    /// Finalizes all pending subscriptions of the specified kind with the given `result`.
+    ///
+    pub fn finish_subscription(&self, req_kind: RequestKind, result: TRes) {
         let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
 
+        // find all the matching `Subscription`s and wake up their tasks; only `Pending`
+        // ones have an associated `SubscriptionFuture` and there can be multiple of them
+        // depending on how many times the given request kind was filed
         for sub in subscriptions.values_mut() {
             if let Subscription::Pending { request, .. } = sub {
-                // wake up all tasks related to the requested resource
                 if request.kind == req_kind {
-                    sub.wake(res.clone());
+                    sub.wake(result.clone());
                 }
             }
         }
     }
 
-    /// After shutdown all SubscriptionFutures will return Err(Cancelled)
+    /// After `shutdown` all `SubscriptionFuture`s will return `Err(Cancelled)`.
     pub fn shutdown(&self) {
         if self.shutting_down.swap(true, Ordering::SeqCst) {
             return;
@@ -169,7 +184,7 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
             cancelled += 1;
         }
 
-        log::trace!("Cancelled {} subscriptions", cancelled);
+        log::debug!("Cancelled {} subscriptions", cancelled);
     }
 }
 
@@ -188,7 +203,8 @@ impl<TRes: Debug + Clone + PartialEq> Drop for SubscriptionRegistry<TRes> {
     }
 }
 
-/// Subscription and it's linked SubscriptionFutures were cancelled before completion.
+/// A value returned when a `Subscription` and it's linked `SubscriptionFuture`
+/// is cancelled before completion or when the `Future` is aborted.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Cancelled;
 
@@ -200,11 +216,12 @@ impl fmt::Display for Cancelled {
 
 impl std::error::Error for Cancelled {}
 
+/// Represents a request for a resource at different stages of its lifetime.
 #[derive(Debug)]
 pub enum Subscription<TRes> {
-    /// A finished `Subscription` containing the desired `TRes`.
+    /// A finished `Subscription` containing the desired `TRes` value.
     Ready(TRes),
-    /// A `Subscription` that is not fulfilled yet.
+    /// A standing request that hasn't been fulfilled yet.
     Pending {
         /// The request related to this `Subscription`.
         request: Request,
@@ -213,6 +230,7 @@ pub enum Subscription<TRes> {
         /// A `Sender` of a channel expecting notifications of subscription cancellations.
         cancel_notifier: Option<Sender<RepoEvent>>,
     },
+    /// A void subscription that was either cancelled or otherwise aborted.
     Cancelled,
 }
 
@@ -221,11 +239,15 @@ impl<TRes: PartialEq> PartialEq for Subscription<TRes> {
         match self {
             Self::Pending { request: req1, .. } => {
                 if let Self::Pending { request: req2, .. } = other {
+                    // only the subscription kind needs to be check for equality; the
+                    // numeric identifier is always unique
                     req1.kind == req2.kind
                 } else {
                     false
                 }
             }
+            // cancelled subscriptions might refer to different requests; since it can't
+            // (and doesn't need to be) determined, just return `false`
             Self::Cancelled => false,
             ready @ Self::Ready(_) => ready == other,
         }
@@ -277,9 +299,9 @@ impl<TRes> Subscription<TRes> {
 /// A `Future` that resolves to the resource whose subscription was requested.
 pub struct SubscriptionFuture<TRes: Debug + PartialEq> {
     /// The unique identifier of the subscription request, matching the one in
-    /// the `SubscriptionRegistry`.
+    /// the associated `Subscription` at the `SubscriptionRegistry`.
     id: u64,
-    /// The collection of all the live subscriptions.
+    /// A reference to the subscriptions at the `SubscriptionRegistry`.
     subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
 }
 
