@@ -180,12 +180,13 @@ impl<TRes: PartialEq> PartialEq for Subscription<TRes> {
         match self {
             Self::Pending { request: req1, .. } => {
                 if let Self::Pending { request: req2, .. } = other {
-                    req1 == req2
+                    req1.kind == req2.kind
                 } else {
                     false
                 }
             }
-            done => done == other,
+            Self::Cancelled => false,
+            ready @ Self::Ready(_) => ready == other,
         }
     }
 }
