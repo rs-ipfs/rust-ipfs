@@ -29,6 +29,24 @@ pub struct Request {
     id: u64,
 }
 
+impl From<Multiaddr> for Request {
+    fn from(addr: Multiaddr) -> Self {
+        Self {
+            kind: addr.into(),
+            id: GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst),
+        }
+    }
+}
+
+impl From<Cid> for Request {
+    fn from(cid: Cid) -> Self {
+        Self {
+            kind: cid.into(),
+            id: GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst),
+        }
+    }
+}
+
 /// The type of a request for subscription.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum RequestKind {
@@ -40,21 +58,15 @@ pub enum RequestKind {
     Num(u32),
 }
 
-impl From<Multiaddr> for Request {
+impl From<Multiaddr> for RequestKind {
     fn from(addr: Multiaddr) -> Self {
-        Self {
-            kind: RequestKind::Connect(addr),
-            id: GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst),
-        }
+        Self::Connect(addr)
     }
 }
 
-impl From<Cid> for Request {
+impl From<Cid> for RequestKind {
     fn from(cid: Cid) -> Self {
-        Self {
-            kind: RequestKind::GetBlock(cid),
-            id: GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst),
-        }
+        Self::GetBlock(cid)
     }
 }
 
@@ -119,13 +131,13 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
         }
     }
 
-    pub fn finish_subscription(&self, req: &Request, res: TRes) {
+    pub fn finish_subscription(&self, req_kind: RequestKind, res: TRes) {
         let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
 
         for sub in subscriptions.values_mut() {
             if let Subscription::Pending { request, .. } = sub {
                 // wake up all tasks related to the requested resource
-                if request.kind == req.kind {
+                if request.kind == req_kind {
                     sub.wake(res.clone());
                 }
             }

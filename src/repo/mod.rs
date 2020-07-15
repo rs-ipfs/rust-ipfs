@@ -225,7 +225,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let block = block.with_upgraded_cid();
         let (cid, res) = self.block_store.put(block.clone()).await?;
         self.subscriptions
-            .finish_subscription(&original_cid.clone().into(), block);
+            .finish_subscription(original_cid.clone().into(), block);
         // sending only fails if no one is listening anymore
         // and that is okay with us.
         self.events

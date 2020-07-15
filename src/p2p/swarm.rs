@@ -156,7 +156,7 @@ impl NetworkBehaviour for SwarmApi {
 
         self.connections.insert(addr.clone(), peer_id.clone());
         self.connect_registry
-            .finish_subscription(&addr.clone().into(), Ok(()));
+            .finish_subscription(addr.clone().into(), Ok(()));
     }
 
     fn inject_connected(&mut self, _peer_id: &PeerId) {
@@ -185,7 +185,7 @@ impl NetworkBehaviour for SwarmApi {
         self.connections.remove(closed_addr);
         // FIXME: should be an error
         self.connect_registry
-            .finish_subscription(&closed_addr.clone().into(), Ok(()));
+            .finish_subscription(closed_addr.clone().into(), Ok(()));
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
@@ -204,7 +204,7 @@ impl NetworkBehaviour for SwarmApi {
     ) {
         log::trace!("inject_addr_reach_failure {} {}", addr, error);
         self.connect_registry
-            .finish_subscription(&addr.clone().into(), Err(error.to_string()));
+            .finish_subscription(addr.clone().into(), Err(error.to_string()));
     }
 
     fn poll(
