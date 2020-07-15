@@ -36,7 +36,7 @@ pub enum RequestKind {
     /// A request to obtain a `Block` with a specific `Cid`.
     GetBlock(Cid),
     #[cfg(test)]
-    Empty,
+    Num(u32),
 }
 
 impl From<Multiaddr> for Request {
@@ -53,6 +53,25 @@ impl From<Cid> for Request {
         Self {
             kind: RequestKind::GetBlock(cid),
             id: GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst),
+        }
+    }
+}
+
+impl fmt::Display for RequestKind {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Connect(addr) => write!(fmt, "Connect to {}", addr),
+            Self::GetBlock(cid) => write!(
+                fmt,
+                "Obtain block {}",
+                cid.hash()
+                    .digest()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>()
+            ),
+            #[cfg(test)]
+            Self::Num(n) => write!(fmt, "A test request for {}", n),
         }
     }
 }
@@ -82,6 +101,8 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
         req: Request,
         cancel_notifier: Option<Sender<RepoEvent>>,
     ) -> SubscriptionFuture<TRes> {
+        debug!("Creating subscription {} to {}", req.id, req.kind);
+
         let id = req.id;
         let mut subscription = Subscription::new(req, cancel_notifier);
 
@@ -283,8 +304,12 @@ impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
         });
 
         if let Some(sub) = sub {
+            if let Subscription::Pending { ref request, .. } = sub {
+                debug!("Dropping subscription {}", request.id);
+            }
             // don't bother updating anything that isn't `Pending`
             if let mut sub @ Subscription::Pending { .. } = sub {
+                debug!("It was the last subscription to a resource, sending a cancel notification");
                 sub.cancel(is_last);
             }
         }
@@ -306,9 +331,9 @@ mod tests {
     use super::*;
 
     impl From<u32> for Request {
-        fn from(_: u32) -> Self {
+        fn from(n: u32) -> Self {
             Self {
-                kind: RequestKind::Empty,
+                kind: RequestKind::Num(n),
                 id: GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst),
             }
         }
