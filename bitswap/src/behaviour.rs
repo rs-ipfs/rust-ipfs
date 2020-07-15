@@ -179,6 +179,8 @@ impl NetworkBehaviour for Bitswap {
         );
         debug!("{:?}", message);
 
+        let current_wantlist = self.local_wantlist();
+
         let ledger = self
             .connected_peers
             .get_mut(&source)
@@ -194,7 +196,11 @@ impl NetworkBehaviour for Bitswap {
         }
 
         // Process the incoming wantlist.
-        for (cid, priority) in message.want() {
+        for (cid, priority) in message
+            .want()
+            .iter()
+            .filter(|&(cid, _)| !current_wantlist.iter().map(|(c, _)| c).any(|c| c == cid))
+        {
             ledger.received_want_list.insert(cid.to_owned(), *priority);
 
             let event = BitswapEvent::ReceivedWant(source.clone(), cid.clone(), *priority);
