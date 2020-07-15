@@ -1,15 +1,15 @@
 //! IPFS repo
 use crate::error::Error;
 use crate::path::IpfsPath;
-use crate::subscription::SubscriptionRegistry;
+use crate::subscription::{Request, RequestKind, SubscriptionRegistry};
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
+use core::convert::TryFrom;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::lock::Mutex;
 use futures::sink::SinkExt;
 use libipld::cid::{self, Cid};
 use libp2p::core::PeerId;
@@ -103,14 +103,31 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
-    subscriptions: Mutex<SubscriptionRegistry<Cid, Block>>,
+    subscriptions: SubscriptionRegistry<Block>,
 }
 
 #[derive(Clone, Debug)]
 pub enum RepoEvent {
     WantBlock(Cid),
+    UnwantBlock(Cid),
     ProvideBlock(Cid),
     UnprovideBlock(Cid),
+}
+
+impl TryFrom<Request> for RepoEvent {
+    type Error = &'static str;
+
+    fn try_from(req: Request) -> Result<Self, Self::Error> {
+        if let Request {
+            kind: RequestKind::GetBlock(cid),
+            ..
+        } = req
+        {
+            Ok(RepoEvent::UnwantBlock(cid))
+        } else {
+            Err("logic error: RepoEvent can only be created from a Request::GetBlock")
+        }
+    }
 }
 
 /// Extension trait to easily upgrade owned values from possibly cidv0 to cidv1. The Cid version
@@ -176,8 +193,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Shutdowns the repo, cancelling any pending subscriptions; Likely going away after some
     /// refactoring, see notes on [`Ipfs::exit_daemon`].
-    pub async fn shutdown(&self) {
-        self.subscriptions.lock().await.shutdown();
+    pub fn shutdown(&self) {
+        self.subscriptions.shutdown();
     }
 
     pub async fn init(&self) -> Result<(), Error> {
@@ -208,10 +225,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let block = block.with_upgraded_cid();
         let (cid, res) = self.block_store.put(block.clone()).await?;
         self.subscriptions
-            .lock()
-            .await
-            // subscriptions are per cidv1
-            .finish_subscription(&cid, block);
+            .finish_subscription(original_cid.clone().into(), block);
         // sending only fails if no one is listening anymore
         // and that is okay with us.
         self.events
@@ -236,10 +250,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         } else {
             let subscription = self
                 .subscriptions
-                .lock()
-                .await
-                // subscribe always by using the cidv1
-                .create_subscription(upgraded.clone());
+                .create_subscription(cid.clone().into(), Some(self.events.clone()));
             // sending only fails if no one is listening anymore
             // and that is okay with us.
             self.events

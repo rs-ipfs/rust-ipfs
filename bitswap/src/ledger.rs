@@ -251,7 +251,7 @@ impl TryFrom<&[u8]> for Message {
             let cid = prefix.to_cid(&payload.data)?;
             let block = Block {
                 cid,
-                data: payload.data.to_vec().into_boxed_slice(),
+                data: payload.data.into_boxed_slice(),
             };
             message.add_block(block);
         }
