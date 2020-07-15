@@ -1,4 +1,8 @@
-use async_std::task;
+use async_std::{
+    future::{pending, timeout},
+    task,
+};
+use futures::future::{select, Either, FutureExt};
 use futures::future::{AbortHandle, Abortable};
 use libipld::Cid;
 
@@ -69,17 +73,31 @@ async fn wantlist_cancellation() {
         "the wantlist is still empty after the request was issued"
     );
 
-    // fire up an additional get request
+    // fire up an additional get request, this time within the same async task...
     let ipfs_clone = ipfs.clone();
-    let (abort_handle2, abort_reg) = AbortHandle::new_pair();
-    let abortable_req = Abortable::new(async move { ipfs_clone.get_block(&cid).await }, abort_reg);
-    let _get_request2 = task::spawn(abortable_req);
+    let cid_clone = cid.clone();
+    let get_request2 = ipfs_clone.get_block(&cid_clone);
+    let get_timeout = timeout(Duration::from_millis(200), pending::<()>());
+    let get_request2 = match select(get_timeout.boxed(), get_request2.boxed()).await {
+        Either::Left((_, fut)) => fut,
+        Either::Right(_) => unreachable!(),
+    };
+
+    // ...and an additional one within the same task, for good measure
+    let ipfs_clone = ipfs.clone();
+    let cid_clone = cid.clone();
+    let get_request3 = ipfs_clone.get_block(&cid_clone);
+    let get_timeout = timeout(Duration::from_millis(200), pending::<()>());
+    let get_request3 = match select(get_timeout.boxed(), get_request3.boxed()).await {
+        Either::Left((_, fut)) => fut,
+        Either::Right(_) => unreachable!(),
+    };
 
     // cancel the first requested Cid
     abort_handle1.abort();
 
-    // verify that the requested Cid is STILL in the wantlist
-    let wantlist_partially_cleared = bounded_retry(
+    // verify that the requested Cid is still in the wantlist
+    let wantlist_partially_cleared1 = bounded_retry(
         3,
         Duration::from_millis(200),
         || ipfs.bitswap_wantlist(None),
@@ -87,12 +105,28 @@ async fn wantlist_cancellation() {
     );
 
     assert!(
-        wantlist_partially_cleared.is_ok(),
+        wantlist_partially_cleared1.is_ok(),
+        "the wantlist is empty despite there still being 2 live get requests"
+    );
+
+    // cancel the second requested Cid
+    drop(get_request2);
+
+    // verify that the requested Cid is STILL in the wantlist
+    let wantlist_partially_cleared2 = bounded_retry(
+        3,
+        Duration::from_millis(200),
+        || ipfs.bitswap_wantlist(None),
+        |ret| ret.unwrap().len() == 1,
+    );
+
+    assert!(
+        wantlist_partially_cleared2.is_ok(),
         "the wantlist is empty despite there still being a live get request"
     );
 
     // cancel the second requested Cid
-    abort_handle2.abort();
+    drop(get_request3);
 
     // verify that the requested Cid is no longer in the wantlist
     let wantlist_cleared = bounded_retry(
