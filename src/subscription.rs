@@ -119,7 +119,9 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
         log::debug!("Shutting down {:?}", self);
 
         let mut cancelled = 0;
-        let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
+        let mut subscriptions = mem::take(&mut *task::block_on(async {
+            self.subscriptions.lock().await
+        }));
 
         for (_idx, mut sub) in subscriptions.drain() {
             sub.cancel(true);
