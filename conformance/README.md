@@ -1,38 +1,56 @@
-# ipfs-rust-conformance
-> Conformance testing for Rust IPFS
+# Conformance testing for Rust IPFS
 
-This repository contains the scripts used to run interface conformance testing for Rust IPFS. It uses `js-ipfsd-ctl`, `npm-rust-ipfs-dep`, and `interface-js-ipfs-core`. This code will likely either be integrated into `ipfs-rust/rust-ipfs` directly or integrated via CI.
-
-# Install
-
-To clone the repository and ready it for use, first clone this repo:
-
-```bash
-$ git clone https://github.com/rs-ipfs/ipfs-rust-conformance
-```
-
-After cloning, use `setup.sh` to do `npm install` and patch any of the dependencies:
-
-```bash
-$ cd ipfs-rust-conformance
-$ ./setup.sh
-```
+This directory contains the scripts used to run interface conformance testing
+for Rust IPFS. It uses `js-ipfsd-ctl`, `ipfs-http-client`, and
+`interface-js-ipfs-core`. This code used to live at
+https://github.com/rs-ipfs/ipfs-rust-conformance but was integrated into
+https://github.com/rs-ipfs/rust-ipfs as working with multiple repositories got
+a bit tedious.
 
 # Usage
 
+Use `setup.sh` to do `npm install` and patch any of the dependencies:
+
 ```bash
-$ npm test
+$ cargo build -p ipfs-http
+$ cd conformance
+$ ./setup.sh
 ```
 
-For development, you can symlink http to your rust-ipfs-http executable, and
-then use the `rust.sh` as IPFS_RUST_EXEC to run tests and capture all output
-from the binary.
+By default, there is a `http` symlink to `../target/debug/ipfs-http`. You can
+change this to the release binary by modifying the symlink or use a custom
+binary via the environment variable `IPFS_RUST_EXEC`. The default `rust.sh`
+wrapper will record all actions taken by the tests into a single large log
+file. It's not recommended to trust it to keep all log lines especially for
+tests with multiple processes.
 
 ```bash
-$ ln -s /path/to/rust-ipfs/target/ipfs-http ./http
-$ IPFS_RUST_EXEC=$(pwd)/rust.sh npm test
+$ IPFS_RUST_EXEC="$(pwd)/rust.sh" npm test
 $ cat /tmp/rust.log
 ```
+
+## Obtaining logs for tests with multiple processes
+
+Patch the `rust.sh` as follows:
+
+```diff
+-./http "$@" 2>&1 | tee -a /tmp/rust.log || retval=$?
++./http "$@" 2>&1 | tee -a /tmp/rust.log.$$ || retval=$?
+```
+
+Now the `/tmp/rust.log` will contain only the "pointers" to other log files, for example:
+
+```
+>>>> new execution 24132 with args: daemon
+<<<< exiting 24132 with 0
+```
+
+Means there is now a log file `/tmp/rust.log.24132` for that invocation.
+
+Additionally, it helps to clear out the logs often with `rm -f /tmp/rust.log*`
+and only run the problematic tests `IPFS_RUST_EXEC="$(pwd)/rust.sh" npm test -- --grep 'should do foo'`.
+If it's impossible to limit the number of tests to one with `--grep`, you can
+comment out the irrelevant tests in `test/index.js`.
 
 # Patch management
 
@@ -123,13 +141,9 @@ easy mistakes to made. Good indications of such issues:
 [`std::future::Future::poll`]: https://doc.rust-lang.org/std/future/trait.Future.html#tymethod.poll
 [threads stacktraces]: https://stackoverflow.com/questions/18391808/how-do-i-get-the-backtrace-for-all-the-threads-in-gdb
 
-# Contributing
-
-Issues and pull requests welcome.
-
 # License
 
-TBD
+Same as repository.
 
 ## Trademarks
 
