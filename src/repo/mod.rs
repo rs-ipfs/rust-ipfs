@@ -1,7 +1,7 @@
 //! IPFS repo
 use crate::error::Error;
 use crate::path::IpfsPath;
-use crate::subscription::{Request, RequestKind, SubscriptionRegistry};
+use crate::subscription::{RequestKind, SubscriptionRegistry};
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
 use async_trait::async_trait;
@@ -114,15 +114,11 @@ pub enum RepoEvent {
     UnprovideBlock(Cid),
 }
 
-impl TryFrom<Request> for RepoEvent {
+impl TryFrom<RequestKind> for RepoEvent {
     type Error = &'static str;
 
-    fn try_from(req: Request) -> Result<Self, Self::Error> {
-        if let Request {
-            kind: RequestKind::GetBlock(cid),
-            ..
-        } = req
-        {
+    fn try_from(req: RequestKind) -> Result<Self, Self::Error> {
+        if let RequestKind::GetBlock(cid) = req {
             Ok(RepoEvent::UnwantBlock(cid))
         } else {
             Err("logic error: RepoEvent can only be created from a Request::GetBlock")

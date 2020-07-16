@@ -26,34 +26,7 @@ use std::sync::{
 // (which obtain the same number as their counterpart `Subscription`)
 static GLOBAL_REQ_COUNT: AtomicU64 = AtomicU64::new(0);
 
-/// A request for a subscription to a specific resource; a part of a pending `Subscription`.
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct Request {
-    /// The kind of resource being subscribed to.
-    pub(crate) kind: RequestKind,
-    /// A unique identifier of the request.
-    id: u64,
-}
-
-impl From<Multiaddr> for Request {
-    fn from(addr: Multiaddr) -> Self {
-        Self {
-            kind: addr.into(),
-            id: GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst),
-        }
-    }
-}
-
-impl From<Cid> for Request {
-    fn from(cid: Cid) -> Self {
-        Self {
-            kind: cid.into(),
-            id: GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst),
-        }
-    }
-}
-
-/// The type of a request for subscription; a part of the `Request` object.
+/// The type of a request for subscription.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum RequestKind {
     /// A request to connect to the given `Multiaddr`.
@@ -73,13 +46,6 @@ impl From<Multiaddr> for RequestKind {
 impl From<Cid> for RequestKind {
     fn from(cid: Cid) -> Self {
         Self::GetBlock(cid)
-    }
-}
-
-#[cfg(test)]
-impl From<u32> for RequestKind {
-    fn from(num: u32) -> Self {
-        Self::Num(num)
     }
 }
 
@@ -106,7 +72,7 @@ impl fmt::Display for RequestKind {
 type SubscriptionId = u64;
 
 /// The specific collection used to hold all the `Subscription`s.
-type Subscriptions<T> = HashMap<SubscriptionId, Subscription<T>>;
+type Subscriptions<T> = HashMap<RequestKind, HashMap<SubscriptionId, Subscription<T>>>;
 
 /// A collection of all the live `Subscription`s.
 pub struct SubscriptionRegistry<TRes: Debug + Clone + PartialEq> {
@@ -129,22 +95,30 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
     /// Creates a `Subscription` and returns its associated `Future`, the `SubscriptionFuture`.
     pub fn create_subscription(
         &self,
-        req: Request,
+        kind: RequestKind,
         cancel_notifier: Option<Sender<RepoEvent>>,
     ) -> SubscriptionFuture<TRes> {
-        debug!("Creating subscription {} to {}", req.id, req.kind);
+        let id = GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst);
+        debug!("Creating subscription {} to {}", id, kind);
 
-        let id = req.id;
-        let mut subscription = Subscription::new(req, cancel_notifier);
+        let mut subscription = Subscription::new(cancel_notifier);
 
         if self.shutting_down.load(Ordering::SeqCst) {
-            subscription.cancel(true);
+            subscription.cancel(kind.clone(), true);
         }
 
-        task::block_on(async { self.subscriptions.lock().await.insert(id, subscription) });
+        task::block_on(async {
+            self.subscriptions
+                .lock()
+                .await
+                .entry(kind.clone())
+                .or_default()
+                .insert(id, subscription);
+        });
 
         SubscriptionFuture {
             id,
+            kind,
             subscriptions: Arc::clone(&self.subscriptions),
         }
     }
@@ -153,13 +127,14 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
     ///
     pub fn finish_subscription(&self, req_kind: RequestKind, result: TRes) {
         let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
+        let related_subs = subscriptions.get_mut(&req_kind);
 
         // find all the matching `Subscription`s and wake up their tasks; only `Pending`
         // ones have an associated `SubscriptionFuture` and there can be multiple of them
         // depending on how many times the given request kind was filed
-        for sub in subscriptions.values_mut() {
-            if let Subscription::Pending { request, .. } = sub {
-                if request.kind == req_kind {
+        if let Some(related_subs) = related_subs {
+            for sub in related_subs.values_mut() {
+                if let Subscription::Pending { .. } = sub {
                     sub.wake(result.clone());
                 }
             }
@@ -179,9 +154,11 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
             self.subscriptions.lock().await
         }));
 
-        for (_idx, mut sub) in subscriptions.drain() {
-            sub.cancel(true);
-            cancelled += 1;
+        for (kind, subs) in subscriptions.iter_mut() {
+            for sub in subs.values_mut() {
+                sub.cancel(kind.clone(), true);
+                cancelled += 1;
+            }
         }
 
         log::debug!("Cancelled {} subscriptions", cancelled);
@@ -223,8 +200,6 @@ pub enum Subscription<TRes> {
     Ready(TRes),
     /// A standing request that hasn't been fulfilled yet.
     Pending {
-        /// The request related to this `Subscription`.
-        request: Request,
         /// The waker of the task assigned to check if the `Subscription` is complete.
         waker: Option<Waker>,
         /// A `Sender` of a channel expecting notifications of subscription cancellations.
@@ -234,30 +209,9 @@ pub enum Subscription<TRes> {
     Cancelled,
 }
 
-impl<TRes: PartialEq> PartialEq for Subscription<TRes> {
-    fn eq(&self, other: &Self) -> bool {
-        match self {
-            Self::Pending { request: req1, .. } => {
-                if let Self::Pending { request: req2, .. } = other {
-                    // only the subscription kind needs to be check for equality; the
-                    // numeric identifier is always unique
-                    req1.kind == req2.kind
-                } else {
-                    false
-                }
-            }
-            // cancelled subscriptions might refer to different requests; since it can't
-            // (and doesn't need to be) determined, just return `false`
-            Self::Cancelled => false,
-            ready @ Self::Ready(_) => ready == other,
-        }
-    }
-}
-
 impl<TRes> Subscription<TRes> {
-    fn new(request: Request, cancel_notifier: Option<Sender<RepoEvent>>) -> Self {
+    fn new(cancel_notifier: Option<Sender<RepoEvent>>) -> Self {
         Self::Pending {
-            request,
             waker: Default::default(),
             cancel_notifier,
         }
@@ -272,20 +226,19 @@ impl<TRes> Subscription<TRes> {
         }
     }
 
-    fn cancel(&mut self, is_last: bool) {
+    fn cancel(&mut self, kind: RequestKind, is_last: bool) {
         let former_self = mem::replace(self, Subscription::Cancelled);
         if let Subscription::Pending {
-            request,
             waker,
             cancel_notifier,
         } = former_self
         {
-            // if this is the last `Subscription` related to the `request`,
+            // if this is the last `Subscription` related to the request kind,
             // send a cancel notification to the repo - the wantlist needs
             // to be updated
             if is_last {
                 if let Some(mut sender) = cancel_notifier {
-                    let _ = sender.try_send(RepoEvent::try_from(request).unwrap());
+                    let _ = sender.try_send(RepoEvent::try_from(kind).unwrap());
                 }
             }
 
@@ -298,9 +251,11 @@ impl<TRes> Subscription<TRes> {
 
 /// A `Future` that resolves to the resource whose subscription was requested.
 pub struct SubscriptionFuture<TRes: Debug + PartialEq> {
-    /// The unique identifier of the subscription request, matching the one in
-    /// the associated `Subscription` at the `SubscriptionRegistry`.
+    /// The unique identifier of the subscription request and the secondary
+    /// key in the `SubscriptionRegistry`.
     id: u64,
+    /// The type of the request made; the primary key in the `SubscriptionRegistry`.
+    kind: RequestKind,
     /// A reference to the subscriptions at the `SubscriptionRegistry`.
     subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
 }
@@ -313,7 +268,10 @@ impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
             // don't hold the lock for too long, otherwise the `Drop` impl for `SubscriptionFuture`
             // can cause a stack overflow
             let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
-            if let Some(sub) = subscriptions.remove(&self.id) {
+            if let Some(sub) = subscriptions
+                .get_mut(&self.kind)
+                .and_then(|subs| subs.remove(&self.id))
+            {
                 sub
             } else {
                 // the subscription must already have been cancelled
@@ -326,7 +284,8 @@ impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
             Subscription::Pending { ref mut waker, .. } => {
                 *waker = Some(context.waker().clone());
                 task::block_on(async { self.subscriptions.lock().await })
-                    .insert(self.id, subscription);
+                    .get_mut(&self.kind)
+                    .and_then(|subs| subs.insert(self.id, subscription));
                 Poll::Pending
             }
             Subscription::Ready(result) => Poll::Ready(Ok(result)),
@@ -336,23 +295,27 @@ impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
 
 impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
     fn drop(&mut self) {
+        debug!("Dropping subscription {} to {}", self.id, self.kind);
+
         let (sub, is_last) = task::block_on(async {
             let mut subscriptions = self.subscriptions.lock().await;
-            let sub = subscriptions.remove(&self.id);
+            let related_subs = if let Some(subs) = subscriptions.get_mut(&self.kind) {
+                subs
+            } else {
+                return (None, false);
+            };
+            let sub = related_subs.remove(&self.id);
             // check if this is the last subscription to this resource
-            let is_last = !subscriptions.values().any(|s| Some(s) == sub.as_ref());
+            let is_last = related_subs.is_empty();
 
             (sub, is_last)
         });
 
         if let Some(sub) = sub {
-            if let Subscription::Pending { ref request, .. } = sub {
-                debug!("Dropping subscription {} to {}", request.id, request.kind);
-            }
             // don't bother updating anything that isn't `Pending`
             if let mut sub @ Subscription::Pending { .. } = sub {
                 debug!("It was the last related subscription, sending a cancel notification");
-                sub.cancel(is_last);
+                sub.cancel(self.kind.clone(), is_last);
             }
         }
     }
@@ -372,12 +335,9 @@ impl<TRes: Debug + PartialEq> fmt::Debug for SubscriptionFuture<TRes> {
 mod tests {
     use super::*;
 
-    impl From<u32> for Request {
+    impl From<u32> for RequestKind {
         fn from(n: u32) -> Self {
-            Self {
-                kind: RequestKind::Num(n),
-                id: GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst),
-            }
+            Self::Num(n)
         }
     }
 
