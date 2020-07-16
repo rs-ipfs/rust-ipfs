@@ -760,6 +760,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "https://github.com/rs-ipfs/rust-ipfs/issues/242"]
     fn full_link_block() {
         let buf = vec![0u8; 1];
 
