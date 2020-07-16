@@ -583,8 +583,8 @@ mod tests {
                     Content-Disposition: form-data; name=\"file\"; filename=\"\"\r\n\
                     Content-Type: application/octet-stream\r\n\
                     \r\n\
-                    aedFIxDJZ2jS1eVB6Pkbv\r\n\
-                    -------------------------------Z0oYi6XyTm7_x2L4ty8JL--\r\n"[..])
+                    aedFIxDJZ2jS1eVB6Pkbv\
+                    \r\n-------------------------------Z0oYi6XyTm7_x2L4ty8JL--\r\n"[..])
                 .reply(&publish_args_as_json("arg")),
         );
 

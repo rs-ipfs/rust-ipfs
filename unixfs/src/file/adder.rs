@@ -102,8 +102,11 @@ impl FileAdderBuilder {
     }
 
     /// Configures the builder to use the given collector or layout.
-    pub fn with_collector(self, collector: Collector) -> Self {
-        FileAdderBuilder { collector, ..self }
+    pub fn with_collector(self, collector: impl Into<Collector>) -> Self {
+        FileAdderBuilder {
+            collector: collector.into(),
+            ..self
+        }
     }
 
     /// Returns a new FileAdder
@@ -393,6 +396,12 @@ impl std::default::Default for BalancedCollector {
     }
 }
 
+impl From<BalancedCollector> for Collector {
+    fn from(b: BalancedCollector) -> Self {
+        Collector::Balanced(b)
+    }
+}
+
 impl BalancedCollector {
     /// Configure Balanced collector with the given branching factor.
     pub fn with_branching_factor(branching_factor: usize) -> Self {
@@ -559,7 +568,7 @@ impl BalancedCollector {
 #[cfg(test)]
 mod tests {
 
-    use super::{Chunker, FileAdder};
+    use super::{BalancedCollector, Chunker, FileAdder};
     use crate::test_support::FakeBlockstore;
     use cid::Cid;
     use hex_literal::hex;
@@ -715,10 +724,15 @@ mod tests {
         //   ^^^^^^^^^^^^^^^^^^^^^^   ^
         //          174 blocks        \--- 1 block
 
-        let mut adder = FileAdder::builder().with_chunker(Chunker::Size(2)).build();
+        let branching_factor = 174;
+
+        let mut adder = FileAdder::builder()
+            .with_chunker(Chunker::Size(2))
+            .with_collector(BalancedCollector::with_branching_factor(branching_factor))
+            .build();
         let mut blocks_count = 0;
 
-        for _ in 0..174 {
+        for _ in 0..branching_factor {
             let (blocks, written) = adder.push(buf.as_slice());
             assert_eq!(written, buf.len());
 
@@ -737,11 +751,48 @@ mod tests {
         // one is for the single byte block
         // one is a link block for the singular single byte block
         // other is for the root block
-        assert_eq!(blocks_count, 174 + 1 + 1 + 1 + 1);
+        assert_eq!(blocks_count, branching_factor + 1 + 1 + 1 + 1);
 
         assert_eq!(
             last_blocks.last().unwrap().0.to_string(),
             "QmcHNWF1d56uCDSfJPA7t9fadZRV9we5HGSTGSmwuqmMP9"
         );
+    }
+
+    #[test]
+    #[ignore = "https://github.com/rs-ipfs/rust-ipfs/issues/242"]
+    fn full_link_block() {
+        let buf = vec![0u8; 1];
+
+        let branching_factor = 174;
+
+        let mut adder = FileAdder::builder()
+            .with_chunker(Chunker::Size(1))
+            .with_collector(BalancedCollector::with_branching_factor(branching_factor))
+            .build();
+        let mut blocks_count = 0;
+
+        for _ in 0..branching_factor {
+            let (blocks, written) = adder.push(buf.as_slice());
+            assert_eq!(written, buf.len());
+
+            blocks_count += blocks.count();
+        }
+
+        let mut last_blocks = adder.finish();
+
+        // go-ipfs waits until finish to get a single link block, no additional root block
+
+        let last_block = last_blocks.next().expect("must not have flushed yet");
+        blocks_count += 1;
+
+        assert_eq!(last_blocks.next(), None);
+
+        assert_eq!(
+            last_block.0.to_string(),
+            "QmdgQac8c6Bo3MP5bHAg2yQ25KebFUsmkZFvyByYzf8UCB"
+        );
+
+        assert_eq!(blocks_count, 175);
     }
 }

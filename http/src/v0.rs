@@ -58,7 +58,7 @@ pub fn routes<T: IpfsTypes>(
     let api = mount.and(combine!(
         shutdown,
         id::identity(ipfs),
-        warp::path!("add").and_then(not_implemented),
+        root_files::add(ipfs),
         bitswap::wantlist(ipfs),
         bitswap::stat(ipfs),
         block::get(ipfs),
