@@ -1,0 +1,22 @@
+{
+  "name": "ipfs-rust-conformance",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx mocha"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "aegir": "^21.3.0",
+    "interface-ipfs-core": "0.137.0",
+    "ipfsd-ctl": "github:ipfs-rust/js-ipfsd-ctl#add_rust_ipfs_http",
+    "mocha": "^7.1.0",
+    "ipfs-http-client": "^44.3.0"
+  },
+  "devDependencies": {
+    "rust-ipfs-dep": "github:ipfs-rust/npm-rust-ipfs-dep#master",
+    "ipfs": "^0.43.0"
+  }
+}
