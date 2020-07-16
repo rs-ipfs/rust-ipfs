@@ -3,6 +3,11 @@
 set -eu
 set -o pipefail
 
+if ! [ -f "./package.json" ]; then
+    echo "Please run $0 from the conformance subdirectory" >&2
+    exit 1
+fi
+
 # production will skip the dev dependencies
 npm install --production
 
@@ -12,6 +17,10 @@ if [ -d "patches" ]; then
     # we'll need to remove a few leading path segments to match
     # a/packages/interface-ipfs-core/src/refs.js to node_modules/interface-ipfs-core/src/refs.js
     #
-    # applying these patches on js-ipfs checkout does not require any extra arguments.
-    git apply --verbose --ignore-whitespace patches/* -p3 --directory node_modules/interface-ipfs-core/
+    # cannot use git automation any longer as it will skip any ignored file apparently,
+    # and node_modules are ignored.
+    for p in patches/*; do
+        echo "Applying $(basename "$p")..." >&2
+        patch -d node_modules/interface-ipfs-core/ -p3 < "$p"
+    done
 fi
