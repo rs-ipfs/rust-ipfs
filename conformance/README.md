@@ -45,7 +45,7 @@ Now the `/tmp/rust.log` will contain only the "pointers" to other log files, for
 <<<< exiting 24132 with 0
 ```
 
-Means there is now a log file `/tmp/rust.log.24132` for that invocation.
+This means there is now a log file `/tmp/rust.log.24132` for that invocation.
 
 Additionally, it helps to clear out the logs often with `rm -f /tmp/rust.log*`
 and only run the problematic tests `IPFS_RUST_EXEC="$(pwd)/rust.sh" npm test -- --grep 'should do foo'`.
@@ -54,11 +54,11 @@ comment out the irrelevant tests in `test/index.js`.
 
 # Patch management
 
-We currently staying behind at `interface-ipfs-core@0.134.3` and the fixes we have upstreamed are also kept under `patches/`.
+We currently staying behind at `interface-ipfs-core@0.137.0` and the fixes we have upstreamed are also kept under `patches/`.
 
 To create a new patch:
 
-1. Fork https://github.com/ipfs/js-ipfs/
+1. Fork https://github.com/ipfs/js-ipfs
 2. Clone locally
 3. Checkout a new branch based on the tag for the `interface-ipfs-core` version
    we are currently depending on (see package.json)
@@ -69,7 +69,7 @@ To create a new patch:
 7. Submit PR
 8. Squash your work, refer to your PR in the message
 9. Remove existing `patches/`
-9. Recreate the `patches/` with `git format-patch -o
+10. Recreate the `patches/` with `git format-patch -o
    $ipfs-rust-conformance/patches $the_tag_you_based_your_work`
 
 Where above:
