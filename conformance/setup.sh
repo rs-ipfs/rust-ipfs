@@ -24,3 +24,10 @@ if [ -d "patches" ]; then
         patch -d node_modules/ -p1 < "$p"
     done
 fi
+
+if ! [ -f "../target/debug/ipfs-http" ]; then
+    echo "Please build a debug version of Rust IPFS first via `cargo build --workspace` in the project root first." >&2
+    exit 1
+fi
+
+ln -s ../target/debug/ipfs-http http
