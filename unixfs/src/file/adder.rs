@@ -61,7 +61,14 @@ impl fmt::Display for LinkFormatter<'_> {
                 count += 1;
             } else {
                 write!(fmt, "{}/", count)?;
-                for _ in *next_depth..(*current - 1) {
+
+                let steps_between = if current > next_depth {
+                    current - next_depth
+                } else {
+                    next_depth - current
+                };
+
+                for _ in 0..steps_between {
                     write!(fmt, "0/")?;
                 }
                 count = 1;
