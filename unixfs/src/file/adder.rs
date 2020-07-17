@@ -95,6 +95,17 @@ struct Link {
     file_size: u64,
 }
 
+impl fmt::Debug for Link {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("Link")
+            .field("depth", &self.depth)
+            .field("target", &format_args!("{}", self.target))
+            .field("total_size", &self.total_size)
+            .field("file_size", &self.file_size)
+            .finish()
+    }
+}
+
 /// Convinience type to facilitate configuring FileAdders
 #[derive(Default)]
 pub struct FileAdderBuilder {
