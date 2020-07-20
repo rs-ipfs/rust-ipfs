@@ -106,7 +106,10 @@ tests.root.add(factory, {
     "should add from a HTTP URL with redirection",
     "should add from a URL with only-hash=true",
     "should add from a URL with wrap-with-directory=true",
-    "should add from a URL with wrap-with-directory=true and URL-escaped file name"
+    "should add from a URL with wrap-with-directory=true and URL-escaped file name",
+    // this might hang on windows at least; seems that there is a DNSCHANNEL open
+    // see https://github.com/rs-ipfs/rust-ipfs/pull/251/checks?check_run_id=889139927#step:17:934
+    "should not add from an invalid url"
   ]
 });
 // tests.repo(factory)
