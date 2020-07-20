@@ -56,6 +56,7 @@ jobs:
       LLVM_CONFIG_PATH: /usr/local/opt/llvm/bin/llvm-config
       NDK_HOME: /usr/local/lib/android/sdk/ndk-bundle
       VCPKGRS_DYNAMIC: 1
+      DEBUG: ipfsd-ctl:* # enables all debug output from javascript 'debug' lib used by js-ipfsd-ctl
 
     runs-on: ${{ matrix.platform.host }}
     steps:

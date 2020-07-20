@@ -1,3 +1,4 @@
+const log = require('why-is-node-running')
 const { createFactory } = require('ipfsd-ctl')
 const tests = require('interface-ipfs-core')
 const isDev = process.env.IPFS_RUST_EXEC
@@ -7,6 +8,12 @@ const isNode = (process && process.env)
 const ipfsBin = isNode ?
   process.env.IPFS_RUST_EXEC ? process.env.IPFS_RUST_EXEC : require('rust-ipfs-dep').path()
     : undefined
+
+after(() => {
+  const whyIsNodeRunning = setTimeout(() => log(), 1000 * 60)
+  // this should not block shutting down
+  whyIsNodeRunning.unref()
+})
 
 const options = {
   type: 'rust',
@@ -30,7 +37,9 @@ tests.miscellaneous(factory, { skip: [
   'resolve',
   // these cause a hang 20% of time:
   'should respect timeout option when getting the node id',
-  'should respect timeout option when getting the node version'
+  'should respect timeout option when getting the node version',
+  // this hangs on windows, see #251
+  'stop'
 ] })
 
 // Phase 1.1
@@ -99,7 +108,10 @@ tests.root.add(factory, {
     "should add from a HTTP URL with redirection",
     "should add from a URL with only-hash=true",
     "should add from a URL with wrap-with-directory=true",
-    "should add from a URL with wrap-with-directory=true and URL-escaped file name"
+    "should add from a URL with wrap-with-directory=true and URL-escaped file name",
+    // this might hang on windows at least; seems that there is a DNSCHANNEL open
+    // see https://github.com/rs-ipfs/rust-ipfs/pull/251/checks?check_run_id=889139927#step:17:934
+    "should not add from an invalid url"
   ]
 });
 // tests.repo(factory)

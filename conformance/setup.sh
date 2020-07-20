@@ -21,6 +21,6 @@ if [ -d "patches" ]; then
     # and node_modules are ignored.
     for p in patches/*; do
         echo "Applying $(basename "$p")..." >&2
-        patch -d node_modules/interface-ipfs-core/ -p3 < "$p"
+        patch -d node_modules/ -p1 < "$p"
     done
 fi
