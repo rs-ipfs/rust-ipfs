@@ -10,13 +10,14 @@ use cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::kad::record::store::MemoryStore;
-use libp2p::kad::{Kademlia, KademliaEvent};
+use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent, QueryId};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
 use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
-use std::sync::Arc;
+use multibase::Base;
+use std::{collections::HashSet, sync::Arc};
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
@@ -25,6 +26,8 @@ pub struct Behaviour<Types: IpfsTypes> {
     ipfs: Ipfs<Types>,
     mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
+    #[behaviour(ignore)]
+    kad_queries: HashSet<QueryId>,
     bitswap: Bitswap,
     ping: Ping,
     identify: Identify,
@@ -60,40 +63,166 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<Typ
 
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: KademliaEvent) {
-        use libp2p::kad::{GetProvidersError, GetProvidersOk, QueryResult};
+        use libp2p::kad::{
+            AddProviderError, AddProviderOk, BootstrapError, BootstrapOk, GetClosestPeersError,
+            GetClosestPeersOk, GetProvidersError, GetProvidersOk, GetRecordError, GetRecordOk,
+            KademliaEvent::*, PutRecordError, PutRecordOk, QueryResult::*,
+        };
 
         match event {
-            KademliaEvent::QueryResult {
-                result:
-                    QueryResult::GetProviders(Ok(GetProvidersOk {
+            QueryResult { result, id, .. } => {
+                self.kad_queries.remove(&id);
+
+                match result {
+                    Bootstrap(Ok(BootstrapOk { .. })) => {
+                        info!("kad: finished bootstrapping");
+                    }
+                    Bootstrap(Err(BootstrapError::Timeout { .. })) => {
+                        warn!("kad: failed to bootstrap");
+                    }
+                    GetClosestPeers(Ok(GetClosestPeersOk { key, peers })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+
+                        for peer in peers {
+                            info!("kad: peer {} is close to key {}", peer, key);
+                        }
+                    }
+                    GetClosestPeers(Err(GetClosestPeersError::Timeout { key, peers })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+
+                        warn!("kad: timed out trying to find all peers closest to key {}; got the following:", key);
+                        for peer in peers {
+                            info!("kad: peer {} is close to key {}", peer, key);
+                        }
+                    }
+                    GetProviders(Ok(GetProvidersOk { key, providers, .. })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+                        if providers.is_empty() {
+                            // FIXME: not sure if this is possible
+                            info!("kad: could not find a provider for {}", key);
+                        } else {
+                            for peer in providers {
+                                info!("kad: {} provided by {}", key, peer);
+                                self.bitswap.connect(peer);
+                            }
+                        }
+                    }
+                    GetProviders(Err(GetProvidersError::Timeout { key, .. })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+                        warn!("kad: timed out trying to get providers for {}", key);
+                    }
+                    StartProviding(Ok(AddProviderOk { key })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+                        info!("kad: added provider {}", key);
+                    }
+                    StartProviding(Err(AddProviderError::Timeout { key })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+                        warn!("kad: timed out trying to add provider {}", key);
+                    }
+                    RepublishProvider(Ok(AddProviderOk { key })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+                        info!("kad: republished provider {}", key);
+                    }
+                    RepublishProvider(Err(AddProviderError::Timeout { key })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+                        warn!("kad: timed out trying to republish provider {}", key);
+                    }
+                    GetRecord(Ok(GetRecordOk { records })) => {
+                        for record in records {
+                            let key = multibase::encode(Base::Base58Btc, record.record.key);
+                            info!("kad: got record {}:{:?}", key, record.record.value);
+                        }
+                    }
+                    GetRecord(Err(GetRecordError::NotFound {
                         key,
-                        providers,
-                        closest_peers,
-                    })),
-                ..
-            } => {
-                // FIXME: really wasteful to run this through Vec
-                let cid = PeerId::from_bytes(key.to_vec()).unwrap().to_base58();
-                if providers.is_empty() {
-                    // FIXME: not sure if this is possible
-                    info!("kad: Could not find provider for {}", cid);
-                } else {
-                    for peer in closest_peers {
-                        info!("kad: {} provided by {}", cid, peer.to_base58());
-                        self.bitswap.connect(peer);
+                        closest_peers: _,
+                    })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+                        warn!("kad: couldn't find record {}", key);
+                    }
+                    GetRecord(Err(GetRecordError::QuorumFailed {
+                        key,
+                        records,
+                        quorum,
+                    })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+
+                        warn!(
+                            "kad: quorum failed {} trying to get key {}; got the following:",
+                            quorum, key
+                        );
+                        for record in records {
+                            let key = multibase::encode(Base::Base58Btc, record.record.key);
+                            info!("kad: got record {}:{:?}", key, record.record.value);
+                        }
+                    }
+                    GetRecord(Err(GetRecordError::Timeout {
+                        key,
+                        records,
+                        quorum: _,
+                    })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+
+                        warn!(
+                            "kad: timed out trying to get key {}; got the following:",
+                            key
+                        );
+                        for record in records {
+                            let key = multibase::encode(Base::Base58Btc, record.record.key);
+                            info!("kad: got record {}:{:?}", key, record.record.value);
+                        }
+                    }
+                    PutRecord(Ok(PutRecordOk { key }))
+                    | RepublishRecord(Ok(PutRecordOk { key })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+                        info!("kad: successfully put record {}", key);
+                    }
+                    PutRecord(Err(PutRecordError::QuorumFailed {
+                        key,
+                        success: _,
+                        quorum,
+                    }))
+                    | RepublishRecord(Err(PutRecordError::QuorumFailed {
+                        key,
+                        success: _,
+                        quorum,
+                    })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+                        info!(
+                            "kad: quorum failed ({}) trying to put record {}",
+                            quorum, key
+                        );
+                    }
+                    PutRecord(Err(PutRecordError::Timeout {
+                        key,
+                        success: _,
+                        quorum: _,
+                    }))
+                    | RepublishRecord(Err(PutRecordError::Timeout {
+                        key,
+                        success: _,
+                        quorum: _,
+                    })) => {
+                        let key = multibase::encode(Base::Base58Btc, key);
+                        info!("kad: timed out trying to put record {}", key);
                     }
                 }
             }
-            KademliaEvent::QueryResult {
-                result: QueryResult::GetProviders(Err(GetProvidersError::Timeout { key, .. })),
-                ..
+            RoutingUpdated {
+                peer,
+                addresses,
+                old_peer: _,
             } => {
-                // FIXME: really wasteful to run this through Vec
-                let cid = PeerId::from_bytes(key.to_vec()).unwrap().to_base58();
-                warn!("kad: timed out get providers query for {}", cid);
+                trace!("kad: routing updated; {}: {:?}", peer, addresses);
             }
-            event => {
-                log::trace!("kad: {:?}", event);
+            UnroutablePeer { peer } => {
+                warn!("kad: peer {} is unroutable", peer);
+            }
+            RoutablePeer { peer, address } => {
+                trace!("kad: peer {} ({}) is routable", peer, address);
+            }
+            PendingRoutablePeer { peer, address } => {
+                trace!("kad: pending routable peer {} ({})", peer, address);
             }
         }
     }
@@ -219,7 +348,12 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         .into();
 
         let store = MemoryStore::new(options.peer_id.to_owned());
-        let mut kademlia = Kademlia::new(options.peer_id.to_owned(), store);
+
+        let mut kad_config = KademliaConfig::default();
+        kad_config.disjoint_query_paths(true);
+        kad_config.set_query_timeout(std::time::Duration::from_secs(300));
+        let mut kademlia = Kademlia::with_config(options.peer_id.to_owned(), store, kad_config);
+
         for (addr, peer_id) in &options.bootstrap {
             kademlia.add_address(peer_id, addr.to_owned());
         }
@@ -238,6 +372,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             ipfs,
             mdns,
             kademlia,
+            kad_queries: Default::default(),
             bitswap,
             ping,
             identify,
