@@ -4,7 +4,7 @@ use async_std::{
 };
 use futures::future::{select, Either, FutureExt};
 use futures::future::{AbortHandle, Abortable};
-use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
+use ipfs::Node;
 use libipld::Cid;
 
 use std::{
@@ -36,7 +36,7 @@ where
     Err(started.elapsed())
 }
 
-async fn check_cid_subscriptions<T: IpfsTypes>(ipfs: &Ipfs<T>, cid: &Cid, expected_count: usize) {
+async fn check_cid_subscriptions(ipfs: &Node, cid: &Cid, expected_count: usize) {
     let subs = ipfs.get_subscriptions().lock().await;
     if expected_count > 0 {
         assert_eq!(subs.len(), 1);
@@ -49,9 +49,7 @@ async fn check_cid_subscriptions<T: IpfsTypes>(ipfs: &Ipfs<T>, cid: &Cid, expect
 #[async_std::test]
 async fn wantlist_cancellation() {
     // start a single node
-    let opts = IpfsOptions::inmemory_with_generated_keys(false);
-    let (ipfs, ipfs_fut) = UninitializedIpfs::new(opts).await.start().await.unwrap();
-    let _fut_task = task::spawn(ipfs_fut);
+    let ipfs = Node::new(false).await;
 
     // execute a get_block request
     let cid = Cid::try_from("QmSoLPppuBtQSGwKDZT2M73ULpjvfd3aZ6ha4oFGL1KaGa").unwrap();
