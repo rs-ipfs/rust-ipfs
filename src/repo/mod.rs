@@ -103,7 +103,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
-    subscriptions: SubscriptionRegistry<Block>,
+    pub(crate) subscriptions: SubscriptionRegistry<Block>,
 }
 
 #[derive(Clone, Debug)]

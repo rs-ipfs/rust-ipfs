@@ -154,7 +154,6 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
                             cid,
                             err,
                         );
-                        return;
                     }
                 };
             }

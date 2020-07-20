@@ -4,6 +4,7 @@ use async_std::{
 };
 use futures::future::{select, Either, FutureExt};
 use futures::future::{AbortHandle, Abortable};
+use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
 use libipld::Cid;
 
 use std::{
@@ -35,16 +36,21 @@ where
     Err(started.elapsed())
 }
 
+async fn check_cid_subscriptions<T: IpfsTypes>(ipfs: &Ipfs<T>, cid: &Cid, expected_count: usize) {
+    let subs = ipfs.get_subscriptions().lock().await;
+    if expected_count > 0 {
+        assert_eq!(subs.len(), 1);
+    }
+    let subscription_count = subs.get(&cid.clone().into()).map(|l| l.len());
+    assert_eq!(subscription_count, Some(expected_count));
+}
+
 /// Check if canceling a Cid affects the wantlist.
 #[async_std::test]
 async fn wantlist_cancellation() {
     // start a single node
-    let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
-    let (ipfs, ipfs_fut) = ipfs::UninitializedIpfs::new(opts)
-        .await
-        .start()
-        .await
-        .unwrap();
+    let opts = IpfsOptions::inmemory_with_generated_keys(false);
+    let (ipfs, ipfs_fut) = UninitializedIpfs::new(opts).await.start().await.unwrap();
     let _fut_task = task::spawn(ipfs_fut);
 
     // execute a get_block request
@@ -73,6 +79,9 @@ async fn wantlist_cancellation() {
         "the wantlist is still empty after the request was issued"
     );
 
+    // ensure that there is a single related subscription
+    check_cid_subscriptions(&ipfs, &cid, 1).await;
+
     // fire up an additional get request, this time within the same async task...
     let ipfs_clone = ipfs.clone();
     let cid_clone = cid.clone();
@@ -83,6 +92,9 @@ async fn wantlist_cancellation() {
         Either::Right(_) => unreachable!(),
     };
 
+    // ensure that there are 2 related subscriptions
+    check_cid_subscriptions(&ipfs, &cid, 2).await;
+
     // ...and an additional one within the same task, for good measure
     let ipfs_clone = ipfs.clone();
     let cid_clone = cid.clone();
@@ -92,6 +104,9 @@ async fn wantlist_cancellation() {
         Either::Left((_, fut)) => fut,
         Either::Right(_) => unreachable!(),
     };
+
+    // ensure that there are 3 related subscription
+    check_cid_subscriptions(&ipfs, &cid, 3).await;
 
     // cancel the first requested Cid
     abort_handle1.abort();
@@ -109,6 +124,9 @@ async fn wantlist_cancellation() {
         "the wantlist is empty despite there still being 2 live get requests"
     );
 
+    // ensure that there are 2 related subscriptions
+    check_cid_subscriptions(&ipfs, &cid, 2).await;
+
     // cancel the second requested Cid
     drop(get_request2);
 
@@ -125,6 +143,9 @@ async fn wantlist_cancellation() {
         "the wantlist is empty despite there still being a live get request"
     );
 
+    // ensure that there is a single related subscription
+    check_cid_subscriptions(&ipfs, &cid, 1).await;
+
     // cancel the second requested Cid
     drop(get_request3);
 
@@ -140,4 +161,7 @@ async fn wantlist_cancellation() {
         wantlist_cleared.is_ok(),
         "a block was not removed from the wantlist after all its subscriptions had died"
     );
+
+    // ensure that there are no related subscriptions
+    check_cid_subscriptions(&ipfs, &cid, 0).await;
 }

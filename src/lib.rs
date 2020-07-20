@@ -617,6 +617,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         // ignoring the error because it'd mean that the background task had already been dropped
         let _ = self.to_task.clone().try_send(IpfsEvent::Exit);
     }
+
+    /// Obtain the locked collection of all the subscriptions for blocks.
+    #[doc(hidden)]
+    pub fn get_subscriptions(&self) -> &futures::lock::Mutex<subscription::Subscriptions<Block>> {
+        &self.repo.subscriptions.subscriptions
+    }
 }
 
 /// Background task of `Ipfs` created when calling `UninitializedIpfs::start`.
