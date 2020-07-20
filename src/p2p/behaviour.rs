@@ -138,25 +138,24 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
                     priority
                 );
 
-                let ipfs = self.ipfs.clone();
-                let queued_blocks = Arc::clone(&self.bitswap().queued_blocks);
-                task::spawn(async move {
-                    // FIXME: need a better API to `get_block_now` or without waiting.
-                    let block = match ipfs.repo.get_block(&cid).await {
-                        Ok(block) => block,
-                        Err(err) => {
-                            warn!(
-                                "Peer {} wanted block {} but we failed: {}",
-                                peer_id.to_base58(),
-                                cid,
-                                err,
-                            );
-                            return;
-                        }
-                    };
-
-                    queued_blocks.lock().unwrap().push((peer_id, block));
-                });
+                match self.ipfs.repo.get_block_now(&cid) {
+                    Ok(Some(block)) => {
+                        self.bitswap()
+                            .queued_blocks
+                            .lock()
+                            .unwrap()
+                            .push((peer_id, block));
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        warn!(
+                            "Peer {} wanted block {} but we failed: {}",
+                            peer_id.to_base58(),
+                            cid,
+                            err,
+                        );
+                    }
+                };
             }
             BitswapEvent::ReceivedCancel(..) => {}
         }

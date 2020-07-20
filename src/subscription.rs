@@ -72,11 +72,11 @@ impl fmt::Display for RequestKind {
 type SubscriptionId = u64;
 
 /// The specific collection used to hold all the `Subscription`s.
-type Subscriptions<T> = HashMap<RequestKind, HashMap<SubscriptionId, Subscription<T>>>;
+pub type Subscriptions<T> = HashMap<RequestKind, HashMap<SubscriptionId, Subscription<T>>>;
 
 /// A collection of all the live `Subscription`s.
 pub struct SubscriptionRegistry<TRes: Debug + Clone + PartialEq> {
-    subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
+    pub(crate) subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
     shutting_down: AtomicBool,
 }
 

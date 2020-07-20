@@ -930,7 +930,7 @@ impl From<(bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>)> for Bits
 pub use node::Node;
 
 mod node {
-    use super::{Ipfs, IpfsOptions, TestTypes, UninitializedIpfs};
+    use super::{subscription, Block, Ipfs, IpfsOptions, TestTypes, UninitializedIpfs};
 
     /// Node encapsulates everything to setup a testing instance so that multi-node tests become
     /// easier.
@@ -954,6 +954,12 @@ mod node {
                 ipfs,
                 background_task: jh,
             }
+        }
+
+        pub fn get_subscriptions(
+            &self,
+        ) -> &futures::lock::Mutex<subscription::Subscriptions<Block>> {
+            &self.ipfs.repo.subscriptions.subscriptions
         }
 
         pub async fn shutdown(self) {
