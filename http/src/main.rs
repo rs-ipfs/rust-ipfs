@@ -172,6 +172,8 @@ fn main() {
                 .map_err(|e| eprintln!("Failed to truncate {:?}: {}", api_link_file, e));
         }
     });
+
+    println!("Shutdown complete");
 }
 
 fn serve<Types: IpfsTypes>(
@@ -188,6 +190,7 @@ fn serve<Types: IpfsTypes>(
 
     warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 0), async move {
         shutdown_rx.next().await;
+        println!("Shutdown trigger received; starting shutdown");
         ipfs.exit_daemon().await;
     })
 }
