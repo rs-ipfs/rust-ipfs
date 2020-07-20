@@ -1,3 +1,4 @@
+const log = require('why-is-node-running')
 const { createFactory } = require('ipfsd-ctl')
 const tests = require('interface-ipfs-core')
 const isDev = process.env.IPFS_RUST_EXEC
@@ -7,6 +8,12 @@ const isNode = (process && process.env)
 const ipfsBin = isNode ?
   process.env.IPFS_RUST_EXEC ? process.env.IPFS_RUST_EXEC : require('rust-ipfs-dep').path()
     : undefined
+
+after(() => {
+  const whyIsNodeRunning = setTimeout(() => log(), 1000 * 60)
+  // this should not block shutting down
+  whyIsNodeRunning.unref()
+})
 
 const options = {
   type: 'rust',
