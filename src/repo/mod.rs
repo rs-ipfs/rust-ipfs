@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::path::IpfsPath;
 use crate::subscription::{RequestKind, SubscriptionRegistry};
 use crate::IpfsOptions;
-use async_std::path::PathBuf;
+use async_std::{path::PathBuf, task};
 use async_trait::async_trait;
 use bitswap::Block;
 use core::convert::TryFrom;
@@ -255,6 +255,20 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 .await
                 .ok();
             Ok(subscription.await?)
+        }
+    }
+
+    /// Retrives a block from the block store if it's available locally.
+    pub fn get_block_now(&self, cid: &Cid) -> Result<Option<Block>, Error> {
+        let upgraded = cid.as_upgraded_cid();
+        if let Some(Block { data, .. }) = task::block_on(self.block_store.get(&upgraded))? {
+            Ok(Some(Block {
+                data,
+                // give back using the requested cid which may have been cidv0
+                cid: cid.clone(),
+            }))
+        } else {
+            Ok(None)
         }
     }
 
