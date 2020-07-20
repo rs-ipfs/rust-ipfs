@@ -14,8 +14,8 @@ implementation to use either version internally.
 
 diff --git a/packages/interface-ipfs-core/src/refs-local.js b/packages/interface-ipfs-core/src/refs-local.js
 index d20851de..33a94c74 100644
---- a/packages/interface-ipfs-core/src/refs-local.js
-+++ b/packages/interface-ipfs-core/src/refs-local.js
+--- a/interface-ipfs-core/src/refs-local.js
++++ b/interface-ipfs-core/src/refs-local.js
 @@ -7,6 +7,7 @@ const all = require('it-all')
  const importer = require('ipfs-unixfs-importer')
  const drain = require('it-drain')

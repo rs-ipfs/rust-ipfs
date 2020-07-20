@@ -1,0 +1,10 @@
+--- node_modules/ipfsd-ctl/src/ipfsd-daemon.js	2020-03-06 15:26:44.365192780 +0200
++++ node_modules/ipfsd-ctl/src/ipfsd-daemon.js	2020-07-20 14:54:43.353680062 +0300
+@@ -260,6 +250,7 @@
+
+     try {
+       await this.api.stop()
++      await this.subprocess;
+     } catch (err) {
+       if (!killed) {
+         throw err // if was killed then ignore error
