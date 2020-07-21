@@ -10,17 +10,16 @@ use crate::ledger::{Ledger, Message, Priority, Stats};
 use crate::protocol::BitswapConfig;
 use cid::Cid;
 use fnv::FnvHashSet;
-use futures::task::Context;
-use futures::task::Poll;
+use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
 use libp2p_swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
 use libp2p_swarm::{
     DialPeerCondition, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
 };
+use std::task::{Context, Poll};
 use std::{
     collections::{HashMap, VecDeque},
     mem,
-    sync::{Arc, Mutex},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,7 +30,6 @@ pub enum BitswapEvent {
 }
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
-#[derive(Default)]
 pub struct Bitswap {
     /// Queue of events to report to the user.
     events: VecDeque<NetworkBehaviourAction<Message, BitswapEvent>>,
@@ -42,7 +40,23 @@ pub struct Bitswap {
     /// Wanted blocks
     wanted_blocks: HashMap<Cid, Priority>,
     /// Blocks queued to be sent
-    pub queued_blocks: Arc<Mutex<Vec<(PeerId, Block)>>>,
+    pub queued_blocks: UnboundedSender<(PeerId, Block)>,
+    ready_blocks: UnboundedReceiver<(PeerId, Block)>,
+}
+
+impl Default for Bitswap {
+    fn default() -> Self {
+        let (tx, rx) = unbounded();
+
+        Bitswap {
+            events: Default::default(),
+            target_peers: Default::default(),
+            connected_peers: Default::default(),
+            wanted_blocks: Default::default(),
+            queued_blocks: tx,
+            ready_blocks: rx,
+        }
+    }
 }
 
 impl Bitswap {
@@ -207,17 +221,19 @@ impl NetworkBehaviour for Bitswap {
     }
 
     #[allow(clippy::type_complexity)]
-    fn poll(&mut self, _: &mut Context, _: &mut impl PollParameters)
+    fn poll(&mut self, ctx: &mut Context, _: &mut impl PollParameters)
         -> Poll<NetworkBehaviourAction<<<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>
     {
-        let queued_blocks = mem::take(&mut *self.queued_blocks.lock().unwrap());
-        for (peer_id, block) in queued_blocks.into_iter() {
+        use futures::stream::StreamExt;
+
+        while let Poll::Ready(Some((peer_id, block))) = self.ready_blocks.poll_next_unpin(ctx) {
             self.send_block(peer_id, block);
         }
 
         if let Some(event) = self.events.pop_front() {
             return Poll::Ready(event);
         }
+
         for (peer_id, ledger) in &mut self.connected_peers {
             if let Some(message) = ledger.send() {
                 return Poll::Ready(NetworkBehaviourAction::NotifyHandler {

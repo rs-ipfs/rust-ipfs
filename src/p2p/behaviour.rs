@@ -134,13 +134,13 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
                     priority
                 );
 
-                let queued_blocks = Arc::clone(&self.bitswap().queued_blocks);
+                let queued_blocks = self.bitswap().queued_blocks.clone();
                 let ipfs = self.ipfs.clone();
 
                 task::spawn(async move {
                     match ipfs.repo.get_block_now(&cid).await {
                         Ok(Some(block)) => {
-                            queued_blocks.lock().unwrap().push((peer_id, block));
+                            let _ = queued_blocks.unbounded_send((peer_id, block));
                         }
                         Ok(None) => {}
                         Err(err) => {

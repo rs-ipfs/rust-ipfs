@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::path::IpfsPath;
 use crate::subscription::{RequestKind, SubscriptionRegistry};
 use crate::IpfsOptions;
-use async_std::{path::PathBuf, task};
+use async_std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::{self, Cid};
