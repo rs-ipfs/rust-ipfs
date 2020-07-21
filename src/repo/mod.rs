@@ -6,12 +6,12 @@ use crate::IpfsOptions;
 use async_std::{path::PathBuf, task};
 use async_trait::async_trait;
 use bitswap::Block;
+use cid::{self, Cid};
 use core::convert::TryFrom;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::sink::SinkExt;
-use libipld::cid::{self, Cid};
 use libp2p::core::PeerId;
 
 pub mod fs;

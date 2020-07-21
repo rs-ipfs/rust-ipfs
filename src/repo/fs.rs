@@ -8,10 +8,10 @@ use async_std::path::PathBuf;
 use async_std::prelude::*;
 use async_trait::async_trait;
 use bitswap::Block;
+use cid::Cid;
 use core::convert::TryFrom;
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
-use libipld::cid::Cid;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 

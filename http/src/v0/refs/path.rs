@@ -5,7 +5,7 @@
 //!
 //! Does not allow the root to be anything else than `/ipfs/` or missing at the moment.
 
-use libipld::cid::{self, Cid};
+use cid::{self, Cid};
 use libipld::Ipld;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;

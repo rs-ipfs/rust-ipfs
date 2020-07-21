@@ -5,7 +5,7 @@ use crate::repo::RepoTypes;
 use async_std::fs;
 use async_std::io::ReadExt;
 use async_std::path::PathBuf;
-use libipld::cid::{Cid, Codec};
+use cid::{Cid, Codec};
 use libipld::ipld::Ipld;
 use libipld::pb::PbNode;
 use std::collections::BTreeMap;

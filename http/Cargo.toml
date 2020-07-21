@@ -11,13 +11,14 @@ vergen = "3.1.0"
 
 [dependencies]
 base64 = "0.12.0"
+cid = "0.5"
 env_logger = "0.7.1"
 futures = "0.3.4"
 ipfs = { path = "../" }
-libipld = { git = "https://github.com/ipfs-rust/rust-ipld", rev = "b2286c53c13f3eeec2a3766387f2926838e8e4c9", features = ["dag-pb", "dag-json"] }
+libipld = { git = "https://github.com/ljedrz/rust-ipld", branch = "update_cid", features = ["dag-pb", "dag-json"] }
 log = "0.4.8"
 multibase = "0.8.0"
-multihash = "0.10.1"
+multihash = "0.11.2"
 # openssl is required for rsa keygen but not used by the rust-ipfs or it's dependencies
 openssl = "0.10.28"
 percent-encoding = "2.1.0"

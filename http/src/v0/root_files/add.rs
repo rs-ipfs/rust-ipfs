@@ -1,9 +1,9 @@
 use super::AddArgs;
 use crate::v0::support::StringError;
 use bytes::{Buf, Bytes};
+use cid::Cid;
 use futures::stream::{Stream, TryStreamExt};
 use ipfs::{Ipfs, IpfsTypes};
-use libipld::cid::Cid;
 use mime::Mime;
 use mpart_async::server::MultipartStream;
 use serde::Serialize;
