@@ -27,9 +27,9 @@ impl Prefix {
         let codec = Codec::try_from(raw_codec)?;
 
         let (raw_mh_type, remain) = varint_decode::u64(remain)?;
-        let mh_type = match multihash::Code::from_u64(raw_mh_type) {
-            multihash::Code::Custom(_) => return Err(cid::Error::UnknownCodec),
-            code => code,
+        let mh_type = match multihash::Code::try_from(raw_mh_type) {
+            Err(_) => return Err(cid::Error::UnknownCodec),
+            Ok(code) => code,
         };
 
         let (mh_len, _remain) = varint_decode::usize(remain)?;
@@ -53,7 +53,7 @@ impl Prefix {
         let codec = varint_encode::u64(self.codec.into(), &mut buf);
         res.extend_from_slice(codec);
         let mut buf = varint_encode::u64_buffer();
-        let mh_type = varint_encode::u64(self.mh_type.to_u64(), &mut buf);
+        let mh_type = varint_encode::u64(self.mh_type.into(), &mut buf);
         res.extend_from_slice(mh_type);
         let mut buf = varint_encode::u64_buffer();
         let mh_len = varint_encode::u64(self.mh_len as u64, &mut buf);
@@ -64,7 +64,7 @@ impl Prefix {
 
     /// Create a CID out of the prefix and some data that will be hashed
     pub fn to_cid(&self, data: &[u8]) -> Result<Cid, cid::Error> {
-        let mut hash = self.mh_type.hasher().unwrap().digest(data);
+        let mut hash = self.mh_type.digest(data);
         if self.mh_len < hash.digest().len() {
             hash = multihash::wrap(hash.algorithm(), &hash.digest()[..self.mh_len]);
         }

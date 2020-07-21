@@ -14,11 +14,11 @@ default = [ "filetime" ]
 
 [dependencies]
 quick-protobuf = "0.7.0"
-cid = "0.4.0"
+cid = "0.5"
 filetime = { version = "0.2.10", optional = true }
 either = "1.5.3"
 sha2 = "0.8.1"
-multihash = "0.10.1"
+multihash = "0.11.2"
 
 [dev-dependencies]
 multibase = "0.8.0"

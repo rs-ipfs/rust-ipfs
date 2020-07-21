@@ -4,8 +4,8 @@ use crate::repo::{BlockPut, BlockStore, Column, DataStore};
 use async_std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
+use cid::Cid;
 use futures::lock::Mutex;
-use libipld::cid::Cid;
 
 use super::{BlockRm, BlockRmError};
 

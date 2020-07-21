@@ -1,4 +1,4 @@
-use libipld::cid::Cid;
+use cid::Cid;
 use std::fmt;
 
 /// `EdgeFormatter` handles different kinds of formats that can be via the `format` query

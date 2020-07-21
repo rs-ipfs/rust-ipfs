@@ -2,9 +2,9 @@ use crate::v0::support::{
     try_only_named_multipart, with_ipfs, MaybeTimeoutExt, NotImplemented, StringError,
     StringSerialized,
 };
+use cid::{Cid, Codec};
 use futures::stream::Stream;
 use ipfs::{Ipfs, IpfsTypes};
-use libipld::cid::{Cid, Codec};
 use mime::Mime;
 
 use serde::Deserialize;

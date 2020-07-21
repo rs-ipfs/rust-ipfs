@@ -1,8 +1,8 @@
 use crate::{Error, Ipfs, IpfsTypes};
 use async_stream::stream;
+use cid::Cid;
 use futures::stream::Stream;
 use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
-use libipld::cid::Cid;
 use std::borrow::Borrow;
 use std::fmt;
 use std::ops::Range;

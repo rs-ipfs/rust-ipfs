@@ -3,8 +3,8 @@ use crate::path::{IpfsPath, IpfsPathError, SubPath};
 use crate::repo::RepoTypes;
 use crate::Ipfs;
 use bitswap::Block;
+use cid::{Cid, Codec, Version};
 use libipld::block::{decode_ipld, encode_ipld};
-use libipld::cid::{Cid, Codec, Version};
 use libipld::ipld::Ipld;
 
 #[derive(Clone, Debug)]

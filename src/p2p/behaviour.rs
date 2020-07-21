@@ -6,7 +6,7 @@ use crate::subscription::SubscriptionFuture;
 use crate::{Ipfs, IpfsTypes};
 use async_std::task;
 use bitswap::{Bitswap, BitswapEvent};
-use libipld::cid::Cid;
+use cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::kad::record::store::MemoryStore;
@@ -63,10 +63,6 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
         use libp2p::kad::{GetProvidersError, GetProvidersOk, QueryResult};
 
         match event {
-            KademliaEvent::Discovered { peer_id, ty, .. } => {
-                log::trace!("kad: Discovered peer {} {:?}", peer_id.to_base58(), ty);
-                self.add_peer(peer_id);
-            }
             KademliaEvent::QueryResult {
                 result:
                     QueryResult::GetProviders(Ok(GetProvidersOk {

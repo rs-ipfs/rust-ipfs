@@ -1,9 +1,9 @@
 use crate::v0::support::{with_ipfs, MaybeTimeoutExt, StringError};
+use cid::{self, Cid};
 use futures::stream;
 use futures::stream::Stream;
 use ipfs::{Block, Error};
 use ipfs::{Ipfs, IpfsTypes};
-use libipld::cid::{self, Cid};
 use libipld::{block::decode_ipld, Ipld};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -624,10 +624,10 @@ async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejectio
 #[cfg(test)]
 mod tests {
     use super::{ipld_links, local, refs_paths, Edge, IpfsPath};
+    use cid::{self, Cid};
     use futures::stream::TryStreamExt;
     use ipfs::{Block, Ipfs};
     use libipld::block::{decode_ipld, validate};
-    use libipld::cid::{self, Cid};
     use std::collections::HashSet;
     use std::convert::TryFrom;
 
