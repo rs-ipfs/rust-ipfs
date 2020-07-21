@@ -11,7 +11,10 @@ fn connect_two_nodes() {
     let (tx, rx) = futures::channel::oneshot::channel();
 
     let node_a = task::spawn(async move {
-        let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(mdns);
+        let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(
+            mdns,
+            Some("/ipfs/lan/kad/1.0.0".into()),
+        );
         let (ipfs, fut) = ipfs::UninitializedIpfs::new(opts)
             .await
             .start()
@@ -33,7 +36,10 @@ fn connect_two_nodes() {
 
         println!("got back from the other node: {:?}", other_addrs);
 
-        let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(mdns);
+        let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(
+            mdns,
+            Some("/ipfs/lan/kad/1.0.0".into()),
+        );
         let (ipfs, fut) = ipfs::UninitializedIpfs::new(opts)
             .await
             .start()

@@ -12,7 +12,7 @@ use core::pin::Pin;
 use futures::channel::mpsc::Sender;
 use futures::lock::Mutex;
 use libipld::Cid;
-use libp2p::Multiaddr;
+use libp2p::{kad::QueryId, Multiaddr};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
@@ -33,6 +33,8 @@ pub enum RequestKind {
     Connect(Multiaddr),
     /// A request to obtain a `Block` with a specific `Cid`.
     GetBlock(Cid),
+    /// A DHT request to Kademlia.
+    KadQuery(QueryId),
     #[cfg(test)]
     Num(u32),
 }
@@ -49,6 +51,12 @@ impl From<Cid> for RequestKind {
     }
 }
 
+impl From<QueryId> for RequestKind {
+    fn from(id: QueryId) -> Self {
+        Self::KadQuery(id)
+    }
+}
+
 impl fmt::Display for RequestKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -62,6 +70,7 @@ impl fmt::Display for RequestKind {
                     .map(|b| format!("{:02x}", b))
                     .collect::<String>()
             ),
+            Self::KadQuery(id) => write!(fmt, "Kad request {:?}", id),
             #[cfg(test)]
             Self::Num(n) => write!(fmt, "A test request for {}", n),
         }

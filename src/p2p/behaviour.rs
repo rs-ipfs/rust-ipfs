@@ -2,22 +2,23 @@ use super::pubsub::Pubsub;
 use super::swarm::{Connection, Disconnector, SwarmApi};
 use crate::p2p::{SwarmOptions, SwarmTypes};
 use crate::repo::BlockPut;
-use crate::subscription::SubscriptionFuture;
+use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use crate::{Ipfs, IpfsTypes};
+use anyhow::anyhow;
 use async_std::task;
 use bitswap::{Bitswap, BitswapEvent};
 use cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::kad::record::store::MemoryStore;
-use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent, QueryId};
+use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent};
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
 use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
 use multibase::Base;
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]
@@ -27,7 +28,7 @@ pub struct Behaviour<Types: IpfsTypes> {
     mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
     #[behaviour(ignore)]
-    kad_queries: HashSet<QueryId>,
+    kad_subscriptions: SubscriptionRegistry<Result<(), String>>,
     bitswap: Bitswap,
     ping: Ping,
     identify: Identify,
@@ -46,9 +47,9 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<Typ
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
             MdnsEvent::Discovered(list) => {
-                for (peer, _) in list {
+                for (peer, addr) in list {
                     log::trace!("mdns: Discovered peer {}", peer.to_base58());
-                    self.add_peer(peer);
+                    self.add_peer(peer, addr);
                 }
             }
             MdnsEvent::Expired(list) => {
@@ -71,35 +72,34 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
 
         match event {
             QueryResult { result, id, .. } => {
-                self.kad_queries.remove(&id);
+                self.kad_subscriptions
+                    .finish_subscription(id.into(), Ok(()));
 
                 match result {
                     Bootstrap(Ok(BootstrapOk { .. })) => {
-                        info!("kad: finished bootstrapping");
+                        debug!("kad: finished bootstrapping");
                     }
                     Bootstrap(Err(BootstrapError::Timeout { .. })) => {
                         warn!("kad: failed to bootstrap");
                     }
-                    GetClosestPeers(Ok(GetClosestPeersOk { key, peers })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
-
+                    GetClosestPeers(Ok(GetClosestPeersOk { key: _, peers })) => {
                         for peer in peers {
-                            info!("kad: peer {} is close to key {}", peer, key);
+                            info!("kad: peer {} is close", peer);
                         }
                     }
-                    GetClosestPeers(Err(GetClosestPeersError::Timeout { key, peers })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
-
-                        warn!("kad: timed out trying to find all peers closest to key {}; got the following:", key);
+                    GetClosestPeers(Err(GetClosestPeersError::Timeout { key: _, peers })) => {
+                        warn!(
+                            "kad: timed out trying to find all closest peers; got the following:"
+                        );
                         for peer in peers {
-                            info!("kad: peer {} is close to key {}", peer, key);
+                            info!("kad: peer {} is close", peer);
                         }
                     }
                     GetProviders(Ok(GetProvidersOk { key, providers, .. })) => {
                         let key = multibase::encode(Base::Base58Btc, key);
                         if providers.is_empty() {
                             // FIXME: not sure if this is possible
-                            info!("kad: could not find a provider for {}", key);
+                            warn!("kad: could not find a provider for {}", key);
                         } else {
                             for peer in providers {
                                 info!("kad: {} provided by {}", key, peer);
@@ -338,7 +338,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         options: SwarmOptions<TSwarmTypes>,
         ipfs: Ipfs<Types>,
     ) -> Self {
-        info!("Local peer id: {}", options.peer_id.to_base58());
+        info!("net: starting with peer id {}", options.peer_id);
 
         let mdns = if options.mdns {
             Some(Mdns::new().expect("Failed to create mDNS service"))
@@ -352,6 +352,9 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         let mut kad_config = KademliaConfig::default();
         kad_config.disjoint_query_paths(true);
         kad_config.set_query_timeout(std::time::Duration::from_secs(300));
+        if let Some(protocol) = options.kad_protocol {
+            kad_config.set_protocol_name(protocol.into_bytes());
+        }
         let mut kademlia = Kademlia::with_config(options.peer_id.to_owned(), store, kad_config);
 
         for (addr, peer_id) in &options.bootstrap {
@@ -372,7 +375,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             ipfs,
             mdns,
             kademlia,
-            kad_queries: Default::default(),
+            kad_subscriptions: Default::default(),
             bitswap,
             ping,
             identify,
@@ -381,7 +384,16 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         }
     }
 
-    pub fn add_peer(&mut self, peer: PeerId) {
+    pub fn add_peer(&mut self, peer: PeerId, addr: Multiaddr) {
+        self.kademlia.add_address(&peer, addr);
+        /*
+                match self.kademlia.start_providing(peer.to_base58().into_bytes().into()) {
+                    Ok(id) => {
+                        self.kad_queries.insert(id);
+                    },
+                    Err(e) => error!("kad: can't provide peer {}: {:?}", peer, e),
+                }
+        */
         self.swarm.add_peer(peer.clone());
         self.pubsub.add_node_to_partial_view(peer);
         // TODO self.bitswap.add_node_to_partial_view(peer);
@@ -439,6 +451,23 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
     pub fn bitswap(&mut self) -> &mut Bitswap {
         &mut self.bitswap
+    }
+
+    pub fn bootstrap(&mut self) -> Result<SubscriptionFuture<Result<(), String>>, anyhow::Error> {
+        match self.kademlia.bootstrap() {
+            Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
+            Err(e) => {
+                error!("kad: can't bootstrap the node: {:?}", e);
+                Err(anyhow!("kad: can't bootstrap the node: {:?}", e))
+            }
+        }
+    }
+
+    pub fn get_closest_peers(&mut self, id: PeerId) -> SubscriptionFuture<Result<(), String>> {
+        let id = id.to_base58();
+
+        self.kad_subscriptions
+            .create_subscription(self.kademlia.get_closest_peers(id.as_bytes()).into(), None)
     }
 }
 
