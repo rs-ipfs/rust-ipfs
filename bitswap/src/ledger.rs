@@ -108,6 +108,7 @@ impl Ledger {
         if self.message.is_empty() {
             return None;
         }
+        // FIXME: this might produce too large message
         for cid in self.message.cancel() {
             self.sent_want_list.remove(cid);
         }

@@ -113,6 +113,9 @@ impl Bitswap {
     /// Sends the wantlist to the peer.
     fn send_want_list(&mut self, peer_id: PeerId) {
         if !self.wanted_blocks.is_empty() {
+            // FIXME: this can produce a too long message
+            // FIXME: we should shard these across all of our peers by some logic; also peers may
+            // have been discovered with providing some specific wantlist item
             let mut message = Message::default();
             for (cid, priority) in &self.wanted_blocks {
                 message.want_block(cid, *priority);
