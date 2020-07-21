@@ -10,30 +10,31 @@ use libipld::Cid;
 use std::{
     convert::TryFrom,
     future::Future,
-    thread,
     time::{Duration, Instant},
 };
 
-fn bounded_retry<Fun, Fut, F, T>(
-    n_times: usize,
-    sleep_between: Duration,
+async fn bounded_retry<Fun, Fut, F, T>(
+    timeout: Duration,
     mut future: Fun,
     check: F,
-) -> Result<usize, Duration>
+) -> Result<(), ()>
 where
     Fun: FnMut() -> Fut,
     Fut: Future<Output = T>,
     F: Fn(T) -> bool,
 {
     let started = Instant::now();
-    for n in 0..n_times {
-        if check(futures::executor::block_on(future())) {
-            return Ok(n);
-        }
-        thread::sleep(sleep_between);
-    }
+    let mut elapsed = Default::default();
 
-    Err(started.elapsed())
+    loop {
+        if elapsed > timeout {
+            return Err(());
+        }
+        if check(future().await) {
+            return Ok(());
+        }
+        elapsed = started.elapsed();
+    }
 }
 
 async fn check_cid_subscriptions(ipfs: &Node, cid: &Cid, expected_count: usize) {
@@ -66,11 +67,11 @@ async fn wantlist_cancellation() {
 
     // verify that the requested Cid is in the wantlist
     let wantlist_populated = bounded_retry(
-        3,
-        Duration::from_millis(200),
+        Duration::from_millis(500),
         || ipfs.bitswap_wantlist(None),
         |ret| ret.unwrap().get(0).map(|x| &x.0) == Some(&cid),
-    );
+    )
+    .await;
 
     assert!(
         wantlist_populated.is_ok(),
@@ -111,11 +112,11 @@ async fn wantlist_cancellation() {
 
     // verify that the requested Cid is still in the wantlist
     let wantlist_partially_cleared1 = bounded_retry(
-        3,
-        Duration::from_millis(200),
+        Duration::from_millis(500),
         || ipfs.bitswap_wantlist(None),
         |ret| ret.unwrap().len() == 1,
-    );
+    )
+    .await;
 
     assert!(
         wantlist_partially_cleared1.is_ok(),
@@ -130,11 +131,11 @@ async fn wantlist_cancellation() {
 
     // verify that the requested Cid is STILL in the wantlist
     let wantlist_partially_cleared2 = bounded_retry(
-        3,
-        Duration::from_millis(200),
+        Duration::from_millis(500),
         || ipfs.bitswap_wantlist(None),
         |ret| ret.unwrap().len() == 1,
-    );
+    )
+    .await;
 
     assert!(
         wantlist_partially_cleared2.is_ok(),
@@ -149,11 +150,11 @@ async fn wantlist_cancellation() {
 
     // verify that the requested Cid is no longer in the wantlist
     let wantlist_cleared = bounded_retry(
-        3,
-        Duration::from_millis(200),
+        Duration::from_millis(500),
         || ipfs.bitswap_wantlist(None),
         |ret| ret.unwrap().is_empty(),
-    );
+    )
+    .await;
 
     assert!(
         wantlist_cleared.is_ok(),
