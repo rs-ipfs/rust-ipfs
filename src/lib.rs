@@ -781,7 +781,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     SwarmEvent::NewListenAddr(addr) => {
                         self.complete_listening_address_adding(addr);
                     }
-                    _ => println!("{:?}", inner),
+                    _ => trace!("{:?}", inner),
                 }
             }
 

@@ -95,7 +95,11 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                             info!("kad: peer {} is close", peer);
                         }
                     }
-                    GetProviders(Ok(GetProvidersOk { key, providers, closest_peers })) => {
+                    GetProviders(Ok(GetProvidersOk {
+                        key,
+                        providers,
+                        closest_peers,
+                    })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
                         if providers.is_empty() && closest_peers.is_empty() {
                             warn!("kad: could not find a provider for {}", key);
@@ -257,9 +261,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
             BitswapEvent::ReceivedWant(peer_id, cid, priority) => {
                 info!(
                     "Peer {} wants block {} with priority {}",
-                    peer_id,
-                    cid,
-                    priority
+                    peer_id, cid, priority
                 );
 
                 let queued_blocks = self.bitswap().queued_blocks.clone();
@@ -435,7 +437,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         match self.kademlia.start_providing(key.clone().into()) {
             Ok(_id) => {
                 // Ok(self.kad_subscriptions.create_subscription(id.into(), None))
-            },
+            }
             Err(e) => {
                 error!("kad: can't provide block {}: {:?}", cid, e);
                 // Err(anyhow!("kad: can't provide block {}", key))
