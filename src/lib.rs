@@ -614,6 +614,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         rx.await?
     }
 
+    /// Initiate a query for random key to discover peers.
     pub async fn bootstrap(&self) -> Result<(), Error> {
         let (tx, rx) = oneshot_channel::<Result<FutureSubscription<(), String>, Error>>();
 
@@ -622,6 +623,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         rx.await??.await?.map_err(|e| anyhow!(e))
     }
 
+    /// Add a known peer to the DHT.
     pub async fn add_peer(&self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {
         self.to_task
             .clone()
