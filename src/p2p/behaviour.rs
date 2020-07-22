@@ -386,14 +386,6 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
     pub fn add_peer(&mut self, peer: PeerId, addr: Multiaddr) {
         self.kademlia.add_address(&peer, addr);
-        /*
-                match self.kademlia.start_providing(peer.to_base58().into_bytes().into()) {
-                    Ok(id) => {
-                        self.kad_queries.insert(id);
-                    },
-                    Err(e) => error!("kad: can't provide peer {}: {:?}", peer, e),
-                }
-        */
         self.swarm.add_peer(peer.clone());
         self.pubsub.add_node_to_partial_view(peer);
         // TODO self.bitswap.add_node_to_partial_view(peer);
