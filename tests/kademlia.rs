@@ -14,7 +14,7 @@ async fn kademlia() {
     // start up PEER_COUNT bootstrapper nodes
     let mut nodes = Vec::with_capacity(PEER_COUNT);
     for _ in 0..PEER_COUNT {
-        nodes.push(Node::new(false).await);
+        nodes.push(Node::new().await);
     }
 
     // register the bootstrappers' ids and addresses
@@ -37,7 +37,7 @@ async fn kademlia() {
     }
 
     // introduce an extra peer and connect it to one of the bootstrappers
-    let extra_peer = Node::new(false).await;
+    let extra_peer = Node::new().await;
     assert!(extra_peer
         .add_peer(peers[0].0.clone(), peers[0].1[0].clone())
         .await

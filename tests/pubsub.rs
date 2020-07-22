@@ -3,19 +3,16 @@ use futures::stream::StreamExt;
 use ipfs::{Node, PeerId};
 use std::time::Duration;
 
-// Disable mdns for these tests not to connect to any local go-ipfs node
-const MDNS: bool = false;
-
 #[async_std::test]
 async fn subscribe_only_once() {
-    let a = Node::new(MDNS).await;
+    let a = Node::new().await;
     let _stream = a.pubsub_subscribe("some_topic".into()).await.unwrap();
     a.pubsub_subscribe("some_topic".into()).await.unwrap_err();
 }
 
 #[async_std::test]
 async fn resubscribe_after_unsubscribe() {
-    let a = Node::new(MDNS).await;
+    let a = Node::new().await;
 
     let mut stream = a.pubsub_subscribe("topic".into()).await.unwrap();
     a.pubsub_unsubscribe("topic").await.unwrap();
@@ -27,7 +24,7 @@ async fn resubscribe_after_unsubscribe() {
 
 #[async_std::test]
 async fn unsubscribe_via_drop() {
-    let a = Node::new(MDNS).await;
+    let a = Node::new().await;
 
     let msgs = a.pubsub_subscribe("topic".into()).await.unwrap();
     assert_eq!(a.pubsub_subscribed().await.unwrap(), &["topic"]);
@@ -40,7 +37,7 @@ async fn unsubscribe_via_drop() {
 
 #[async_std::test]
 async fn can_publish_without_subscribing() {
-    let a = Node::new(MDNS).await;
+    let a = Node::new().await;
     a.pubsub_publish("topic".into(), b"foobar".to_vec())
         .await
         .unwrap()
@@ -135,8 +132,8 @@ async fn publish_between_two_nodes() {
 }
 
 async fn two_connected_nodes() -> ((Node, PeerId), (Node, PeerId)) {
-    let a = Node::new(MDNS).await;
-    let b = Node::new(MDNS).await;
+    let a = Node::new().await;
+    let b = Node::new().await;
 
     let (a_pk, _) = a.identity().await.unwrap();
     let a_id = a_pk.into_peer_id();

@@ -111,14 +111,12 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
 
 impl IpfsOptions<TestTypes> {
     /// Creates an inmemory store backed node for tests
-    pub fn inmemory_with_generated_keys(mdns: bool, kad_protocol: Option<String>) -> Self {
-        Self::new(
-            std::env::temp_dir().into(),
-            Keypair::generate_ed25519(),
-            vec![],
-            mdns,
-            kad_protocol,
-        )
+    pub fn inmemory_with_generated_keys() -> Self {
+        Self {
+            ipfs_path: std::env::temp_dir().into(),
+            keypair: Keypair::generate_ed25519(),
+            ..Default::default()
+        }
     }
 }
 
@@ -988,9 +986,8 @@ mod node {
     }
 
     impl Node {
-        pub async fn new(mdns: bool) -> Self {
-            let opts =
-                IpfsOptions::inmemory_with_generated_keys(mdns, Some("/ipfs/lan/kad/1.0.0".into()));
+        pub async fn new() -> Self {
+            let opts = IpfsOptions::inmemory_with_generated_keys();
             let (ipfs, fut) = UninitializedIpfs::new(opts)
                 .await
                 .start()
@@ -1085,11 +1082,8 @@ mod tests {
     use libp2p::build_multiaddr;
     use multihash::Sha2_256;
 
-    const MDNS: bool = false;
-
     pub async fn create_mock_ipfs() -> Ipfs<TestTypes> {
-        let options =
-            IpfsOptions::inmemory_with_generated_keys(MDNS, Some("/ipfs/lan/kad/1.0.0".into()));
+        let options = IpfsOptions::inmemory_with_generated_keys();
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         task::spawn(fut);
 

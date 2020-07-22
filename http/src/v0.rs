@@ -119,8 +119,7 @@ mod tests {
         use super::routes;
         use ipfs::{IpfsOptions, UninitializedIpfs};
 
-        let options =
-            IpfsOptions::inmemory_with_generated_keys(false, Some("/ipfs/lan/kad/1.0.0".into()));
+        let options = IpfsOptions::inmemory_with_generated_keys();
 
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         drop(fut);

@@ -199,10 +199,7 @@ mod tests {
     }
 
     async fn testing_ipfs() -> ipfs::Ipfs<ipfs::TestTypes> {
-        let options = ipfs::IpfsOptions::inmemory_with_generated_keys(
-            false,
-            Some("/ipfs/lan/kad/1.0.0".into()),
-        );
+        let options = ipfs::IpfsOptions::inmemory_with_generated_keys();
         let (ipfs, fut) = ipfs::UninitializedIpfs::new(options)
             .await
             .start()

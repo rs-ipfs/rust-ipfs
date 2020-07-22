@@ -334,10 +334,7 @@ mod tests {
 
     #[tokio::test]
     async fn very_long_file_and_symlink_names() {
-        let options = ipfs::IpfsOptions::inmemory_with_generated_keys(
-            false,
-            Some("/ipfs/lan/kad/1.0.0".into()),
-        );
+        let options = ipfs::IpfsOptions::inmemory_with_generated_keys();
         let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
             .await
             .start()
@@ -398,10 +395,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_multiblock_file() {
-        let options = ipfs::IpfsOptions::inmemory_with_generated_keys(
-            false,
-            Some("/ipfs/lan/kad/1.0.0".into()),
-        );
+        let options = ipfs::IpfsOptions::inmemory_with_generated_keys();
         let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
             .await
             .start()
