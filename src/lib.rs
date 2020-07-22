@@ -631,18 +631,6 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Ok(())
     }
 
-    pub async fn get_closest_peers(&self) -> Result<(), Error> {
-        let self_peer = PeerId::from_public_key(self.identity().await?.0);
-        let (tx, rx) = oneshot_channel::<FutureSubscription<(), String>>();
-
-        self.to_task
-            .clone()
-            .send(IpfsEvent::GetClosestPeers(self_peer, tx))
-            .await?;
-
-        rx.await?.await?.map_err(|e| anyhow!(e))
-    }
-
     /// Exit daemon.
     pub async fn exit_daemon(self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
@@ -976,7 +964,7 @@ impl From<(bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>)> for Bits
 pub use node::Node;
 
 mod node {
-    use super::{subscription, Block, Ipfs, IpfsOptions, TestTypes, UninitializedIpfs};
+    use super::*;
 
     /// Node encapsulates everything to setup a testing instance so that multi-node tests become
     /// easier.
@@ -1006,6 +994,18 @@ mod node {
             &self,
         ) -> &futures::lock::Mutex<subscription::Subscriptions<Block>> {
             &self.ipfs.repo.subscriptions.subscriptions
+        }
+
+        pub async fn get_closest_peers(&self) -> Result<(), Error> {
+            let self_peer = PeerId::from_public_key(self.identity().await?.0);
+            let (tx, rx) = oneshot_channel::<FutureSubscription<(), String>>();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GetClosestPeers(self_peer, tx))
+                .await?;
+
+            rx.await?.await?.map_err(|e| anyhow!(e))
         }
 
         pub async fn shutdown(self) {
