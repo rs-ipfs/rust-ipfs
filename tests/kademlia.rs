@@ -1,6 +1,10 @@
-use ipfs::Node;
+use async_std::future::timeout;
+use cid::{Cid, Codec};
+use ipfs::{Block, Node};
 use libp2p::PeerId;
 use log::LevelFilter;
+use multihash::Sha2_256;
+use std::time::Duration;
 
 const PEER_COUNT: usize = 20;
 
@@ -43,9 +47,30 @@ async fn kademlia() {
         .await
         .is_ok());
 
-    // call kad::bootstrap
+    // check that kad::bootstrap works
     assert!(extra_peer.bootstrap().await.is_ok());
 
-    // call kad::get_closest_peers
+    // check that kad::get_closest_peers works
     assert!(nodes[0].get_closest_peers().await.is_ok());
+
+    // add a Block to the extra peer
+    let data = Box::from(&b"hello block\n"[..]);
+    let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
+    extra_peer.put_block(Block {
+        cid: cid.clone(),
+        data: data.clone(),
+    })
+    .await
+    .unwrap();
+
+    async_std::task::spawn(async { async_std::task::sleep(Duration::from_secs(1)).await }).await;
+
+    // add another peer, bootstrap it and try to get that Block
+    let extra_peer2 = Node::new(false).await;
+    assert!(extra_peer2
+        .add_peer(peers[0].0.clone(), peers[0].1[0].clone())
+        .await
+        .is_ok());
+
+    assert!(timeout(Duration::from_secs(10), extra_peer2.get_block(&cid)).await.is_ok());
 }

@@ -95,41 +95,40 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                             info!("kad: peer {} is close", peer);
                         }
                     }
-                    GetProviders(Ok(GetProvidersOk { key, providers, .. })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
-                        if providers.is_empty() {
-                            // FIXME: not sure if this is possible
+                    GetProviders(Ok(GetProvidersOk { key, providers, closest_peers })) => {
+                        let key = multibase::encode(Base::Base32Lower, key);
+                        if providers.is_empty() && closest_peers.is_empty() {
                             warn!("kad: could not find a provider for {}", key);
                         } else {
-                            for peer in providers {
-                                info!("kad: {} provided by {}", key, peer);
+                            for peer in closest_peers.into_iter().chain(providers.into_iter()) {
+                                info!("kad: {} is provided by {}", key, peer);
                                 self.bitswap.connect(peer);
                             }
                         }
                     }
                     GetProviders(Err(GetProvidersError::Timeout { key, .. })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
+                        let key = multibase::encode(Base::Base32Lower, key);
                         warn!("kad: timed out trying to get providers for {}", key);
                     }
                     StartProviding(Ok(AddProviderOk { key })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
-                        info!("kad: added provider {}", key);
+                        let key = multibase::encode(Base::Base32Lower, key);
+                        info!("kad: providing {}", key);
                     }
                     StartProviding(Err(AddProviderError::Timeout { key })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
-                        warn!("kad: timed out trying to add provider {}", key);
+                        let key = multibase::encode(Base::Base32Lower, key);
+                        warn!("kad: timed out trying to provide {}", key);
                     }
                     RepublishProvider(Ok(AddProviderOk { key })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
+                        let key = multibase::encode(Base::Base32Lower, key);
                         info!("kad: republished provider {}", key);
                     }
                     RepublishProvider(Err(AddProviderError::Timeout { key })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
+                        let key = multibase::encode(Base::Base32Lower, key);
                         warn!("kad: timed out trying to republish provider {}", key);
                     }
                     GetRecord(Ok(GetRecordOk { records })) => {
                         for record in records {
-                            let key = multibase::encode(Base::Base58Btc, record.record.key);
+                            let key = multibase::encode(Base::Base32Lower, record.record.key);
                             info!("kad: got record {}:{:?}", key, record.record.value);
                         }
                     }
@@ -137,7 +136,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         key,
                         closest_peers: _,
                     })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
+                        let key = multibase::encode(Base::Base32Lower, key);
                         warn!("kad: couldn't find record {}", key);
                     }
                     GetRecord(Err(GetRecordError::QuorumFailed {
@@ -145,14 +144,14 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         records,
                         quorum,
                     })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
+                        let key = multibase::encode(Base::Base32Lower, key);
 
                         warn!(
                             "kad: quorum failed {} trying to get key {}; got the following:",
                             quorum, key
                         );
                         for record in records {
-                            let key = multibase::encode(Base::Base58Btc, record.record.key);
+                            let key = multibase::encode(Base::Base32Lower, record.record.key);
                             info!("kad: got record {}:{:?}", key, record.record.value);
                         }
                     }
@@ -161,20 +160,20 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         records,
                         quorum: _,
                     })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
+                        let key = multibase::encode(Base::Base32Lower, key);
 
                         warn!(
                             "kad: timed out trying to get key {}; got the following:",
                             key
                         );
                         for record in records {
-                            let key = multibase::encode(Base::Base58Btc, record.record.key);
+                            let key = multibase::encode(Base::Base32Lower, record.record.key);
                             info!("kad: got record {}:{:?}", key, record.record.value);
                         }
                     }
                     PutRecord(Ok(PutRecordOk { key }))
                     | RepublishRecord(Ok(PutRecordOk { key })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
+                        let key = multibase::encode(Base::Base32Lower, key);
                         info!("kad: successfully put record {}", key);
                     }
                     PutRecord(Err(PutRecordError::QuorumFailed {
@@ -187,7 +186,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         success: _,
                         quorum,
                     })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
+                        let key = multibase::encode(Base::Base32Lower, key);
                         info!(
                             "kad: quorum failed ({}) trying to put record {}",
                             quorum, key
@@ -203,7 +202,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         success: _,
                         quorum: _,
                     })) => {
-                        let key = multibase::encode(Base::Base58Btc, key);
+                        let key = multibase::encode(Base::Base32Lower, key);
                         info!("kad: timed out trying to put record {}", key);
                     }
                 }
@@ -216,7 +215,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                 trace!("kad: routing updated; {}: {:?}", peer, addresses);
             }
             UnroutablePeer { peer } => {
-                warn!("kad: peer {} is unroutable", peer);
+                trace!("kad: peer {} is unroutable", peer);
             }
             RoutablePeer { peer, address } => {
                 trace!("kad: peer {} ({}) is routable", peer, address);
@@ -258,7 +257,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
             BitswapEvent::ReceivedWant(peer_id, cid, priority) => {
                 info!(
                     "Peer {} wants block {} with priority {}",
-                    peer_id.to_base58(),
+                    peer_id,
                     cid,
                     priority
                 );
@@ -419,16 +418,29 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.swarm.disconnect(addr)
     }
 
+    // FIXME: it would be best if get_providers is called only in case the already connected
+    // peers don't have it
     pub fn want_block(&mut self, cid: Cid) {
-        //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
-        //self.kademlia.get_providers(hash);
+        let key = cid.to_bytes();
+        self.kademlia.get_providers(key.into());
         self.bitswap.want_block(cid, 1);
     }
 
+    // FIXME: it would probably be best if this could return a SubscriptionFuture, so
+    // that the put_block operation truly finishes only when the block is already being
+    // provided; it is, however, pretty tricky in terms of internal communication between
+    // Ipfs and IpfsFuture objects - it would currently require some extra back-and-forth
     pub fn provide_block(&mut self, cid: Cid) {
-        info!("Providing block {}", cid.to_string());
-        //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
-        //self.kademlia.add_providing(PeerId::from_multihash(hash).unwrap());
+        let key = cid.to_bytes();
+        match self.kademlia.start_providing(key.clone().into()) {
+            Ok(_id) => {
+                // Ok(self.kad_subscriptions.create_subscription(id.into(), None))
+            },
+            Err(e) => {
+                error!("kad: can't provide block {}: {:?}", cid, e);
+                // Err(anyhow!("kad: can't provide block {}", key))
+            }
+        }
     }
 
     pub fn stop_providing_block(&mut self, cid: &Cid) {
