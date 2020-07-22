@@ -617,25 +617,6 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         rx.await?
     }
 
-    /// Initiate a query for random key to discover peers.
-    pub async fn bootstrap(&self) -> Result<(), Error> {
-        let (tx, rx) = oneshot_channel::<Result<FutureSubscription<(), String>, Error>>();
-
-        self.to_task.clone().send(IpfsEvent::Bootstrap(tx)).await?;
-
-        rx.await??.await?.map_err(|e| anyhow!(e))
-    }
-
-    /// Add a known peer to the DHT.
-    pub async fn add_peer(&self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {
-        self.to_task
-            .clone()
-            .send(IpfsEvent::AddPeer(peer_id, addr))
-            .await?;
-
-        Ok(())
-    }
-
     /// Exit daemon.
     pub async fn exit_daemon(self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
@@ -1011,6 +992,25 @@ mod node {
                 .await?;
 
             rx.await?.await?.map_err(|e| anyhow!(e))
+        }
+
+        /// Initiate a query for random key to discover peers.
+        pub async fn bootstrap(&self) -> Result<(), Error> {
+            let (tx, rx) = oneshot_channel::<Result<FutureSubscription<(), String>, Error>>();
+
+            self.to_task.clone().send(IpfsEvent::Bootstrap(tx)).await?;
+
+            rx.await??.await?.map_err(|e| anyhow!(e))
+        }
+
+        /// Add a known peer to the DHT.
+        pub async fn add_peer(&self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {
+            self.to_task
+                .clone()
+                .send(IpfsEvent::AddPeer(peer_id, addr))
+                .await?;
+
+            Ok(())
         }
 
         pub async fn shutdown(self) {
