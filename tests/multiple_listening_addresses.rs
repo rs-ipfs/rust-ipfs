@@ -2,9 +2,8 @@ use async_std::task;
 
 #[test]
 fn multiple_consecutive_ephemeral_listening_addresses() {
-    const MDNS: bool = false;
     task::block_on(async move {
-        let node = ipfs::Node::new(MDNS).await;
+        let node = ipfs::Node::new().await;
 
         let target = libp2p::build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16));
 
@@ -19,9 +18,8 @@ fn multiple_consecutive_ephemeral_listening_addresses() {
 
 #[test]
 fn multiple_concurrent_ephemeral_listening_addresses_on_same_ip() {
-    const MDNS: bool = false;
     task::block_on(async move {
-        let node = ipfs::Node::new(MDNS).await;
+        let node = ipfs::Node::new().await;
 
         let target = libp2p::build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16));
 
@@ -52,9 +50,8 @@ fn multiple_concurrent_ephemeral_listening_addresses_on_same_ip() {
 #[test]
 #[cfg(not(target_os = "macos"))]
 fn multiple_concurrent_ephemeral_listening_addresses_on_different_ip() {
-    const MDNS: bool = false;
     task::block_on(async move {
-        let node = ipfs::Node::new(MDNS).await;
+        let node = ipfs::Node::new().await;
 
         // it doesnt work on mac os x as 127.0.0.2 is not enabled by default.
         let first =
@@ -72,9 +69,8 @@ fn multiple_concurrent_ephemeral_listening_addresses_on_different_ip() {
 
 #[test]
 fn adding_unspecified_addr_resolves_with_first() {
-    const MDNS: bool = false;
     task::block_on(async move {
-        let node = ipfs::Node::new(MDNS).await;
+        let node = ipfs::Node::new().await;
         // there is no test in trying to match this with others as ... that would be quite
         // perilous.
         node.add_listening_address(libp2p::build_multiaddr!(Ip4([0, 0, 0, 0]), Tcp(0u16)))
@@ -85,9 +81,8 @@ fn adding_unspecified_addr_resolves_with_first() {
 
 #[test]
 fn listening_for_multiple_unspecified_addresses() {
-    const MDNS: bool = false;
     task::block_on(async move {
-        let node = ipfs::Node::new(MDNS).await;
+        let node = ipfs::Node::new().await;
         // there is no test in trying to match this with others as ... that would be quite
         // perilous.
         let target = libp2p::build_multiaddr!(Ip4([0, 0, 0, 0]), Tcp(0u16));
@@ -112,9 +107,8 @@ fn listening_for_multiple_unspecified_addresses() {
 
 #[test]
 fn remove_listening_address() {
-    const MDNS: bool = false;
     task::block_on(async move {
-        let node = ipfs::Node::new(MDNS).await;
+        let node = ipfs::Node::new().await;
 
         let unbound = libp2p::build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16));
         let first = node.add_listening_address(unbound.clone()).await.unwrap();

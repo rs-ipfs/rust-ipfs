@@ -8,7 +8,7 @@
 #[macro_use]
 extern crate log;
 
-use anyhow::format_err;
+use anyhow::{anyhow, format_err};
 use async_std::path::PathBuf;
 pub use bitswap::{BitswapEvent, Block, Stats};
 pub use cid::Cid;
@@ -91,6 +91,8 @@ pub struct IpfsOptions<Types: IpfsTypes> {
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
     /// Enables mdns for peer discovery when true.
     pub mdns: bool,
+    /// Custom Kademlia protocol name.
+    pub kad_protocol: Option<String>,
 }
 
 impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
@@ -102,19 +104,22 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
             .field("bootstrap", &self.bootstrap)
             .field("keypair", &DebuggableKeypair(&self.keypair))
             .field("mdns", &self.mdns)
+            .field("kad_protocol", &self.kad_protocol)
             .finish()
     }
 }
 
 impl IpfsOptions<TestTypes> {
     /// Creates an inmemory store backed node for tests
-    pub fn inmemory_with_generated_keys(mdns: bool) -> Self {
-        Self::new(
-            std::env::temp_dir().into(),
-            Keypair::generate_ed25519(),
-            vec![],
-            mdns,
-        )
+    pub fn inmemory_with_generated_keys() -> Self {
+        Self {
+            _marker: PhantomData,
+            ipfs_path: std::env::temp_dir().into(),
+            keypair: Keypair::generate_ed25519(),
+            mdns: Default::default(),
+            bootstrap: Default::default(),
+            kad_protocol: Default::default(),
+        }
     }
 }
 
@@ -147,6 +152,7 @@ impl<Types: IpfsTypes> IpfsOptions<Types> {
         keypair: Keypair,
         bootstrap: Vec<(Multiaddr, PeerId)>,
         mdns: bool,
+        kad_protocol: Option<String>,
     ) -> Self {
         Self {
             _marker: PhantomData,
@@ -154,6 +160,7 @@ impl<Types: IpfsTypes> IpfsOptions<Types> {
             keypair,
             bootstrap,
             mdns,
+            kad_protocol,
         }
     }
 }
@@ -203,6 +210,7 @@ impl<T: IpfsTypes> Default for IpfsOptions<T> {
             keypair,
             bootstrap,
             mdns: true,
+            kad_protocol: None,
         }
     }
 }
@@ -226,16 +234,14 @@ pub struct IpfsInner<Types: IpfsTypes> {
 }
 
 type Channel<T> = OneshotSender<Result<T, Error>>;
+type FutureSubscription<T, E> = SubscriptionFuture<Result<T, E>>;
 
 /// Events used internally to communicate with the swarm, which is executed in the the background
 /// task.
 #[derive(Debug)]
 enum IpfsEvent {
     /// Connect
-    Connect(
-        Multiaddr,
-        OneshotSender<SubscriptionFuture<Result<(), String>>>,
-    ),
+    Connect(Multiaddr, OneshotSender<FutureSubscription<(), String>>),
     /// Addresses
     Addresses(Channel<Vec<(PeerId, Vec<Multiaddr>)>>),
     /// Local addresses
@@ -255,6 +261,9 @@ enum IpfsEvent {
     BitswapStats(OneshotSender<BitswapStats>),
     AddListeningAddress(Multiaddr, Channel<Multiaddr>),
     RemoveListeningAddress(Multiaddr, Channel<()>),
+    Bootstrap(OneshotSender<Result<FutureSubscription<(), String>, Error>>),
+    AddPeer(PeerId, Multiaddr),
+    GetClosestPeers(PeerId, OneshotSender<FutureSubscription<(), String>>),
     Exit,
 }
 
@@ -869,6 +878,17 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
 
                         let _ = ret.send(removed);
                     }
+                    IpfsEvent::Bootstrap(ret) => {
+                        let future = self.swarm.bootstrap();
+                        let _ = ret.send(future);
+                    }
+                    IpfsEvent::AddPeer(peer_id, addr) => {
+                        self.swarm.add_peer(peer_id, addr);
+                    }
+                    IpfsEvent::GetClosestPeers(self_peer, ret) => {
+                        let future = self.swarm.get_closest_peers(self_peer);
+                        let _ = ret.send(future);
+                    }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
                         return Poll::Ready(());
@@ -930,7 +950,7 @@ impl From<(bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>)> for Bits
 pub use node::Node;
 
 mod node {
-    use super::{subscription, Block, Ipfs, IpfsOptions, TestTypes, UninitializedIpfs};
+    use super::*;
 
     /// Node encapsulates everything to setup a testing instance so that multi-node tests become
     /// easier.
@@ -940,8 +960,8 @@ mod node {
     }
 
     impl Node {
-        pub async fn new(mdns: bool) -> Self {
-            let opts = IpfsOptions::inmemory_with_generated_keys(mdns);
+        pub async fn new() -> Self {
+            let opts = IpfsOptions::inmemory_with_generated_keys();
             let (ipfs, fut) = UninitializedIpfs::new(opts)
                 .await
                 .start()
@@ -960,6 +980,37 @@ mod node {
             &self,
         ) -> &futures::lock::Mutex<subscription::Subscriptions<Block>> {
             &self.ipfs.repo.subscriptions.subscriptions
+        }
+
+        pub async fn get_closest_peers(&self) -> Result<(), Error> {
+            let self_peer = PeerId::from_public_key(self.identity().await?.0);
+            let (tx, rx) = oneshot_channel::<FutureSubscription<(), String>>();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GetClosestPeers(self_peer, tx))
+                .await?;
+
+            rx.await?.await?.map_err(|e| anyhow!(e))
+        }
+
+        /// Initiate a query for random key to discover peers.
+        pub async fn bootstrap(&self) -> Result<(), Error> {
+            let (tx, rx) = oneshot_channel::<Result<FutureSubscription<(), String>, Error>>();
+
+            self.to_task.clone().send(IpfsEvent::Bootstrap(tx)).await?;
+
+            rx.await??.await?.map_err(|e| anyhow!(e))
+        }
+
+        /// Add a known peer to the DHT.
+        pub async fn add_peer(&self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {
+            self.to_task
+                .clone()
+                .send(IpfsEvent::AddPeer(peer_id, addr))
+                .await?;
+
+            Ok(())
         }
 
         pub async fn shutdown(self) {
@@ -1036,10 +1087,8 @@ mod tests {
     use libp2p::build_multiaddr;
     use multihash::Sha2_256;
 
-    const MDNS: bool = false;
-
     pub async fn create_mock_ipfs() -> Ipfs<TestTypes> {
-        let options = IpfsOptions::inmemory_with_generated_keys(MDNS);
+        let options = IpfsOptions::inmemory_with_generated_keys();
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         task::spawn(fut);
 

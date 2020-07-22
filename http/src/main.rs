@@ -135,7 +135,7 @@ fn main() {
 
     rt.block_on(async move {
         let opts: IpfsOptions<ipfs::TestTypes> =
-            IpfsOptions::new(home.clone().into(), keypair, Vec::new(), false);
+            IpfsOptions::new(home.clone().into(), keypair, Vec::new(), false, None);
 
         let (ipfs, task) = UninitializedIpfs::new(opts)
             .await

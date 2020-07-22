@@ -24,6 +24,7 @@ pub struct SwarmOptions<TSwarmTypes: SwarmTypes> {
     pub peer_id: PeerId,
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
     pub mdns: bool,
+    pub kad_protocol: Option<String>,
 }
 
 impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<TSwarmTypes> {
@@ -32,12 +33,15 @@ impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<T
         let peer_id = keypair.public().into_peer_id();
         let bootstrap = options.bootstrap.clone();
         let mdns = options.mdns;
+        let kad_protocol = options.kad_protocol.clone();
+
         SwarmOptions {
             _marker: PhantomData,
             keypair,
             peer_id,
             bootstrap,
             mdns,
+            kad_protocol,
         }
     }
 }
@@ -59,8 +63,7 @@ pub async fn create_swarm<TSwarmTypes: SwarmTypes>(
     let mut swarm = libp2p::Swarm::new(transport, behaviour, peer_id);
 
     // Listen on all interfaces and whatever port the OS assigns
-    let addr = Swarm::listen_on(&mut swarm, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
-    info!("Listening on {:?}", addr);
+    Swarm::listen_on(&mut swarm, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
     swarm
 }

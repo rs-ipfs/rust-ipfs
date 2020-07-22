@@ -119,7 +119,7 @@ mod tests {
         use super::routes;
         use ipfs::{IpfsOptions, UninitializedIpfs};
 
-        let options = IpfsOptions::inmemory_with_generated_keys(false);
+        let options = IpfsOptions::inmemory_with_generated_keys();
 
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         drop(fut);

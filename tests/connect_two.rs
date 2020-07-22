@@ -5,13 +5,10 @@ use async_std::task;
 fn connect_two_nodes() {
     // env_logger::init();
 
-    // make sure the connection will only happen through explicit connect
-    let mdns = false;
-
     let (tx, rx) = futures::channel::oneshot::channel();
 
     let node_a = task::spawn(async move {
-        let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(mdns);
+        let opts = ipfs::IpfsOptions::inmemory_with_generated_keys();
         let (ipfs, fut) = ipfs::UninitializedIpfs::new(opts)
             .await
             .start()
@@ -33,7 +30,7 @@ fn connect_two_nodes() {
 
         println!("got back from the other node: {:?}", other_addrs);
 
-        let opts = ipfs::IpfsOptions::inmemory_with_generated_keys(mdns);
+        let opts = ipfs::IpfsOptions::inmemory_with_generated_keys();
         let (ipfs, fut) = ipfs::UninitializedIpfs::new(opts)
             .await
             .start()
@@ -74,11 +71,9 @@ fn connect_two_nodes() {
 /// one should dial both of the addresses, resulting in two connections.
 #[test]
 fn connect_two_nodes_with_two_connections_doesnt_panic() {
-    const MDNS: bool = false;
-
     task::block_on(async move {
-        let node_a = ipfs::Node::new(MDNS).await;
-        let node_b = ipfs::Node::new(MDNS).await;
+        let node_a = ipfs::Node::new().await;
+        let node_b = ipfs::Node::new().await;
 
         node_a
             .add_listening_address(libp2p::build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16)))

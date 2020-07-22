@@ -817,7 +817,7 @@ mod tests {
     }
 
     async fn preloaded_testing_ipfs() -> Ipfs<ipfs::TestTypes> {
-        let options = ipfs::IpfsOptions::inmemory_with_generated_keys(false);
+        let options = ipfs::IpfsOptions::inmemory_with_generated_keys();
         let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
             .await
             .start()
