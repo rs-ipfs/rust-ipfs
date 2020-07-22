@@ -113,9 +113,12 @@ impl IpfsOptions<TestTypes> {
     /// Creates an inmemory store backed node for tests
     pub fn inmemory_with_generated_keys() -> Self {
         Self {
+            _marker: PhantomData,
             ipfs_path: std::env::temp_dir().into(),
             keypair: Keypair::generate_ed25519(),
-            ..Default::default()
+            mdns: Default::default(),
+            bootstrap: Default::default(),
+            kad_protocol: Default::default(),
         }
     }
 }
@@ -207,7 +210,7 @@ impl<T: IpfsTypes> Default for IpfsOptions<T> {
             keypair,
             bootstrap,
             mdns: true,
-            kad_protocol: Some("/ipfs/kad/1.0.0".into()),
+            kad_protocol: None,
         }
     }
 }
