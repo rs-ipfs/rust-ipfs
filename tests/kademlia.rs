@@ -2,14 +2,14 @@ use async_std::future::timeout;
 use cid::Cid;
 use ipfs::{IpfsOptions, Node};
 use libp2p::{Multiaddr, PeerId};
-use log::LevelFilter;
+use log::{LevelFilter, SetLoggerError};
 use std::time::Duration;
 
-fn init_test_logging() {
+fn init_test_logging() -> Result<(), SetLoggerError> {
     env_logger::builder()
         .is_test(true)
         .filter(Some("async_std"), LevelFilter::Error)
-        .init()
+        .try_init()
 }
 
 #[async_std::test]
@@ -17,7 +17,7 @@ async fn kademlia_local_peer_discovery() {
     const BOOTSTRAPPER_COUNT: usize = 20;
 
     // set up logging
-    init_test_logging();
+    let _ = init_test_logging();
 
     // start up PEER_COUNT bootstrapper nodes
     let mut bootstrappers = Vec::with_capacity(BOOTSTRAPPER_COUNT);
@@ -67,7 +67,7 @@ async fn kademlia_local_peer_discovery() {
 #[async_std::test]
 async fn kademlia_popular_content_discovery() {
     // set up logging
-    init_test_logging();
+    let _ = init_test_logging();
 
     let (bootstrapper_id, bootstrapper_addr): (PeerId, Multiaddr) = (
         "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
