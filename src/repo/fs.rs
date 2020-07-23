@@ -15,12 +15,12 @@ use futures::stream::StreamExt;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 
-use super::{BlockRm, BlockRmError};
+use super::{BlockRm, BlockRmError, RepoCid};
 
 #[derive(Debug)]
 pub struct FsBlockStore {
     path: PathBuf,
-    cids: Mutex<HashSet<Cid>>,
+    cids: Mutex<HashSet<RepoCid>>,
 }
 
 #[async_trait]
@@ -44,13 +44,13 @@ impl BlockStore for FsBlockStore {
 
         let mut stream = fs::read_dir(path).await?;
 
-        async fn append_cid(cids: &Mutex<HashSet<Cid>>, path: PathBuf) {
+        async fn append_cid(cids: &Mutex<HashSet<RepoCid>>, path: PathBuf) {
             if path.extension() != Some(OsStr::new("data")) {
                 return;
             }
             let cid_str = path.file_stem().unwrap();
             let cid = Cid::try_from(cid_str.to_str().unwrap()).unwrap();
-            cids.lock().await.insert(cid);
+            cids.lock().await.insert(RepoCid(cid));
         }
 
         loop {
@@ -65,7 +65,7 @@ impl BlockStore for FsBlockStore {
     }
 
     async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
-        let contains = self.cids.lock().await.contains(cid);
+        let contains = self.cids.lock().await.contains(&RepoCid(cid.to_owned()));
         Ok(contains)
     }
 
@@ -95,7 +95,7 @@ impl BlockStore for FsBlockStore {
         let mut file = fs::File::create(path).await?;
         file.write_all(&*data).await?;
         file.flush().await?;
-        let retval = if cids.lock().await.insert(block.cid().to_owned()) {
+        let retval = if cids.lock().await.insert(RepoCid(block.cid().to_owned())) {
             BlockPut::NewBlock
         } else {
             BlockPut::Existed
@@ -113,7 +113,7 @@ impl BlockStore for FsBlockStore {
 
         // We want to panic if there's a mutex unlock error
         // TODO: Check for pinned blocks here? Instead of repo?
-        if cids.lock().await.remove(&cid) {
+        if cids.lock().await.remove(&RepoCid(cid.to_owned())) {
             fs::remove_file(path).await?;
             Ok(Ok(BlockRm::Removed(cid.clone())))
         } else {
@@ -124,7 +124,7 @@ impl BlockStore for FsBlockStore {
     async fn list(&self) -> Result<Vec<Cid>, Error> {
         // unwrapping as we want to panic on poisoned lock
         let guard = self.cids.lock().await;
-        Ok(guard.iter().cloned().collect())
+        Ok(guard.iter().map(|cid| cid.0.clone()).collect())
     }
 
     async fn wipe(&self) {
