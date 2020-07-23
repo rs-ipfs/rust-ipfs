@@ -17,10 +17,10 @@ quick-protobuf = "0.7.0"
 cid = "0.5"
 filetime = { version = "0.2.10", optional = true }
 either = "1.5.3"
-sha2 = "0.8.1"
+sha2 = "0.9"
 multihash = "0.11"
 
 [dev-dependencies]
 multibase = "0.8.0"
-hex-literal = "0.2.1"
+hex-literal = "0.3"
 libc = "0.2.71"

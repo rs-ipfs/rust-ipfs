@@ -20,7 +20,7 @@ libipld = { git = "https://github.com/ljedrz/rust-ipld", branch = "update_cid", 
 log = "0.4.8"
 multibase = "0.8.0"
 multihash = "0.11"
-# openssl is required for rsa keygen but not used by the rust-ipfs or it's dependencies
+# openssl is required for rsa keygen but not used by the rust-ipfs or its dependencies
 openssl = "0.10.30"
 percent-encoding = "2.1.0"
 prost = "0.6.1"
@@ -42,5 +42,5 @@ humantime = "2.0.1"
 
 [dev-dependencies]
 hex = "0.4.2"
-hex-literal = "0.2.1"
+hex-literal = "0.3"
 tempfile = "3.1.0"
