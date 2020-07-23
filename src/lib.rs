@@ -965,6 +965,10 @@ mod node {
     impl Node {
         pub async fn new() -> Self {
             let opts = IpfsOptions::inmemory_with_generated_keys();
+            Node::with_options(opts).await
+        }
+
+        pub async fn with_options(opts: IpfsOptions<TestTypes>) -> Self {
             let (ipfs, fut) = UninitializedIpfs::new(opts)
                 .await
                 .start()

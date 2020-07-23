@@ -1,6 +1,6 @@
 use async_std::future::timeout;
 use cid::Cid;
-use ipfs::Node;
+use ipfs::{IpfsOptions, Node};
 use libp2p::{Multiaddr, PeerId};
 use log::LevelFilter;
 use std::time::Duration;
@@ -76,8 +76,13 @@ async fn kademlia_popular_content_discovery() {
         "/ip4/104.131.131.82/tcp/4001".parse().unwrap(),
     );
 
-    // introduce a peer and connect it to one of the well-known bootstrappers
-    let peer = Node::new().await;
+    // introduce a peer and specify the Kademlia protocol to it
+    // without a specified protocol, the test will not complete
+    let mut opts = IpfsOptions::inmemory_with_generated_keys();
+    opts.kad_protocol = Some("/ipfs/lan/kad/1.0.0".to_owned());
+    let peer = Node::with_options(opts).await;
+
+    // connect it to one of the well-known bootstrappers
     assert!(peer
         .add_peer(bootstrapper_id, bootstrapper_addr)
         .await
