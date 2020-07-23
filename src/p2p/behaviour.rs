@@ -434,7 +434,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     // Ipfs and IpfsFuture objects - it would currently require some extra back-and-forth
     pub fn provide_block(&mut self, cid: Cid) {
         let key = cid.to_bytes();
-        match self.kademlia.start_providing(key.clone().into()) {
+        match self.kademlia.start_providing(key.into()) {
             Ok(_id) => {
                 // Ok(self.kad_subscriptions.create_subscription(id.into(), None))
             }
