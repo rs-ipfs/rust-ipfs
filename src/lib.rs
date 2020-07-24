@@ -628,6 +628,13 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 }
 
+impl<T: IpfsTypes> Drop for Ipfs<T> {
+    fn drop(&mut self) {
+        self.repo.shutdown();
+        let _ = self.to_task.clone().try_send(IpfsEvent::Exit);
+    }
+}
+
 /// Background task of `Ipfs` created when calling `UninitializedIpfs::start`.
 // The receivers are Fuse'd so that we don't have to manage state on them being exhausted.
 struct IpfsFuture<Types: IpfsTypes> {
