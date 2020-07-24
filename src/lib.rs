@@ -890,7 +890,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         let _ = ret.send(future);
                     }
                     IpfsEvent::Exit => {
-                        // FIXME: we could do a proper teardown
+                        self.swarm.shutdown();
                         return Poll::Ready(());
                     }
                 }

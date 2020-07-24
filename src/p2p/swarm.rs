@@ -6,6 +6,7 @@ use libp2p::swarm::protocols_handler::{
 };
 use libp2p::swarm::{self, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::mem;
 use std::time::Duration;
 
 /// A description of currently active connection.
@@ -120,6 +121,14 @@ impl SwarmApi {
             self.connections.remove(&address);
         }
         self.roundtrip_times.remove(peer_id);
+    }
+
+    pub fn shutdown(&mut self) {
+        self.connect_registry.shutdown();
+
+        for (addr, _) in mem::take(&mut self.connections).into_iter() {
+            self.disconnect(addr);
+        }
     }
 }
 

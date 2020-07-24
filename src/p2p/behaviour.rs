@@ -419,6 +419,10 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.swarm.disconnect(addr)
     }
 
+    pub fn shutdown(&mut self) {
+        self.swarm.shutdown()
+    }
+
     pub fn want_block(&mut self, cid: Cid) {
         //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
         //self.kademlia.get_providers(hash);
