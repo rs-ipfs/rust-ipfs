@@ -6,7 +6,7 @@ use std::time::Duration;
 
 #[async_std::test]
 async fn exchange_block() {
-    env_logger::init();
+    let _ = env_logger::try_init();
 
     let data = b"hello block\n".to_vec().into_boxed_slice();
     let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
@@ -16,7 +16,7 @@ async fn exchange_block() {
 
     let (_, mut addrs) = b.identity().await.unwrap();
 
-    a.connect(addrs.pop().expect("b must have address to connect to"))
+    a.connect(addrs.pop().expect("b must have an address to connect to"))
         .await
         .unwrap();
 
@@ -27,12 +27,15 @@ async fn exchange_block() {
     .await
     .unwrap();
 
-    let f = timeout(Duration::from_secs(10), b.get_block(&cid));
-
-    let Block { data: data2, .. } = f
+    let block = timeout(Duration::from_secs(1), b.get_block(&cid))
         .await
         .expect("get_block did not complete in time")
         .unwrap();
 
-    assert_eq!(data, data2);
+    let Block {
+        data: received_data,
+        ..
+    } = block;
+
+    assert_eq!(received_data, data);
 }
