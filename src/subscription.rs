@@ -317,6 +317,10 @@ impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
             // check if this is the last subscription to this resource
             let is_last = related_subs.is_empty();
 
+            if is_last {
+                subscriptions.remove(&self.kind);
+            }
+
             (sub, is_last)
         });
 

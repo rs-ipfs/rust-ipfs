@@ -42,8 +42,10 @@ async fn check_cid_subscriptions(ipfs: &Node, cid: &Cid, expected_count: usize) 
     if expected_count > 0 {
         assert_eq!(subs.len(), 1);
     }
-    let subscription_count = subs.get(&cid.clone().into()).map(|l| l.len());
-    assert_eq!(subscription_count, Some(expected_count));
+    match subs.get(&cid.clone().into()).map(|l| l.len()) {
+        Some(sub_count) => assert_eq!(sub_count, expected_count),
+        None => assert_eq!(0, expected_count),
+    }
 }
 
 /// Check if canceling a Cid affects the wantlist.
