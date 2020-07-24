@@ -420,6 +420,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     }
 
     pub fn shutdown(&mut self) {
+        self.kad_subscriptions.shutdown();
         self.swarm.shutdown()
     }
 
