@@ -231,7 +231,6 @@ fn connection_point_addr(cp: &ConnectedPoint) -> &Multiaddr {
 mod tests {
     use super::*;
     use crate::p2p::transport::{build_transport, TTransport};
-    use async_std::task;
     use futures::channel::mpsc;
     use futures::future::{select, FutureExt};
     use futures::sink::SinkExt;
@@ -239,8 +238,8 @@ mod tests {
     use libp2p::identity::Keypair;
     use libp2p::swarm::Swarm;
 
-    #[test]
-    fn swarm_api() {
+    #[async_std::test]
+    async fn swarm_api() {
         env_logger::init();
 
         let (peer1_id, trans) = mk_transport();
@@ -277,7 +276,7 @@ mod tests {
         };
 
         let result = select(Box::pin(peer1), Box::pin(peer2));
-        task::block_on(result);
+        result.await;
     }
 
     fn mk_transport() -> (PeerId, TTransport) {
