@@ -6,7 +6,7 @@
 //! The `Bitswap` struct implements the `NetworkBehaviour` trait. When used, it
 //! will allow providing and reciving IPFS blocks.
 use crate::block::Block;
-use crate::ledger::{Ledger, Message, Priority, Stats};
+use crate::ledger::{Ledger, Message, Priority};
 use crate::protocol::BitswapConfig;
 use cid::Cid;
 use fnv::FnvHashSet;
@@ -20,6 +20,10 @@ use std::task::{Context, Poll};
 use std::{
     collections::{HashMap, VecDeque},
     mem,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -27,6 +31,55 @@ pub enum BitswapEvent {
     ReceivedBlock(PeerId, Block),
     ReceivedWant(PeerId, Cid, Priority),
     ReceivedCancel(PeerId, Cid),
+}
+
+#[derive(Debug, Default)]
+pub struct Stats {
+    pub sent_blocks: AtomicU64,
+    pub sent_data: AtomicU64,
+    pub received_blocks: AtomicU64,
+    pub received_data: AtomicU64,
+    pub duplicate_blocks: AtomicU64,
+    pub duplicate_data: AtomicU64,
+}
+
+impl Stats {
+    pub fn update_outgoing(&self, num_blocks: u64) {
+        self.sent_blocks.fetch_add(num_blocks, Ordering::Relaxed);
+    }
+
+    pub fn update_incoming_unique(&self, bytes: u64) {
+        self.received_blocks.fetch_add(1, Ordering::Relaxed);
+        self.received_data.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub fn update_incoming_duplicate(&self, bytes: u64) {
+        self.duplicate_blocks.fetch_add(1, Ordering::Relaxed);
+        self.duplicate_data.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub fn add_assign(&self, other: &Stats) {
+        self.sent_blocks
+            .fetch_add(other.sent_blocks.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.sent_data
+            .fetch_add(other.sent_data.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.received_blocks.fetch_add(
+            other.received_blocks.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        self.received_data.fetch_add(
+            other.received_data.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        self.duplicate_blocks.fetch_add(
+            other.duplicate_blocks.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        self.duplicate_data.fetch_add(
+            other.duplicate_data.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+    }
 }
 
 /// Network behaviour that handles sending and receiving IPFS blocks.
@@ -42,6 +95,8 @@ pub struct Bitswap {
     /// Blocks queued to be sent
     pub queued_blocks: UnboundedSender<(PeerId, Block)>,
     ready_blocks: UnboundedReceiver<(PeerId, Block)>,
+    /// Statistics related to peers.
+    pub stats: HashMap<PeerId, Arc<Stats>>,
 }
 
 impl Default for Bitswap {
@@ -55,6 +110,7 @@ impl Default for Bitswap {
             wanted_blocks: Default::default(),
             queued_blocks: tx,
             ready_blocks: rx,
+            stats: Default::default(),
         }
     }
 }
@@ -74,11 +130,10 @@ impl Bitswap {
     }
 
     pub fn stats(&self) -> Stats {
-        // we currently do not remove ledgers so this is ... good enough
-        self.connected_peers
+        self.stats
             .values()
-            .fold(Stats::default(), |acc, peer_ledger| {
-                acc.add_assign(&peer_ledger.stats);
+            .fold(Stats::default(), |acc, peer_stats| {
+                acc.add_assign(&peer_stats);
                 acc
             })
     }
@@ -91,6 +146,7 @@ impl Bitswap {
     ///
     /// Called from Kademlia behaviour.
     pub fn connect(&mut self, peer_id: PeerId) {
+        self.stats.insert(peer_id.clone(), Default::default());
         if self.target_peers.insert(peer_id.clone()) {
             self.events.push_back(NetworkBehaviourAction::DialPeer {
                 peer_id,
@@ -168,6 +224,7 @@ impl NetworkBehaviour for Bitswap {
     fn inject_connected(&mut self, peer_id: &PeerId) {
         debug!("bitswap: inject_connected {}", peer_id);
         let ledger = Ledger::new();
+        self.stats.insert(peer_id.clone(), Default::default());
         self.connected_peers.insert(peer_id.clone(), ledger);
         self.send_want_list(peer_id.clone());
     }
@@ -239,6 +296,10 @@ impl NetworkBehaviour for Bitswap {
 
         for (peer_id, ledger) in &mut self.connected_peers {
             if let Some(message) = ledger.send() {
+                if let Some(peer_stats) = self.stats.get_mut(peer_id) {
+                    peer_stats.update_outgoing(message.blocks.len() as u64);
+                }
+
                 return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                     peer_id: peer_id.clone(),
                     handler: NotifyHandler::Any,

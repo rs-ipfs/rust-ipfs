@@ -233,8 +233,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
         match event {
             BitswapEvent::ReceivedBlock(peer_id, block) => {
                 let ipfs = self.ipfs.clone();
-                let peer_stats =
-                    Arc::clone(&self.bitswap.connected_peers.get(&peer_id).unwrap().stats);
+                let peer_stats = Arc::clone(&self.bitswap.stats.get(&peer_id).unwrap());
                 task::spawn(async move {
                     let bytes = block.data().len() as u64;
                     let res = ipfs.repo.put_block(block.clone()).await;
