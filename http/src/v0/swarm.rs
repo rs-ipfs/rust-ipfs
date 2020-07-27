@@ -1,5 +1,5 @@
 use super::support::{with_ipfs, StringError};
-use ipfs::{Ipfs, IpfsTypes, Multiaddr};
+use ipfs::{Ipfs, Multiaddr};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -10,8 +10,8 @@ struct ConnectQuery {
     arg: Multiaddr,
 }
 
-async fn connect_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+async fn connect_query(
+    ipfs: Ipfs,
     query: ConnectQuery,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     ipfs.connect(query.arg)
@@ -21,8 +21,8 @@ async fn connect_query<T: IpfsTypes>(
     Ok(warp::reply::json(&response))
 }
 
-pub fn connect<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn connect(
+    ipfs: &Ipfs,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("swarm" / "connect")
         .and(with_ipfs(ipfs))
@@ -49,10 +49,7 @@ struct Peer {
     latency: Option<Cow<'static, str>>,
 }
 
-async fn peers_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    query: PeersQuery,
-) -> Result<impl warp::Reply, warp::Rejection> {
+async fn peers_query(ipfs: Ipfs, query: PeersQuery) -> Result<impl warp::Reply, warp::Rejection> {
     let peers = ipfs
         .peers()
         .await
@@ -87,8 +84,8 @@ async fn peers_query<T: IpfsTypes>(
     Ok(warp::reply::json(&response))
 }
 
-pub fn peers<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn peers(
+    ipfs: &Ipfs,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("swarm" / "peers")
         .and(with_ipfs(ipfs))
@@ -102,7 +99,7 @@ struct AddrsResponse {
     addrs: BTreeMap<String, Vec<String>>,
 }
 
-async fn addrs_query<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl warp::Reply, warp::Rejection> {
+async fn addrs_query(ipfs: Ipfs) -> Result<impl warp::Reply, warp::Rejection> {
     let addresses = ipfs
         .addrs()
         .await
@@ -118,8 +115,8 @@ async fn addrs_query<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl warp::Reply, wa
     Ok(warp::reply::json(&response))
 }
 
-pub fn addrs<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn addrs(
+    ipfs: &Ipfs,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("swarm" / "addrs")
         .and(with_ipfs(ipfs))
@@ -137,8 +134,8 @@ struct AddrsLocalResponse {
     strings: Vec<String>,
 }
 
-async fn addrs_local_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+async fn addrs_local_query(
+    ipfs: Ipfs,
     _query: AddrsLocalQuery,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let addresses = ipfs
@@ -152,8 +149,8 @@ async fn addrs_local_query<T: IpfsTypes>(
     Ok(warp::reply::json(&response))
 }
 
-pub fn addrs_local<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn addrs_local(
+    ipfs: &Ipfs,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("swarm" / "addrs" / "local")
         .and(with_ipfs(ipfs))
@@ -166,8 +163,8 @@ struct DisconnectQuery {
     arg: Multiaddr,
 }
 
-async fn disconnect_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+async fn disconnect_query(
+    ipfs: Ipfs,
     query: DisconnectQuery,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     ipfs.disconnect(query.arg)
@@ -177,8 +174,8 @@ async fn disconnect_query<T: IpfsTypes>(
     Ok(warp::reply::json(&response))
 }
 
-pub fn disconnect<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn disconnect(
+    ipfs: &Ipfs,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("swarm" / "disconnect")
         .and(with_ipfs(ipfs))

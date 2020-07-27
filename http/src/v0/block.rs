@@ -5,7 +5,7 @@ use crate::v0::support::{
 use bytes::Buf;
 use futures::stream::{FuturesOrdered, Stream, StreamExt};
 use ipfs::error::Error;
-use ipfs::{Ipfs, IpfsTypes};
+use ipfs::Ipfs;
 use libipld::cid::{Cid, Codec, Version};
 use mime::Mime;
 
@@ -25,10 +25,7 @@ pub struct GetStatOptions {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-async fn get_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    query: GetStatOptions,
-) -> Result<impl Reply, Rejection> {
+async fn get_query(ipfs: Ipfs, query: GetStatOptions) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
     let data = ipfs
         .get_block(&cid)
@@ -42,9 +39,7 @@ async fn get_query<T: IpfsTypes>(
     Ok(response)
 }
 
-pub fn get<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn get(ipfs: &Ipfs) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "get")
         .and(with_ipfs(ipfs))
         .and(query::<GetStatOptions>())
@@ -86,9 +81,7 @@ impl PutQuery {
     }
 }
 
-pub fn put<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn put(ipfs: &Ipfs) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "put")
         .and(with_ipfs(ipfs))
         .and(query::<PutQuery>())
@@ -97,8 +90,8 @@ pub fn put<T: IpfsTypes>(
         .and_then(inner_put)
 }
 
-async fn inner_put<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+async fn inner_put(
+    ipfs: Ipfs,
     opts: PutQuery,
     mime: Mime,
     body: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin,
@@ -149,9 +142,7 @@ pub struct RmResponse {
 #[derive(Serialize, Deserialize)]
 pub struct EmptyResponse;
 
-pub fn rm<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn rm(ipfs: &Ipfs) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "rm")
         .and(with_ipfs(ipfs))
         .and(rm_options())
@@ -168,10 +159,7 @@ fn rm_options() -> impl Filter<Extract = (RmOptions,), Error = Rejection> + Clon
     })
 }
 
-async fn rm_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    options: RmOptions,
-) -> Result<impl Reply, Rejection> {
+async fn rm_query(ipfs: Ipfs, options: RmOptions) -> Result<impl Reply, Rejection> {
     use futures::future::TryFutureExt;
 
     let RmOptions { args, force, quiet } = options;
@@ -221,10 +209,7 @@ async fn rm_query<T: IpfsTypes>(
     Ok(StreamResponse(st))
 }
 
-async fn stat_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    query: GetStatOptions,
-) -> Result<impl Reply, Rejection> {
+async fn stat_query(ipfs: Ipfs, query: GetStatOptions) -> Result<impl Reply, Rejection> {
     let cid: Cid = query.arg.parse().map_err(StringError::from)?;
     let block = ipfs
         .get_block(&cid)
@@ -239,9 +224,7 @@ async fn stat_query<T: IpfsTypes>(
     })))
 }
 
-pub fn stat<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn stat(ipfs: &Ipfs) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("block" / "stat")
         .and(with_ipfs(ipfs))
         .and(query::<GetStatOptions>())

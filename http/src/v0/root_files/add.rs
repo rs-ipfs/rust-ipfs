@@ -3,7 +3,7 @@ use crate::v0::support::StringError;
 use bytes::{Buf, Bytes};
 use cid::Cid;
 use futures::stream::{Stream, TryStreamExt};
-use ipfs::{Ipfs, IpfsTypes};
+use ipfs::Ipfs;
 use mime::Mime;
 use mpart_async::server::MultipartStream;
 use serde::Serialize;
@@ -11,8 +11,8 @@ use std::borrow::Cow;
 use std::fmt;
 use warp::{Rejection, Reply};
 
-pub(super) async fn add_inner<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+pub(super) async fn add_inner(
+    ipfs: Ipfs,
     _opts: AddArgs,
     content_type: Mime,
     body: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin,
@@ -102,7 +102,7 @@ pub(super) async fn add_inner<T: IpfsTypes>(
 }
 
 async fn import_all(
-    ipfs: &Ipfs<impl IpfsTypes>,
+    ipfs: &Ipfs,
     iter: impl Iterator<Item = (Cid, Vec<u8>)>,
 ) -> Result<Option<(Cid, u64)>, ipfs::Error> {
     use ipfs::Block;
@@ -198,7 +198,7 @@ mod tests {
         );
     }
 
-    async fn testing_ipfs() -> ipfs::Ipfs<ipfs::TestTypes> {
+    async fn testing_ipfs() -> ipfs::Ipfs {
         let options = ipfs::IpfsOptions::inmemory_with_generated_keys();
         let (ipfs, fut) = ipfs::UninitializedIpfs::new(options)
             .await

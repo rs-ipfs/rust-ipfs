@@ -14,13 +14,14 @@ use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use std::collections::HashSet;
 use std::ffi::OsStr;
+use std::sync::Arc;
 
 use super::{BlockRm, BlockRmError, RepoCid};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FsBlockStore {
     path: PathBuf,
-    cids: Mutex<HashSet<RepoCid>>,
+    cids: Arc<Mutex<HashSet<RepoCid>>>,
 }
 
 #[async_trait]

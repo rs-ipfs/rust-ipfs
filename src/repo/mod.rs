@@ -1,24 +1,21 @@
 //! IPFS repo
 use crate::error::Error;
 use crate::path::IpfsPath;
-use crate::subscription::{RequestKind, SubscriptionRegistry};
+use crate::subscription::SubscriptionRegistry;
 use crate::IpfsOptions;
 use async_std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::{self, Cid};
-use core::convert::TryFrom;
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::sink::SinkExt;
 use libp2p::core::PeerId;
 use std::hash::{Hash, Hasher};
 
 pub mod fs;
 pub mod mem;
 
-pub trait RepoTypes: Send + Sync + 'static {
+pub trait RepoTypes: Send + Sync + Clone + 'static {
     type TBlockStore: BlockStore;
     type TDataStore: DataStore;
 }
@@ -38,9 +35,7 @@ impl<TRepoTypes: RepoTypes> From<&IpfsOptions<TRepoTypes>> for RepoOptions<TRepo
     }
 }
 
-pub fn create_repo<TRepoTypes: RepoTypes>(
-    options: RepoOptions<TRepoTypes>,
-) -> (Repo<TRepoTypes>, Receiver<RepoEvent>) {
+pub fn create_repo<TRepoTypes: RepoTypes>(options: RepoOptions<TRepoTypes>) -> Repo<TRepoTypes> {
     Repo::new(options)
 }
 
@@ -86,7 +81,7 @@ pub enum BlockRmError {
 
 /// This API is being discussed and evolved, which will likely lead to breakage.
 #[async_trait]
-pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
+pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -99,7 +94,7 @@ pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
 }
 
 #[async_trait]
-pub trait DataStore: Debug + Send + Sync + Unpin + 'static {
+pub trait DataStore: Debug + Clone + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -116,52 +111,27 @@ pub enum Column {
     Pin,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
-    events: Sender<RepoEvent>,
     pub(crate) subscriptions: SubscriptionRegistry<Block>,
 }
 
-#[derive(Clone, Debug)]
-pub enum RepoEvent {
-    WantBlock(Cid),
-    UnwantBlock(Cid),
-    ProvideBlock(Cid),
-    UnprovideBlock(Cid),
-}
-
-impl TryFrom<RequestKind> for RepoEvent {
-    type Error = &'static str;
-
-    fn try_from(req: RequestKind) -> Result<Self, Self::Error> {
-        if let RequestKind::GetBlock(cid) = req {
-            Ok(RepoEvent::UnwantBlock(cid))
-        } else {
-            Err("logic error: RepoEvent can only be created from a Request::GetBlock")
-        }
-    }
-}
-
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
-    pub fn new(options: RepoOptions<TRepoTypes>) -> (Self, Receiver<RepoEvent>) {
+    pub fn new(options: RepoOptions<TRepoTypes>) -> Self {
         let mut blockstore_path = options.path.clone();
         let mut datastore_path = options.path;
         blockstore_path.push("blockstore");
         datastore_path.push("datastore");
         let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
         let data_store = TRepoTypes::TDataStore::new(datastore_path);
-        let (sender, receiver) = channel(1);
-        (
-            Repo {
-                block_store,
-                data_store,
-                events: sender,
-                subscriptions: Default::default(),
-            },
-            receiver,
-        )
+
+        Repo {
+            block_store,
+            data_store,
+            subscriptions: Default::default(),
+        }
     }
 
     /// Shutdowns the repo, cancelling any pending subscriptions; Likely going away after some
@@ -198,13 +168,6 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let (_cid, res) = self.block_store.put(block.clone()).await?;
         self.subscriptions
             .finish_subscription(cid.clone().into(), block);
-        // sending only fails if no one is listening anymore
-        // and that is okay with us.
-        self.events
-            .clone()
-            .send(RepoEvent::ProvideBlock(cid.clone()))
-            .await
-            .ok();
         Ok((cid, res))
     }
 
@@ -216,14 +179,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         } else {
             let subscription = self
                 .subscriptions
-                .create_subscription(cid.clone().into(), Some(self.events.clone()));
-            // sending only fails if no one is listening anymore
-            // and that is okay with us.
-            self.events
-                .clone()
-                .send(RepoEvent::WantBlock(cid.clone()))
-                .await
-                .ok();
+                .create_subscription(cid.clone().into(), None); // TODO: include a cancel notification sender
             Ok(subscription.await?)
         }
     }
@@ -242,13 +198,6 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         if self.is_pinned(&cid).await? {
             return Err(anyhow::anyhow!("block to remove is pinned"));
         }
-
-        // sending only fails if the background task has exited
-        self.events
-            .clone()
-            .send(RepoEvent::UnprovideBlock(cid.clone()))
-            .await
-            .ok();
 
         // FIXME: Need to change location of pinning logic.
         // I like this pattern of the repo abstraction being some sort of
@@ -350,7 +299,7 @@ pub(crate) mod tests {
         type TDataStore = mem::MemDataStore;
     }
 
-    pub fn create_mock_repo() -> (Repo<Types>, Receiver<RepoEvent>) {
+    pub fn create_mock_repo() -> Repo<Types> {
         let mut tmp = temp_dir();
         tmp.push("rust-ipfs-repo");
         let options: RepoOptions<Types> = RepoOptions {
@@ -362,7 +311,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn test_repo() {
-        let (repo, _) = create_mock_repo();
+        let repo = create_mock_repo();
         repo.init().await.unwrap();
     }
 }

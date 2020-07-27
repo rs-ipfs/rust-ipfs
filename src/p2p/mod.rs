@@ -1,6 +1,5 @@
 //! P2P handling for IPFS nodes.
-use crate::repo::RepoTypes;
-use crate::Ipfs;
+use crate::repo::{Repo, RepoTypes};
 use crate::IpfsOptions;
 use core::marker::PhantomData;
 use libp2p::identity::Keypair;
@@ -49,7 +48,7 @@ impl<TSwarmTypes: SwarmTypes> From<&IpfsOptions<TSwarmTypes>> for SwarmOptions<T
 /// Creates a new IPFS swarm.
 pub async fn create_swarm<TSwarmTypes: SwarmTypes>(
     options: SwarmOptions<TSwarmTypes>,
-    ipfs: Ipfs<TSwarmTypes>,
+    repo: Repo<TSwarmTypes>,
 ) -> TSwarm<TSwarmTypes> {
     let peer_id = options.peer_id.clone();
 
@@ -57,7 +56,7 @@ pub async fn create_swarm<TSwarmTypes: SwarmTypes>(
     let transport = transport::build_transport(options.keypair.clone());
 
     // Create a Kademlia behaviour
-    let behaviour = behaviour::build_behaviour(options, ipfs).await;
+    let behaviour = behaviour::build_behaviour(options, repo).await;
 
     // Create a Swarm
     let mut swarm = libp2p::Swarm::new(transport, behaviour, peer_id);

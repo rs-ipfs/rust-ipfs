@@ -1,4 +1,4 @@
-use ipfs::{Ipfs, IpfsTypes};
+use ipfs::Ipfs;
 use std::convert::Infallible;
 use warp::{query, Filter};
 
@@ -44,8 +44,8 @@ macro_rules! boxed_on_debug {
     };
 }
 
-pub fn routes<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn routes(
+    ipfs: &Ipfs,
     shutdown_tx: tokio::sync::mpsc::Sender<()>,
 ) -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
     let mount = warp::path("api").and(warp::path("v0"));

@@ -4,7 +4,7 @@ use crate::v0::support::{
 };
 use cid::{Cid, Codec};
 use futures::stream::Stream;
-use ipfs::{Ipfs, IpfsTypes};
+use ipfs::Ipfs;
 use mime::Mime;
 
 use serde::Deserialize;
@@ -33,9 +33,7 @@ impl Default for InputEncoding {
     }
 }
 
-pub fn put<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn put(ipfs: &Ipfs) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("dag" / "put")
         .and(with_ipfs(ipfs))
         .and(query::<PutQuery>())
@@ -44,8 +42,8 @@ pub fn put<T: IpfsTypes>(
         .and_then(put_query)
 }
 
-async fn put_query<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+async fn put_query(
+    ipfs: Ipfs,
     query: PutQuery,
     mime: Mime,
     body: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin,
@@ -104,9 +102,7 @@ async fn put_query<T: IpfsTypes>(
 /// Per https://docs-beta.ipfs.io/reference/http/api/#api-v0-block-resolve this endpoint takes in a
 /// path and resolves it to the last block (the cid), and to the path inside the final block
 /// (rempath).
-pub fn resolve<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn resolve(ipfs: &Ipfs) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("dag" / "resolve")
         .and(with_ipfs(ipfs))
         .and(query::<ResolveOptions>())
@@ -119,10 +115,7 @@ struct ResolveOptions {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-async fn inner_resolve<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    opts: ResolveOptions,
-) -> Result<impl Reply, Rejection> {
+async fn inner_resolve(ipfs: Ipfs, opts: ResolveOptions) -> Result<impl Reply, Rejection> {
     use crate::v0::refs::{walk_path, IpfsPath};
     use std::convert::TryFrom;
 

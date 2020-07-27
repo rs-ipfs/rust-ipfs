@@ -3,7 +3,6 @@
 //! that contains them. `SubscriptionFuture` is the `Future` bound to pending `Subscription`s and
 //! sharing the same unique numeric identifier, the `SubscriptionId`.
 
-use crate::RepoEvent;
 use async_std::future::Future;
 use async_std::task::{self, Context, Poll, Waker};
 use core::fmt::Debug;
@@ -22,9 +21,23 @@ use std::sync::{
     Arc,
 };
 
+use crate::IpfsEvent;
+
 // a counter used to assign unique identifiers to `Subscription`s and `SubscriptionFuture`s
 // (which obtain the same number as their counterpart `Subscription`)
 static GLOBAL_REQ_COUNT: AtomicU64 = AtomicU64::new(0);
+
+impl TryFrom<RequestKind> for IpfsEvent {
+    type Error = &'static str;
+
+    fn try_from(req: RequestKind) -> Result<Self, Self::Error> {
+        if let RequestKind::GetBlock(cid) = req {
+            Ok(IpfsEvent::CancelBlock(cid))
+        } else {
+            Err("logic error: RepoEvent can only be created from a Request::GetBlock")
+        }
+    }
+}
 
 /// The type of a request for subscription.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -84,12 +97,13 @@ type SubscriptionId = u64;
 pub type Subscriptions<T> = HashMap<RequestKind, HashMap<SubscriptionId, Subscription<T>>>;
 
 /// A collection of all the live `Subscription`s.
-pub struct SubscriptionRegistry<TRes: Debug + Clone + PartialEq> {
+#[derive(Clone)]
+pub struct SubscriptionRegistry<TRes: Debug + Clone> {
     pub(crate) subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
-    shutting_down: AtomicBool,
+    shutting_down: Arc<AtomicBool>,
 }
 
-impl<TRes: Debug + Clone + PartialEq> fmt::Debug for SubscriptionRegistry<TRes> {
+impl<TRes: Debug + Clone> fmt::Debug for SubscriptionRegistry<TRes> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,
@@ -100,12 +114,12 @@ impl<TRes: Debug + Clone + PartialEq> fmt::Debug for SubscriptionRegistry<TRes> 
     }
 }
 
-impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
+impl<TRes: Debug + Clone> SubscriptionRegistry<TRes> {
     /// Creates a `Subscription` and returns its associated `Future`, the `SubscriptionFuture`.
-    pub fn create_subscription(
+    pub(crate) fn create_subscription(
         &self,
         kind: RequestKind,
-        cancel_notifier: Option<Sender<RepoEvent>>,
+        cancel_notifier: Option<Sender<IpfsEvent>>,
     ) -> SubscriptionFuture<TRes> {
         let id = GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst);
         debug!("Creating subscription {} to {}", id, kind);
@@ -174,7 +188,7 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
     }
 }
 
-impl<TRes: Debug + Clone + PartialEq> Default for SubscriptionRegistry<TRes> {
+impl<TRes: Debug + Clone> Default for SubscriptionRegistry<TRes> {
     fn default() -> Self {
         Self {
             subscriptions: Default::default(),
@@ -183,7 +197,7 @@ impl<TRes: Debug + Clone + PartialEq> Default for SubscriptionRegistry<TRes> {
     }
 }
 
-impl<TRes: Debug + Clone + PartialEq> Drop for SubscriptionRegistry<TRes> {
+impl<TRes: Debug + Clone> Drop for SubscriptionRegistry<TRes> {
     fn drop(&mut self) {
         self.shutdown();
     }
@@ -191,7 +205,7 @@ impl<TRes: Debug + Clone + PartialEq> Drop for SubscriptionRegistry<TRes> {
 
 /// A value returned when a `Subscription` and it's linked `SubscriptionFuture`
 /// is cancelled before completion or when the `Future` is aborted.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub struct Cancelled;
 
 impl fmt::Display for Cancelled {
@@ -203,7 +217,7 @@ impl fmt::Display for Cancelled {
 impl std::error::Error for Cancelled {}
 
 /// Represents a request for a resource at different stages of its lifetime.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Subscription<TRes> {
     /// A finished `Subscription` containing the desired `TRes` value.
     Ready(TRes),
@@ -212,14 +226,14 @@ pub enum Subscription<TRes> {
         /// The waker of the task assigned to check if the `Subscription` is complete.
         waker: Option<Waker>,
         /// A `Sender` of a channel expecting notifications of subscription cancellations.
-        cancel_notifier: Option<Sender<RepoEvent>>,
+        cancel_notifier: Option<Sender<IpfsEvent>>,
     },
     /// A void subscription that was either cancelled or otherwise aborted.
     Cancelled,
 }
 
 impl<TRes> Subscription<TRes> {
-    fn new(cancel_notifier: Option<Sender<RepoEvent>>) -> Self {
+    fn new(cancel_notifier: Option<Sender<IpfsEvent>>) -> Self {
         Self::Pending {
             waker: Default::default(),
             cancel_notifier,
@@ -247,7 +261,7 @@ impl<TRes> Subscription<TRes> {
             // to be updated
             if is_last {
                 if let Some(mut sender) = cancel_notifier {
-                    let _ = sender.try_send(RepoEvent::try_from(kind).unwrap());
+                    let _ = sender.try_send(IpfsEvent::try_from(kind).unwrap());
                 }
             }
 
@@ -259,7 +273,7 @@ impl<TRes> Subscription<TRes> {
 }
 
 /// A `Future` that resolves to the resource whose subscription was requested.
-pub struct SubscriptionFuture<TRes: Debug + PartialEq> {
+pub struct SubscriptionFuture<TRes: Debug> {
     /// The unique identifier of the subscription request and the secondary
     /// key in the `SubscriptionRegistry`.
     id: u64,
@@ -269,7 +283,7 @@ pub struct SubscriptionFuture<TRes: Debug + PartialEq> {
     subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
 }
 
-impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
+impl<TRes: Debug> Future for SubscriptionFuture<TRes> {
     type Output = Result<TRes, Cancelled>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
@@ -302,7 +316,7 @@ impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
     }
 }
 
-impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
+impl<TRes: Debug> Drop for SubscriptionFuture<TRes> {
     fn drop(&mut self) {
         debug!("Dropping subscription {} to {}", self.id, self.kind);
 
@@ -330,7 +344,7 @@ impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
     }
 }
 
-impl<TRes: Debug + PartialEq> fmt::Debug for SubscriptionFuture<TRes> {
+impl<TRes: Debug> fmt::Debug for SubscriptionFuture<TRes> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,

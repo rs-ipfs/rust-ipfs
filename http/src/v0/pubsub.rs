@@ -17,7 +17,7 @@ use tokio::stream::StreamExt;
 use tokio::sync::{broadcast, Mutex};
 use tokio::time::timeout;
 
-use ipfs::{Ipfs, IpfsTypes};
+use ipfs::Ipfs;
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -41,8 +41,8 @@ pub struct Pubsub {
 }
 
 /// Creates a filter composing pubsub/{peers,ls,pub,sub}.
-pub fn routes<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn routes(
+    ipfs: &Ipfs,
 ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path("pubsub").and(
         peers(ipfs)
@@ -53,8 +53,8 @@ pub fn routes<T: IpfsTypes>(
 }
 
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-pubsub-peers
-pub fn peers<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn peers(
+    ipfs: &Ipfs,
 ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("peers")
         .and(warp::get().or(warp::post()))
@@ -64,8 +64,8 @@ pub fn peers<T: IpfsTypes>(
         .and_then(inner_peers)
 }
 
-async fn inner_peers<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+async fn inner_peers(
+    ipfs: Ipfs,
     topic: Option<String>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let peers = ipfs
@@ -79,8 +79,8 @@ async fn inner_peers<T: IpfsTypes>(
 }
 
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-pubsub-ls
-pub fn list_subscriptions<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn list_subscriptions(
+    ipfs: &Ipfs,
 ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("ls")
         .and(warp::get().or(warp::post()))
@@ -89,7 +89,7 @@ pub fn list_subscriptions<T: IpfsTypes>(
         .and_then(inner_ls)
 }
 
-async fn inner_ls<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl warp::Reply, warp::Rejection> {
+async fn inner_ls(ipfs: Ipfs) -> Result<impl warp::Reply, warp::Rejection> {
     let topics = ipfs
         .pubsub_subscribed()
         .await
@@ -99,8 +99,8 @@ async fn inner_ls<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl warp::Reply, warp:
 }
 
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-pubsub-pub
-pub fn publish<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn publish(
+    ipfs: &Ipfs,
 ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("pub")
         .and(warp::post())
@@ -109,8 +109,8 @@ pub fn publish<T: IpfsTypes>(
         .and_then(inner_publish)
 }
 
-async fn inner_publish<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+async fn inner_publish(
+    ipfs: Ipfs,
     PublishArgs { topic, message }: PublishArgs,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     ipfs.pubsub_publish(topic, message.into_inner())
@@ -124,8 +124,8 @@ async fn inner_publish<T: IpfsTypes>(
 /// # Panics
 ///
 /// Note the module documentation.
-pub fn subscribe<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub fn subscribe(
+    ipfs: &Ipfs,
     pubsub: Arc<Pubsub>,
 ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("sub")
@@ -139,8 +139,8 @@ pub fn subscribe<T: IpfsTypes>(
         })
 }
 
-async fn inner_subscribe<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+async fn inner_subscribe(
+    ipfs: Ipfs,
     pubsub: Arc<Pubsub>,
     topic: String,
 ) -> impl TryStream<Ok = PreformattedJsonMessage, Error = StreamError> {
@@ -197,8 +197,8 @@ async fn inner_subscribe<T: IpfsTypes>(
 /// Shovel task takes items from the [`SubscriptionStream`], formats them and passes them on to
 /// response streams. Uses timeouts to attempt dropping subscriptions which no longer have
 /// responses reading from them and resubscribes streams which get new requests.
-async fn shovel<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+async fn shovel(
+    ipfs: Ipfs,
     pubsub: Arc<Pubsub>,
     topic: String,
     mut shoveled: ipfs::SubscriptionStream,

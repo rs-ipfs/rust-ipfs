@@ -2,8 +2,8 @@ use crate::v0::support::{with_ipfs, MaybeTimeoutExt, StringError};
 use cid::{self, Cid};
 use futures::stream;
 use futures::stream::Stream;
+use ipfs::Ipfs;
 use ipfs::{Block, Error};
-use ipfs::{Ipfs, IpfsTypes};
 use libipld::{block::decode_ipld, Ipld};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -24,19 +24,14 @@ pub use path::{IpfsPath, WalkSuccess};
 use crate::v0::support::{HandledErr, StreamResponse};
 
 /// https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs
-pub fn refs<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn refs(ipfs: &Ipfs) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     warp::path!("refs")
         .and(with_ipfs(ipfs))
         .and(refs_options())
         .and_then(refs_inner)
 }
 
-async fn refs_inner<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    opts: RefsOptions,
-) -> Result<impl Reply, Rejection> {
+async fn refs_inner(ipfs: Ipfs, opts: RefsOptions) -> Result<impl Reply, Rejection> {
     use futures::stream::StreamExt;
 
     let max_depth = opts.max_depth();
@@ -128,8 +123,8 @@ fn refs_options() -> impl Filter<Extract = (RefsOptions,), Error = Rejection> + 
 /// results after first walking the path. This resides currently over at `ipfs-http` instead of
 /// `ipfs` as I can't see this as an usable API call due to the multiple `paths` iterated. This
 /// does make for a good overall test, which why we wanted to include this in the grant 1 phase.
-async fn refs_paths<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+async fn refs_paths(
+    ipfs: Ipfs,
     paths: Vec<IpfsPath>,
     max_depth: Option<u64>,
     unique: bool,
@@ -245,8 +240,8 @@ pub enum Loaded {
 ///
 /// Returns the Cid where we ended up, and an optional Ipld structure if one was projected, and the
 /// path inside the last document we walked.
-pub async fn walk_path<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
+pub async fn walk_path(
+    ipfs: &Ipfs,
     mut path: IpfsPath,
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
     use ipfs::unixfs::ll::{MaybeResolved, ResolveError};
@@ -413,8 +408,8 @@ fn handle_dagpb_not_found(
 /// # Panics
 ///
 /// If there are dag-pb nodes and the libipld has changed it's dag-pb tree structure.
-fn iplds_refs<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
+fn iplds_refs(
+    ipfs: Ipfs,
     iplds: Vec<(Cid, Loaded)>,
     max_depth: Option<u64>,
     unique: bool,
@@ -586,15 +581,13 @@ fn dagpb_links(ipld: Ipld) -> Vec<(Option<String>, Cid)> {
 }
 
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs-local
-pub fn local<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn local(ipfs: &Ipfs) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     warp::path!("refs" / "local")
         .and(with_ipfs(ipfs))
         .and_then(inner_local)
 }
 
-async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
+async fn inner_local(ipfs: Ipfs) -> Result<impl Reply, Rejection> {
     let refs = ipfs
         .refs_local()
         .await
@@ -805,7 +798,7 @@ mod tests {
         assert!(diff.is_empty(), "{:#?}", diff);
     }
 
-    async fn preloaded_testing_ipfs() -> Ipfs<ipfs::TestTypes> {
+    async fn preloaded_testing_ipfs() -> Ipfs {
         let options = ipfs::IpfsOptions::inmemory_with_generated_keys();
         let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
             .await

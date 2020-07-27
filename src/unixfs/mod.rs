@@ -1,7 +1,7 @@
 use crate::dag::IpldDag;
 use crate::error::Error;
 use crate::path::IpfsPath;
-use crate::repo::RepoTypes;
+use crate::repo::{Repo, RepoTypes};
 use async_std::fs;
 use async_std::io::ReadExt;
 use async_std::path::PathBuf;
@@ -18,6 +18,7 @@ pub use cat::{cat, TraversalFailed};
 
 // No get provided at least as of now.
 
+#[derive(Debug)]
 pub struct File {
     data: Vec<u8>,
 }
@@ -31,20 +32,20 @@ impl File {
     }
 
     pub async fn get_unixfs_v1<T: RepoTypes>(
-        dag: &IpldDag<T>,
+        repo: &Repo<T>,
         path: IpfsPath,
     ) -> Result<Self, Error> {
-        let ipld = dag.get(path).await?;
+        let ipld = repo.get_dag(path).await?;
         let pb_node: PbNode = (&ipld).try_into()?;
         Ok(File { data: pb_node.data })
     }
 
-    pub async fn put_unixfs_v1<T: RepoTypes>(&self, dag: &IpldDag<T>) -> Result<Cid, Error> {
+    pub async fn put_unixfs_v1<T: RepoTypes>(&self, repo: &Repo<T>) -> Result<Cid, Error> {
         let links: Vec<Ipld> = vec![];
         let mut pb_node = BTreeMap::<String, Ipld>::new();
         pb_node.insert("Data".to_string(), self.data.clone().into());
         pb_node.insert("Links".to_string(), links.into());
-        dag.put(pb_node.into(), Codec::DagProtobuf).await
+        repo.put_dag(pb_node.into(), Codec::DagProtobuf).await
     }
 }
 
@@ -71,17 +72,16 @@ impl Into<String> for File {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::create_mock_ipfs;
+    use crate::repo::tests::create_mock_repo;
     use core::convert::TryFrom;
 
     #[async_std::test]
     async fn test_file_cid() {
-        let ipfs = create_mock_ipfs().await;
-        let dag = IpldDag::new(ipfs);
+        let repo = create_mock_repo();
         let file = File::from("\u{8}\u{2}\u{12}\u{12}Here is some data\n\u{18}\u{12}");
         let cid = Cid::try_from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
 
-        let cid2 = file.put_unixfs_v1(&dag).await.unwrap();
+        let cid2 = file.put_unixfs_v1(&repo).await.unwrap();
         assert_eq!(cid.to_string(), cid2.to_string());
     }
 }

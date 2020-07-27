@@ -2,7 +2,7 @@ use std::num::NonZeroU16;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
+use ipfs::{Ipfs, IpfsOptions, UninitializedIpfs};
 use ipfs_http::{config, v0};
 
 #[derive(Debug, StructOpt)]
@@ -176,9 +176,7 @@ fn main() {
     println!("Shutdown complete");
 }
 
-fn serve<Types: IpfsTypes>(
-    ipfs: &Ipfs<Types>,
-) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
+fn serve(ipfs: &Ipfs) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
     use tokio::stream::StreamExt;
     use warp::Filter;
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);

@@ -1,4 +1,4 @@
-use ipfs::{Ipfs, IpfsTypes};
+use ipfs::Ipfs;
 use log::warn;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -66,9 +66,9 @@ impl MessageResponseBuilder {
 }
 
 /// Clones the handle to the filters
-pub fn with_ipfs<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl warp::Filter<Extract = (Ipfs<T>,), Error = std::convert::Infallible> + Clone {
+pub fn with_ipfs(
+    ipfs: &Ipfs,
+) -> impl warp::Filter<Extract = (Ipfs,), Error = std::convert::Infallible> + Clone {
     use warp::Filter;
     let ipfs = ipfs.clone();
     warp::any().map(move || ipfs.clone())

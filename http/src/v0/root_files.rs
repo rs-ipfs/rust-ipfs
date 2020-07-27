@@ -9,7 +9,7 @@ use futures::stream::TryStream;
 use ipfs::unixfs::ll::walk::{self, ContinuedWalk, Walker};
 use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed};
 use ipfs::Block;
-use ipfs::{Ipfs, IpfsTypes};
+use ipfs::Ipfs;
 use serde::Deserialize;
 use std::convert::TryFrom;
 use std::fmt;
@@ -31,9 +31,7 @@ pub struct AddArgs {
     progress: bool,
 }
 
-pub fn add<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn add(ipfs: &Ipfs) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("add")
         .and(with_ipfs(ipfs))
         .and(query::<AddArgs>())
@@ -51,16 +49,14 @@ pub struct CatArgs {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-pub fn cat<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn cat(ipfs: &Ipfs) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("cat")
         .and(with_ipfs(ipfs))
         .and(query::<CatArgs>())
         .and_then(cat_inner)
 }
 
-async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Reply, Rejection> {
+async fn cat_inner(ipfs: Ipfs, args: CatArgs) -> Result<impl Reply, Rejection> {
     let mut path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
     path.set_follow_dagpb_data(false);
 
@@ -110,16 +106,14 @@ struct GetArgs {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-pub fn get<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn get(ipfs: &Ipfs) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     path!("get")
         .and(with_ipfs(ipfs))
         .and(query::<GetArgs>())
         .and_then(get_inner)
 }
 
-async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Reply, Rejection> {
+async fn get_inner(ipfs: Ipfs, args: GetArgs) -> Result<impl Reply, Rejection> {
     use futures::stream::TryStreamExt;
 
     let mut path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
@@ -140,10 +134,7 @@ async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Re
     Ok(StreamResponse(walk(ipfs, cid).into_stream()))
 }
 
-fn walk<Types: IpfsTypes>(
-    ipfs: Ipfs<Types>,
-    root: Cid,
-) -> impl TryStream<Ok = Bytes, Error = GetError> + 'static {
+fn walk(ipfs: Ipfs, root: Cid) -> impl TryStream<Ok = Bytes, Error = GetError> + 'static {
     let mut cache = None;
     let mut tar_helper = TarHelper::with_capacity(16 * 1024);
 
@@ -282,7 +273,7 @@ impl std::error::Error for GetError {
 mod tests {
     use futures::stream::{FuturesOrdered, TryStreamExt};
     use hex_literal::hex;
-    use ipfs::{Block, Ipfs, IpfsTypes};
+    use ipfs::{Block, Ipfs};
     use libipld::cid::Cid;
     use multihash::Sha2_256;
     use std::convert::TryFrom;
@@ -452,8 +443,8 @@ mod tests {
             .unwrap()
     }
 
-    fn put_all_blocks<'a, T: IpfsTypes>(
-        ipfs: &'a Ipfs<T>,
+    fn put_all_blocks<'a>(
+        ipfs: &'a Ipfs,
         blocks: &'a [&'a [u8]],
     ) -> impl std::future::Future<Output = Result<Vec<Cid>, ipfs::Error>> + 'a {
         let mut inorder = FuturesOrdered::new();
@@ -464,8 +455,8 @@ mod tests {
         inorder.try_collect::<Vec<_>>()
     }
 
-    fn put_block<'a, T: IpfsTypes>(
-        ipfs: &'a Ipfs<T>,
+    fn put_block<'a>(
+        ipfs: &'a Ipfs,
         block: &'a [u8],
     ) -> impl std::future::Future<Output = Result<Cid, ipfs::Error>> + 'a {
         let cid = Cid::new_v0(Sha2_256::digest(block)).unwrap();
