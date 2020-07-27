@@ -543,7 +543,6 @@ impl<'a> Iterator for QueryAsRawPartsParser<'a> {
 #[cfg(test)]
 mod tests {
     use super::{publish_args, PublishArgs};
-    use futures::executor::block_on;
     use futures::future::ready;
     use std::str;
     use warp::reply::json;
@@ -561,32 +560,27 @@ mod tests {
         })
     }
 
-    #[test]
-    fn url_hacked_args() {
-        let response = block_on(
-            request()
-                .path("/pubsub/pub?arg=some_channel&arg=foobar")
-                .reply(&publish_args_as_json("arg")),
-        );
-
+    #[async_std::test]
+    async fn url_hacked_args() {
+        let response = request()
+            .path("/pubsub/pub?arg=some_channel&arg=foobar")
+            .reply(&publish_args_as_json("arg")).await;
         let body = str::from_utf8(response.body()).unwrap();
         assert_eq!(body, r#"{"message":"foobar","topic":"some_channel"}"#);
     }
 
-    #[test]
-    fn message_in_body() {
-        let response = block_on(
-            request()
-                .path("/pubsub/pub?arg=some_channel")
-                .header("content-type", "multipart/form-data; boundary=-----------------------------Z0oYi6XyTm7_x2L4ty8JL")
-                .body(&b"-------------------------------Z0oYi6XyTm7_x2L4ty8JL\r\n\
-                    Content-Disposition: form-data; name=\"file\"; filename=\"\"\r\n\
-                    Content-Type: application/octet-stream\r\n\
-                    \r\n\
-                    aedFIxDJZ2jS1eVB6Pkbv\
-                    \r\n-------------------------------Z0oYi6XyTm7_x2L4ty8JL--\r\n"[..])
-                .reply(&publish_args_as_json("arg")),
-        );
+    #[async_std::test]
+    async fn message_in_body() {
+        let response = request()
+            .path("/pubsub/pub?arg=some_channel")
+            .header("content-type", "multipart/form-data; boundary=-----------------------------Z0oYi6XyTm7_x2L4ty8JL")
+            .body(&b"-------------------------------Z0oYi6XyTm7_x2L4ty8JL\r\n\
+                Content-Disposition: form-data; name=\"file\"; filename=\"\"\r\n\
+                Content-Type: application/octet-stream\r\n\
+                \r\n\
+                aedFIxDJZ2jS1eVB6Pkbv\
+                \r\n-------------------------------Z0oYi6XyTm7_x2L4ty8JL--\r\n"[..])
+            .reply(&publish_args_as_json("arg")).await;
 
         let body = str::from_utf8(response.body()).unwrap();
         assert_eq!(
