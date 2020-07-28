@@ -288,7 +288,7 @@ pub enum IpfsEvent {
     // TODO
     Get(IpfsPath, OneshotSender<TaskHandle<unixfs::File, Error>>),
     // TODO
-    GetBlockSubscriptions(OneshotSender<TaskHandle<SubscriptionList, Error>>),
+    GetBlockSubscriptions(OneshotSender<SubscriptionList>),
     // TODO
     CancelBlock(Cid),
     /// Request background task to return the listened and external addresses
@@ -993,16 +993,15 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     }
                     IpfsEvent::GetBlockSubscriptions(ret) => {
                         let repo = self.swarm.repo().clone();
-                        ret.send(task::spawn(async move {
-                            Ok(repo
-                                .subscriptions
+                        ret.send(
+                            repo.subscriptions
                                 .subscriptions
                                 .lock()
-                                .await
+                                .unwrap()
                                 .iter()
                                 .map(|(kind, subs)| (kind.clone(), subs.keys().copied().collect()))
-                                .collect())
-                        }))
+                                .collect(),
+                        )
                         .ok();
                     }
                     IpfsEvent::CancelBlock(cid) => {
@@ -1182,7 +1181,7 @@ mod node {
                 .send(IpfsEvent::GetBlockSubscriptions(tx))
                 .await?;
 
-            rx.await?.await
+            Ok(rx.await?)
         }
 
         pub async fn get_closest_peers(&self) -> Result<(), Error> {

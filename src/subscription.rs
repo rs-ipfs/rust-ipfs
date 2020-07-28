@@ -4,12 +4,11 @@
 //! sharing the same unique numeric identifier, the `SubscriptionId`.
 
 use async_std::future::Future;
-use async_std::task::{self, Context, Poll, Waker};
+use async_std::task::{Context, Poll, Waker};
 use core::fmt::Debug;
 use core::hash::Hash;
 use core::pin::Pin;
 use futures::channel::mpsc::Sender;
-use futures::lock::Mutex;
 use libipld::Cid;
 use libp2p::{kad::QueryId, Multiaddr};
 use std::collections::HashMap;
@@ -18,7 +17,7 @@ use std::fmt;
 use std::mem;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 
 use crate::IpfsEvent;
@@ -129,14 +128,12 @@ impl<TRes: Debug + Clone> SubscriptionRegistry<TRes> {
             subscription.cancel(kind.clone(), true);
         }
 
-        task::block_on(async {
-            self.subscriptions
-                .lock()
-                .await
-                .entry(kind.clone())
-                .or_default()
-                .insert(id, subscription);
-        });
+        self.subscriptions
+            .lock()
+            .unwrap()
+            .entry(kind.clone())
+            .or_default()
+            .insert(id, subscription);
 
         SubscriptionFuture {
             id,
@@ -148,7 +145,7 @@ impl<TRes: Debug + Clone> SubscriptionRegistry<TRes> {
     /// Finalizes all pending subscriptions of the specified kind with the given `result`.
     ///
     pub fn finish_subscription(&self, req_kind: RequestKind, result: TRes) {
-        let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
+        let mut subscriptions = self.subscriptions.lock().unwrap();
         let related_subs = subscriptions.get_mut(&req_kind);
 
         // find all the matching `Subscription`s and wake up their tasks; only `Pending`
@@ -172,9 +169,7 @@ impl<TRes: Debug + Clone> SubscriptionRegistry<TRes> {
         debug!("Shutting down {:?}", self);
 
         let mut cancelled = 0;
-        let mut subscriptions = mem::take(&mut *task::block_on(async {
-            self.subscriptions.lock().await
-        }));
+        let mut subscriptions = mem::take(&mut *self.subscriptions.lock().unwrap());
 
         for (kind, subs) in subscriptions.iter_mut() {
             for sub in subs.values_mut() {
@@ -286,7 +281,7 @@ impl<TRes: Debug + Clone> Future for SubscriptionFuture<TRes> {
     type Output = Result<TRes, Cancelled>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
-        let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
+        let mut subscriptions = self.subscriptions.lock().unwrap();
 
         let subscription = if let Some(sub) = subscriptions
             .get_mut(&self.kind)
@@ -313,19 +308,17 @@ impl<TRes: Debug> Drop for SubscriptionFuture<TRes> {
     fn drop(&mut self) {
         debug!("Dropping subscription {} to {}", self.id, self.kind);
 
-        let (sub, is_last) = task::block_on(async {
-            let mut subscriptions = self.subscriptions.lock().await;
-            let related_subs = if let Some(subs) = subscriptions.get_mut(&self.kind) {
-                subs
+        let (sub, is_last) = {
+            let mut subscriptions = self.subscriptions.lock().unwrap();
+            if let Some(related_subs) = subscriptions.get_mut(&self.kind) {
+                let sub = related_subs.remove(&self.id);
+                // check if this is the last subscription to this resource
+                let is_last = related_subs.is_empty();
+                (sub, is_last)
             } else {
-                return (None, false);
-            };
-            let sub = related_subs.remove(&self.id);
-            // check if this is the last subscription to this resource
-            let is_last = related_subs.is_empty();
-
-            (sub, is_last)
-        });
+                (None, false)
+            }
+        };
 
         if let Some(sub) = sub {
             // don't bother updating anything that isn't `Pending`
