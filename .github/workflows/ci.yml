@@ -68,6 +68,12 @@ jobs:
         path: ~/.cargo
         key: ${{ matrix.platform.target }}-cargo-${{ matrix.toolchain.rust }}
 
+    - name: Cache node modules
+      uses: actions/cache@v1
+      with:
+        path: conformance/node_modules
+        key: ${{ runner.os }}-npm-${{ hashFiles('conformance/package*.json', 'conformance/patches/**', 'conformance/setup.sh') }}
+
     - name: Install dependencies ubuntu
       if: matrix.platform.host == 'ubuntu-latest'
       run: sudo apt-get install llvm-dev libssl-dev pkg-config
