@@ -252,7 +252,11 @@ pub enum IpfsEvent {
     /// Disconnect
     Disconnect(Multiaddr, Channel<()>),
     // TODO
-    GetBlock(Cid, OneshotSender<TaskHandle<Block, Error>>),
+    GetBlock(
+        Cid,
+        Sender<IpfsEvent>,
+        OneshotSender<TaskHandle<Block, Error>>,
+    ),
     // TODO
     PutBlock(
         Block,
@@ -385,10 +389,11 @@ impl Ipfs {
     /// already started fetch.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
         let (tx, rx) = oneshot_channel();
+        let cancel_notifier = self.to_task.clone();
 
         self.to_task
             .clone()
-            .send(IpfsEvent::GetBlock(cid.clone(), tx))
+            .send(IpfsEvent::GetBlock(cid.clone(), cancel_notifier, tx))
             .await?;
 
         rx.await?.await
@@ -900,11 +905,13 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                 };
 
                 match inner {
-                    IpfsEvent::GetBlock(cid, ret) => {
+                    IpfsEvent::GetBlock(cid, ccl_notifier, ret) => {
                         self.swarm.want_block(cid.clone()); // FIXME: only do this if we don't have the block
                         let repo = self.swarm.repo().clone();
-                        ret.send(task::spawn(async move { repo.get_block(&cid).await }))
-                            .ok();
+                        ret.send(task::spawn(async move {
+                            repo.get_block_with_notifier(&cid, Some(ccl_notifier)).await
+                        }))
+                        .ok();
                     }
                     IpfsEvent::PutBlock(block, ret) => {
                         self.swarm.provide_block(block.cid.clone());

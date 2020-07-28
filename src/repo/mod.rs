@@ -2,13 +2,14 @@
 use crate::error::Error;
 use crate::path::IpfsPath;
 use crate::subscription::SubscriptionRegistry;
-use crate::IpfsOptions;
+use crate::{IpfsEvent, IpfsOptions};
 use async_std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::{self, Cid};
 use core::fmt::Debug;
 use core::marker::PhantomData;
+use futures::channel::mpsc::Sender;
 use libp2p::core::PeerId;
 use std::hash::{Hash, Hasher};
 
@@ -174,12 +175,20 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     /// Retrives a block from the block store, or starts fetching it from the network and awaits
     /// until it has been fetched.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
+        self.get_block_with_notifier(cid, None).await
+    }
+
+    pub(crate) async fn get_block_with_notifier(
+        &self,
+        cid: &Cid,
+        notifier: Option<Sender<IpfsEvent>>,
+    ) -> Result<Block, Error> {
         if let Some(block) = self.block_store.get(&cid).await? {
             Ok(block)
         } else {
             let subscription = self
                 .subscriptions
-                .create_subscription(cid.clone().into(), None); // TODO: include a cancel notification sender
+                .create_subscription(cid.clone().into(), notifier);
             Ok(subscription.await?)
         }
     }
