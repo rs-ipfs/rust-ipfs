@@ -7,14 +7,14 @@ use bitswap::Block;
 use cid::Cid;
 use futures::lock::Mutex;
 
-use super::{BlockRm, BlockRmError};
+use super::{BlockRm, BlockRmError, RepoCid};
 
 // FIXME: Transition to Persistent Map to make iterating more consistent
 use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct MemBlockStore {
-    blocks: Mutex<HashMap<Cid, Block>>,
+    blocks: Mutex<HashMap<RepoCid, Block>>,
 }
 
 #[async_trait]
@@ -32,7 +32,11 @@ impl BlockStore for MemBlockStore {
     }
 
     async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
-        let contains = self.blocks.lock().await.contains_key(cid);
+        let contains = self
+            .blocks
+            .lock()
+            .await
+            .contains_key(&RepoCid(cid.to_owned()));
         Ok(contains)
     }
 
@@ -41,7 +45,7 @@ impl BlockStore for MemBlockStore {
             .blocks
             .lock()
             .await
-            .get(cid)
+            .get(&RepoCid(cid.to_owned()))
             .map(|block| block.to_owned());
         Ok(block)
     }
@@ -49,10 +53,10 @@ impl BlockStore for MemBlockStore {
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
         use std::collections::hash_map::Entry;
         let mut g = self.blocks.lock().await;
-        match g.entry(block.cid.clone()) {
+        match g.entry(RepoCid(block.cid.clone())) {
             Entry::Occupied(_) => Ok((block.cid, BlockPut::Existed)),
             Entry::Vacant(ve) => {
-                let cid = ve.key().clone();
+                let cid = ve.key().0.clone();
                 ve.insert(block);
                 Ok((cid, BlockPut::NewBlock))
             }
@@ -60,7 +64,7 @@ impl BlockStore for MemBlockStore {
     }
 
     async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
-        match self.blocks.lock().await.remove(cid) {
+        match self.blocks.lock().await.remove(&RepoCid(cid.to_owned())) {
             Some(_block) => Ok(Ok(BlockRm::Removed(cid.clone()))),
             None => Ok(Err(BlockRmError::NotFound(cid.clone()))),
         }
@@ -68,7 +72,7 @@ impl BlockStore for MemBlockStore {
 
     async fn list(&self) -> Result<Vec<Cid>, Error> {
         let guard = self.blocks.lock().await;
-        Ok(guard.iter().map(|(cid, _block)| cid).cloned().collect())
+        Ok(guard.iter().map(|(cid, _block)| cid.0.clone()).collect())
     }
 
     async fn wipe(&self) {
