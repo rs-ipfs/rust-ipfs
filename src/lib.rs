@@ -777,8 +777,11 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                 // exhaust the swarm before possibly causing the swarm to do more work by popping
                 // off the events from Ipfs and ... this looping goes on for a while.
                 done = false;
-                if let SwarmEvent::NewListenAddr(addr) = inner {
-                    self.complete_listening_address_adding(addr);
+                match inner {
+                    SwarmEvent::NewListenAddr(addr) => {
+                        self.complete_listening_address_adding(addr);
+                    }
+                    _ => trace!("{:?}", inner),
                 }
             }
 
@@ -962,6 +965,10 @@ mod node {
     impl Node {
         pub async fn new() -> Self {
             let opts = IpfsOptions::inmemory_with_generated_keys();
+            Node::with_options(opts).await
+        }
+
+        pub async fn with_options(opts: IpfsOptions<TestTypes>) -> Self {
             let (ipfs, fut) = UninitializedIpfs::new(opts)
                 .await
                 .start()
