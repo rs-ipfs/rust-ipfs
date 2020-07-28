@@ -68,11 +68,17 @@ jobs:
         path: ~/.cargo
         key: ${{ matrix.platform.target }}-cargo-${{ hashFiles('Cargo.lock') }}
 
-    - name: Cache node modules
-      uses: actions/cache@v2
+    - name: Get npm cache directory
+      id: npm-cache
+      run: |
+        echo "::set-output name=dir::$(npm config get cache)"
+
+    - uses: actions/cache@v2
       with:
-        path: conformance/node_modules
-        key: ${{ matrix.platform.target }}-npm-${{ hashFiles('conformance/package*.json', 'conformance/patches/**', 'conformance/setup.sh') }}
+        path: ${{ steps.npm-cache.outputs.dir }}
+        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json', '**/setup.sh') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
 
     - name: Install dependencies ubuntu
       if: matrix.platform.host == 'ubuntu-latest'
