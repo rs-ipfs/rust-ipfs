@@ -33,12 +33,15 @@ where
     }
 }
 
-async fn check_cid_subscriptions(ipfs: &Node, cid: &Cid, expected_count: usize) {
+// FIXME: use #[track_caller] when available
+async fn check_cid_subscriptions(ipfs: &Node, expected_count: usize) {
+    // FIXME: this delay shouldn't be needed
+    task::spawn(task::sleep(Duration::from_millis(100))).await;
     let subs = ipfs.get_subscriptions().await.unwrap();
     if expected_count > 0 {
         assert_eq!(subs.len(), 1);
     }
-    let subscription_count = subs.get(&cid.clone().into()).map(|l| l.len());
+    let subscription_count = subs.get(0).map(|(_kind, subs)| subs.len());
     assert_eq!(subscription_count, Some(expected_count));
 }
 
@@ -75,9 +78,7 @@ async fn wantlist_cancellation() {
     );
 
     // ensure that there is a single related subscription
-    check_cid_subscriptions(&ipfs, &cid, 1).await;
-
-    println!("### GOT HERE");
+    check_cid_subscriptions(&ipfs, 1).await;
 
     // fire up an additional get request
     let ipfs_clone = ipfs.clone();
@@ -89,12 +90,8 @@ async fn wantlist_cancellation() {
     );
     let _get_request2 = task::spawn(abortable_req);
 
-    task::spawn(task::sleep(Duration::from_millis(500))).await;
-
     // ensure that there are 2 related subscriptions
-    check_cid_subscriptions(&ipfs, &cid, 2).await;
-
-    println!("### NOT GETTING HERE");
+    check_cid_subscriptions(&ipfs, 2).await;
 
     // ...and an additional one, for good measure
     let ipfs_clone = ipfs.clone();
@@ -107,9 +104,9 @@ async fn wantlist_cancellation() {
     let _get_request3 = task::spawn(abortable_req);
 
     // ensure that there are 3 related subscription
-    check_cid_subscriptions(&ipfs, &cid, 3).await;
+    check_cid_subscriptions(&ipfs, 3).await;
 
-    // cancel the first requested Cid
+    // cancel the first request
     abort_handle1.abort();
 
     // verify that the requested Cid is still in the wantlist
@@ -125,10 +122,14 @@ async fn wantlist_cancellation() {
         "the wantlist is empty despite there still being 2 live get requests"
     );
 
-    // ensure that there are 2 related subscriptions
-    check_cid_subscriptions(&ipfs, &cid, 2).await;
+    println!("### GETTING HERE");
 
-    // cancel the second requested Cid
+    // ensure that there are 2 related subscriptions
+    check_cid_subscriptions(&ipfs, 2).await;
+
+    println!("### NOT GETTING HERE");
+
+    // cancel the second request
     abort_handle2.abort();
 
     // verify that the requested Cid is STILL in the wantlist
@@ -145,9 +146,9 @@ async fn wantlist_cancellation() {
     );
 
     // ensure that there is a single related subscription
-    check_cid_subscriptions(&ipfs, &cid, 1).await;
+    check_cid_subscriptions(&ipfs, 1).await;
 
-    // cancel the second requested Cid
+    // cancel the third request
     abort_handle3.abort();
 
     // verify that the requested Cid is no longer in the wantlist
@@ -164,5 +165,5 @@ async fn wantlist_cancellation() {
     );
 
     // ensure that there are no related subscriptions
-    check_cid_subscriptions(&ipfs, &cid, 0).await;
+    check_cid_subscriptions(&ipfs, 0).await;
 }

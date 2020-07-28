@@ -51,7 +51,7 @@ use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoOptions};
-use self::subscription::{SubscriptionFuture, Subscriptions};
+use self::subscription::{RequestKind, SubscriptionFuture, SubscriptionId};
 use self::unixfs::File;
 
 /// All types can be changed at compile time by implementing
@@ -235,6 +235,7 @@ pub struct IpfsInner {
 type Channel<T> = OneshotSender<Result<T, Error>>;
 type FutureSubscription<T, E> = SubscriptionFuture<Result<T, E>>;
 type TaskHandle<T, E> = task::JoinHandle<Result<T, E>>;
+type SubscriptionList = Vec<(RequestKind, Vec<SubscriptionId>)>;
 
 /// Events used internally to communicate with the swarm, which is executed in the the background
 /// task.
@@ -287,7 +288,7 @@ pub enum IpfsEvent {
     // TODO
     Get(IpfsPath, OneshotSender<TaskHandle<unixfs::File, Error>>),
     // TODO
-    GetBlockSubscriptions(OneshotSender<TaskHandle<Subscriptions<Block>, Error>>),
+    GetBlockSubscriptions(OneshotSender<TaskHandle<SubscriptionList, Error>>),
     // TODO
     CancelBlock(Cid),
     /// Request background task to return the listened and external addresses
@@ -993,7 +994,14 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     IpfsEvent::GetBlockSubscriptions(ret) => {
                         let repo = self.swarm.repo().clone();
                         ret.send(task::spawn(async move {
-                            Ok((*repo.subscriptions.subscriptions.lock().await).clone())
+                            Ok(repo
+                                .subscriptions
+                                .subscriptions
+                                .lock()
+                                .await
+                                .iter()
+                                .map(|(kind, subs)| (kind.clone(), subs.keys().copied().collect()))
+                                .collect())
                         }))
                         .ok();
                     }
@@ -1170,7 +1178,7 @@ mod node {
             }
         }
 
-        pub async fn get_subscriptions(&self) -> Result<Subscriptions<Block>, Error> {
+        pub async fn get_subscriptions(&self) -> Result<SubscriptionList, Error> {
             let (tx, rx) = oneshot_channel();
 
             self.to_task

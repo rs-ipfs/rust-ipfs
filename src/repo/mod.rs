@@ -12,6 +12,7 @@ use core::marker::PhantomData;
 use futures::channel::mpsc::Sender;
 use libp2p::core::PeerId;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 pub mod fs;
 pub mod mem;
@@ -116,7 +117,7 @@ pub enum Column {
 pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
-    pub(crate) subscriptions: SubscriptionRegistry<Block>,
+    pub(crate) subscriptions: Arc<SubscriptionRegistry<Block>>,
 }
 
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {

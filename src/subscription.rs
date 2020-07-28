@@ -91,16 +91,15 @@ impl fmt::Display for RequestKind {
 }
 
 /// The unique identifier of a `Subscription`/`SubscriptionFuture`.
-type SubscriptionId = u64;
+pub type SubscriptionId = u64;
 
 /// The specific collection used to hold all the `Subscription`s.
 pub type Subscriptions<T> = HashMap<RequestKind, HashMap<SubscriptionId, Subscription<T>>>;
 
 /// A collection of all the live `Subscription`s.
-#[derive(Clone)]
 pub struct SubscriptionRegistry<TRes: Debug + Clone> {
     pub(crate) subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
-    shutting_down: Arc<AtomicBool>,
+    shutting_down: AtomicBool,
 }
 
 impl<TRes: Debug + Clone> fmt::Debug for SubscriptionRegistry<TRes> {
@@ -217,7 +216,7 @@ impl fmt::Display for Cancelled {
 impl std::error::Error for Cancelled {}
 
 /// Represents a request for a resource at different stages of its lifetime.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Subscription<TRes> {
     /// A finished `Subscription` containing the desired `TRes` value.
     Ready(TRes),
@@ -283,35 +282,29 @@ pub struct SubscriptionFuture<TRes: Debug> {
     subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
 }
 
-impl<TRes: Debug> Future for SubscriptionFuture<TRes> {
+impl<TRes: Debug + Clone> Future for SubscriptionFuture<TRes> {
     type Output = Result<TRes, Cancelled>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
-        let mut subscription = {
-            // don't hold the lock for too long, otherwise the `Drop` impl for `SubscriptionFuture`
-            // can cause a stack overflow
-            let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
-            if let Some(sub) = subscriptions
-                .get_mut(&self.kind)
-                .and_then(|subs| subs.remove(&self.id))
-            {
-                sub
-            } else {
-                // the subscription must already have been cancelled
-                return Poll::Ready(Err(Cancelled));
-            }
+        let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
+
+        let subscription = if let Some(sub) = subscriptions
+            .get_mut(&self.kind)
+            .and_then(|subs| subs.get_mut(&self.id))
+        {
+            sub
+        } else {
+            // the subscription must already have been cancelled
+            return Poll::Ready(Err(Cancelled));
         };
 
         match subscription {
             Subscription::Cancelled => Poll::Ready(Err(Cancelled)),
             Subscription::Pending { ref mut waker, .. } => {
                 *waker = Some(context.waker().clone());
-                task::block_on(async { self.subscriptions.lock().await })
-                    .get_mut(&self.kind)
-                    .and_then(|subs| subs.insert(self.id, subscription));
                 Poll::Pending
             }
-            Subscription::Ready(result) => Poll::Ready(Ok(result)),
+            Subscription::Ready(result) => Poll::Ready(Ok(result.clone())),
         }
     }
 }
