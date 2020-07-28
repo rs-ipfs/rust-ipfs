@@ -8,6 +8,11 @@ if ! [ -f "./package.json" ]; then
     exit 1
 fi
 
+if [ -d "node_modules" ]; then
+    echo "Directory exists already: node_modules/" >&2
+    exit 1
+fi
+
 # production will skip the dev dependencies
 npm install --production
 
