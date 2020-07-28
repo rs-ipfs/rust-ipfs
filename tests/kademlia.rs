@@ -88,8 +88,8 @@ async fn kademlia_popular_content_discovery() {
         .await
         .is_ok());
 
-    // the Cid of the docs.ipfs.io website
-    let cid: Cid = "bafybeicfjz7woevc5dxvsskibxpxpofkrdjyslbggvvr3d66ddqu744nne"
+    // the Cid of the IPFS logo
+    let cid: Cid = "bafkreicncneocapbypwwe3gl47bzvr3pkpxmmobzn7zr2iaz67df4kjeiq"
         .parse()
         .unwrap();
 
