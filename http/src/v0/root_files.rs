@@ -326,11 +326,12 @@ mod tests {
     #[tokio::test]
     async fn very_long_file_and_symlink_names() {
         let options = ipfs::IpfsOptions::inmemory_with_generated_keys();
-        let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
+        let (ipfs, fut) = ipfs::UninitializedIpfs::new(options)
             .await
             .start()
             .await
             .unwrap();
+        let _fut = async_std::task::spawn(fut);
 
         let blocks: &[&[u8]] = &[
             // the root, QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD
@@ -387,11 +388,12 @@ mod tests {
     #[tokio::test]
     async fn get_multiblock_file() {
         let options = ipfs::IpfsOptions::inmemory_with_generated_keys();
-        let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
+        let (ipfs, fut) = ipfs::UninitializedIpfs::new(options)
             .await
             .start()
             .await
             .unwrap();
+        let _fut = async_std::task::spawn(fut);
 
         let blocks: &[&[u8]] = &[
             // the root, QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6

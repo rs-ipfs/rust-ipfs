@@ -626,7 +626,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_inner_local() {
-        let filter = local(&preloaded_testing_ipfs().await);
+        let (ipfs, _fut) = preloaded_testing_ipfs().await;
+        let filter = local(&ipfs);
 
         let response = warp::test::request()
             .path("/refs/local")
@@ -673,7 +674,7 @@ mod tests {
 
     #[tokio::test]
     async fn all_refs_from_root() {
-        let ipfs = preloaded_testing_ipfs().await;
+        let (ipfs, _fut) = preloaded_testing_ipfs().await;
 
         let (root, dag0, unixfs0, dag1, unixfs1) = (
             // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
@@ -714,7 +715,7 @@ mod tests {
 
     #[tokio::test]
     async fn all_unique_refs_from_root() {
-        let ipfs = preloaded_testing_ipfs().await;
+        let (ipfs, _fut) = preloaded_testing_ipfs().await;
 
         let (root, dag0, unixfs0, dag1, unixfs1) = (
             // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
@@ -757,7 +758,7 @@ mod tests {
 
     #[tokio::test]
     async fn refs_with_path() {
-        let ipfs = preloaded_testing_ipfs().await;
+        let (ipfs, _fut) = preloaded_testing_ipfs().await;
 
         let paths = [
             "/ipfs/bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44/foo",
@@ -798,13 +799,14 @@ mod tests {
         assert!(diff.is_empty(), "{:#?}", diff);
     }
 
-    async fn preloaded_testing_ipfs() -> Ipfs {
+    async fn preloaded_testing_ipfs() -> (Ipfs, async_std::task::JoinHandle<()>) {
         let options = ipfs::IpfsOptions::inmemory_with_generated_keys();
-        let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
+        let (ipfs, fut) = ipfs::UninitializedIpfs::new(options)
             .await
             .start()
             .await
             .unwrap();
+        let fut = async_std::task::spawn(fut);
 
         let blocks = [
             (
@@ -848,7 +850,7 @@ mod tests {
             ipfs.put_block(block).await.unwrap();
         }
 
-        ipfs
+        (ipfs, fut)
     }
 
     #[test]
