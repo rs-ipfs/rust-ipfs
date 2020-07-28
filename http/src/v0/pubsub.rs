@@ -10,7 +10,7 @@
 //! `ipfs::Ipfs::pubsub_subscribe` and thus will panic if an subscription was made outside of this
 //! locking mechanism.
 
-use futures::stream::{Stream, TryStream, TryStreamExt};
+use futures::stream::{Stream, TryStream};
 use serde::{Deserialize, Serialize};
 
 use tokio::stream::StreamExt;
