@@ -160,7 +160,7 @@ jobs:
       uses: actions/cache@v1
       with:
         path: ~/.cargo
-        key: lint-cargo
+        key: lint-cargo-${{ hashFiles('Cargo.lock') }}
 
     - name: Install rust toolchain
       uses: hecrj/setup-rust-action@v1
@@ -184,7 +184,7 @@ jobs:
       uses: actions/cache@v1
       with:
         path: ~/.cargo
-        key: readme-doctest
+        key: readme-doctest-${{ hashFiles('Cargo.lock') }}
 
     - name: Install rust toolchain
       uses: hecrj/setup-rust-action@v1
