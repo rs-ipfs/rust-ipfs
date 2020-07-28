@@ -1154,7 +1154,7 @@ mod node {
     /// easier.
     pub struct Node {
         ipfs: Ipfs,
-        background_task: async_std::task::JoinHandle<()>,
+        background_task: Option<task::JoinHandle<()>>,
     }
 
     impl Node {
@@ -1164,17 +1164,13 @@ mod node {
         }
 
         pub async fn with_options(opts: IpfsOptions<TestTypes>) -> Self {
-            let (ipfs, fut) = UninitializedIpfs::new(opts)
-                .await
-                .start()
-                .await
-                .expect("Inmemory instance must succeed start");
+            let (ipfs, fut) = UninitializedIpfs::new(opts).await.start().await.unwrap();
 
-            let jh = async_std::task::spawn(fut);
+            let background_task = Some(task::spawn(fut));
 
             Node {
                 ipfs,
-                background_task: jh,
+                background_task,
             }
         }
 
@@ -1220,9 +1216,20 @@ mod node {
             Ok(())
         }
 
-        pub async fn shutdown(self) {
+        pub async fn shutdown(mut self) {
             self.ipfs.exit_daemon().await;
-            self.background_task.await;
+            if let Some(task) = std::mem::take(&mut self.background_task) {
+                task.await;
+            }
+        }
+    }
+
+    impl Clone for Node {
+        fn clone(&self) -> Self {
+            Node {
+                ipfs: self.ipfs.clone(),
+                background_task: None,
+            }
         }
     }
 
