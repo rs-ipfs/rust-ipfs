@@ -1,8 +1,4 @@
-use async_std::{
-    future::{pending, timeout},
-    task,
-};
-use futures::future::{select, Either, FutureExt};
+use async_std::task;
 use futures::future::{AbortHandle, Abortable};
 use ipfs::Node;
 use libipld::Cid;
@@ -81,28 +77,34 @@ async fn wantlist_cancellation() {
     // ensure that there is a single related subscription
     check_cid_subscriptions(&ipfs, &cid, 1).await;
 
-    // fire up an additional get request, this time within the same async task...
+    println!("### GOT HERE");
+
+    // fire up an additional get request
     let ipfs_clone = ipfs.clone();
     let cid_clone = cid.clone();
-    let get_request2 = ipfs_clone.get_block(&cid_clone);
-    let get_timeout = timeout(Duration::from_millis(500), pending::<()>());
-    let get_request2 = match select(get_timeout.boxed(), get_request2.boxed()).await {
-        Either::Left((_, fut)) => fut,
-        Either::Right(_) => unreachable!(),
-    };
+    let (abort_handle2, abort_reg) = AbortHandle::new_pair();
+    let abortable_req = Abortable::new(
+        async move { ipfs_clone.get_block(&cid_clone).await },
+        abort_reg,
+    );
+    let _get_request2 = task::spawn(abortable_req);
+
+    task::spawn(task::sleep(Duration::from_millis(500))).await;
 
     // ensure that there are 2 related subscriptions
     check_cid_subscriptions(&ipfs, &cid, 2).await;
 
-    // ...and an additional one within the same task, for good measure
+    println!("### NOT GETTING HERE");
+
+    // ...and an additional one, for good measure
     let ipfs_clone = ipfs.clone();
     let cid_clone = cid.clone();
-    let get_request3 = ipfs_clone.get_block(&cid_clone);
-    let get_timeout = timeout(Duration::from_millis(500), pending::<()>());
-    let get_request3 = match select(get_timeout.boxed(), get_request3.boxed()).await {
-        Either::Left((_, fut)) => fut,
-        Either::Right(_) => unreachable!(),
-    };
+    let (abort_handle3, abort_reg) = AbortHandle::new_pair();
+    let abortable_req = Abortable::new(
+        async move { ipfs_clone.get_block(&cid_clone).await },
+        abort_reg,
+    );
+    let _get_request3 = task::spawn(abortable_req);
 
     // ensure that there are 3 related subscription
     check_cid_subscriptions(&ipfs, &cid, 3).await;
@@ -127,7 +129,7 @@ async fn wantlist_cancellation() {
     check_cid_subscriptions(&ipfs, &cid, 2).await;
 
     // cancel the second requested Cid
-    drop(get_request2);
+    abort_handle2.abort();
 
     // verify that the requested Cid is STILL in the wantlist
     let wantlist_partially_cleared2 = bounded_retry(
@@ -146,7 +148,7 @@ async fn wantlist_cancellation() {
     check_cid_subscriptions(&ipfs, &cid, 1).await;
 
     // cancel the second requested Cid
-    drop(get_request3);
+    abort_handle3.abort();
 
     // verify that the requested Cid is no longer in the wantlist
     let wantlist_cleared = bounded_retry(
