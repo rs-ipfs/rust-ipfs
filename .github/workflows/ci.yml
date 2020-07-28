@@ -76,27 +76,15 @@ jobs:
       if: matrix.platform.host == 'macos-latest'
       run: brew install llvm openssl
 
-    - name: Cache windows (openssl)
-      id: windows-openssl-cache
+    - name: Install dependencies windows (openssl)
+      uses: lukka/run-vcpkg@v3
+      id: windows-runvcpkg
       if: matrix.platform.host == 'windows-latest'
-      uses: actions/cache@v2
       with:
-        path: 'C:\vcpkg\installed\x64-windows'
-        key: ${{ runner.os }}-${{ hashFiles('C:\vcpkg\installed\x64-windows\bin\libcrypto.dll', 'C:\vcpkg\installed\x64-windows\bin\libssl.dll') }}
-
-    - name: Install dependencies windows (slow)
-      if: matrix.platform.host == 'windows-latest' && steps.windows-openssl-cache.outputs.cache-hit != 'true'
-      run: |
-        choco install llvm
-
-    - name: Install dependencies windows
-      if: matrix.platform.host == 'windows-latest'
-      run: |
-        vcpkg integrate install
-        vcpkg install openssl:x64-windows
-        Copy-Item C:\vcpkg\installed\x64-windows\bin\libcrypto-1_1-x64.dll C:\vcpkg\installed\x64-windows\bin\libcrypto.dll
-        Copy-Item C:\vcpkg\installed\x64-windows\bin\libssl-1_1-x64.dll C:\vcpkg\installed\x64-windows\bin\libssl.dll
-        Get-ChildItem C:\vcpkg\installed\x64-windows\lib
+        vcpkgDirectory: '${{ runner.workspace }}/vcpkg'
+        vcpkgTriplet: 'x64-windows'
+        vcpkgArguments: 'openssl'
+        vcpkgGitCommitId: 'ffa41582f78478812c836a6e8ce315fb27431182'  # ok for openssl-sys v0.9.58
 
     - name: Install rust toolchain
       uses: hecrj/setup-rust-action@v1
