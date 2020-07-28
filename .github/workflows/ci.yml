@@ -72,7 +72,7 @@ jobs:
       uses: actions/cache@v1
       with:
         path: conformance/node_modules
-        key: ${{ runner.os }}-npm-${{ hashFiles('conformance/package*.json', 'conformance/patches/**', 'conformance/setup.sh') }}
+        key: ${{ matrix.platform.target }}-npm-${{ hashFiles('conformance/package*.json', 'conformance/patches/**', 'conformance/setup.sh') }}
 
     - name: Install dependencies ubuntu
       if: matrix.platform.host == 'ubuntu-latest'
