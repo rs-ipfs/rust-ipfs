@@ -63,13 +63,13 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Cache cargo folder
-      uses: actions/cache@v1
+      uses: actions/cache@v2
       with:
         path: ~/.cargo
         key: ${{ matrix.platform.target }}-cargo-${{ hashFiles('Cargo.lock') }}
 
     - name: Cache node modules
-      uses: actions/cache@v1
+      uses: actions/cache@v2
       with:
         path: conformance/node_modules
         key: ${{ matrix.platform.target }}-npm-${{ hashFiles('conformance/package*.json', 'conformance/patches/**', 'conformance/setup.sh') }}
@@ -157,7 +157,7 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Cache cargo folder
-      uses: actions/cache@v1
+      uses: actions/cache@v2
       with:
         path: ~/.cargo
         key: lint-cargo-${{ hashFiles('Cargo.lock') }}
@@ -181,7 +181,7 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Cache cargo folder
-      uses: actions/cache@v1
+      uses: actions/cache@v2
       with:
         path: ~/.cargo
         key: readme-doctest-${{ hashFiles('Cargo.lock') }}
