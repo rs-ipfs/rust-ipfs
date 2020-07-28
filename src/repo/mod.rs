@@ -12,12 +12,11 @@ use core::marker::PhantomData;
 use futures::channel::mpsc::Sender;
 use libp2p::core::PeerId;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 pub mod fs;
 pub mod mem;
 
-pub trait RepoTypes: Send + Sync + Clone + 'static {
+pub trait RepoTypes: Send + Sync + 'static {
     type TBlockStore: BlockStore;
     type TDataStore: DataStore;
 }
@@ -83,7 +82,7 @@ pub enum BlockRmError {
 
 /// This API is being discussed and evolved, which will likely lead to breakage.
 #[async_trait]
-pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
+pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -96,7 +95,7 @@ pub trait BlockStore: Debug + Clone + Send + Sync + Unpin + 'static {
 }
 
 #[async_trait]
-pub trait DataStore: Debug + Clone + Send + Sync + Unpin + 'static {
+pub trait DataStore: Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -113,11 +112,11 @@ pub enum Column {
     Pin,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
-    pub(crate) subscriptions: Arc<SubscriptionRegistry<Block>>,
+    pub(crate) subscriptions: SubscriptionRegistry<Block>,
 }
 
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {

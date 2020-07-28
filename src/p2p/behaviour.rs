@@ -24,7 +24,7 @@ use std::sync::Arc;
 #[derive(NetworkBehaviour)]
 pub struct Behaviour<Types: IpfsTypes> {
     #[behaviour(ignore)]
-    repo: Repo<Types>,
+    repo: Arc<Repo<Types>>,
     mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
     #[behaviour(ignore)]
@@ -372,6 +372,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         );
         let pubsub = Pubsub::new(options.peer_id);
         let swarm = SwarmApi::new();
+        let repo = Arc::new(repo);
 
         Behaviour {
             repo,
@@ -460,8 +461,8 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         &mut self.bitswap
     }
 
-    pub fn repo(&self) -> &Repo<Types> {
-        &self.repo
+    pub fn repo(&self) -> Arc<Repo<Types>> {
+        Arc::clone(&self.repo)
     }
 
     pub fn bootstrap(&mut self) -> Result<SubscriptionFuture<Result<(), String>>, anyhow::Error> {

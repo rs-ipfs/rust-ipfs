@@ -6,16 +6,15 @@ use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
 use futures::lock::Mutex;
-use std::sync::Arc;
 
 use super::{BlockRm, BlockRmError, RepoCid};
 
 // FIXME: Transition to Persistent Map to make iterating more consistent
 use std::collections::HashMap;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct MemBlockStore {
-    blocks: Arc<Mutex<HashMap<RepoCid, Block>>>,
+    blocks: Mutex<HashMap<RepoCid, Block>>,
 }
 
 #[async_trait]
@@ -81,10 +80,10 @@ impl BlockStore for MemBlockStore {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct MemDataStore {
-    ipns: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
-    pin: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
+    ipns: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+    pin: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
 }
 
 #[async_trait]

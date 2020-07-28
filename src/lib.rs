@@ -61,7 +61,7 @@ impl<T: RepoTypes> SwarmTypes for T {}
 impl<T: SwarmTypes + RepoTypes> IpfsTypes for T {}
 
 /// Default IPFS types.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
@@ -72,7 +72,7 @@ impl RepoTypes for Types {
 }
 
 /// Testing IPFS types
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TestTypes;
 impl RepoTypes for TestTypes {
     type TBlockStore = repo::mem::MemBlockStore;
@@ -908,7 +908,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                 match inner {
                     IpfsEvent::GetBlock(cid, ccl_notifier, ret) => {
                         self.swarm.want_block(cid.clone()); // FIXME: only do this if we don't have the block
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move {
                             repo.get_block_with_notifier(&cid, Some(ccl_notifier)).await
                         }))
@@ -916,67 +916,67 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     }
                     IpfsEvent::PutBlock(block, ret) => {
                         self.swarm.provide_block(block.cid.clone());
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move { repo.put_block(block).await }))
                             .ok();
                     }
                     IpfsEvent::RemoveBlock(cid, ret) => {
                         self.swarm.stop_providing_block(&cid);
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move { repo.remove_block(&cid).await }))
                             .ok();
                     }
                     IpfsEvent::PinBlock(cid, ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move { repo.pin_block(&cid).await }))
                             .ok();
                     }
                     IpfsEvent::UnpinBlock(cid, ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move { repo.unpin_block(&cid).await }))
                             .ok();
                     }
                     IpfsEvent::IsBlockPinned(cid, ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move { repo.is_pinned(&cid).await }))
                             .ok();
                     }
                     IpfsEvent::ListBlocks(ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move { repo.list_blocks().await }))
                             .ok();
                     }
                     IpfsEvent::PutDag(ipld, ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move {
                             repo.put_dag(ipld, Codec::DagCBOR).await
                         }))
                         .ok();
                     }
                     IpfsEvent::GetDag(path, ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move { repo.get_dag(path).await }))
                             .ok();
                     }
                     IpfsEvent::ResolveIpns(path, ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move { repo.resolve_ipns(&path).await }))
                             .ok();
                     }
                     IpfsEvent::PublishIpns(key, path, ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(
                             async move { repo.publish_ipns(&key, &path).await },
                         ))
                         .ok();
                     }
                     IpfsEvent::CancelIpns(key, ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move { repo.cancel_ipns(&key).await }))
                             .ok();
                     }
                     IpfsEvent::Add(path, ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
 
                         ret.send(task::spawn(async move {
                             let file = File::new(path).await?;
@@ -985,14 +985,14 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         .ok();
                     }
                     IpfsEvent::Get(path, ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(task::spawn(async move {
                             File::get_unixfs_v1(&repo, path).await
                         }))
                         .ok();
                     }
                     IpfsEvent::GetBlockSubscriptions(ret) => {
-                        let repo = self.swarm.repo().clone();
+                        let repo = self.swarm.repo();
                         ret.send(
                             repo.subscriptions
                                 .subscriptions
