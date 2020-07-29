@@ -146,7 +146,6 @@ impl Bitswap {
     ///
     /// Called from Kademlia behaviour.
     pub fn connect(&mut self, peer_id: PeerId) {
-        self.stats.insert(peer_id.clone(), Default::default());
         if self.target_peers.insert(peer_id.clone()) {
             self.events.push_back(NetworkBehaviourAction::DialPeer {
                 peer_id,
@@ -224,7 +223,7 @@ impl NetworkBehaviour for Bitswap {
     fn inject_connected(&mut self, peer_id: &PeerId) {
         debug!("bitswap: inject_connected {}", peer_id);
         let ledger = Ledger::new();
-        self.stats.insert(peer_id.clone(), Default::default());
+        self.stats.entry(peer_id.clone()).or_default();
         self.connected_peers.insert(peer_id.clone(), ledger);
         self.send_want_list(peer_id.clone());
     }
