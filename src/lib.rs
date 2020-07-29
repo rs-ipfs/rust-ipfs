@@ -235,11 +235,11 @@ pub struct IpfsInner {
 type Channel<T> = OneshotSender<Result<T, Error>>;
 type FutureSubscription<T, E> = SubscriptionFuture<Result<T, E>>;
 type TaskHandle<T, E> = task::JoinHandle<Result<T, E>>;
+type PinnedFuture<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
 type SubscriptionList = Vec<(RequestKind, Vec<SubscriptionId>)>;
 
 /// Events used internally to communicate with the swarm, which is executed in the the background
 /// task.
-#[derive(Debug)]
 #[doc(hidden)]
 pub enum IpfsEvent {
     /// Connect
@@ -256,7 +256,7 @@ pub enum IpfsEvent {
     GetBlock(
         Cid,
         Sender<IpfsEvent>,
-        OneshotSender<TaskHandle<Block, Error>>,
+        OneshotSender<PinnedFuture<Block, Error>>,
     ),
     // TODO
     PutBlock(
@@ -306,6 +306,15 @@ pub enum IpfsEvent {
     AddPeer(PeerId, Multiaddr),
     GetClosestPeers(PeerId, OneshotSender<FutureSubscription<(), String>>),
     Exit,
+}
+
+impl fmt::Debug for IpfsEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::GetBlock(cid, ..) => write!(f, "GetRequest({})", cid),
+            event => write!(f, "{:?}", event),
+        }
+    }
 }
 
 /// Configured Ipfs instace or value which can be only initialized.
@@ -377,13 +386,11 @@ impl Ipfs {
             .send(IpfsEvent::PutBlock(block, tx))
             .await?;
 
-        let cid = rx.await?.await.map(|ret| ret.0);
+        rx.await?.await.map(|ret| ret.0)
 
         // TODO: consider if cancel is applicable in cases where we provide the
         // associated Block ourselves
-        //self.cancel_block(&block.cid).await;
-
-        cid
+        // self.cancel_block(&block.cid).await;
     }
 
     /// Retrieves a block from the local blockstore, or starts fetching from the network or join an
@@ -909,10 +916,17 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     IpfsEvent::GetBlock(cid, ccl_notifier, ret) => {
                         self.swarm.want_block(cid.clone()); // FIXME: only do this if we don't have the block
                         let repo = self.swarm.repo();
-                        ret.send(task::spawn(async move {
+
+                        // a workaround wrapper to force the move of repo and cid params
+                        async fn wrapper<T: RepoTypes>(
+                            repo: Arc<Repo<T>>,
+                            cid: Cid,
+                            ccl_notifier: Sender<IpfsEvent>,
+                        ) -> Result<Block, Error> {
                             repo.get_block_with_notifier(&cid, Some(ccl_notifier)).await
-                        }))
-                        .ok();
+                        }
+
+                        ret.send(Box::pin(wrapper(repo, cid, ccl_notifier))).ok();
                     }
                     IpfsEvent::PutBlock(block, ret) => {
                         self.swarm.provide_block(block.cid.clone());

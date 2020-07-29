@@ -57,12 +57,7 @@ async fn wantlist_cancellation() {
     // start a get_request future
     let ipfs_clone = ipfs.clone();
     let cid_clone = cid.clone();
-    let (abort_handle1, abort_reg) = AbortHandle::new_pair();
-    let abortable_req = Abortable::new(
-        async move { ipfs_clone.get_block(&cid_clone).await },
-        abort_reg,
-    );
-    let _get_request1 = task::spawn(abortable_req);
+    let get_request1 = task::spawn(async move { ipfs_clone.get_block(&cid_clone).await });
 
     // verify that the requested Cid is in the wantlist
     let wantlist_populated = bounded_retry(
@@ -83,17 +78,12 @@ async fn wantlist_cancellation() {
     // fire up an additional get request
     let ipfs_clone = ipfs.clone();
     let cid_clone = cid.clone();
-    let (abort_handle2, abort_reg) = AbortHandle::new_pair();
-    let abortable_req = Abortable::new(
-        async move { ipfs_clone.get_block(&cid_clone).await },
-        abort_reg,
-    );
-    let _get_request2 = task::spawn(abortable_req);
+    let get_request2 = task::spawn(async move { ipfs_clone.get_block(&cid_clone).await });
 
     // ensure that there are 2 related subscriptions
     check_cid_subscriptions(&ipfs, 2).await;
 
-    // ...and an additional one, for good measure
+    // ...and an additional one, for good measure - this time using future::Abortable
     let ipfs_clone = ipfs.clone();
     let cid_clone = cid.clone();
     let (abort_handle3, abort_reg) = AbortHandle::new_pair();
@@ -107,7 +97,7 @@ async fn wantlist_cancellation() {
     check_cid_subscriptions(&ipfs, 3).await;
 
     // cancel the first request
-    abort_handle1.abort();
+    get_request1.cancel().await;
 
     // verify that the requested Cid is still in the wantlist
     let wantlist_partially_cleared1 = bounded_retry(
@@ -122,15 +112,11 @@ async fn wantlist_cancellation() {
         "the wantlist is empty despite there still being 2 live get requests"
     );
 
-    println!("### GETTING HERE");
-
     // ensure that there are 2 related subscriptions
     check_cid_subscriptions(&ipfs, 2).await;
 
-    println!("### NOT GETTING HERE");
-
     // cancel the second request
-    abort_handle2.abort();
+    get_request2.cancel().await;
 
     // verify that the requested Cid is STILL in the wantlist
     let wantlist_partially_cleared2 = bounded_retry(

@@ -82,7 +82,7 @@ pub enum BlockRmError {
 
 /// This API is being discussed and evolved, which will likely lead to breakage.
 #[async_trait]
-pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
+pub trait BlockStore: Debug + Send + Sync + Unpin {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -95,7 +95,7 @@ pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
 }
 
 #[async_trait]
-pub trait DataStore: Debug + Send + Sync + Unpin + 'static {
+pub trait DataStore: Debug + Send + Sync + Unpin {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;

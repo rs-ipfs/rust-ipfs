@@ -235,7 +235,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
     fn inject_event(&mut self, event: BitswapEvent) {
         match event {
             BitswapEvent::ReceivedBlock(peer_id, block) => {
-                let repo = self.repo().clone();
+                let repo = self.repo();
                 let peer_stats =
                     Arc::clone(&self.bitswap.connected_peers.get(&peer_id).unwrap().stats);
 
@@ -266,7 +266,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
                 );
 
                 let queued_blocks = self.bitswap().queued_blocks.clone();
-                let repo = self.repo().to_owned();
+                let repo = self.repo();
 
                 task::spawn(async move {
                     match repo.get_block_now(&cid).await {
