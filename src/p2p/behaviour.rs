@@ -48,13 +48,13 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<Typ
         match event {
             MdnsEvent::Discovered(list) => {
                 for (peer, addr) in list {
-                    log::trace!("mdns: Discovered peer {}", peer.to_base58());
+                    trace!("mdns: Discovered peer {}", peer.to_base58());
                     self.add_peer(peer, addr);
                 }
             }
             MdnsEvent::Expired(list) => {
                 for (peer, _) in list {
-                    log::trace!("mdns: Expired peer {}", peer.to_base58());
+                    trace!("mdns: Expired peer {}", peer.to_base58());
                     self.remove_peer(&peer);
                 }
             }
@@ -297,7 +297,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<Typ
                 peer,
                 result: Result::Ok(PingSuccess::Ping { rtt }),
             } => {
-                log::trace!(
+                trace!(
                     "ping: rtt to {} is {} ms",
                     peer.to_base58(),
                     rtt.as_millis()
@@ -308,20 +308,20 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<Typ
                 peer,
                 result: Result::Ok(PingSuccess::Pong),
             } => {
-                log::trace!("ping: pong from {}", peer);
+                trace!("ping: pong from {}", peer);
             }
             PingEvent {
                 peer,
                 result: Result::Err(PingFailure::Timeout),
             } => {
-                log::trace!("ping: timeout to {}", peer);
+                trace!("ping: timeout to {}", peer);
                 self.remove_peer(&peer);
             }
             PingEvent {
                 peer,
                 result: Result::Err(PingFailure::Other { error }),
             } => {
-                log::error!("ping: failure with {}: {}", peer.to_base58(), error);
+                error!("ping: failure with {}: {}", peer.to_base58(), error);
             }
         }
     }
@@ -329,7 +329,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<Typ
 
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: IdentifyEvent) {
-        log::trace!("identify: {:?}", event);
+        trace!("identify: {:?}", event);
     }
 }
 

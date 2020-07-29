@@ -153,7 +153,7 @@ async fn inner_subscribe<T: IpfsTypes>(
         Entry::Occupied(oe) => {
             // the easiest case: just join in, even if there are no other subscribers at the
             // moment
-            log::debug!("joining in existing subscription of {:?}", oe.key());
+            debug!("joining in existing subscription of {:?}", oe.key());
             oe.get().subscribe()
         }
         Entry::Vacant(ve) => {
@@ -204,7 +204,7 @@ async fn shovel<T: IpfsTypes>(
     mut shoveled: ipfs::SubscriptionStream,
     tx: broadcast::Sender<Result<PreformattedJsonMessage, StreamError>>,
 ) {
-    log::trace!(
+    trace!(
         "started background task for shoveling messages of {:?}",
         topic
     );
@@ -222,7 +222,7 @@ async fn shovel<T: IpfsTypes>(
                 Ok(None) => break,
                 Err(_) => {
                     if tx.receiver_count() == 0 {
-                        log::debug!("timed out shoveling with zero receivers");
+                        debug!("timed out shoveling with zero receivers");
                         break;
                     }
 
@@ -252,7 +252,7 @@ async fn shovel<T: IpfsTypes>(
                     // and reusing the existing broadcast::channel. this will fail if
                     // we introduce other Ipfs::pubsub_subscribe using code which does
                     // not use the `Pubsub` thing.
-                    log::debug!(
+                    debug!(
                         "resubscribing with the existing broadcast channel to {:?}",
                         topic
                     );
@@ -261,7 +261,7 @@ async fn shovel<T: IpfsTypes>(
                         .await
                         .expect("new subscriptions shouldn't fail while holding the lock");
                 } else {
-                    log::trace!(
+                    trace!(
                         "got a new subscriber to existing broadcast channel on {:?}",
                         topic
                     );
@@ -271,7 +271,7 @@ async fn shovel<T: IpfsTypes>(
             }
             // really no more subscribers, unsubscribe and terminate the shoveling
             // task for this stream.
-            log::debug!("unsubscribing from {:?}", topic);
+            debug!("unsubscribing from {:?}", topic);
             oe.remove();
             return;
         } else {
@@ -368,7 +368,7 @@ fn preformat(msg: impl AsRef<ipfs::PubsubMessage>) -> Result<PreformattedJsonMes
         .map(Bytes::from)
         .map(PreformattedJsonMessage::from)
         .map_err(|e| {
-            log::error!("failed to serialize {:?}: {}", msg.as_ref(), e);
+            error!("failed to serialize {:?}: {}", msg.as_ref(), e);
             StreamError::Serialization
         })
 }

@@ -3,7 +3,8 @@ use ipfs::{IpfsOptions, IpfsPath, PeerId, TestTypes, UninitializedIpfs};
 use std::str::FromStr;
 
 fn main() {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
+
     let options = IpfsOptions::<TestTypes>::default();
 
     task::block_on(async move {

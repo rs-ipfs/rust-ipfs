@@ -4,7 +4,8 @@ use ipfs::{IpfsOptions, IpfsPath, TestTypes, UninitializedIpfs};
 use std::str::FromStr;
 
 fn main() {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
+
     let options = IpfsOptions::<TestTypes>::default();
     let path =
         IpfsPath::from_str("/ipfs/zdpuB1caPcm4QNXeegatVfLQ839Lmprd5zosXGwRUBJHwj66X").unwrap();

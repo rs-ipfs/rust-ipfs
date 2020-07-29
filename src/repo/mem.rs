@@ -54,8 +54,12 @@ impl BlockStore for MemBlockStore {
         use std::collections::hash_map::Entry;
         let mut g = self.blocks.lock().await;
         match g.entry(RepoCid(block.cid.clone())) {
-            Entry::Occupied(_) => Ok((block.cid, BlockPut::Existed)),
+            Entry::Occupied(_) => {
+                trace!("already existing block");
+                Ok((block.cid, BlockPut::Existed))
+            }
             Entry::Vacant(ve) => {
+                trace!("new block");
                 let cid = ve.key().0.clone();
                 ve.insert(block);
                 Ok((cid, BlockPut::NewBlock))

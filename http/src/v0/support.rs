@@ -1,5 +1,4 @@
 use ipfs::{Ipfs, IpfsTypes};
-use log::warn;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::convert::Infallible;

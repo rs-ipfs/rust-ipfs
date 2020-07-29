@@ -262,15 +262,36 @@ impl TryFrom<&[u8]> for Message {
 
 impl std::fmt::Debug for Message {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        let mut first = true;
         for (cid, priority) in self.want() {
-            writeln!(fmt, "want: {} {}", cid.to_string(), priority)?;
+            if first {
+                first = false;
+            } else {
+                write!(fmt, ", ")?;
+            }
+            write!(fmt, "want: {} {}", cid, priority)?;
         }
         for cid in self.cancel() {
-            writeln!(fmt, "cancel: {}", cid.to_string())?;
+            if first {
+                first = false;
+            } else {
+                write!(fmt, ", ")?;
+            }
+            write!(fmt, "cancel: {}", cid)?;
         }
         for block in self.blocks() {
-            writeln!(fmt, "block: {}", block.cid().to_string())?;
+            if first {
+                first = false;
+            } else {
+                write!(fmt, ", ")?;
+            }
+            write!(fmt, "block: {}", block.cid())?;
         }
+
+        if first {
+            write!(fmt, "(empty message)")?;
+        }
+
         Ok(())
     }
 }

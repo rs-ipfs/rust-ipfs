@@ -6,7 +6,7 @@
 #![cfg_attr(feature = "nightly", doc(include = "../README.md"))]
 
 #[macro_use]
-extern crate log;
+extern crate tracing;
 
 use anyhow::{anyhow, format_err};
 use async_std::path::PathBuf;
@@ -705,7 +705,7 @@ impl<TRepoTypes: RepoTypes> IpfsFuture<TRepoTypes> {
                             .remove(&first)
                             .expect("just filtered this key out");
                         self.listening_addresses.insert(addr.clone(), (id, None));
-                        log::trace!("guessing the first match for {} to be {}", first, addr);
+                        trace!("guessing the first match for {} to be {}", first, addr);
                         maybe_sender
                     } else {
                         None

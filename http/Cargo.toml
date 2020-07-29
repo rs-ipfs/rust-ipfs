@@ -13,11 +13,9 @@ vergen = "3.1.0"
 async-std = { default-features = false, features = ["attributes"], version = "1.6" }
 base64 = "0.12.0"
 cid = "0.5"
-env_logger = "0.7.1"
 futures = "0.3.4"
 ipfs = { path = "../" }
 libipld = { git = "https://github.com/ljedrz/rust-ipld", branch = "update_cid", features = ["dag-pb", "dag-json"] }
-log = "0.4.8"
 multibase = "0.8.0"
 multihash = "0.11"
 # openssl is required for rsa keygen but not used by the rust-ipfs or its dependencies
@@ -35,6 +33,8 @@ async-stream = "0.2.1"
 pin-project = "0.4.8"
 url = "2.1.1"
 tar = { version = "0.4.28", default-features = false }
+tracing = { version = "0.1", features = ["log"] }
+tracing-subscriber = { version = "0.2", features = ["fmt", "tracing-log"] }
 bytes = "0.5.4"
 mpart-async = "0.4.1"
 mime = "0.3.16"
