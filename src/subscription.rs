@@ -156,7 +156,7 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
             return;
         }
 
-        log::debug!("Shutting down {:?}", self);
+        debug!("Shutting down {:?}", self);
 
         let mut cancelled = 0;
         let mut subscriptions = mem::take(&mut *task::block_on(async {
@@ -170,7 +170,7 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
             }
         }
 
-        log::debug!("Cancelled {} subscriptions", cancelled);
+        debug!("Cancelled {} subscriptions", cancelled);
     }
 }
 

@@ -43,7 +43,7 @@ async fn refs_inner<T: IpfsTypes>(
     let formatter = EdgeFormatter::from_options(opts.edges, opts.format.as_deref())
         .map_err(StringError::from)?;
 
-    log::trace!(
+    trace!(
         "refs on {:?} to depth {:?} with formatter: {:?}",
         opts.arg,
         max_depth,
@@ -67,7 +67,7 @@ async fn refs_inner<T: IpfsTypes>(
         .await
         .map_err(StringError::from)?
         .map_err(|e| {
-            log::warn!("refs path on {:?} failed with {}", &opts.arg, e);
+            warn!("refs path on {:?} failed with {}", &opts.arg, e);
             e
         })
         .map_err(StringError::from)?;
@@ -96,7 +96,7 @@ async fn refs_inner<T: IpfsTypes>(
                 Ok(s.into_bytes())
             }
             Err(e) => {
-                log::error!("edge serialization failed: {}", e);
+                error!("edge serialization failed: {}", e);
                 Err(HandledErr)
             }
         }
@@ -456,14 +456,14 @@ fn iplds_refs<T: IpfsTypes>(
             };
 
             if unique && !visited.insert(cid.clone()) {
-                log::trace!("skipping already visited {}", cid);
+                trace!("skipping already visited {}", cid);
                 continue;
             }
 
             let data = match ipfs.get_block(&cid).await {
                 Ok(Block { data, .. }) => data,
                 Err(e) => {
-                    log::warn!("failed to load {}, linked from {}: {}", cid, source, e);
+                    warn!("failed to load {}, linked from {}: {}", cid, source, e);
                     // TODO: yield error msg
                     // unsure in which cases this happens, because we'll start to search the content
                     // and stop only when request has been cancelled (FIXME: not yet, because dropping
@@ -475,7 +475,7 @@ fn iplds_refs<T: IpfsTypes>(
             let mut ipld = match decode_ipld(&cid, &data) {
                 Ok(ipld) => ipld,
                 Err(e) => {
-                    log::warn!("failed to parse {}, linked from {}: {}", cid, source, e);
+                    warn!("failed to parse {}, linked from {}: {}", cid, source, e);
                     // TODO: yield error msg
                     // go-ipfs on raw Qm hash:
                     // > failed to decode Protocol Buffers: incorrectly formatted merkledag node: unmarshal failed. proto: illegal wireType 6

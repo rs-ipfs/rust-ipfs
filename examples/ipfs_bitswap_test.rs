@@ -6,6 +6,8 @@ use libipld::cid::{Cid, Codec};
 use multihash::Sha2_256;
 
 fn main() {
+    tracing_subscriber::fmt::init();
+
     let options = IpfsOptions::<TestTypes>::default();
 
     // this example demonstrates

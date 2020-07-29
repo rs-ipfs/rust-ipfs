@@ -212,7 +212,7 @@ async fn rm_query<T: IpfsTypes>(
                 Ok(string.into_bytes())
             }
             Err(e) => {
-                log::error!("edge serialization failed: {}", e);
+                error!("edge serialization failed: {}", e);
                 Err(HandledErr)
             }
         });

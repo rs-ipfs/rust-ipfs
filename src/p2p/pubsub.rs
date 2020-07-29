@@ -326,7 +326,7 @@ impl NetworkBehaviour for Pubsub {
                 Poll::Ready(Some(dropped)) => {
                     let topic = Topic::new(dropped);
                     if self.streams.remove(&topic).is_some() {
-                        log::debug!("unsubscribing via drop from {:?}", topic.id());
+                        debug!("unsubscribing via drop from {:?}", topic.id());
                         assert!(
                             self.floodsub.unsubscribe(topic),
                             "Failed to unsubscribe a dropped subscription"
@@ -356,7 +356,7 @@ impl NetworkBehaviour for Pubsub {
                             if let Err(se) = oe.get().unbounded_send(sent) {
                                 // receiver has dropped
                                 let (topic, _) = oe.remove_entry();
-                                log::debug!("unsubscribing via SendError from {:?}", topic.id());
+                                debug!("unsubscribing via SendError from {:?}", topic.id());
                                 assert!(
                                     self.floodsub.unsubscribe(topic),
                                     "Failed to unsubscribe following SendError"
@@ -382,7 +382,7 @@ impl NetworkBehaviour for Pubsub {
                     }
 
                     if appeared {
-                        log::debug!("peer appeared as pubsub subscriber: {}", peer_id);
+                        debug!("peer appeared as pubsub subscriber: {}", peer_id);
                     }
 
                     continue;
@@ -397,7 +397,7 @@ impl NetworkBehaviour for Pubsub {
                             topics.swap_remove(pos);
                         }
                         if topics.is_empty() {
-                            log::debug!("peer disappeared as pubsub subscriber: {}", peer_id);
+                            debug!("peer disappeared as pubsub subscriber: {}", peer_id);
                             oe.remove();
                         }
                     }
