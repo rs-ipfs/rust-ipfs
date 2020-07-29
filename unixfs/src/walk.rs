@@ -117,31 +117,45 @@ impl Walker {
     /// to further continue the walk. `bytes` is the raw data of the next block, `cache` is an
     /// optional cache for data structures which can always be substituted with `&mut None`.
     pub fn continue_walk<'a>(
-        mut self,
+        self,
         bytes: &'a [u8],
         cache: &mut Option<Cache>,
     ) -> Result<ContinuedWalk<'a>, Error> {
         use InnerKind::*;
 
-        if let Some(File(_, visit @ Some(_), _)) = self.current.as_mut().map(|c| &mut c.kind) {
-            // we have an ongoing filevisit, the block must be related to it.
-            let (bytes, step) = visit
-                .take()
-                .expect("matched visit was Some")
-                .continue_walk(bytes, cache)?;
+        let Self {
+            mut current,
+            next,
+            mut pending,
+        } = self;
 
-            let file_continues = step.is_some();
-            *visit = step;
+        if let Some(mut ie) = current.take() {
+            if let File(_, visit @ Some(_), _) = &mut ie.kind {
+                // we have an ongoing filevisit, the block must be related to it.
+                let (bytes, step) = visit
+                    .take()
+                    .expect("matched visit was Some")
+                    .continue_walk(bytes, cache)?;
 
-            let segment = FileSegment::later(bytes, !file_continues);
+                let file_continues = step.is_some();
+                *visit = step;
 
-            let state = if file_continues || self.next.is_some() {
-                State::Unfinished(self)
+                let segment = FileSegment::later(bytes, !file_continues);
+
+                let state = if file_continues || next.is_some() {
+                    State::Unfinished(Self {
+                        current: Some(ie),
+                        next,
+                        pending,
+                    })
+                } else {
+                    State::Last(ie)
+                };
+
+                return Ok(ContinuedWalk::File(segment, Item::from(state)));
             } else {
-                State::Last(self.current.unwrap())
-            };
-
-            return Ok(ContinuedWalk::File(segment, Item::from(state)));
+                current = Some(ie);
+            }
         }
 
         let flat = FlatUnixFs::try_from(bytes)?;
@@ -150,15 +164,14 @@ impl Walker {
         match flat.data.Type {
             UnixFsType::Directory => {
                 let flat = crate::dir::check_directory_supported(flat)?;
+                let (cid, name, depth) = next.expect("validated at new and earlier in this method");
 
-                let (cid, name, depth) = self
-                    .next
-                    .expect("validated at new and earlier in this method");
-                match self.current.as_mut() {
-                    Some(current) => current.as_directory(cid, &name, depth, metadata),
-                    _ => {
-                        self.current = Some(InnerEntry::new_root_dir(cid, metadata, &name, depth));
+                let ie = match current {
+                    Some(mut ie) => {
+                        ie.as_directory(cid, &name, depth, metadata);
+                        ie
                     }
+                    _ => InnerEntry::new_root_dir(cid, metadata, &name, depth),
                 };
 
                 // depth + 1 because all entries below a directory are children of next, as in,
@@ -173,22 +186,18 @@ impl Walker {
                 // replacing this with try_fold takes as many lines as the R: Try<Ok = B> cannot be
                 // deduced without specifying the Error
 
-                let mut pending = {
-                    let mut pending = self.pending;
-                    for link in links {
-                        pending.push(link?);
-                    }
-                    pending
-                };
+                for link in links {
+                    pending.push(link?);
+                }
 
                 let state = if let Some(next) = pending.pop() {
                     State::Unfinished(Self {
-                        current: self.current,
+                        current: Some(ie),
                         next: Some(next),
                         pending,
                     })
                 } else {
-                    State::Last(self.current.unwrap())
+                    State::Last(ie)
                 };
 
                 Ok(ContinuedWalk::Directory(Item::from(state)))
@@ -197,23 +206,21 @@ impl Walker {
                 let flat = crate::dir::check_hamtshard_supported(flat)?;
 
                 // TODO: the first hamtshard must have metadata!
-                let (cid, name, depth) = self.next.expect("validated at start and this method");
+                let (cid, name, depth) = next.expect("validated at start and this method");
 
-                match self.current.as_mut() {
-                    Some(current) => {
+                let ie = match current {
+                    Some(mut ie) => {
                         if name.is_empty() {
                             // the name should be empty for all of the siblings
-                            current.as_bucket(cid, &name, depth);
+                            ie.as_bucket(cid, &name, depth);
                         } else {
                             // but it should be non-empty for the directories
-                            current.as_bucket_root(cid, &name, depth, metadata);
+                            ie.as_bucket_root(cid, &name, depth, metadata);
                         }
+                        ie
                     }
-                    _ => {
-                        self.current =
-                            Some(InnerEntry::new_root_bucket(cid, metadata, &name, depth));
-                    }
-                }
+                    _ => InnerEntry::new_root_bucket(cid, metadata, &name, depth),
+                };
 
                 // similar to directory, the depth is +1 for nested entries, but the sibling buckets
                 // are at depth
@@ -228,22 +235,18 @@ impl Walker {
                 // the depth ascending. This should make sure we are first visiting the shortest
                 // path items.
 
-                let mut pending = {
-                    let mut pending = self.pending;
-                    for link in links {
-                        pending.push(link?);
-                    }
-                    pending
-                };
+                for link in links {
+                    pending.push(link?);
+                }
 
                 let state = if let Some(next) = pending.pop() {
                     State::Unfinished(Self {
-                        current: self.current,
+                        current: Some(ie),
                         next: Some(next),
                         pending,
                     })
                 } else {
-                    State::Last(self.current.unwrap())
+                    State::Last(ie)
                 };
 
                 Ok(ContinuedWalk::Directory(Item::from(state)))
@@ -251,32 +254,28 @@ impl Walker {
             UnixFsType::Raw | UnixFsType::File => {
                 let (bytes, file_size, metadata, step) =
                     IdleFileVisit::default().start_from_parsed(flat, cache)?;
-
-                let (cid, name, depth) = self
-                    .next
-                    .expect("validated at new and earlier in this method");
+                let (cid, name, depth) = next.expect("validated at new and earlier in this method");
                 let file_continues = step.is_some();
 
-                match self.current.as_mut() {
-                    Some(current) => current.as_file(cid, &name, depth, metadata, step, file_size),
-                    _ => {
-                        self.current = Some(InnerEntry::new_root_file(
-                            cid, metadata, &name, step, file_size, depth,
-                        ))
+                let ie = match current {
+                    Some(mut ie) => {
+                        ie.as_file(cid, &name, depth, metadata, step, file_size);
+                        ie
                     }
-                }
+                    _ => InnerEntry::new_root_file(cid, metadata, &name, step, file_size, depth),
+                };
 
-                let next = self.pending.pop();
+                let next = pending.pop();
                 let segment = FileSegment::first(bytes, !file_continues);
 
                 let state = if file_continues || next.is_some() {
                     State::Unfinished(Self {
-                        current: self.current,
+                        current: Some(ie),
                         next,
-                        pending: self.pending,
+                        pending,
                     })
                 } else {
-                    State::Last(self.current.unwrap())
+                    State::Last(ie)
                 };
 
                 Ok(ContinuedWalk::File(segment, Item::from(state)))
@@ -289,23 +288,23 @@ impl Walker {
                     _ => unreachable!("never used into_owned"),
                 };
 
-                let (cid, name, depth) = self.next.expect("continued without next");
-                match self.current.as_mut() {
-                    Some(current) => current.as_symlink(cid, &name, depth, metadata),
-                    _ => {
-                        self.current =
-                            Some(InnerEntry::new_root_symlink(cid, metadata, &name, depth));
+                let (cid, name, depth) = next.expect("continued without next");
+                let ie = match current {
+                    Some(mut ie) => {
+                        ie.as_symlink(cid, &name, depth, metadata);
+                        ie
                     }
-                }
+                    _ => InnerEntry::new_root_symlink(cid, metadata, &name, depth),
+                };
 
-                let state = if let next @ Some(_) = self.pending.pop() {
+                let state = if let next @ Some(_) = pending.pop() {
                     State::Unfinished(Self {
-                        current: self.current,
+                        current: Some(ie),
                         next,
-                        pending: self.pending,
+                        pending,
                     })
                 } else {
-                    State::Last(self.current.unwrap())
+                    State::Last(ie)
                 };
 
                 Ok(ContinuedWalk::Symlink(contents, Item::from(state)))
