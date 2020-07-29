@@ -103,6 +103,7 @@ impl Bitswap {
     ///
     /// Called from a Strategy.
     pub fn send_block(&mut self, peer_id: PeerId, block: Block) {
+        trace!("queueing block to be sent to {}: {}", peer_id, block.cid);
         let ledger = self
             .connected_peers
             .get_mut(&peer_id)
@@ -178,11 +179,7 @@ impl NetworkBehaviour for Bitswap {
     }
 
     fn inject_event(&mut self, source: PeerId, _connection: ConnectionId, mut message: Message) {
-        debug!(
-            "bitswap: inject_event from {}: {:?}",
-            source.to_base58(),
-            message
-        );
+        debug!("bitswap: inject_event from {}: {:?}", source, message);
 
         let current_wantlist = self.local_wantlist();
 

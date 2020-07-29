@@ -61,15 +61,7 @@ impl fmt::Display for RequestKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Connect(addr) => write!(fmt, "Connect to {}", addr),
-            Self::GetBlock(cid) => write!(
-                fmt,
-                "Obtain block {}",
-                cid.hash()
-                    .digest()
-                    .iter()
-                    .map(|b| format!("{:02x}", b))
-                    .collect::<String>()
-            ),
+            Self::GetBlock(cid) => write!(fmt, "Obtain block {}", cid),
             Self::KadQuery(id) => write!(fmt, "Kad request {:?}", id),
             #[cfg(test)]
             Self::Num(n) => write!(fmt, "A test request for {}", n),
@@ -203,7 +195,6 @@ impl fmt::Display for Cancelled {
 impl std::error::Error for Cancelled {}
 
 /// Represents a request for a resource at different stages of its lifetime.
-#[derive(Debug)]
 pub enum Subscription<TRes> {
     /// A finished `Subscription` containing the desired `TRes` value.
     Ready(TRes),
@@ -216,6 +207,32 @@ pub enum Subscription<TRes> {
     },
     /// A void subscription that was either cancelled or otherwise aborted.
     Cancelled,
+}
+
+impl<TRes> fmt::Debug for Subscription<TRes> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Subscription::*;
+        match self {
+            Ready(_) => write!(fmt, "Ready"),
+            Pending {
+                waker: Some(_),
+                cancel_notifier: Some(_),
+            } => write!(fmt, "Pending {{ waker: Some, cancel_notifier: Some }}"),
+            Pending {
+                waker: None,
+                cancel_notifier: Some(_),
+            } => write!(fmt, "Pending {{ waker: None, cancel_notifier: Some }}"),
+            Pending {
+                waker: Some(_),
+                cancel_notifier: None,
+            } => write!(fmt, "Pending {{ waker: Some, cancel_notifier: None }}"),
+            Pending {
+                waker: None,
+                cancel_notifier: None,
+            } => write!(fmt, "Pendnig {{ waker: None, cancel_notifier: None }}"),
+            Cancelled => write!(fmt, "Cancelled"),
+        }
+    }
 }
 
 impl<TRes> Subscription<TRes> {
