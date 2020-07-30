@@ -72,14 +72,16 @@ jobs:
 
     - name: Get npm cache directory
       id: npm-cache
+      if: matrix.platform.cross == false
       run: |
         echo "::set-output name=dir::$(npm config get cache)"
 
-    - name: Cache npm
+    - name: Cache npm (non-cross targets)
       uses: actions/cache@v2
+      if: matrix.platform.cross == false
       with:
         path: ${{ steps.npm-cache.outputs.dir }}
-        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json', '**/setup.sh') }}
+        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json', '**/setup.sh', '**/*.patch') }}
         restore-keys: |
           ${{ runner.os }}-node-
 
