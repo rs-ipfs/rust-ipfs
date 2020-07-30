@@ -65,7 +65,9 @@ jobs:
     - name: Cache cargo folder
       uses: actions/cache@v2
       with:
-        path: ~/.cargo
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
         key: ${{ matrix.platform.target }}-dot-cargo-${{ hashFiles('Cargo.lock') }}
 
     - name: Get npm cache directory
