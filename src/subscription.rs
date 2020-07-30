@@ -121,6 +121,7 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
             id,
             kind,
             subscriptions: Arc::clone(&self.subscriptions),
+            cleanup_complete: false,
         }
     }
 
@@ -284,37 +285,66 @@ pub struct SubscriptionFuture<TRes: Debug + PartialEq> {
     kind: RequestKind,
     /// A reference to the subscriptions at the `SubscriptionRegistry`.
     subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
+    /// True if the cleanup is already done, false if `Drop` needs to do it
+    cleanup_complete: bool,
 }
 
 impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
     type Output = Result<TRes, Cancelled>;
 
-    fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
-        let mut subscription = {
-            // don't hold the lock for too long, otherwise the `Drop` impl for `SubscriptionFuture`
-            // can cause a stack overflow
-            let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
-            if let Some(sub) = subscriptions
-                .get_mut(&self.kind)
-                .and_then(|subs| subs.remove(&self.id))
-            {
-                sub
-            } else {
-                // the subscription must already have been cancelled
-                return Poll::Ready(Err(Cancelled));
-            }
-        };
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
+        use std::collections::hash_map::Entry::*;
 
-        match subscription {
-            Subscription::Cancelled => Poll::Ready(Err(Cancelled)),
-            Subscription::Pending { ref mut waker, .. } => {
-                *waker = Some(context.waker().clone());
-                task::block_on(async { self.subscriptions.lock().await })
-                    .get_mut(&self.kind)
-                    .and_then(|subs| subs.insert(self.id, subscription));
-                Poll::Pending
+        // FIXME: using task::block_on ever is quite unfortunate. alternatives which have been
+        // discussed:
+        //
+        // - going back to std::sync::Mutex
+        // - using a state machine
+        //
+        // std::sync::Mutex might be ok here as long as we don't really need to await after
+        // acquiring. implementing the state machine manually might not be possible as all mutexes
+        // lock futures seem to need a borrow, however using async fn does not allow implementing
+        // Drop.
+        let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
+
+        if let Some(related_subs) = subscriptions.get_mut(&self.kind) {
+            let (became_empty, ret) = match related_subs.entry(self.id) {
+                // there were no related subs, it can only mean cancellation or polling after
+                // Poll::Ready
+                Vacant(_) => return Poll::Ready(Err(Cancelled)),
+                Occupied(mut oe) => {
+                    let unwrapped = match oe.get_mut() {
+                        Subscription::Pending { ref mut waker, .. } => {
+                            // waker may have changed since the last time
+                            *waker = Some(context.waker().clone());
+                            return Poll::Pending;
+                        }
+                        Subscription::Cancelled => {
+                            oe.remove();
+                            Err(Cancelled)
+                        }
+                        _ => match oe.remove() {
+                            Subscription::Ready(result) => Ok(result),
+                            _ => unreachable!("already matched"),
+                        },
+                    };
+
+                    (related_subs.is_empty(), unwrapped)
+                }
+            };
+
+            if became_empty {
+                // early cleanup if possible for cancelled and ready. the pending variant has the
+                // chance of sending out the cancellation message so it cannot be treated here
+                subscriptions.remove(&self.kind);
             }
-            Subscription::Ready(result) => Poll::Ready(Ok(result)),
+
+            // need to drop manually to aid borrowck at least in 1.45
+            drop(subscriptions);
+            self.cleanup_complete = became_empty;
+            Poll::Ready(ret)
+        } else {
+            Poll::Ready(Err(Cancelled))
         }
     }
 }
@@ -322,6 +352,11 @@ impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
 impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
     fn drop(&mut self) {
         debug!("Dropping subscription {} to {}", self.id, self.kind);
+
+        if self.cleanup_complete {
+            // cleaned up the easier variants already
+            return;
+        }
 
         let (sub, is_last) = task::block_on(async {
             let mut subscriptions = self.subscriptions.lock().await;
@@ -334,13 +369,20 @@ impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
             // check if this is the last subscription to this resource
             let is_last = related_subs.is_empty();
 
+            if is_last {
+                subscriptions.remove(&self.kind);
+            }
+
             (sub, is_last)
         });
 
         if let Some(sub) = sub {
             // don't bother updating anything that isn't `Pending`
             if let mut sub @ Subscription::Pending { .. } = sub {
-                debug!("It was the last related subscription, sending a cancel notification");
+                debug!(
+                    "Last related subscription dropped, sending a cancel notification for {} to {}",
+                    self.id, self.kind
+                );
                 sub.cancel(self.kind.clone(), is_last);
             }
         }
