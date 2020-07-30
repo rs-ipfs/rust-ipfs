@@ -10,8 +10,8 @@ async fn kademlia_local_peer_discovery() {
 
     // start up PEER_COUNT bootstrapper nodes
     let mut bootstrappers = Vec::with_capacity(BOOTSTRAPPER_COUNT);
-    for _ in 0..BOOTSTRAPPER_COUNT {
-        bootstrappers.push(Node::new().await);
+    for i in 0..BOOTSTRAPPER_COUNT {
+        bootstrappers.push(Node::new(format!("bootstrapper_{}", i)).await);
     }
 
     // register the bootstrappers' ids and addresses
@@ -37,7 +37,7 @@ async fn kademlia_local_peer_discovery() {
     }
 
     // introduce a peer and connect it to one of the bootstrappers
-    let peer = Node::new().await;
+    let peer = Node::new("peer").await;
     assert!(peer
         .add_peer(
             bootstrapper_ids[0].0.clone(),
@@ -64,7 +64,7 @@ async fn kademlia_popular_content_discovery() {
 
     // introduce a peer and specify the Kademlia protocol to it
     // without a specified protocol, the test will not complete
-    let mut opts = IpfsOptions::inmemory_with_generated_keys();
+    let mut opts = IpfsOptions::inmemory_with_generated_keys("test_node");
     opts.kad_protocol = Some("/ipfs/lan/kad/1.0.0".to_owned());
     let peer = Node::with_options(opts).await;
 

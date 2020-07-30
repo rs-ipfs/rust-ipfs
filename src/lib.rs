@@ -20,6 +20,7 @@ use futures::stream::{Fuse, Stream};
 pub use libipld::ipld::Ipld;
 pub use libp2p::core::{connection::ListenerId, ConnectedPoint, Multiaddr, PeerId, PublicKey};
 pub use libp2p::identity::Keypair;
+use tracing_futures::Instrument;
 
 use std::borrow::Borrow;
 use std::collections::HashMap;
@@ -83,6 +84,8 @@ impl RepoTypes for TestTypes {
 #[derive(Clone)]
 pub struct IpfsOptions<Types: IpfsTypes> {
     _marker: PhantomData<Types>,
+    /// The name of the node.
+    pub name: String,
     /// The path of the ipfs repo.
     pub ipfs_path: PathBuf,
     /// The keypair used with libp2p.
@@ -111,8 +114,9 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
 
 impl IpfsOptions<TestTypes> {
     /// Creates an inmemory store backed node for tests
-    pub fn inmemory_with_generated_keys() -> Self {
+    pub fn inmemory_with_generated_keys<T: AsRef<str>>(name: T) -> Self {
         Self {
+            name: name.as_ref().to_owned(),
             _marker: PhantomData,
             ipfs_path: std::env::temp_dir().into(),
             keypair: Keypair::generate_ed25519(),
@@ -147,7 +151,8 @@ impl<I: Borrow<Keypair>> DebuggableKeypair<I> {
 }
 
 impl<Types: IpfsTypes> IpfsOptions<Types> {
-    pub fn new(
+    pub fn new<T: AsRef<str>>(
+        name: T,
         ipfs_path: PathBuf,
         keypair: Keypair,
         bootstrap: Vec<(Multiaddr, PeerId)>,
@@ -155,12 +160,13 @@ impl<Types: IpfsTypes> IpfsOptions<Types> {
         kad_protocol: Option<String>,
     ) -> Self {
         Self {
-            _marker: PhantomData,
+            name: name.as_ref().to_owned(),
             ipfs_path,
             keypair,
             bootstrap,
             mdns,
             kad_protocol,
+            _marker: PhantomData,
         }
     }
 }
@@ -205,12 +211,13 @@ impl<T: IpfsTypes> Default for IpfsOptions<T> {
         let bootstrap = config.bootstrap();
 
         IpfsOptions {
-            _marker: PhantomData,
+            name: "local_node".into(),
             ipfs_path,
             keypair,
             bootstrap,
             mdns: true,
             kad_protocol: None,
+            _marker: PhantomData,
         }
     }
 }
@@ -228,6 +235,7 @@ impl<Types: IpfsTypes> Clone for Ipfs<Types> {
 /// for interacting with IPFS.
 #[derive(Debug)]
 pub struct IpfsInner<Types: IpfsTypes> {
+    name: String,
     repo: Repo<Types>,
     keys: DebuggableKeypair<Keypair>,
     to_task: Sender<IpfsEvent>,
@@ -292,9 +300,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
     /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
     /// future should be spawned on a executor as soon as possible.
-    pub async fn start(
-        mut self,
-    ) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
+    pub async fn start(mut self) -> Result<(Ipfs<Types>, impl Future<Output = ()>), Error> {
         use futures::stream::StreamExt;
 
         let repo = Option::take(&mut self.repo).unwrap();
@@ -310,6 +316,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let UninitializedIpfs { keys, .. } = self;
 
         let ipfs = Ipfs(Arc::new(IpfsInner {
+            name: self.options.name.clone(),
             repo,
             keys: DebuggableKeypair(keys),
             to_task,
@@ -337,6 +344,12 @@ impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
     }
 }
 
+macro_rules! traced {
+    ($name:expr, $op:expr) => {{
+        $op.instrument(tracing::trace_span!("facade", node = $name.as_str()))
+    }};
+}
+
 impl<Types: IpfsTypes> Ipfs<Types> {
     fn dag(&self) -> IpldDag<Types> {
         IpldDag::new(self.clone())
@@ -348,13 +361,13 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Puts a block into the ipfs repo.
     pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
-        Ok(self.repo.put_block(block).await?.0)
+        Ok(traced!(&self.name, self.repo.put_block(block)).await?.0)
     }
 
     /// Retrieves a block from the local blockstore, or starts fetching from the network or join an
     /// already started fetch.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
-        Ok(self.repo.get_block(cid).await?)
+        Ok(traced!(&self.name, self.repo.get_block(cid)).await?)
     }
 
     /// Remove block from the ipfs repo.
@@ -963,23 +976,28 @@ mod node {
     }
 
     impl Node {
-        pub async fn new() -> Self {
-            let opts = IpfsOptions::inmemory_with_generated_keys();
+        pub async fn new<T: AsRef<str>>(name: T) -> Self {
+            let opts = IpfsOptions::inmemory_with_generated_keys(name);
             Node::with_options(opts).await
         }
 
         pub async fn with_options(opts: IpfsOptions<TestTypes>) -> Self {
+            let name = opts.name.clone();
             let (ipfs, fut) = UninitializedIpfs::new(opts)
+                .instrument(tracing::trace_span!("init", node = name.as_str()))
                 .await
                 .start()
+                .instrument(tracing::trace_span!("start", node = name.as_str()))
                 .await
-                .expect("Inmemory instance must succeed start");
+                .unwrap();
 
-            let jh = async_std::task::spawn(fut);
+            let background_task = async_std::task::spawn(
+                fut.instrument(tracing::trace_span!("bgtask", node = name.as_str())),
+            );
 
             Node {
                 ipfs,
-                background_task: jh,
+                background_task,
             }
         }
 
@@ -1095,7 +1113,7 @@ mod tests {
     use multihash::Sha2_256;
 
     pub async fn create_mock_ipfs() -> Ipfs<TestTypes> {
-        let options = IpfsOptions::inmemory_with_generated_keys();
+        let options = IpfsOptions::inmemory_with_generated_keys("test_node");
         let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
         task::spawn(fut);
 
