@@ -369,13 +369,20 @@ impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
             // check if this is the last subscription to this resource
             let is_last = related_subs.is_empty();
 
+            if is_last {
+                subscriptions.remove(&self.kind);
+            }
+
             (sub, is_last)
         });
 
         if let Some(sub) = sub {
             // don't bother updating anything that isn't `Pending`
             if let mut sub @ Subscription::Pending { .. } = sub {
-                debug!("It was the last related subscription, sending a cancel notification");
+                debug!(
+                    "Last related subscription dropped, sending a cancel notification for {} to {}",
+                    self.id, self.kind
+                );
                 sub.cancel(self.kind.clone(), is_last);
             }
         }
