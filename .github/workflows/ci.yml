@@ -68,7 +68,7 @@ jobs:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
-        key: ${{ matrix.platform.target }}-dot-cargo-${{ hashFiles('Cargo.lock') }}
+        key: ${{ matrix.platform.target }}-dot-cargo-parts-${{ hashFiles('Cargo.lock') }}
 
     - name: Get npm cache directory
       id: npm-cache
