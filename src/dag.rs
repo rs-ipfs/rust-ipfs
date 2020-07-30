@@ -94,12 +94,12 @@ fn resolve(ipld: Ipld, sub_path: &SubPath) -> Ipld {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::create_mock_ipfs;
+    use crate::Node;
     use libipld::ipld;
 
     #[async_std::test]
     async fn test_resolve_root_cid() {
-        let ipfs = create_mock_ipfs().await;
+        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let data = ipld!([1, 2, 3]);
         let cid = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
@@ -109,7 +109,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_resolve_array_elem() {
-        let ipfs = create_mock_ipfs().await;
+        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let data = ipld!([1, 2, 3]);
         let cid = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
@@ -122,7 +122,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_resolve_nested_array_elem() {
-        let ipfs = create_mock_ipfs().await;
+        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let data = ipld!([1, [2], 3,]);
         let cid = dag.put(data, Codec::DagCBOR).await.unwrap();
@@ -135,7 +135,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_resolve_object_elem() {
-        let ipfs = create_mock_ipfs().await;
+        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let data = ipld!({
             "key": false,
@@ -150,7 +150,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_resolve_cid_elem() {
-        let ipfs = create_mock_ipfs().await;
+        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let data1 = ipld!([1]);
         let cid1 = dag.put(data1, Codec::DagCBOR).await.unwrap();

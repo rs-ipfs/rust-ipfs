@@ -71,12 +71,12 @@ impl Into<String> for File {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::create_mock_ipfs;
+    use crate::Node;
     use core::convert::TryFrom;
 
     #[async_std::test]
     async fn test_file_cid() {
-        let ipfs = create_mock_ipfs().await;
+        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let file = File::from("\u{8}\u{2}\u{12}\u{12}Here is some data\n\u{18}\u{12}");
         let cid = Cid::try_from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();

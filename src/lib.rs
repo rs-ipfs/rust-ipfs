@@ -20,6 +20,7 @@ use futures::stream::{Fuse, Stream};
 pub use libipld::ipld::Ipld;
 pub use libp2p::core::{connection::ListenerId, ConnectedPoint, Multiaddr, PeerId, PublicKey};
 pub use libp2p::identity::Keypair;
+use tracing::Span;
 use tracing_futures::Instrument;
 
 use std::borrow::Borrow;
@@ -84,8 +85,6 @@ impl RepoTypes for TestTypes {
 #[derive(Clone)]
 pub struct IpfsOptions<Types: IpfsTypes> {
     _marker: PhantomData<Types>,
-    /// The name of the node.
-    pub name: String,
     /// The path of the ipfs repo.
     pub ipfs_path: PathBuf,
     /// The keypair used with libp2p.
@@ -114,9 +113,8 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
 
 impl IpfsOptions<TestTypes> {
     /// Creates an inmemory store backed node for tests
-    pub fn inmemory_with_generated_keys<T: AsRef<str>>(name: T) -> Self {
+    pub fn inmemory_with_generated_keys() -> Self {
         Self {
-            name: name.as_ref().to_owned(),
             _marker: PhantomData,
             ipfs_path: std::env::temp_dir().into(),
             keypair: Keypair::generate_ed25519(),
@@ -151,8 +149,7 @@ impl<I: Borrow<Keypair>> DebuggableKeypair<I> {
 }
 
 impl<Types: IpfsTypes> IpfsOptions<Types> {
-    pub fn new<T: AsRef<str>>(
-        name: T,
+    pub fn new(
         ipfs_path: PathBuf,
         keypair: Keypair,
         bootstrap: Vec<(Multiaddr, PeerId)>,
@@ -160,7 +157,6 @@ impl<Types: IpfsTypes> IpfsOptions<Types> {
         kad_protocol: Option<String>,
     ) -> Self {
         Self {
-            name: name.as_ref().to_owned(),
             ipfs_path,
             keypair,
             bootstrap,
@@ -211,7 +207,6 @@ impl<T: IpfsTypes> Default for IpfsOptions<T> {
         let bootstrap = config.bootstrap();
 
         IpfsOptions {
-            name: "local_node".into(),
             ipfs_path,
             keypair,
             bootstrap,
@@ -235,7 +230,7 @@ impl<Types: IpfsTypes> Clone for Ipfs<Types> {
 /// for interacting with IPFS.
 #[derive(Debug)]
 pub struct IpfsInner<Types: IpfsTypes> {
-    name: String,
+    span: Span,
     repo: Repo<Types>,
     keys: DebuggableKeypair<Keypair>,
     to_task: Sender<IpfsEvent>,
@@ -278,20 +273,23 @@ enum IpfsEvent {
 /// Configured Ipfs instace or value which can be only initialized.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
     repo: Option<Repo<Types>>,
+    span: Span,
     keys: Keypair,
     options: IpfsOptions<Types>,
     moved_on_init: Option<Receiver<RepoEvent>>,
 }
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
-    /// Configures a new UninitializedIpfs with from the given options.
-    pub async fn new(options: IpfsOptions<Types>) -> Self {
+    /// Configures a new UninitializedIpfs with from the given options and optionally a span.
+    pub async fn new(options: IpfsOptions<Types>, span: Option<Span>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let keys = options.keypair.clone();
+        let span = span.unwrap_or_else(|| tracing::trace_span!("ipfs"));
 
         UninitializedIpfs {
             repo: Some(repo),
+            span,
             keys,
             options,
             moved_on_init: Some(repo_events),
@@ -313,10 +311,10 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
         let (to_task, receiver) = channel::<IpfsEvent>(1);
 
-        let UninitializedIpfs { keys, .. } = self;
+        let UninitializedIpfs { span, keys, .. } = self;
 
         let ipfs = Ipfs(Arc::new(IpfsInner {
-            name: self.options.name.clone(),
+            span,
             repo,
             keys: DebuggableKeypair(keys),
             to_task,
@@ -344,12 +342,6 @@ impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
     }
 }
 
-macro_rules! traced {
-    ($name:expr, $op:expr) => {{
-        $op.instrument(tracing::trace_span!("facade", node = $name.as_str()))
-    }};
-}
-
 impl<Types: IpfsTypes> Ipfs<Types> {
     fn dag(&self) -> IpldDag<Types> {
         IpldDag::new(self.clone())
@@ -361,13 +353,13 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Puts a block into the ipfs repo.
     pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
-        Ok(traced!(&self.name, self.repo.put_block(block)).await?.0)
+        Ok(self.repo.put_block(block).await?.0)
     }
 
     /// Retrieves a block from the local blockstore, or starts fetching from the network or join an
     /// already started fetch.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
-        Ok(traced!(&self.name, self.repo.get_block(cid)).await?)
+        Ok(self.repo.get_block(cid).await?)
     }
 
     /// Remove block from the ipfs repo.
@@ -972,33 +964,31 @@ mod node {
     /// easier.
     pub struct Node {
         pub ipfs: Ipfs<TestTypes>,
-        pub background_task: async_std::task::JoinHandle<()>,
+        pub bg_task: async_std::task::JoinHandle<()>,
     }
 
     impl Node {
         pub async fn new<T: AsRef<str>>(name: T) -> Self {
-            let opts = IpfsOptions::inmemory_with_generated_keys(name);
-            Node::with_options(opts).await
+            let opts = IpfsOptions::inmemory_with_generated_keys();
+            Node::with_options(opts)
+                .instrument(tracing::trace_span!("ipfs", node = name.as_ref()))
+                .await
         }
 
         pub async fn with_options(opts: IpfsOptions<TestTypes>) -> Self {
-            let name = opts.name.clone();
-            let (ipfs, fut) = UninitializedIpfs::new(opts)
-                .instrument(tracing::trace_span!("init", node = name.as_str()))
+            let span = Some(Span::current());
+
+            let (ipfs, fut) = UninitializedIpfs::new(opts, span)
+                .in_current_span()
                 .await
                 .start()
-                .instrument(tracing::trace_span!("start", node = name.as_str()))
+                .in_current_span()
                 .await
                 .unwrap();
 
-            let background_task = async_std::task::spawn(
-                fut.instrument(tracing::trace_span!("bgtask", node = name.as_str())),
-            );
+            let bg_task = async_std::task::spawn(fut.in_current_span());
 
-            Node {
-                ipfs,
-                background_task,
-            }
+            Node { ipfs, bg_task }
         }
 
         pub fn get_subscriptions(
@@ -1040,7 +1030,7 @@ mod node {
 
         pub async fn shutdown(self) {
             self.ipfs.exit_daemon().await;
-            self.background_task.await;
+            self.bg_task.await;
         }
     }
 
@@ -1107,18 +1097,9 @@ fn could_be_bound_from_ephemeral(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_std::task;
     use libipld::ipld;
     use libp2p::build_multiaddr;
     use multihash::Sha2_256;
-
-    pub async fn create_mock_ipfs() -> Ipfs<TestTypes> {
-        let options = IpfsOptions::inmemory_with_generated_keys("test_node");
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        task::spawn(fut);
-
-        ipfs
-    }
 
     #[test]
     fn unspecified_multiaddrs() {
@@ -1187,7 +1168,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_put_and_get_block() {
-        let ipfs = create_mock_ipfs().await;
+        let ipfs = Node::new("test_node").await;
 
         let data = b"hello block\n".to_vec().into_boxed_slice();
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
@@ -1196,25 +1177,21 @@ mod tests {
         let cid: Cid = ipfs.put_block(block.clone()).await.unwrap();
         let new_block = ipfs.get_block(&cid).await.unwrap();
         assert_eq!(block, new_block);
-
-        ipfs.exit_daemon().await;
     }
 
     #[async_std::test]
     async fn test_put_and_get_dag() {
-        let ipfs = create_mock_ipfs().await;
+        let ipfs = Node::new("test_node").await;
 
         let data = ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
         let new_data = ipfs.get_dag(cid.into()).await.unwrap();
         assert_eq!(data, new_data);
-
-        ipfs.exit_daemon().await;
     }
 
     #[async_std::test]
     async fn test_pin_and_unpin() {
-        let ipfs = create_mock_ipfs().await;
+        let ipfs = Node::new("test_node").await;
 
         let data = ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
@@ -1223,8 +1200,6 @@ mod tests {
         assert!(ipfs.is_pinned(&cid).await.unwrap());
         ipfs.unpin_block(&cid).await.unwrap();
         assert!(!ipfs.is_pinned(&cid).await.unwrap());
-
-        ipfs.exit_daemon().await;
     }
 
     #[test]

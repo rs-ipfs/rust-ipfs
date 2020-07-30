@@ -64,7 +64,7 @@ async fn kademlia_popular_content_discovery() {
 
     // introduce a peer and specify the Kademlia protocol to it
     // without a specified protocol, the test will not complete
-    let mut opts = IpfsOptions::inmemory_with_generated_keys("test_node");
+    let mut opts = IpfsOptions::inmemory_with_generated_keys();
     opts.kad_protocol = Some("/ipfs/lan/kad/1.0.0".to_owned());
     let peer = Node::with_options(opts).await;
 

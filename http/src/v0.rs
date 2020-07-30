@@ -119,12 +119,14 @@ mod tests {
         use super::routes;
         use ipfs::{IpfsOptions, UninitializedIpfs};
 
-        let options = IpfsOptions::inmemory_with_generated_keys("test_node");
+        let options = IpfsOptions::inmemory_with_generated_keys();
+        let (ipfs, _) = UninitializedIpfs::new(options, None)
+            .await
+            .start()
+            .await
+            .unwrap();
 
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        drop(fut);
-        let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
-        drop(shutdown_rx);
+        let (shutdown_tx, _) = tokio::sync::mpsc::channel::<()>(1);
 
         routes(&ipfs, shutdown_tx)
     }
