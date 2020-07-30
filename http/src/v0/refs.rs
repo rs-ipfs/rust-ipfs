@@ -626,14 +626,14 @@ mod tests {
     use super::{ipld_links, local, refs_paths, Edge, IpfsPath};
     use cid::{self, Cid};
     use futures::stream::TryStreamExt;
-    use ipfs::{Block, Ipfs};
+    use ipfs::{Block, Node};
     use libipld::block::{decode_ipld, validate};
     use std::collections::HashSet;
     use std::convert::TryFrom;
 
     #[tokio::test]
     async fn test_inner_local() {
-        let filter = local(&preloaded_testing_ipfs().await);
+        let filter = local(&*preloaded_testing_ipfs().await);
 
         let response = warp::test::request()
             .path("/refs/local")
@@ -680,7 +680,10 @@ mod tests {
 
     #[tokio::test]
     async fn all_refs_from_root() {
-        let ipfs = preloaded_testing_ipfs().await;
+        let Node {
+            ipfs,
+            background_task: _bt,
+        } = preloaded_testing_ipfs().await;
 
         let (root, dag0, unixfs0, dag1, unixfs1) = (
             // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
@@ -721,7 +724,10 @@ mod tests {
 
     #[tokio::test]
     async fn all_unique_refs_from_root() {
-        let ipfs = preloaded_testing_ipfs().await;
+        let Node {
+            ipfs,
+            background_task: _bt,
+        } = preloaded_testing_ipfs().await;
 
         let (root, dag0, unixfs0, dag1, unixfs1) = (
             // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
@@ -805,13 +811,8 @@ mod tests {
         assert!(diff.is_empty(), "{:#?}", diff);
     }
 
-    async fn preloaded_testing_ipfs() -> Ipfs<ipfs::TestTypes> {
-        let options = ipfs::IpfsOptions::inmemory_with_generated_keys("test_node");
-        let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
-            .await
-            .start()
-            .await
-            .unwrap();
+    async fn preloaded_testing_ipfs() -> Node {
+        let ipfs = Node::new("test_node").await;
 
         let blocks = [
             (

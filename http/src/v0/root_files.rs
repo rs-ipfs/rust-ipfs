@@ -282,7 +282,7 @@ impl std::error::Error for GetError {
 mod tests {
     use futures::stream::{FuturesOrdered, TryStreamExt};
     use hex_literal::hex;
-    use ipfs::{Block, Ipfs, IpfsTypes};
+    use ipfs::{Block, Ipfs, IpfsTypes, Node};
     use libipld::cid::Cid;
     use multihash::Sha2_256;
     use std::convert::TryFrom;
@@ -334,12 +334,7 @@ mod tests {
 
     #[tokio::test]
     async fn very_long_file_and_symlink_names() {
-        let options = ipfs::IpfsOptions::inmemory_with_generated_keys("test_node");
-        let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
-            .await
-            .start()
-            .await
-            .unwrap();
+        let ipfs = Node::new("test_node").await;
 
         let blocks: &[&[u8]] = &[
             // the root, QmdKuCuXDuVTsnGpzPgZEuJmiCEn6LZhGHHHwWPQH28DeD
@@ -395,12 +390,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_multiblock_file() {
-        let options = ipfs::IpfsOptions::inmemory_with_generated_keys("test_node");
-        let (ipfs, _) = ipfs::UninitializedIpfs::new(options)
-            .await
-            .start()
-            .await
-            .unwrap();
+        let ipfs = Node::new("test_node").await;
 
         let blocks: &[&[u8]] = &[
             // the root, QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6

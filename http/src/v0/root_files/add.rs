@@ -169,7 +169,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_single_block_file() {
-        let ipfs = testing_ipfs().await;
+        let ipfs = tokio_ipfs().await;
 
         // this is from interface-ipfs-core, pretty much simplest add a buffer test case
         // but the body content is from the pubsub test case I copied this from
@@ -198,7 +198,7 @@ mod tests {
         );
     }
 
-    async fn testing_ipfs() -> ipfs::Ipfs<ipfs::TestTypes> {
+    async fn tokio_ipfs() -> ipfs::Ipfs<ipfs::TestTypes> {
         let options = ipfs::IpfsOptions::inmemory_with_generated_keys("test_node");
         let (ipfs, fut) = ipfs::UninitializedIpfs::new(options)
             .await

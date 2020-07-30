@@ -971,8 +971,8 @@ mod node {
     /// Node encapsulates everything to setup a testing instance so that multi-node tests become
     /// easier.
     pub struct Node {
-        ipfs: Ipfs<TestTypes>,
-        background_task: async_std::task::JoinHandle<()>,
+        pub ipfs: Ipfs<TestTypes>,
+        pub background_task: async_std::task::JoinHandle<()>,
     }
 
     impl Node {
