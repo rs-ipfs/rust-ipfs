@@ -105,7 +105,7 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
         let mut subscription = Subscription::new(cancel_notifier);
 
         if self.shutting_down.load(Ordering::SeqCst) {
-            subscription.cancel(kind.clone(), true);
+            subscription.cancel(id, kind.clone(), true);
         }
 
         task::block_on(async {
@@ -128,6 +128,7 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
     /// Finalizes all pending subscriptions of the specified kind with the given `result`.
     ///
     pub fn finish_subscription(&self, req_kind: RequestKind, result: TRes) {
+        debug!("Finishing the subscription to {}", req_kind);
         let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
         let related_subs = subscriptions.get_mut(&req_kind);
 
@@ -157,8 +158,8 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
         }));
 
         for (kind, subs) in subscriptions.iter_mut() {
-            for sub in subs.values_mut() {
-                sub.cancel(kind.clone(), true);
+            for (id, sub) in subs.iter_mut() {
+                sub.cancel(*id, kind.clone(), true);
                 cancelled += 1;
             }
         }
@@ -253,7 +254,8 @@ impl<TRes> Subscription<TRes> {
         }
     }
 
-    fn cancel(&mut self, kind: RequestKind, is_last: bool) {
+    fn cancel(&mut self, id: SubscriptionId, kind: RequestKind, is_last: bool) {
+        trace!("Cancelling subscription {} to {}", id, kind);
         let former_self = mem::replace(self, Subscription::Cancelled);
         if let Subscription::Pending {
             waker,
@@ -264,6 +266,7 @@ impl<TRes> Subscription<TRes> {
             // send a cancel notification to the repo - the wantlist needs
             // to be updated
             if is_last {
+                trace!("Last related subscription cancelled, sending a cancel notification");
                 if let Some(mut sender) = cancel_notifier {
                     let _ = sender.try_send(RepoEvent::try_from(kind).unwrap());
                 }
@@ -351,7 +354,7 @@ impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
 
 impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
     fn drop(&mut self) {
-        debug!("Dropping subscription {} to {}", self.id, self.kind);
+        trace!("Dropping subscription {} to {}", self.id, self.kind);
 
         if self.cleanup_complete {
             // cleaned up the easier variants already
@@ -379,11 +382,9 @@ impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
         if let Some(sub) = sub {
             // don't bother updating anything that isn't `Pending`
             if let mut sub @ Subscription::Pending { .. } = sub {
-                debug!(
-                    "Last related subscription dropped, sending a cancel notification for {} to {}",
-                    self.id, self.kind
-                );
-                sub.cancel(self.kind.clone(), is_last);
+                if is_last {
+                    sub.cancel(self.id, self.kind.clone(), is_last);
+                }
             }
         }
     }
