@@ -84,7 +84,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     }
                     GetClosestPeers(Ok(GetClosestPeersOk { key: _, peers })) => {
                         for peer in peers {
-                            info!("kad: peer {} is close", peer);
+                            debug!("kad: peer {} is close", peer);
                         }
                     }
                     GetClosestPeers(Err(GetClosestPeersError::Timeout { key: _, peers })) => {
@@ -92,7 +92,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                             "kad: timed out trying to find all closest peers; got the following:"
                         );
                         for peer in peers {
-                            info!("kad: peer {} is close", peer);
+                            debug!("kad: peer {} is close", peer);
                         }
                     }
                     GetProviders(Ok(GetProvidersOk {
@@ -105,7 +105,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                             warn!("kad: could not find a provider for {}", key);
                         } else {
                             for peer in closest_peers.into_iter().chain(providers.into_iter()) {
-                                info!("kad: {} is provided by {}", key, peer);
+                                debug!("kad: {} is provided by {}", key, peer);
                                 self.bitswap.connect(peer);
                             }
                         }
@@ -116,7 +116,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     }
                     StartProviding(Ok(AddProviderOk { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        info!("kad: providing {}", key);
+                        debug!("kad: providing {}", key);
                     }
                     StartProviding(Err(AddProviderError::Timeout { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
@@ -124,7 +124,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     }
                     RepublishProvider(Ok(AddProviderOk { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        info!("kad: republished provider {}", key);
+                        debug!("kad: republished provider {}", key);
                     }
                     RepublishProvider(Err(AddProviderError::Timeout { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
@@ -133,7 +133,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     GetRecord(Ok(GetRecordOk { records })) => {
                         for record in records {
                             let key = multibase::encode(Base::Base32Lower, record.record.key);
-                            info!("kad: got record {}:{:?}", key, record.record.value);
+                            debug!("kad: got record {}:{:?}", key, record.record.value);
                         }
                     }
                     GetRecord(Err(GetRecordError::NotFound {
@@ -156,7 +156,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         );
                         for record in records {
                             let key = multibase::encode(Base::Base32Lower, record.record.key);
-                            info!("kad: got record {}:{:?}", key, record.record.value);
+                            debug!("kad: got record {}:{:?}", key, record.record.value);
                         }
                     }
                     GetRecord(Err(GetRecordError::Timeout {
@@ -172,13 +172,13 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         );
                         for record in records {
                             let key = multibase::encode(Base::Base32Lower, record.record.key);
-                            info!("kad: got record {}:{:?}", key, record.record.value);
+                            debug!("kad: got record {}:{:?}", key, record.record.value);
                         }
                     }
                     PutRecord(Ok(PutRecordOk { key }))
                     | RepublishRecord(Ok(PutRecordOk { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        info!("kad: successfully put record {}", key);
+                        debug!("kad: successfully put record {}", key);
                     }
                     PutRecord(Err(PutRecordError::QuorumFailed {
                         key,
@@ -191,7 +191,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         quorum,
                     })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        info!(
+                        warn!(
                             "kad: quorum failed ({}) trying to put record {}",
                             quorum, key
                         );
@@ -207,7 +207,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         quorum: _,
                     })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        info!("kad: timed out trying to put record {}", key);
+                        warn!("kad: timed out trying to put record {}", key);
                     }
                 }
             }
