@@ -281,6 +281,11 @@ pub struct UninitializedIpfs<Types: IpfsTypes> {
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// Configures a new UninitializedIpfs with from the given options and optionally a span.
+    /// If the span is not given, it is defaulted to `tracing::trace_span!("ipfs")`.
+    ///
+    /// The span is attached to all operations called on the later created `Ipfs` along with all
+    /// operations done in the background task as well as tasks spawned by the underlying
+    /// `libp2p::Swarm`.
     pub async fn new(options: IpfsOptions<Types>, span: Option<Span>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
