@@ -237,6 +237,8 @@ impl NetworkBehaviour for Bitswap {
     fn inject_event(&mut self, source: PeerId, _connection: ConnectionId, message: MessageWrapper) {
         let mut message = match message {
             // we just sent an outgoing bitswap message, nothing to do here
+            // FIXME: we could commit any pending stats accounting for this peer now
+            // that the message may have sent, if we'd do such accounting
             MessageWrapper::Tx => return,
             // we've received a bitswap message, process it
             MessageWrapper::Rx(msg) => msg,
