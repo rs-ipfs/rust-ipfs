@@ -6,6 +6,12 @@ fn filter(i: usize) -> bool {
     i % 2 == 0
 }
 
+// this test is designed to trigger unfavorable conditions for the bitswap
+// protocol by putting blocks in every second node and attempting to get
+// them from the other nodes; intended to be used for debugging or stress
+// testing the bitswap protocol (though it would be advised to uncomment
+// the tracing_subscriber for stress-testing purposes)
+#[ignore]
 #[async_std::test]
 async fn bitswap_stress_test() {
     tracing_subscriber::fmt::init();
