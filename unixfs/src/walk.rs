@@ -10,6 +10,43 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+/// Representation of the current item of Walker or the last observed item with medatada.
+#[derive(Debug)]
+pub enum MetadataEntry<'a> {
+    /// Current item is a non-root plain Directory or a HAMTShard directory.
+    Directory(&'a Cid, &'a Path, &'a Metadata),
+    /// Current item is possibly a root file with a path, metadata, and a total file size.
+    File(&'a Cid, &'a Path, &'a Metadata, u64),
+    /// Current item is the root directory (HAMTShard or plain Directory).
+    RootDirectory(&'a Cid, &'a Path, &'a Metadata),
+    /// Current item is possibly a root symlink.
+    Symlink(&'a Cid, &'a Path, &'a Metadata),
+}
+
+impl MetadataEntry<'_> {
+    /// Returns the metadata for the latest entry. It exists for initial directory entries, files,
+    /// and symlinks but not for continued HamtShards.
+    pub fn metadata(&self) -> &'_ Metadata {
+        match self {
+            Self::Directory(_, _, m)
+            | Self::File(_, _, m, ..)
+            | Self::RootDirectory(_, _, m)
+            | Self::Symlink(_, _, m) => m,
+        }
+    }
+
+    /// Returns the path for the latest entry. This is created from a UTF-8 string and, as such, is always
+    /// representable on all supported platforms.
+    pub fn path(&self) -> &'_ Path {
+        match self {
+            MetadataEntry::Directory(_, p, ..)
+            | MetadataEntry::File(_, p, ..)
+            | MetadataEntry::RootDirectory(_, p, ..)
+            | MetadataEntry::Symlink(_, p, ..) => p,
+        }
+    }
+}
+
 /// `Walker` helps with walking a UnixFS tree, including all of the content and files. It is created with
 /// `Walker::new` and walked over each block with `Walker::continue_block`. Use
 /// `Walker::pending_links` to obtain the next [`Cid`] to be loaded and the prefetchable links.
@@ -185,7 +222,6 @@ impl Walker {
 
                 // replacing this with try_fold takes as many lines as the R: Try<Ok = B> cannot be
                 // deduced without specifying the Error
-
                 for link in links {
                     pending.push(link?);
                 }
@@ -355,12 +391,12 @@ impl fmt::Debug for InnerKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use InnerKind::*;
         match self {
-            RootDirectory(cid) => write!(fmt, "RootDirectory({})", cid),
-            BucketAtRoot(cid) => write!(fmt, "BucketAtRoot({})", cid),
-            RootBucket(cid) => write!(fmt, "RootBucket({})", cid),
             Bucket(cid) => write!(fmt, "Bucket({})", cid),
+            BucketAtRoot(cid) => write!(fmt, "BucketAtRoot({})", cid),
             Directory(cid) => write!(fmt, "Directory({})", cid),
             File(cid, _, sz) => write!(fmt, "File({}, _, {})", cid, sz),
+            RootBucket(cid) => write!(fmt, "RootBucket({})", cid),
+            RootDirectory(cid) => write!(fmt, "RootDirectory({})", cid),
             Symlink(cid) => write!(fmt, "Symlink({})", cid),
         }
     }
@@ -369,63 +405,34 @@ impl fmt::Debug for InnerKind {
 /// Representation of the current item of Walker or the last observed item.
 #[derive(Debug)]
 pub enum Entry<'a> {
-    /// Current item is the root directory (HAMTShard or plain Directory).
-    RootDirectory(&'a Cid, &'a Path, &'a Metadata),
     /// Current item is a continuation of a HAMTShard directory. Only the root HAMTShard will have
     /// file metadata.
     Bucket(&'a Cid, &'a Path),
-    /// Current item is a non-root plain Directory or a HAMTShard directory.
-    Directory(&'a Cid, &'a Path, &'a Metadata),
-    /// Current item is possibly a root file with a path, metadata, and a total file size.
-    File(&'a Cid, &'a Path, &'a Metadata, u64),
-    /// Current item is possibly a root symlink.
-    Symlink(&'a Cid, &'a Path, &'a Metadata),
+    /// All items that have metadata.
+    Metadata(MetadataEntry<'a>),
 }
 
 impl<'a> Entry<'a> {
+    /// Returns the Cid for the latest entry.
+    pub fn cid(&self) -> &Cid {
+        match self {
+            Self::Bucket(cid, ..) => cid,
+            Self::Metadata(MetadataEntry::Directory(cid, ..))
+            | Self::Metadata(MetadataEntry::File(cid, ..))
+            | Self::Metadata(MetadataEntry::RootDirectory(cid, ..))
+            | Self::Metadata(MetadataEntry::Symlink(cid, ..)) => cid,
+        }
+    }
+
     /// Returns the path for the latest entry. This is created from a UTF-8 string and, as such, is always
     /// representable on all supported platforms.
     pub fn path(&self) -> &'a Path {
-        use Entry::*;
         match self {
-            RootDirectory(_, p, _)
-            | Bucket(_, p)
-            | Directory(_, p, _)
-            | File(_, p, _, _)
-            | Symlink(_, p, _) => p,
-        }
-    }
-
-    /// Returns the metadata for the latest entry. It exists for initial directory entries, files,
-    /// and symlinks but not for continued HamtShards.
-    pub fn metadata(&self) -> Option<&'a Metadata> {
-        use Entry::*;
-        match self {
-            Bucket(_, _) => None,
-            RootDirectory(_, _, m) | Directory(_, _, m) | File(_, _, m, _) | Symlink(_, _, m) => {
-                Some(m)
-            }
-        }
-    }
-
-    /// Returns the total size of the file this entry represents, or `None` if not a file.
-    pub fn total_file_size(&self) -> Option<u64> {
-        use Entry::*;
-        match self {
-            File(_, _, _, sz) => Some(*sz),
-            _ => None,
-        }
-    }
-
-    /// Returns the Cid for the latest entry.
-    pub fn cid(&self) -> &Cid {
-        use Entry::*;
-        match self {
-            RootDirectory(cid, _, _)
-            | Bucket(cid, _)
-            | Directory(cid, _, _)
-            | File(cid, _, _, _)
-            | Symlink(cid, _, _) => cid,
+            Self::Bucket(_, p) => p,
+            Self::Metadata(MetadataEntry::Directory(_, p, ..))
+            | Self::Metadata(MetadataEntry::File(_, p, ..))
+            | Self::Metadata(MetadataEntry::RootDirectory(_, p, ..))
+            | Self::Metadata(MetadataEntry::Symlink(_, p, ..)) => p,
         }
     }
 }
@@ -483,16 +490,23 @@ impl InnerEntry {
     }
 
     pub fn as_entry(&self) -> Entry<'_> {
-        use InnerKind::*;
         match &self.kind {
-            RootDirectory(cid) | BucketAtRoot(cid) => {
-                Entry::RootDirectory(cid, &self.path, &self.metadata)
+            InnerKind::Bucket(cid) => Entry::Bucket(cid, &self.path),
+            InnerKind::Directory(cid) => {
+                Entry::Metadata(MetadataEntry::Directory(cid, &self.path, &self.metadata))
             }
-            RootBucket(cid) => Entry::Directory(cid, &self.path, &self.metadata),
-            Bucket(cid) => Entry::Bucket(cid, &self.path),
-            Directory(cid) => Entry::Directory(cid, &self.path, &self.metadata),
-            File(cid, _, sz) => Entry::File(cid, &self.path, &self.metadata, *sz),
-            Symlink(cid) => Entry::Symlink(cid, &self.path, &self.metadata),
+            InnerKind::File(cid, _, sz) => {
+                Entry::Metadata(MetadataEntry::File(cid, &self.path, &self.metadata, *sz))
+            }
+            InnerKind::RootBucket(cid) => {
+                Entry::Metadata(MetadataEntry::Directory(cid, &self.path, &self.metadata))
+            }
+            InnerKind::RootDirectory(cid) | InnerKind::BucketAtRoot(cid) => Entry::Metadata(
+                MetadataEntry::RootDirectory(cid, &self.path, &self.metadata),
+            ),
+            InnerKind::Symlink(cid) => {
+                Entry::Metadata(MetadataEntry::Symlink(cid, &self.path, &self.metadata))
+            }
         }
     }
 
@@ -609,12 +623,12 @@ impl InnerEntry {
     fn as_symlink(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
         use InnerKind::*;
         match self.kind {
-            RootDirectory(_)
+            Bucket(_)
             | BucketAtRoot(_)
-            | RootBucket(_)
-            | Bucket(_)
             | Directory(_)
             | File(_, None, _)
+            | RootBucket(_)
+            | RootDirectory(_)
             | Symlink(_) => {
                 self.kind = Symlink(cid);
                 self.set_path(name, depth);
