@@ -128,7 +128,6 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
     /// Finalizes all pending subscriptions of the specified kind with the given `result`.
     ///
     pub fn finish_subscription(&self, req_kind: RequestKind, result: TRes) {
-        debug!("Finishing the subscription to {}", req_kind);
         let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
         let related_subs = subscriptions.get_mut(&req_kind);
 
@@ -136,6 +135,8 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
         // ones have an associated `SubscriptionFuture` and there can be multiple of them
         // depending on how many times the given request kind was filed
         if let Some(related_subs) = related_subs {
+            debug!("Finishing the subscription to {}", req_kind);
+
             for sub in related_subs.values_mut() {
                 if let Subscription::Pending { .. } = sub {
                     sub.wake(result.clone());
