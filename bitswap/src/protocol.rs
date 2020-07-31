@@ -76,6 +76,29 @@ where
     }
 }
 
+/// An object to facilitate communication between the `OneShotHandler` and the `BitswapHandler`.
+#[derive(Debug)]
+pub enum MessageWrapper {
+    /// We received a `Message` from a remote.
+    Rx(Message),
+    /// We successfully sent a `Message`.
+    Tx,
+}
+
+impl From<Message> for MessageWrapper {
+    #[inline]
+    fn from(message: Message) -> Self {
+        Self::Rx(message)
+    }
+}
+
+impl From<()> for MessageWrapper {
+    #[inline]
+    fn from(_: ()) -> Self {
+        Self::Tx
+    }
+}
+
 #[cfg(test)]
 mod tests {
     /*
