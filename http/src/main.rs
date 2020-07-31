@@ -137,7 +137,7 @@ fn main() {
         let opts: IpfsOptions<ipfs::TestTypes> =
             IpfsOptions::new(home.clone().into(), keypair, Vec::new(), false, None);
 
-        let (ipfs, task) = UninitializedIpfs::new(opts)
+        let (ipfs, task) = UninitializedIpfs::new(opts, None)
             .await
             .start()
             .await

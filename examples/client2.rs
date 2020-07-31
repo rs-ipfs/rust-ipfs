@@ -11,7 +11,11 @@ fn main() {
         IpfsPath::from_str("/ipfs/zdpuB1caPcm4QNXeegatVfLQ839Lmprd5zosXGwRUBJHwj66X").unwrap();
 
     task::block_on(async move {
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::new(options, None)
+            .await
+            .start()
+            .await
+            .unwrap();
         task::spawn(fut);
 
         let f1 = ipfs.get_dag(path.sub_path("0").unwrap());

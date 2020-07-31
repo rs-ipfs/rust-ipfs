@@ -50,8 +50,10 @@ async fn check_cid_subscriptions(ipfs: &Node, cid: &Cid, expected_count: usize) 
 /// Check if canceling a Cid affects the wantlist.
 #[async_std::test]
 async fn wantlist_cancellation() {
+    tracing_subscriber::fmt::init();
+
     // start a single node
-    let ipfs = Node::new().await;
+    let ipfs = Node::new("test_node").await;
 
     // execute a get_block request
     let cid = Cid::try_from("QmSoLPppuBtQSGwKDZT2M73ULpjvfd3aZ6ha4oFGL1KaGa").unwrap();

@@ -9,7 +9,11 @@ fn main() {
 
     task::block_on(async move {
         // Start daemon and initialize repo
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
+        let (ipfs, fut) = UninitializedIpfs::new(options, None)
+            .await
+            .start()
+            .await
+            .unwrap();
         task::spawn(fut);
 
         // Create a Block

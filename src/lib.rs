@@ -20,6 +20,8 @@ use futures::stream::{Fuse, Stream};
 pub use libipld::ipld::Ipld;
 pub use libp2p::core::{connection::ListenerId, ConnectedPoint, Multiaddr, PeerId, PublicKey};
 pub use libp2p::identity::Keypair;
+use tracing::Span;
+use tracing_futures::Instrument;
 
 use std::borrow::Borrow;
 use std::collections::HashMap;
@@ -155,12 +157,12 @@ impl<Types: IpfsTypes> IpfsOptions<Types> {
         kad_protocol: Option<String>,
     ) -> Self {
         Self {
-            _marker: PhantomData,
             ipfs_path,
             keypair,
             bootstrap,
             mdns,
             kad_protocol,
+            _marker: PhantomData,
         }
     }
 }
@@ -205,12 +207,12 @@ impl<T: IpfsTypes> Default for IpfsOptions<T> {
         let bootstrap = config.bootstrap();
 
         IpfsOptions {
-            _marker: PhantomData,
             ipfs_path,
             keypair,
             bootstrap,
             mdns: true,
             kad_protocol: None,
+            _marker: PhantomData,
         }
     }
 }
@@ -228,6 +230,7 @@ impl<Types: IpfsTypes> Clone for Ipfs<Types> {
 /// for interacting with IPFS.
 #[derive(Debug)]
 pub struct IpfsInner<Types: IpfsTypes> {
+    pub span: Span,
     repo: Repo<Types>,
     keys: DebuggableKeypair<Keypair>,
     to_task: Sender<IpfsEvent>,
@@ -270,20 +273,28 @@ enum IpfsEvent {
 /// Configured Ipfs instace or value which can be only initialized.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
     repo: Option<Repo<Types>>,
+    span: Span,
     keys: Keypair,
     options: IpfsOptions<Types>,
     moved_on_init: Option<Receiver<RepoEvent>>,
 }
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
-    /// Configures a new UninitializedIpfs with from the given options.
-    pub async fn new(options: IpfsOptions<Types>) -> Self {
+    /// Configures a new UninitializedIpfs with from the given options and optionally a span.
+    /// If the span is not given, it is defaulted to `tracing::trace_span!("ipfs")`.
+    ///
+    /// The span is attached to all operations called on the later created `Ipfs` along with all
+    /// operations done in the background task as well as tasks spawned by the underlying
+    /// `libp2p::Swarm`.
+    pub async fn new(options: IpfsOptions<Types>, span: Option<Span>) -> Self {
         let repo_options = RepoOptions::<Types>::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let keys = options.keypair.clone();
+        let span = span.unwrap_or_else(|| tracing::trace_span!("ipfs"));
 
         UninitializedIpfs {
             repo: Some(repo),
+            span,
             keys,
             options,
             moved_on_init: Some(repo_events),
@@ -292,9 +303,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
     /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
     /// future should be spawned on a executor as soon as possible.
-    pub async fn start(
-        mut self,
-    ) -> Result<(Ipfs<Types>, impl std::future::Future<Output = ()>), Error> {
+    pub async fn start(mut self) -> Result<(Ipfs<Types>, impl Future<Output = ()>), Error> {
         use futures::stream::StreamExt;
 
         let repo = Option::take(&mut self.repo).unwrap();
@@ -307,9 +316,10 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
         let (to_task, receiver) = channel::<IpfsEvent>(1);
 
-        let UninitializedIpfs { keys, .. } = self;
+        let UninitializedIpfs { span, keys, .. } = self;
 
         let ipfs = Ipfs(Arc::new(IpfsInner {
+            span,
             repo,
             keys: DebuggableKeypair(keys),
             to_task,
@@ -348,56 +358,74 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Puts a block into the ipfs repo.
     pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
-        Ok(self.repo.put_block(block).await?.0)
+        self.repo
+            .put_block(block)
+            .instrument(self.span.clone())
+            .await
+            .map(|(cid, _put_status)| cid)
     }
 
     /// Retrieves a block from the local blockstore, or starts fetching from the network or join an
     /// already started fetch.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
-        Ok(self.repo.get_block(cid).await?)
+        self.repo.get_block(cid).instrument(self.span.clone()).await
     }
 
     /// Remove block from the ipfs repo.
     pub async fn remove_block(&self, cid: Cid) -> Result<Cid, Error> {
-        self.repo.remove_block(&cid).await
+        self.repo
+            .remove_block(&cid)
+            .instrument(self.span.clone())
+            .await
     }
 
     /// Pins a given Cid
     pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
-        Ok(self.repo.pin_block(cid).await?)
+        self.repo.pin_block(cid).instrument(self.span.clone()).await
     }
 
     /// Unpins a given Cid
     pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
-        Ok(self.repo.unpin_block(cid).await?)
+        self.repo
+            .unpin_block(cid)
+            .instrument(self.span.clone())
+            .await
     }
 
     /// Checks whether a given block is pinned
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        Ok(self.repo.is_pinned(cid).await?)
+        self.repo.is_pinned(cid).instrument(self.span.clone()).await
     }
 
     /// Puts an ipld dag node into the ipfs repo.
     pub async fn put_dag(&self, ipld: Ipld) -> Result<Cid, Error> {
-        Ok(self.dag().put(ipld, Codec::DagCBOR).await?)
+        self.dag()
+            .put(ipld, Codec::DagCBOR)
+            .instrument(self.span.clone())
+            .await
     }
 
     /// Gets an ipld dag node from the ipfs repo.
     pub async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
-        Ok(self.dag().get(path).await?)
+        self.dag().get(path).instrument(self.span.clone()).await
     }
 
     /// Adds a file into the ipfs repo.
     pub async fn add(&self, path: PathBuf) -> Result<Cid, Error> {
         let dag = self.dag();
         let file = File::new(path).await?;
-        let path = file.put_unixfs_v1(&dag).await?;
+        let path = file
+            .put_unixfs_v1(&dag)
+            .instrument(self.span.clone())
+            .await?;
         Ok(path)
     }
 
     /// Gets a file from the ipfs repo.
     pub async fn get(&self, path: IpfsPath) -> Result<File, Error> {
-        Ok(File::get_unixfs_v1(&self.dag(), path).await?)
+        File::get_unixfs_v1(&self.dag(), path)
+            .instrument(self.span.clone())
+            .await
     }
 
     /// Creates a stream which will yield the bytes of an UnixFS file from the root Cid, with the
@@ -413,169 +441,228 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         impl Stream<Item = Result<Vec<u8>, unixfs::TraversalFailed>> + Send + '_,
         unixfs::TraversalFailed,
     > {
-        unixfs::cat(self, cid, range).await
+        unixfs::cat(self, cid, range)
+            .instrument(self.span.clone())
+            .await
     }
 
     /// Resolves a ipns path to an ipld path.
     pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        Ok(self.ipns().resolve(path).await?)
+        self.ipns()
+            .resolve(path)
+            .instrument(self.span.clone())
+            .await
     }
 
     /// Publishes an ipld path.
     pub async fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        Ok(self.ipns().publish(key, path).await?)
+        self.ipns()
+            .publish(key, path)
+            .instrument(self.span.clone())
+            .await
     }
 
     /// Cancel an ipns path.
     pub async fn cancel_ipns(&self, key: &PeerId) -> Result<(), Error> {
-        self.ipns().cancel(key).await?;
-        Ok(())
+        self.ipns().cancel(key).instrument(self.span.clone()).await
     }
 
     pub async fn connect(&self, addr: Multiaddr) -> Result<(), Error> {
-        let (tx, rx) = oneshot_channel();
-        self.to_task
-            .clone()
-            .send(IpfsEvent::Connect(addr, tx))
-            .await?;
-        let subscription = rx.await?;
-        subscription.await?.map_err(|e| format_err!("{}", e))
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::Connect(addr, tx))
+                    .await?;
+                let subscription = rx.await?;
+                subscription.await?.map_err(|e| format_err!("{}", e))
+            })
+            .await
     }
 
     pub async fn addrs(&self) -> Result<Vec<(PeerId, Vec<Multiaddr>)>, Error> {
-        let (tx, rx) = oneshot_channel();
-        self.to_task.clone().send(IpfsEvent::Addresses(tx)).await?;
-        rx.await?
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
+                self.to_task.clone().send(IpfsEvent::Addresses(tx)).await?;
+                rx.await?
+            })
+            .await
     }
 
     pub async fn addrs_local(&self) -> Result<Vec<Multiaddr>, Error> {
-        let (tx, rx) = oneshot_channel();
-        self.to_task.clone().send(IpfsEvent::Listeners(tx)).await?;
-        rx.await?
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
+                self.to_task.clone().send(IpfsEvent::Listeners(tx)).await?;
+                rx.await?
+            })
+            .await
     }
 
     pub async fn peers(&self) -> Result<Vec<Connection>, Error> {
-        let (tx, rx) = oneshot_channel();
-        self.to_task
-            .clone()
-            .send(IpfsEvent::Connections(tx))
-            .await?;
-        rx.await?
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::Connections(tx))
+                    .await?;
+                rx.await?
+            })
+            .await
     }
 
     pub async fn disconnect(&self, addr: Multiaddr) -> Result<(), Error> {
-        let (tx, rx) = oneshot_channel();
-        self.to_task
-            .clone()
-            .send(IpfsEvent::Disconnect(addr, tx))
-            .await?;
-        rx.await?
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::Disconnect(addr, tx))
+                    .await?;
+                rx.await?
+            })
+            .await
     }
 
     /// Returns the local node public key and the listened and externally visible addresses.
     ///
     /// Public key can be converted to [`PeerId`].
     pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), Error> {
-        let (tx, rx) = oneshot_channel();
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
 
-        self.to_task
-            .clone()
-            .send(IpfsEvent::GetAddresses(tx))
-            .await?;
-        let addresses = rx.await?;
-        Ok((self.keys.get_ref().public(), addresses))
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::GetAddresses(tx))
+                    .await?;
+                let addresses = rx.await?;
+                Ok((self.keys.get_ref().public(), addresses))
+            })
+            .await
     }
 
     /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
     /// The subscription can be unsubscribed by dropping the stream or calling
     /// [`pubsub_unsubscribe`].
     pub async fn pubsub_subscribe(&self, topic: String) -> Result<SubscriptionStream, Error> {
-        let (tx, rx) = oneshot_channel();
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
 
-        self.to_task
-            .clone()
-            .send(IpfsEvent::PubsubSubscribe(topic.clone(), tx))
-            .await?;
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::PubsubSubscribe(topic.clone(), tx))
+                    .await?;
 
-        rx.await?
-            .ok_or_else(|| format_err!("already subscribed to {:?}", topic))
+                rx.await?
+                    .ok_or_else(|| format_err!("already subscribed to {:?}", topic))
+            })
+            .await
     }
 
     /// Publishes to the topic which may have been subscribed to earlier
     pub async fn pubsub_publish(&self, topic: String, data: Vec<u8>) -> Result<(), Error> {
-        let (tx, rx) = oneshot_channel();
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
 
-        self.to_task
-            .clone()
-            .send(IpfsEvent::PubsubPublish(topic, data, tx))
-            .await?;
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::PubsubPublish(topic, data, tx))
+                    .await?;
 
-        Ok(rx.await?)
+                Ok(rx.await?)
+            })
+            .await
     }
 
     /// Returns true if unsubscription was successful
     pub async fn pubsub_unsubscribe(&self, topic: &str) -> Result<bool, Error> {
-        let (tx, rx) = oneshot_channel();
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
 
-        self.to_task
-            .clone()
-            .send(IpfsEvent::PubsubUnsubscribe(topic.into(), tx))
-            .await?;
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::PubsubUnsubscribe(topic.into(), tx))
+                    .await?;
 
-        Ok(rx.await?)
+                Ok(rx.await?)
+            })
+            .await
     }
 
     /// Returns all known pubsub peers with the optional topic filter
     pub async fn pubsub_peers(&self, topic: Option<String>) -> Result<Vec<PeerId>, Error> {
-        let (tx, rx) = oneshot_channel();
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
 
-        self.to_task
-            .clone()
-            .send(IpfsEvent::PubsubPeers(topic, tx))
-            .await?;
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::PubsubPeers(topic, tx))
+                    .await?;
 
-        Ok(rx.await?)
+                Ok(rx.await?)
+            })
+            .await
     }
 
     /// Returns all currently subscribed topics
     pub async fn pubsub_subscribed(&self) -> Result<Vec<String>, Error> {
-        let (tx, rx) = oneshot_channel();
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
 
-        self.to_task
-            .clone()
-            .send(IpfsEvent::PubsubSubscribed(tx))
-            .await?;
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::PubsubSubscribed(tx))
+                    .await?;
 
-        Ok(rx.await?)
+                Ok(rx.await?)
+            })
+            .await
     }
 
     pub async fn bitswap_wantlist(
         &self,
         peer: Option<PeerId>,
     ) -> Result<Vec<(Cid, bitswap::Priority)>, Error> {
-        let (tx, rx) = oneshot_channel();
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
 
-        self.to_task
-            .clone()
-            .send(IpfsEvent::WantList(peer, tx))
-            .await?;
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::WantList(peer, tx))
+                    .await?;
 
-        Ok(rx.await?)
+                Ok(rx.await?)
+            })
+            .await
     }
 
     pub async fn refs_local(&self) -> Result<Vec<Cid>, Error> {
-        Ok(self.repo.list_blocks().await?)
+        self.repo.list_blocks().instrument(self.span.clone()).await
     }
 
     pub async fn bitswap_stats(&self) -> Result<BitswapStats, Error> {
-        let (tx, rx) = oneshot_channel();
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
 
-        self.to_task
-            .clone()
-            .send(IpfsEvent::BitswapStats(tx))
-            .await?;
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::BitswapStats(tx))
+                    .await?;
 
-        Ok(rx.await?)
+                Ok(rx.await?)
+            })
+            .await
     }
 
     /// Add a given multiaddr as a listening address. Will fail if the address is unsupported, or
@@ -592,14 +679,18 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Returns the bound multiaddress, which in the case of original containing an ephemeral port
     /// has now been changed.
     pub async fn add_listening_address(&self, addr: Multiaddr) -> Result<Multiaddr, Error> {
-        let (tx, rx) = oneshot_channel();
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
 
-        self.to_task
-            .clone()
-            .send(IpfsEvent::AddListeningAddress(addr, tx))
-            .await?;
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::AddListeningAddress(addr, tx))
+                    .await?;
 
-        rx.await?
+                rx.await?
+            })
+            .await
     }
 
     /// Stop listening on a previously added listening address. Fails if the address is not being
@@ -607,14 +698,18 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     ///
     /// The removal of all listening addresses added through unspecified addresses is not supported.
     pub async fn remove_listening_address(&self, addr: Multiaddr) -> Result<(), Error> {
-        let (tx, rx) = oneshot_channel();
+        self.span
+            .in_scope(|| async {
+                let (tx, rx) = oneshot_channel();
 
-        self.to_task
-            .clone()
-            .send(IpfsEvent::RemoveListeningAddress(addr, tx))
-            .await?;
+                self.to_task
+                    .clone()
+                    .send(IpfsEvent::RemoveListeningAddress(addr, tx))
+                    .await?;
 
-        rx.await?
+                rx.await?
+            })
+            .await
     }
 
     /// Exit daemon.
@@ -958,29 +1053,32 @@ mod node {
     /// Node encapsulates everything to setup a testing instance so that multi-node tests become
     /// easier.
     pub struct Node {
-        ipfs: Ipfs<TestTypes>,
-        background_task: async_std::task::JoinHandle<()>,
+        pub ipfs: Ipfs<TestTypes>,
+        pub bg_task: async_std::task::JoinHandle<()>,
     }
 
     impl Node {
-        pub async fn new() -> Self {
+        pub async fn new<T: AsRef<str>>(name: T) -> Self {
             let opts = IpfsOptions::inmemory_with_generated_keys();
-            Node::with_options(opts).await
+            Node::with_options(opts)
+                .instrument(tracing::trace_span!("ipfs", node = name.as_ref()))
+                .await
         }
 
         pub async fn with_options(opts: IpfsOptions<TestTypes>) -> Self {
-            let (ipfs, fut) = UninitializedIpfs::new(opts)
+            let span = Some(Span::current());
+
+            let (ipfs, fut) = UninitializedIpfs::new(opts, span)
+                .in_current_span()
                 .await
                 .start()
+                .in_current_span()
                 .await
-                .expect("Inmemory instance must succeed start");
+                .unwrap();
 
-            let jh = async_std::task::spawn(fut);
+            let bg_task = async_std::task::spawn(fut.in_current_span());
 
-            Node {
-                ipfs,
-                background_task: jh,
-            }
+            Node { ipfs, bg_task }
         }
 
         pub fn get_subscriptions(
@@ -1022,7 +1120,7 @@ mod node {
 
         pub async fn shutdown(self) {
             self.ipfs.exit_daemon().await;
-            self.background_task.await;
+            self.bg_task.await;
         }
     }
 
@@ -1089,18 +1187,9 @@ fn could_be_bound_from_ephemeral(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_std::task;
     use libipld::ipld;
     use libp2p::build_multiaddr;
     use multihash::Sha2_256;
-
-    pub async fn create_mock_ipfs() -> Ipfs<TestTypes> {
-        let options = IpfsOptions::inmemory_with_generated_keys();
-        let (ipfs, fut) = UninitializedIpfs::new(options).await.start().await.unwrap();
-        task::spawn(fut);
-
-        ipfs
-    }
 
     #[test]
     fn unspecified_multiaddrs() {
@@ -1169,7 +1258,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_put_and_get_block() {
-        let ipfs = create_mock_ipfs().await;
+        let ipfs = Node::new("test_node").await;
 
         let data = b"hello block\n".to_vec().into_boxed_slice();
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
@@ -1178,25 +1267,21 @@ mod tests {
         let cid: Cid = ipfs.put_block(block.clone()).await.unwrap();
         let new_block = ipfs.get_block(&cid).await.unwrap();
         assert_eq!(block, new_block);
-
-        ipfs.exit_daemon().await;
     }
 
     #[async_std::test]
     async fn test_put_and_get_dag() {
-        let ipfs = create_mock_ipfs().await;
+        let ipfs = Node::new("test_node").await;
 
         let data = ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
         let new_data = ipfs.get_dag(cid.into()).await.unwrap();
         assert_eq!(data, new_data);
-
-        ipfs.exit_daemon().await;
     }
 
     #[async_std::test]
     async fn test_pin_and_unpin() {
-        let ipfs = create_mock_ipfs().await;
+        let ipfs = Node::new("test_node").await;
 
         let data = ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
@@ -1205,8 +1290,6 @@ mod tests {
         assert!(ipfs.is_pinned(&cid).await.unwrap());
         ipfs.unpin_block(&cid).await.unwrap();
         assert!(!ipfs.is_pinned(&cid).await.unwrap());
-
-        ipfs.exit_daemon().await;
     }
 
     #[test]
