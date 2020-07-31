@@ -7,7 +7,7 @@
 //! will allow providing and reciving IPFS blocks.
 use crate::block::Block;
 use crate::ledger::{Ledger, Message, Priority};
-use crate::protocol::BitswapConfig;
+use crate::protocol::{BitswapConfig, MessageWrapper};
 use cid::Cid;
 use fnv::FnvHashSet;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
@@ -208,7 +208,7 @@ impl Bitswap {
 }
 
 impl NetworkBehaviour for Bitswap {
-    type ProtocolsHandler = OneShotHandler<BitswapConfig, Message, Message>;
+    type ProtocolsHandler = OneShotHandler<BitswapConfig, Message, MessageWrapper>;
     type OutEvent = BitswapEvent;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
@@ -234,7 +234,16 @@ impl NetworkBehaviour for Bitswap {
         //self.connected_peers.remove(peer_id);
     }
 
-    fn inject_event(&mut self, source: PeerId, _connection: ConnectionId, mut message: Message) {
+    fn inject_event(&mut self, source: PeerId, _connection: ConnectionId, message: MessageWrapper) {
+        let mut message = match message {
+            // we just sent an outgoing bitswap message, nothing to do here
+            // FIXME: we could commit any pending stats accounting for this peer now
+            // that the message may have sent, if we'd do such accounting
+            MessageWrapper::Tx => return,
+            // we've received a bitswap message, process it
+            MessageWrapper::Rx(msg) => msg,
+        };
+
         debug!("bitswap: inject_event from {}: {:?}", source, message);
 
         let current_wantlist = self.local_wantlist();
