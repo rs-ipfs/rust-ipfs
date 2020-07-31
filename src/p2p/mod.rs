@@ -6,6 +6,7 @@ use core::marker::PhantomData;
 use libp2p::identity::Keypair;
 use libp2p::Swarm;
 use libp2p::{Multiaddr, PeerId};
+use tracing::Span;
 
 mod behaviour;
 pub(crate) mod pubsub;
@@ -56,14 +57,30 @@ pub async fn create_swarm<TSwarmTypes: SwarmTypes>(
     // Set up an encrypted TCP transport over the Mplex protocol.
     let transport = transport::build_transport(options.keypair.clone());
 
+    let swarm_span = ipfs.0.span.clone();
+
     // Create a Kademlia behaviour
     let behaviour = behaviour::build_behaviour(options, ipfs).await;
 
     // Create a Swarm
-    let mut swarm = libp2p::Swarm::new(transport, behaviour, peer_id);
+    let mut swarm = libp2p::swarm::SwarmBuilder::new(transport, behaviour, peer_id)
+        .executor(Box::new(SpannedExecutor(swarm_span)))
+        .build();
 
     // Listen on all interfaces and whatever port the OS assigns
     Swarm::listen_on(&mut swarm, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
     swarm
+}
+
+struct SpannedExecutor(Span);
+
+impl libp2p::core::Executor for SpannedExecutor {
+    fn exec(
+        &self,
+        future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'static + Send>>,
+    ) {
+        use tracing_futures::Instrument;
+        async_std::task::spawn(future.instrument(self.0.clone()));
+    }
 }

@@ -230,7 +230,7 @@ impl<Types: IpfsTypes> Clone for Ipfs<Types> {
 /// for interacting with IPFS.
 #[derive(Debug)]
 pub struct IpfsInner<Types: IpfsTypes> {
-    span: Span,
+    pub span: Span,
     repo: Repo<Types>,
     keys: DebuggableKeypair<Keypair>,
     to_task: Sender<IpfsEvent>,
