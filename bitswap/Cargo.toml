@@ -5,19 +5,18 @@ authors = ["David Craven <david@craven.ch>"]
 edition = "2018"
 
 [build-dependencies]
-prost-build = "0.6.1"
+prost-build = "0.6"
 
 [dependencies]
-anyhow = "1.0.28"
-async-std = "1.6"
-async-trait = "0.1.29"
-fnv = "1.0.6"
-futures = "0.3.4"
+async-std = { default-features = false, version = "1.6" }
+async-trait = "0.1"
 cid = "0.5"
-libp2p-core = "0.20.0"
-libp2p-swarm = "0.20.0"
+fnv = { default-features = false, version = "1.0" }
+futures = { default-features = false, version = "0.3" }
+libp2p-core = { default-features = false, version = "0.20" }
+libp2p-swarm = "0.20"
 multihash = "0.11"
-prost = "0.6.1"
-thiserror = "1.0.14"
-tracing = { version = "0.1", features = ["log"] }
-unsigned-varint = "0.3.2"
+prost = { default-features = false, version = "0.6" }
+thiserror = "1.0"
+tracing = { default-features = false, version = "0.1" }
+unsigned-varint = { default-features = false, version = "0.3" }

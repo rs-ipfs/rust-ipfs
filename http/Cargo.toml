@@ -6,41 +6,39 @@ edition = "2018"
 build = "build.rs"
 
 [build-dependencies]
-prost-build = "0.6.1"
-vergen = "3.1.0"
+prost-build = "0.6"
+vergen = "3.1"
 
 [dependencies]
-async-std = { default-features = false, features = ["attributes"], version = "1.6" }
-base64 = "0.12.0"
+async-stream = "0.2"
+bytes = { default-features = false, version = "0.5" }
 cid = "0.5"
-futures = "0.3.4"
+futures = { default-features = false, version = "0.3" }
+humantime = "2.0"
+hyper = { default-features = false, version = "0.13" }
 ipfs = { path = "../" }
-libipld = { git = "https://github.com/ljedrz/rust-ipld", branch = "update_cid", features = ["dag-pb", "dag-json"] }
-multibase = "0.8.0"
+libipld = { branch = "update_cid", default-features = false, features = ["dag-pb", "dag-json"], git = "https://github.com/ljedrz/rust-ipld" }
+mime = "0.3"
+mpart-async = { default-features = false, version = "0.4" }
+multibase = "0.8"
 multihash = "0.11"
 # openssl is required for rsa keygen but not used by the rust-ipfs or its dependencies
-openssl = "0.10.30"
-percent-encoding = "2.1.0"
-prost = "0.6.1"
-serde = { version = "1.0.106", features = ["derive"] }
-serde_json = "1.0.51"
-structopt = "0.3.12"
-thiserror = "1.0.14"
-tokio = { version = "0.2.16", features = ["full"] }
-warp = "0.2.3"
-hyper = "0.13.6"
-async-stream = "0.2.1"
-pin-project = "0.4.8"
-url = "2.1.1"
-tar = { version = "0.4.28", default-features = false }
-tracing = { version = "0.1", features = ["log"] }
-tracing-subscriber = { version = "0.2", features = ["fmt", "tracing-log"] }
-bytes = "0.5.4"
-mpart-async = "0.4.1"
-mime = "0.3.16"
-humantime = "2.0.1"
+openssl = "0.10"
+percent-encoding = "2.1"
+prost = { default-features = false, version = "0.6.1" }
+serde = { default-features = false, features = ["derive"], version = "1.0" }
+serde_json = { default-features = false, version = "1.0" }
+structopt = { default-features = false, version = "0.3" }
+tar = { default-features = false, version = "0.4" }
+thiserror = "1.0"
+tokio = { default-features = false, features = ["full"], version = "0.2" }
+tracing = { default-features = false, features = ["log"], version = "0.1" }
+tracing-subscriber = { default-features = false, features = ["fmt", "tracing-log"], version = "0.2" }
+url = "2.1"
+warp = { default-features = false, version = "0.2" }
 
 [dev-dependencies]
-hex = "0.4.2"
+async-std = { default-features = false, features = ["attributes"], version = "1.6" }
+hex = "0.4"
 hex-literal = "0.3"
-tempfile = "3.1.0"
+tempfile = "3.1"
