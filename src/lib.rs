@@ -47,9 +47,8 @@ use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
 pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
-pub use self::p2p::Connection;
-pub use self::p2p::SwarmTypes;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
+pub use self::p2p::{Connection, ConnectionTarget, SwarmTypes};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
@@ -244,7 +243,10 @@ type FutureSubscription<T, E> = SubscriptionFuture<Result<T, E>>;
 #[derive(Debug)]
 enum IpfsEvent {
     /// Connect
-    Connect(Multiaddr, OneshotSender<FutureSubscription<(), String>>),
+    Connect(
+        ConnectionTarget,
+        OneshotSender<FutureSubscription<(), String>>,
+    ),
     /// Addresses
     Addresses(Channel<Vec<(PeerId, Vec<Multiaddr>)>>),
     /// Local addresses
@@ -467,13 +469,13 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         self.ipns().cancel(key).instrument(self.span.clone()).await
     }
 
-    pub async fn connect(&self, addr: Multiaddr) -> Result<(), Error> {
+    pub async fn connect<T: Into<ConnectionTarget>>(&self, target: T) -> Result<(), Error> {
         self.span
             .in_scope(|| async {
                 let (tx, rx) = oneshot_channel();
                 self.to_task
                     .clone()
-                    .send(IpfsEvent::Connect(addr, tx))
+                    .send(IpfsEvent::Connect(target.into(), tx))
                     .await?;
                 let subscription = rx.await?;
                 subscription.await?.map_err(|e| format_err!("{}", e))
@@ -892,8 +894,8 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                 };
 
                 match inner {
-                    IpfsEvent::Connect(addr, ret) => {
-                        ret.send(self.swarm.connect(addr)).ok();
+                    IpfsEvent::Connect(target, ret) => {
+                        ret.send(self.swarm.connect(target)).ok();
                     }
                     IpfsEvent::Addresses(ret) => {
                         let addrs = self.swarm.addrs();

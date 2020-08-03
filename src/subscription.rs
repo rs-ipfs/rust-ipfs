@@ -3,7 +3,7 @@
 //! that contains them. `SubscriptionFuture` is the `Future` bound to pending `Subscription`s and
 //! sharing the same unique numeric identifier, the `SubscriptionId`.
 
-use crate::RepoEvent;
+use crate::{p2p::ConnectionTarget, RepoEvent};
 use async_std::future::Future;
 use async_std::task::{self, Context, Poll, Waker};
 use core::fmt::Debug;
@@ -12,7 +12,7 @@ use core::pin::Pin;
 use futures::channel::mpsc::Sender;
 use futures::lock::Mutex;
 use libipld::Cid;
-use libp2p::{kad::QueryId, Multiaddr};
+use libp2p::{kad::QueryId, Multiaddr, PeerId};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
@@ -29,8 +29,8 @@ static GLOBAL_REQ_COUNT: AtomicU64 = AtomicU64::new(0);
 /// The type of a request for subscription.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum RequestKind {
-    /// A request to connect to the given `Multiaddr`.
-    Connect(Multiaddr),
+    /// A request to connect to the given `Multiaddr` or `PeerId`.
+    Connect(ConnectionTarget),
     /// A request to obtain a `Block` with a specific `Cid`.
     GetBlock(Cid),
     /// A DHT request to Kademlia.
@@ -41,7 +41,19 @@ pub enum RequestKind {
 
 impl From<Multiaddr> for RequestKind {
     fn from(addr: Multiaddr) -> Self {
-        Self::Connect(addr)
+        Self::Connect(ConnectionTarget::Addr(addr))
+    }
+}
+
+impl From<PeerId> for RequestKind {
+    fn from(peer_id: PeerId) -> Self {
+        Self::Connect(ConnectionTarget::PeerId(peer_id))
+    }
+}
+
+impl From<ConnectionTarget> for RequestKind {
+    fn from(target: ConnectionTarget) -> Self {
+        Self::Connect(target)
     }
 }
 
@@ -60,7 +72,7 @@ impl From<QueryId> for RequestKind {
 impl fmt::Display for RequestKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Connect(addr) => write!(fmt, "Connect to {}", addr),
+            Self::Connect(tgt) => write!(fmt, "Connect to {:?}", tgt),
             Self::GetBlock(cid) => write!(fmt, "Obtain block {}", cid),
             Self::KadQuery(id) => write!(fmt, "Kad request {:?}", id),
             #[cfg(test)]

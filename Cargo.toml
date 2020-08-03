@@ -42,7 +42,7 @@ prost-build = { default-features = false, version = "0.6" }
 [dev-dependencies]
 hex-literal = { default-features = false, version = "0.3" }
 sha2 = { default-features = false, version = "0.9" }
-tracing-subscriber = { default-features = false, features = ["fmt", "tracing-log"], version = "0.2" }
+tracing-subscriber = { default-features = false, features = ["fmt", "tracing-log", "ansi", "env-filter"], version = "0.2" }
 
 [workspace]
 members = [ "bitswap", "http", "unixfs" ]
