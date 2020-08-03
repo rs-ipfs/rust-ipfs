@@ -1,26 +1,25 @@
 [package]
-name = "ipfs-unixfs"
-version = "0.0.1"
 authors = ["Joonas Koivunen <joonas@equilibrium.co>"]
+description = "UnixFs tree support"
 edition = "2018"
 license = "MIT OR Apache-2.0"
-description = "UnixFs tree support"
-repository = "https://github.com/rs-ipfs/rust-ipfs"
+name = "ipfs-unixfs"
 readme = "README.md"
+repository = "https://github.com/rs-ipfs/rust-ipfs"
+version = "0.0.1"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = [ "filetime" ]
+default = ["filetime"]
 
 [dependencies]
-quick-protobuf = "0.7.0"
-cid = "0.5"
-filetime = { version = "0.2.10", optional = true }
-either = "1.5.3"
-sha2 = "0.9"
-multihash = "0.11"
+cid = { default-features = false, version = "0.5" }
+either = { default-features = false, version = "1.5" }
+filetime = { optional = true, version = "=0.2.8" }
+multihash = { default-features = false, version = "0.11" }
+quick-protobuf = { default-features = false, features = ["std"], version = "0.7" }
+sha2 = { default-features = false, version = "0.9" }
 
 [dev-dependencies]
-multibase = "0.8.0"
-hex-literal = "0.3"
-libc = "0.2.71"
+hex-literal = { default-features = false, version = "0.3" }
+libc = { default-features = false, version = "0.2.71" }
+multibase = { default-features = false, version = "0.8.0" }
