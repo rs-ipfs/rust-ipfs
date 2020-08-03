@@ -4,7 +4,7 @@ use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::swarm::protocols_handler::{
     DummyProtocolsHandler, IntoProtocolsHandler, ProtocolsHandler,
 };
-use libp2p::swarm::{self, NetworkBehaviour, PollParameters, Swarm};
+use libp2p::swarm::{self, DialPeerCondition, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
@@ -17,6 +17,24 @@ pub struct Connection {
     pub address: Multiaddr,
     /// Latest ping report on any of the connections
     pub rtt: Option<Duration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ConnectionTarget {
+    Addr(Multiaddr),
+    PeerId(PeerId),
+}
+
+impl From<Multiaddr> for ConnectionTarget {
+    fn from(addr: Multiaddr) -> Self {
+        Self::Addr(addr)
+    }
+}
+
+impl From<PeerId> for ConnectionTarget {
+    fn from(peer_id: PeerId) -> Self {
+        Self::PeerId(peer_id)
+    }
 }
 
 /// Disconnected will use banning to disconnect a node. Disconnecting a single peer connection is
@@ -87,13 +105,21 @@ impl SwarmApi {
         self.roundtrip_times.insert(peer_id.clone(), rtt);
     }
 
-    pub fn connect(&mut self, address: Multiaddr) -> SubscriptionFuture<Result<(), String>> {
-        trace!("starting to connect to {}", address);
-        self.events.push_back(NetworkBehaviourAction::DialAddress {
-            address: address.clone(),
+    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<Result<(), String>> {
+        trace!("Connecting to {:?}", target);
+
+        self.events.push_back(match target {
+            ConnectionTarget::Addr(ref addr) => NetworkBehaviourAction::DialAddress {
+                address: addr.clone(),
+            },
+            ConnectionTarget::PeerId(ref id) => NetworkBehaviourAction::DialPeer {
+                peer_id: id.clone(),
+                condition: DialPeerCondition::Disconnected,
+            },
         });
+
         self.connect_registry
-            .create_subscription(address.into(), None)
+            .create_subscription(target.into(), None)
     }
 
     pub fn disconnect(&mut self, address: Multiaddr) -> Option<Disconnector> {
@@ -157,6 +183,8 @@ impl NetworkBehaviour for SwarmApi {
         self.connections.insert(addr.clone(), peer_id.clone());
         self.connect_registry
             .finish_subscription(addr.clone().into(), Ok(()));
+        self.connect_registry
+            .finish_subscription(peer_id.clone().into(), Ok(()));
     }
 
     fn inject_connected(&mut self, _peer_id: &PeerId) {
@@ -262,7 +290,7 @@ mod tests {
         };
 
         let peer2 = async move {
-            let future = swarm2.connect(rx.next().await.unwrap());
+            let future = swarm2.connect(rx.next().await.unwrap().into());
 
             let poll_swarm = async move {
                 loop {

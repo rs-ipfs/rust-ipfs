@@ -1,5 +1,5 @@
 use super::pubsub::Pubsub;
-use super::swarm::{Connection, Disconnector, SwarmApi};
+use super::swarm::{Connection, ConnectionTarget, Disconnector, SwarmApi};
 use crate::p2p::{SwarmOptions, SwarmTypes};
 use crate::repo::BlockPut;
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
@@ -411,8 +411,8 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.swarm.connections()
     }
 
-    pub fn connect(&mut self, addr: Multiaddr) -> SubscriptionFuture<Result<(), String>> {
-        self.swarm.connect(addr)
+    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<Result<(), String>> {
+        self.swarm.connect(target)
     }
 
     pub fn disconnect(&mut self, addr: Multiaddr) -> Option<Disconnector> {

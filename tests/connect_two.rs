@@ -1,31 +1,40 @@
 use ipfs::Node;
+use libp2p::PeerId;
 
 // Make sure two instances of ipfs can be connected.
 #[async_std::test]
-async fn connect_two_nodes() {
+async fn connect_two_nodes_by_addr() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
 
     let (_, b_addrs) = node_b.identity().await.unwrap();
     assert!(!b_addrs.is_empty());
 
-    let mut connected = None;
+    let mut connected = false;
 
     for addr in b_addrs {
-        println!("trying {}", addr);
-        match node_a.connect(addr.clone()).await {
-            Ok(_) => {
-                connected = Some(addr);
-                break;
-            }
-            Err(e) => {
-                println!("Failed connecting to {}: {}", addr, e);
-            }
+        if node_a.connect(addr.clone()).await.is_ok() {
+            connected = true;
+            break;
         }
     }
 
-    let connected = connected.expect("Failed to connect to anything");
-    println!("connected to {}", connected);
+    assert!(connected);
+}
+
+// Make sure two instances of ipfs can be connected by `PeerId`.
+#[async_std::test]
+async fn connect_two_nodes_by_peer_id() {
+    let node_a = Node::new("a").await;
+    let node_b = Node::new("b").await;
+
+    let (b_key, mut b_addrs) = node_b.identity().await.unwrap();
+    let b_id = PeerId::from_public_key(b_key);
+
+    while let Some(addr) = b_addrs.pop() {
+        node_a.add_peer(b_id.clone(), addr).await.unwrap();
+    }
+    node_a.connect(b_id).await.unwrap();
 }
 
 // More complicated one to the above; first node will have two listening addresses and the second
