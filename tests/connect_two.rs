@@ -1,5 +1,4 @@
 use ipfs::Node;
-use libp2p::PeerId;
 
 // Make sure two instances of ipfs can be connected.
 #[async_std::test]
@@ -29,7 +28,7 @@ async fn connect_two_nodes_by_peer_id() {
     let node_b = Node::new("b").await;
 
     let (b_key, mut b_addrs) = node_b.identity().await.unwrap();
-    let b_id = PeerId::from_public_key(b_key);
+    let b_id = b_key.into_peer_id();
 
     while let Some(addr) = b_addrs.pop() {
         node_a.add_peer(b_id.clone(), addr).await.unwrap();
