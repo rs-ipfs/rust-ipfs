@@ -66,10 +66,6 @@ pub struct SwarmApi {
 }
 
 impl SwarmApi {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn add_peer(&mut self, peer_id: PeerId) {
         self.peers.insert(peer_id);
     }
@@ -261,52 +257,22 @@ fn connection_point_addr(cp: &ConnectedPoint) -> &Multiaddr {
 mod tests {
     use super::*;
     use crate::p2p::transport::{build_transport, TTransport};
-    use futures::channel::mpsc;
-    use futures::future::{select, FutureExt};
-    use futures::sink::SinkExt;
-    use futures::stream::StreamExt;
     use libp2p::identity::Keypair;
     use libp2p::swarm::Swarm;
 
     #[async_std::test]
     async fn swarm_api() {
-        tracing_subscriber::fmt::init();
-
         let (peer1_id, trans) = mk_transport();
-        let mut swarm1 = Swarm::new(trans, SwarmApi::new(), peer1_id);
+        let mut swarm1 = Swarm::new(trans, SwarmApi::default(), peer1_id);
 
         let (peer2_id, trans) = mk_transport();
-        let mut swarm2 = Swarm::new(trans, SwarmApi::new(), peer2_id);
+        let mut swarm2 = Swarm::new(trans, SwarmApi::default(), peer2_id);
 
-        let (mut tx, mut rx) = mpsc::channel::<Multiaddr>(1);
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
-        let peer1 = async move {
-            while swarm1.next().now_or_never().is_some() {}
-
-            for l in Swarm::listeners(&swarm1) {
-                tx.send(l.clone()).await.unwrap();
-            }
-
-            loop {
-                swarm1.next().await;
-            }
-        };
-
-        let peer2 = async move {
-            let future = swarm2.connect(rx.next().await.unwrap().into());
-
-            let poll_swarm = async move {
-                loop {
-                    swarm2.next().await;
-                }
-            };
-
-            select(Box::pin(future), Box::pin(poll_swarm)).await;
-        };
-
-        let result = select(Box::pin(peer1), Box::pin(peer2));
-        result.await;
+        for l in Swarm::listeners(&swarm1) {
+            swarm2.connect(l.to_owned().into()).await.unwrap();
+        }
     }
 
     fn mk_transport() -> (PeerId, TTransport) {

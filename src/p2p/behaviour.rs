@@ -369,7 +369,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             options.keypair.public(),
         );
         let pubsub = Pubsub::new(options.peer_id);
-        let swarm = SwarmApi::new();
+        let swarm = SwarmApi::default();
 
         Behaviour {
             ipfs,
