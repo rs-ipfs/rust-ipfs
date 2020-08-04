@@ -149,11 +149,15 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
         if let Some(related_subs) = related_subs {
             debug!("Finishing the subscription to {}", req_kind);
 
+            let mut awoken = 0;
             for sub in related_subs.values_mut() {
                 if let Subscription::Pending { .. } = sub {
                     sub.wake(result.clone());
+                    awoken += 1;
                 }
             }
+
+            trace!("Woke {} related subscription(s)", awoken);
         }
     }
 
@@ -279,8 +283,8 @@ impl<TRes> Subscription<TRes> {
             // send a cancel notification to the repo - the wantlist needs
             // to be updated
             if is_last {
-                trace!("Last related subscription cancelled, sending a cancel notification");
                 if let Some(mut sender) = cancel_notifier {
+                    trace!("Last related subscription cancelled, sending a cancel notification");
                     let _ = sender.try_send(RepoEvent::try_from(kind).unwrap());
                 }
             }
@@ -367,7 +371,7 @@ impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
 
 impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
     fn drop(&mut self) {
-        trace!("Dropping subscription {} to {}", self.id, self.kind);
+        trace!("Dropping subscription future {} to {}", self.id, self.kind);
 
         if self.cleanup_complete {
             // cleaned up the easier variants already
@@ -393,11 +397,9 @@ impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
         });
 
         if let Some(sub) = sub {
-            // don't bother updating anything that isn't `Pending`
+            // don't cancel anything that isn't `Pending`
             if let mut sub @ Subscription::Pending { .. } = sub {
-                if is_last {
-                    sub.cancel(self.id, self.kind.clone(), is_last);
-                }
+                sub.cancel(self.id, self.kind.clone(), is_last);
             }
         }
     }
