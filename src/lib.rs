@@ -1002,11 +1002,11 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                 match evt {
                     RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
                     RepoEvent::UnwantBlock(cid) => self.swarm.bitswap().cancel_block(&cid),
-                    RepoEvent::ProvideBlock(cid) => {
+                    RepoEvent::ProvideBlock(cid, ret) => {
                         // TODO: consider if cancel is applicable in cases where we provide the
                         // associated Block ourselves
                         self.swarm.bitswap().cancel_block(&cid);
-                        self.swarm.provide_block(cid)
+                        let _ = ret.send(self.swarm.provide_block(cid));
                     }
                     RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
                 }

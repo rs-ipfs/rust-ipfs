@@ -1,8 +1,9 @@
 //! IPFS repo
 use crate::error::Error;
 use crate::path::IpfsPath;
-use crate::subscription::{RequestKind, SubscriptionRegistry};
+use crate::subscription::{RequestKind, SubscriptionFuture, SubscriptionRegistry};
 use crate::IpfsOptions;
+use anyhow::anyhow;
 use async_std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
@@ -10,7 +11,10 @@ use cid::{self, Cid};
 use core::convert::TryFrom;
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use futures::channel::mpsc::{channel, Receiver, Sender};
+use futures::channel::{
+    mpsc::{channel, Receiver, Sender},
+    oneshot,
+};
 use futures::sink::SinkExt;
 use libp2p::core::PeerId;
 use std::hash::{Hash, Hasher};
@@ -124,11 +128,14 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     pub(crate) subscriptions: SubscriptionRegistry<Block>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum RepoEvent {
     WantBlock(Cid),
     UnwantBlock(Cid),
-    ProvideBlock(Cid),
+    ProvideBlock(
+        Cid,
+        oneshot::Sender<Result<SubscriptionFuture<Result<(), String>>, anyhow::Error>>,
+    ),
     UnprovideBlock(Cid),
 }
 
@@ -200,11 +207,16 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             .finish_subscription(cid.clone().into(), block);
         // sending only fails if no one is listening anymore
         // and that is okay with us.
+        let (tx, rx) = oneshot::channel();
+
         self.events
             .clone()
-            .send(RepoEvent::ProvideBlock(cid.clone()))
+            .send(RepoEvent::ProvideBlock(cid.clone(), tx))
             .await
             .ok();
+
+        rx.await??.await?.map_err(|e| anyhow!(e))?;
+
         Ok((cid, res))
     }
 

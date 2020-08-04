@@ -427,20 +427,14 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.bitswap.want_block(cid, 1);
     }
 
-    // FIXME: it would probably be best if this could return a SubscriptionFuture, so
-    // that the put_block operation truly finishes only when the block is already being
-    // provided; it is, however, pretty tricky in terms of internal communication between
-    // Ipfs and IpfsFuture objects - it would currently require some extra back-and-forth
-    pub fn provide_block(&mut self, cid: Cid) {
+    pub fn provide_block(
+        &mut self,
+        cid: Cid,
+    ) -> Result<SubscriptionFuture<Result<(), String>>, anyhow::Error> {
         let key = cid.to_bytes();
         match self.kademlia.start_providing(key.into()) {
-            Ok(_id) => {
-                // Ok(self.kad_subscriptions.create_subscription(id.into(), None))
-            }
-            Err(e) => {
-                error!("kad: can't provide block {}: {:?}", cid, e);
-                // Err(anyhow!("kad: can't provide block {}", key))
-            }
+            Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
+            Err(e) => Err(anyhow!("kad: can't provide block {}: {:?}", cid, e)),
         }
     }
 
