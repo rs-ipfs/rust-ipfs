@@ -3,7 +3,6 @@ use crate::error::Error;
 use crate::path::IpfsPath;
 use crate::subscription::{RequestKind, SubscriptionFuture, SubscriptionRegistry};
 use crate::IpfsOptions;
-use anyhow::anyhow;
 use async_std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
@@ -125,7 +124,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
-    pub(crate) subscriptions: SubscriptionRegistry<Block>,
+    pub(crate) subscriptions: SubscriptionRegistry<Block, String>,
 }
 
 #[derive(Debug)]
@@ -134,7 +133,7 @@ pub enum RepoEvent {
     UnwantBlock(Cid),
     ProvideBlock(
         Cid,
-        oneshot::Sender<Result<SubscriptionFuture<Result<(), String>>, anyhow::Error>>,
+        oneshot::Sender<Result<SubscriptionFuture<(), String>, anyhow::Error>>,
     ),
     UnprovideBlock(Cid),
 }
@@ -204,7 +203,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let cid = block.cid.clone();
         let (_cid, res) = self.block_store.put(block.clone()).await?;
         self.subscriptions
-            .finish_subscription(cid.clone().into(), block);
+            .finish_subscription(cid.clone().into(), Ok(block));
         // sending only fails if no one is listening anymore
         // and that is okay with us.
         let (tx, rx) = oneshot::channel();
@@ -215,7 +214,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             .await
             .ok();
 
-        rx.await??.await?.map_err(|e| anyhow!(e))?;
+        rx.await??.await?;
 
         Ok((cid, res))
     }

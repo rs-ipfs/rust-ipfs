@@ -59,7 +59,7 @@ type NetworkBehaviourAction = swarm::NetworkBehaviourAction<<<<SwarmApi as Netwo
 pub struct SwarmApi {
     events: VecDeque<NetworkBehaviourAction>,
     peers: HashSet<PeerId>,
-    connect_registry: SubscriptionRegistry<Result<(), String>>,
+    connect_registry: SubscriptionRegistry<(), String>,
     connections: HashMap<Multiaddr, PeerId>,
     roundtrip_times: HashMap<PeerId, Duration>,
     connected_peers: HashMap<PeerId, Vec<Multiaddr>>,
@@ -105,7 +105,7 @@ impl SwarmApi {
         self.roundtrip_times.insert(peer_id.clone(), rtt);
     }
 
-    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<Result<(), String>> {
+    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<(), String> {
         trace!("Connecting to {:?}", target);
 
         self.events.push_back(match target {
@@ -212,8 +212,10 @@ impl NetworkBehaviour for SwarmApi {
         }
         self.connections.remove(closed_addr);
         // FIXME: should be an error
-        self.connect_registry
-            .finish_subscription(closed_addr.clone().into(), Ok(()));
+        self.connect_registry.finish_subscription(
+            closed_addr.clone().into(),
+            Err("Connection reset by peer".to_owned()),
+        );
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
@@ -268,6 +270,8 @@ mod tests {
 
     #[async_std::test]
     async fn swarm_api() {
+        tracing_subscriber::fmt::init();
+
         let (peer1_id, trans) = mk_transport();
         let mut swarm1 = Swarm::new(trans, SwarmApi::new(), peer1_id);
 

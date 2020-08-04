@@ -28,7 +28,7 @@ pub struct Behaviour<Types: IpfsTypes> {
     mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
     #[behaviour(ignore)]
-    kad_subscriptions: SubscriptionRegistry<Result<(), String>>,
+    kad_subscriptions: SubscriptionRegistry<(), String>,
     bitswap: Bitswap,
     ping: Ping,
     identify: Identify,
@@ -411,7 +411,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.swarm.connections()
     }
 
-    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<Result<(), String>> {
+    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<(), String> {
         self.swarm.connect(target)
     }
 
@@ -430,7 +430,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     pub fn provide_block(
         &mut self,
         cid: Cid,
-    ) -> Result<SubscriptionFuture<Result<(), String>>, anyhow::Error> {
+    ) -> Result<SubscriptionFuture<(), String>, anyhow::Error> {
         let key = cid.to_bytes();
         match self.kademlia.start_providing(key.into()) {
             Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
@@ -452,7 +452,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         &mut self.bitswap
     }
 
-    pub fn bootstrap(&mut self) -> Result<SubscriptionFuture<Result<(), String>>, anyhow::Error> {
+    pub fn bootstrap(&mut self) -> Result<SubscriptionFuture<(), String>, anyhow::Error> {
         match self.kademlia.bootstrap() {
             Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
             Err(e) => {
@@ -462,7 +462,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         }
     }
 
-    pub fn get_closest_peers(&mut self, id: PeerId) -> SubscriptionFuture<Result<(), String>> {
+    pub fn get_closest_peers(&mut self, id: PeerId) -> SubscriptionFuture<(), String> {
         let id = id.to_base58();
 
         self.kad_subscriptions

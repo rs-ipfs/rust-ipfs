@@ -85,15 +85,15 @@ impl fmt::Display for RequestKind {
 type SubscriptionId = u64;
 
 /// The specific collection used to hold all the `Subscription`s.
-pub type Subscriptions<T> = HashMap<RequestKind, HashMap<SubscriptionId, Subscription<T>>>;
+pub type Subscriptions<T, E> = HashMap<RequestKind, HashMap<SubscriptionId, Subscription<T, E>>>;
 
 /// A collection of all the live `Subscription`s.
-pub struct SubscriptionRegistry<TRes: Debug + Clone + PartialEq> {
-    pub(crate) subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
+pub struct SubscriptionRegistry<T: Debug + Clone + PartialEq, E: Debug + Clone> {
+    pub(crate) subscriptions: Arc<Mutex<Subscriptions<T, E>>>,
     shutting_down: AtomicBool,
 }
 
-impl<TRes: Debug + Clone + PartialEq> fmt::Debug for SubscriptionRegistry<TRes> {
+impl<T: Debug + Clone + PartialEq, E: Debug + Clone> fmt::Debug for SubscriptionRegistry<T, E> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,
@@ -104,13 +104,13 @@ impl<TRes: Debug + Clone + PartialEq> fmt::Debug for SubscriptionRegistry<TRes> 
     }
 }
 
-impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
+impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> {
     /// Creates a `Subscription` and returns its associated `Future`, the `SubscriptionFuture`.
     pub fn create_subscription(
         &self,
         kind: RequestKind,
         cancel_notifier: Option<Sender<RepoEvent>>,
-    ) -> SubscriptionFuture<TRes> {
+    ) -> SubscriptionFuture<T, E> {
         let id = GLOBAL_REQ_COUNT.fetch_add(1, Ordering::SeqCst);
         debug!("Creating subscription {} to {}", id, kind);
 
@@ -139,7 +139,7 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
 
     /// Finalizes all pending subscriptions of the specified kind with the given `result`.
     ///
-    pub fn finish_subscription(&self, req_kind: RequestKind, result: TRes) {
+    pub fn finish_subscription(&self, req_kind: RequestKind, result: Result<T, E>) {
         let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
         let related_subs = subscriptions.get_mut(&req_kind);
 
@@ -156,6 +156,10 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
                     awoken += 1;
                 }
             }
+
+            // ensure that the subscriptions are being handled correctly: normally
+            // finish_subscriptions should result in some related futures being awoken
+            debug_assert!(awoken != 0);
 
             trace!("Woke {} related subscription(s)", awoken);
         }
@@ -185,7 +189,7 @@ impl<TRes: Debug + Clone + PartialEq> SubscriptionRegistry<TRes> {
     }
 }
 
-impl<TRes: Debug + Clone + PartialEq> Default for SubscriptionRegistry<TRes> {
+impl<T: Debug + Clone + PartialEq, E: Debug + Clone> Default for SubscriptionRegistry<T, E> {
     fn default() -> Self {
         Self {
             subscriptions: Default::default(),
@@ -194,29 +198,33 @@ impl<TRes: Debug + Clone + PartialEq> Default for SubscriptionRegistry<TRes> {
     }
 }
 
-impl<TRes: Debug + Clone + PartialEq> Drop for SubscriptionRegistry<TRes> {
+impl<T: Debug + Clone + PartialEq, E: Debug + Clone> Drop for SubscriptionRegistry<T, E> {
     fn drop(&mut self) {
         self.shutdown();
     }
 }
 
-/// A value returned when a `Subscription` and it's linked `SubscriptionFuture`
-/// is cancelled before completion or when the `Future` is aborted.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cancelled;
+#[derive(Debug, PartialEq)]
+pub enum SubscriptionErr<E: Debug + PartialEq> {
+    /// A value returned when a `Subscription` and it's linked `SubscriptionFuture`
+    /// is cancelled before completion or when the `Future` is aborted.
+    Cancelled,
+    /// Other errors not caused by cancellation.
+    Failed(E),
+}
 
-impl fmt::Display for Cancelled {
+impl<E: Debug + PartialEq> fmt::Display for SubscriptionErr<E> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "{:?}", self)
     }
 }
 
-impl std::error::Error for Cancelled {}
+impl<E: Debug + PartialEq> std::error::Error for SubscriptionErr<E> {}
 
 /// Represents a request for a resource at different stages of its lifetime.
-pub enum Subscription<TRes> {
+pub enum Subscription<T, E> {
     /// A finished `Subscription` containing the desired `TRes` value.
-    Ready(TRes),
+    Ready(Result<T, E>),
     /// A standing request that hasn't been fulfilled yet.
     Pending {
         /// The waker of the task assigned to check if the `Subscription` is complete.
@@ -228,7 +236,7 @@ pub enum Subscription<TRes> {
     Cancelled,
 }
 
-impl<TRes> fmt::Debug for Subscription<TRes> {
+impl<T, E> fmt::Debug for Subscription<T, E> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Subscription::*;
         match self {
@@ -254,7 +262,7 @@ impl<TRes> fmt::Debug for Subscription<TRes> {
     }
 }
 
-impl<TRes> Subscription<TRes> {
+impl<T, E> Subscription<T, E> {
     fn new(cancel_notifier: Option<Sender<RepoEvent>>) -> Self {
         Self::Pending {
             waker: Default::default(),
@@ -262,7 +270,7 @@ impl<TRes> Subscription<TRes> {
         }
     }
 
-    fn wake(&mut self, result: TRes) {
+    fn wake(&mut self, result: Result<T, E>) {
         let former_self = mem::replace(self, Subscription::Ready(result));
         if let Subscription::Pending { waker, .. } = former_self {
             if let Some(waker) = waker {
@@ -297,20 +305,20 @@ impl<TRes> Subscription<TRes> {
 }
 
 /// A `Future` that resolves to the resource whose subscription was requested.
-pub struct SubscriptionFuture<TRes: Debug + PartialEq> {
+pub struct SubscriptionFuture<T: Debug + PartialEq, E: Debug> {
     /// The unique identifier of the subscription request and the secondary
     /// key in the `SubscriptionRegistry`.
     id: u64,
     /// The type of the request made; the primary key in the `SubscriptionRegistry`.
     kind: RequestKind,
     /// A reference to the subscriptions at the `SubscriptionRegistry`.
-    subscriptions: Arc<Mutex<Subscriptions<TRes>>>,
+    subscriptions: Arc<Mutex<Subscriptions<T, E>>>,
     /// True if the cleanup is already done, false if `Drop` needs to do it
     cleanup_complete: bool,
 }
 
-impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
-    type Output = Result<TRes, Cancelled>;
+impl<T: Debug + PartialEq, E: Debug + PartialEq> Future for SubscriptionFuture<T, E> {
+    type Output = Result<T, SubscriptionErr<E>>;
 
     fn poll(mut self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
         use std::collections::hash_map::Entry::*;
@@ -331,7 +339,7 @@ impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
             let (became_empty, ret) = match related_subs.entry(self.id) {
                 // there were no related subs, it can only mean cancellation or polling after
                 // Poll::Ready
-                Vacant(_) => return Poll::Ready(Err(Cancelled)),
+                Vacant(_) => return Poll::Ready(Err(SubscriptionErr::Cancelled)),
                 Occupied(mut oe) => {
                     let unwrapped = match oe.get_mut() {
                         Subscription::Pending { ref mut waker, .. } => {
@@ -341,10 +349,10 @@ impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
                         }
                         Subscription::Cancelled => {
                             oe.remove();
-                            Err(Cancelled)
+                            Err(SubscriptionErr::Cancelled)
                         }
                         _ => match oe.remove() {
-                            Subscription::Ready(result) => Ok(result),
+                            Subscription::Ready(result) => result.map_err(SubscriptionErr::Failed),
                             _ => unreachable!("already matched"),
                         },
                     };
@@ -364,12 +372,12 @@ impl<TRes: Debug + PartialEq> Future for SubscriptionFuture<TRes> {
             self.cleanup_complete = became_empty;
             Poll::Ready(ret)
         } else {
-            Poll::Ready(Err(Cancelled))
+            Poll::Ready(Err(SubscriptionErr::Cancelled))
         }
     }
 }
 
-impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
+impl<T: Debug + PartialEq, E: Debug> Drop for SubscriptionFuture<T, E> {
     fn drop(&mut self) {
         trace!("Dropping subscription future {} to {}", self.id, self.kind);
 
@@ -405,12 +413,12 @@ impl<TRes: Debug + PartialEq> Drop for SubscriptionFuture<TRes> {
     }
 }
 
-impl<TRes: Debug + PartialEq> fmt::Debug for SubscriptionFuture<TRes> {
+impl<T: Debug + PartialEq, E: Debug> fmt::Debug for SubscriptionFuture<T, E> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,
             "SubscriptionFuture<Output = Result<{}, Cancelled>>",
-            std::any::type_name::<TRes>()
+            std::any::type_name::<T>()
         )
     }
 }
@@ -427,11 +435,11 @@ mod tests {
 
     #[async_std::test]
     async fn subscription_basics() {
-        let registry = SubscriptionRegistry::<u32>::default();
+        let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
         let s2 = registry.create_subscription(0.into(), None);
         let s3 = registry.create_subscription(0.into(), None);
-        registry.finish_subscription(0.into(), 10);
+        registry.finish_subscription(0.into(), Ok(10));
         assert_eq!(s1.await.unwrap(), 10);
         assert_eq!(s2.await.unwrap(), 10);
         assert_eq!(s3.await.unwrap(), 10);
@@ -439,26 +447,26 @@ mod tests {
 
     #[async_std::test]
     async fn subscription_cancelled_on_dropping_registry() {
-        let registry = SubscriptionRegistry::<u32>::default();
+        let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
         drop(registry);
-        assert_eq!(s1.await, Err(Cancelled));
+        assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
     #[async_std::test]
     async fn subscription_cancelled_on_shutdown() {
-        let registry = SubscriptionRegistry::<u32>::default();
+        let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
         registry.shutdown();
-        assert_eq!(s1.await, Err(Cancelled));
+        assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
     #[async_std::test]
     async fn new_subscriptions_cancelled_after_shutdown() {
-        let registry = SubscriptionRegistry::<u32>::default();
+        let registry = SubscriptionRegistry::<u32, ()>::default();
         registry.shutdown();
         let s1 = registry.create_subscription(0.into(), None);
-        assert_eq!(s1.await, Err(Cancelled));
+        assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
     #[async_std::test]
@@ -466,7 +474,7 @@ mod tests {
         use async_std::future::timeout;
         use std::time::Duration;
 
-        let registry = SubscriptionRegistry::<u32>::default();
+        let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = timeout(
             Duration::from_millis(1),
             registry.create_subscription(0.into(), None),
@@ -477,7 +485,7 @@ mod tests {
         s1.await.unwrap_err();
 
         // this will cause a call to waker installed by s1, but it shouldn't be a problem.
-        registry.finish_subscription(0.into(), 0);
+        registry.finish_subscription(0.into(), Ok(0));
 
         assert_eq!(s2.await.unwrap(), 0);
     }

@@ -236,7 +236,6 @@ pub struct IpfsInner<Types: IpfsTypes> {
 }
 
 type Channel<T> = OneshotSender<Result<T, Error>>;
-type FutureSubscription<T, E> = SubscriptionFuture<Result<T, E>>;
 
 /// Events used internally to communicate with the swarm, which is executed in the the background
 /// task.
@@ -245,7 +244,7 @@ enum IpfsEvent {
     /// Connect
     Connect(
         ConnectionTarget,
-        OneshotSender<FutureSubscription<(), String>>,
+        OneshotSender<SubscriptionFuture<(), String>>,
     ),
     /// Addresses
     Addresses(Channel<Vec<(PeerId, Vec<Multiaddr>)>>),
@@ -266,9 +265,9 @@ enum IpfsEvent {
     BitswapStats(OneshotSender<BitswapStats>),
     AddListeningAddress(Multiaddr, Channel<Multiaddr>),
     RemoveListeningAddress(Multiaddr, Channel<()>),
-    Bootstrap(OneshotSender<Result<FutureSubscription<(), String>, Error>>),
+    Bootstrap(OneshotSender<Result<SubscriptionFuture<(), String>, Error>>),
     AddPeer(PeerId, Multiaddr),
-    GetClosestPeers(PeerId, OneshotSender<FutureSubscription<(), String>>),
+    GetClosestPeers(PeerId, OneshotSender<SubscriptionFuture<(), String>>),
     Exit,
 }
 
@@ -478,7 +477,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                     .send(IpfsEvent::Connect(target.into(), tx))
                     .await?;
                 let subscription = rx.await?;
-                subscription.await?.map_err(|e| format_err!("{}", e))
+                subscription.await.map_err(|e| anyhow!(e))
             })
             .await
     }
@@ -1085,29 +1084,29 @@ mod node {
 
         pub fn get_subscriptions(
             &self,
-        ) -> &futures::lock::Mutex<subscription::Subscriptions<Block>> {
+        ) -> &futures::lock::Mutex<subscription::Subscriptions<Block, String>> {
             &self.ipfs.repo.subscriptions.subscriptions
         }
 
         pub async fn get_closest_peers(&self) -> Result<(), Error> {
             let self_peer = PeerId::from_public_key(self.identity().await?.0);
-            let (tx, rx) = oneshot_channel::<FutureSubscription<(), String>>();
+            let (tx, rx) = oneshot_channel();
 
             self.to_task
                 .clone()
                 .send(IpfsEvent::GetClosestPeers(self_peer, tx))
                 .await?;
 
-            rx.await?.await?.map_err(|e| anyhow!(e))
+            rx.await?.await.map_err(|e| anyhow!(e))
         }
 
         /// Initiate a query for random key to discover peers.
         pub async fn bootstrap(&self) -> Result<(), Error> {
-            let (tx, rx) = oneshot_channel::<Result<FutureSubscription<(), String>, Error>>();
+            let (tx, rx) = oneshot_channel();
 
             self.to_task.clone().send(IpfsEvent::Bootstrap(tx)).await?;
 
-            rx.await??.await?.map_err(|e| anyhow!(e))
+            rx.await??.await.map_err(|e| anyhow!(e))
         }
 
         /// Add a known peer to the DHT.
