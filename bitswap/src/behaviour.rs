@@ -86,7 +86,7 @@ impl Stats {
 pub struct Bitswap {
     /// Queue of events to report to the user.
     events: VecDeque<NetworkBehaviourAction<Message, BitswapEvent>>,
-    /// List of peers to send messages to.
+    /// List of prospect peers to connect to.
     target_peers: FnvHashSet<PeerId>,
     /// Ledger
     pub connected_peers: HashMap<PeerId, Ledger>,
