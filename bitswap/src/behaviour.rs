@@ -231,7 +231,7 @@ impl NetworkBehaviour for Bitswap {
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
         debug!("bitswap: inject_disconnected {:?}", peer_id);
-        //self.connected_peers.remove(peer_id);
+        self.connected_peers.remove(peer_id);
     }
 
     fn inject_event(&mut self, source: PeerId, _connection: ConnectionId, message: MessageWrapper) {
