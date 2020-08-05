@@ -1,6 +1,5 @@
 //! P2P handling for IPFS nodes.
 use crate::{Ipfs, IpfsOptions, IpfsTypes};
-use core::marker::PhantomData;
 use libp2p::identity::Keypair;
 use libp2p::Swarm;
 use libp2p::{Multiaddr, PeerId};
@@ -15,8 +14,7 @@ pub use swarm::{Connection, ConnectionTarget};
 
 pub type TSwarm<T> = Swarm<behaviour::Behaviour<T>>;
 
-pub struct SwarmOptions<TIpfsTypes: IpfsTypes> {
-    _marker: PhantomData<TIpfsTypes>,
+pub struct SwarmOptions {
     pub keypair: Keypair,
     pub peer_id: PeerId,
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
@@ -24,8 +22,8 @@ pub struct SwarmOptions<TIpfsTypes: IpfsTypes> {
     pub kad_protocol: Option<String>,
 }
 
-impl<TIpfsTypes: IpfsTypes> From<&IpfsOptions<TIpfsTypes>> for SwarmOptions<TIpfsTypes> {
-    fn from(options: &IpfsOptions<TIpfsTypes>) -> Self {
+impl From<&IpfsOptions> for SwarmOptions {
+    fn from(options: &IpfsOptions) -> Self {
         let keypair = options.keypair.clone();
         let peer_id = keypair.public().into_peer_id();
         let bootstrap = options.bootstrap.clone();
@@ -33,7 +31,6 @@ impl<TIpfsTypes: IpfsTypes> From<&IpfsOptions<TIpfsTypes>> for SwarmOptions<TIpf
         let kad_protocol = options.kad_protocol.clone();
 
         SwarmOptions {
-            _marker: PhantomData,
             keypair,
             peer_id,
             bootstrap,
@@ -45,7 +42,7 @@ impl<TIpfsTypes: IpfsTypes> From<&IpfsOptions<TIpfsTypes>> for SwarmOptions<TIpf
 
 /// Creates a new IPFS swarm.
 pub async fn create_swarm<TIpfsTypes: IpfsTypes>(
-    options: SwarmOptions<TIpfsTypes>,
+    options: SwarmOptions,
     ipfs: Ipfs<TIpfsTypes>,
 ) -> TSwarm<TIpfsTypes> {
     let peer_id = options.peer_id.clone();

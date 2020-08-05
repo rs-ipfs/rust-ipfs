@@ -4,15 +4,13 @@ use cid::Cid;
 use futures::io::AsyncWriteExt;
 use futures::pin_mut;
 use futures::stream::StreamExt; // needed for StreamExt::next
-use ipfs::{IpfsOptions, TestTypes, UninitializedIpfs};
+use ipfs::{Ipfs, TestTypes, UninitializedIpfs};
 use std::convert::TryFrom;
 use std::env;
 use std::process::exit;
 
 fn main() {
     tracing_subscriber::fmt::init();
-
-    let options = IpfsOptions::<TestTypes>::default();
 
     // this example will wait forever attempting to fetch a CID provided at command line. It is
     // expected to be used by connecting another ipfs peer to it and providing the blocks from that
@@ -40,11 +38,8 @@ fn main() {
 
     async_std::task::block_on(async move {
         // Start daemon and initialize repo
-        let (ipfs, fut) = UninitializedIpfs::new(options, None)
-            .await
-            .start()
-            .await
-            .unwrap();
+        let (ipfs, fut): (Ipfs<TestTypes>, _) =
+            UninitializedIpfs::default().await.start().await.unwrap();
         async_std::task::spawn(fut);
 
         let (public_key, addresses) = ipfs.identity().await.unwrap();

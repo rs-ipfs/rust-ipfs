@@ -1,21 +1,17 @@
 use async_std::task;
 use futures::join;
-use ipfs::{IpfsOptions, IpfsPath, TestTypes, UninitializedIpfs};
+use ipfs::{Ipfs, IpfsPath, TestTypes, UninitializedIpfs};
 use std::str::FromStr;
 
 fn main() {
     tracing_subscriber::fmt::init();
 
-    let options = IpfsOptions::<TestTypes>::default();
     let path =
         IpfsPath::from_str("/ipfs/zdpuB1caPcm4QNXeegatVfLQ839Lmprd5zosXGwRUBJHwj66X").unwrap();
 
     task::block_on(async move {
-        let (ipfs, fut) = UninitializedIpfs::new(options, None)
-            .await
-            .start()
-            .await
-            .unwrap();
+        let (ipfs, fut): (Ipfs<TestTypes>, _) =
+            UninitializedIpfs::default().await.start().await.unwrap();
         task::spawn(fut);
 
         let f1 = ipfs.get_dag(path.sub_path("0").unwrap());

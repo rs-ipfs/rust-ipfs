@@ -2,13 +2,11 @@
 
 use async_std::task;
 use cid::{Cid, Codec};
-use ipfs::{Block, IpfsOptions, TestTypes, UninitializedIpfs};
+use ipfs::{Block, Ipfs, TestTypes, UninitializedIpfs};
 use multihash::Sha2_256;
 
 fn main() {
     tracing_subscriber::fmt::init();
-
-    let options = IpfsOptions::<TestTypes>::default();
 
     // this example demonstrates
     //  - block building
@@ -16,11 +14,8 @@ fn main() {
 
     task::block_on(async move {
         // Start daemon and initialize repo
-        let (ipfs, fut) = UninitializedIpfs::new(options, None)
-            .await
-            .start()
-            .await
-            .unwrap();
+        let (ipfs, fut): (Ipfs<TestTypes>, _) =
+            UninitializedIpfs::default().await.start().await.unwrap();
         task::spawn(fut);
 
         let data = b"block-want\n".to_vec().into_boxed_slice();

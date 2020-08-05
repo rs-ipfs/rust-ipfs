@@ -336,7 +336,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour
 
 impl<Types: IpfsTypes> Behaviour<Types> {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
-    pub async fn new(options: SwarmOptions<Types>, ipfs: Ipfs<Types>) -> Self {
+    pub async fn new(options: SwarmOptions, ipfs: Ipfs<Types>) -> Self {
         info!("net: starting with peer id {}", options.peer_id);
 
         let mdns = if options.mdns {
@@ -480,7 +480,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
 pub async fn build_behaviour<TIpfsTypes: IpfsTypes>(
-    options: SwarmOptions<TIpfsTypes>,
+    options: SwarmOptions,
     ipfs: Ipfs<TIpfsTypes>,
 ) -> Behaviour<TIpfsTypes> {
     Behaviour::new(options, ipfs).await

@@ -79,17 +79,15 @@ _Note: binaries available via `cargo install` is coming soon._
 ```rust,no_run
 use async_std::task;
 use futures::join;
-use ipfs::{IpfsOptions, IpfsPath, Ipld, Types, UninitializedIpfs};
+use ipfs::{Ipfs, IpfsOptions, IpfsPath, Ipld, Types, UninitializedIpfs};
 use libipld::ipld;
 
 fn main() {
     tracing_subscriber::fmt::init();
 
-    let options = IpfsOptions::<Types>::default();
-
     task::block_on(async move {
         // Start daemon and initialize repo
-        let (ipfs, fut) = UninitializedIpfs::new(options, None).await.start().await.unwrap();
+        let (ipfs, fut): (Ipfs<Types>, _) = UninitializedIpfs::default().await.start().await.unwrap();
         task::spawn(fut);
 
         // Create a DAG
