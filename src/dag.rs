@@ -1,23 +1,22 @@
 use crate::error::Error;
 use crate::path::{IpfsPath, IpfsPathError, SubPath};
-use crate::repo::RepoTypes;
-use crate::Ipfs;
+use crate::repo::{Repo, RepoTypes};
+use async_trait::async_trait;
 use bitswap::Block;
 use cid::{Cid, Codec, Version};
 use libipld::block::{decode_ipld, encode_ipld};
 use libipld::ipld::Ipld;
 
-#[derive(Clone, Debug)]
-pub struct IpldDag<Types: RepoTypes> {
-    ipfs: Ipfs<Types>,
+#[async_trait]
+pub trait IpldDag {
+    async fn put_dag(&self, data: Ipld, codec: Codec) -> Result<Cid, Error>;
+
+    async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error>;
 }
 
-impl<Types: RepoTypes> IpldDag<Types> {
-    pub fn new(ipfs: Ipfs<Types>) -> Self {
-        IpldDag { ipfs }
-    }
-
-    pub async fn put(&self, data: Ipld, codec: Codec) -> Result<Cid, Error> {
+#[async_trait]
+impl<T: RepoTypes> IpldDag for Repo<T> {
+    async fn put_dag(&self, data: Ipld, codec: Codec) -> Result<Cid, Error> {
         let bytes = encode_ipld(&data, codec)?;
         let hash = multihash::Sha2_256::digest(&bytes);
         let version = if codec == Codec::DagProtobuf {
@@ -27,16 +26,16 @@ impl<Types: RepoTypes> IpldDag<Types> {
         };
         let cid = Cid::new(version, codec, hash)?;
         let block = Block::new(bytes, cid);
-        let (cid, _) = self.ipfs.repo.put_block(block).await?;
+        let (cid, _) = self.put_block(block).await?;
         Ok(cid)
     }
 
-    pub async fn get(&self, path: IpfsPath) -> Result<Ipld, Error> {
+    async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
         let cid = match path.root().cid() {
             Some(cid) => cid,
             None => return Err(anyhow::anyhow!("expected cid")),
         };
-        let mut ipld = decode_ipld(&cid, self.ipfs.repo.get_block(&cid).await?.data())?;
+        let mut ipld = decode_ipld(&cid, self.get_block(&cid).await?.data())?;
         for sub_path in path.iter() {
             if !can_resolve(&ipld, sub_path) {
                 let path = sub_path.to_owned();
@@ -44,7 +43,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
             }
             ipld = resolve(ipld, sub_path);
             ipld = match ipld {
-                Ipld::Link(cid) => decode_ipld(&cid, self.ipfs.repo.get_block(&cid).await?.data())?,
+                Ipld::Link(cid) => decode_ipld(&cid, self.get_block(&cid).await?.data())?,
                 ipld => ipld,
             };
         }

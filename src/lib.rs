@@ -350,10 +350,6 @@ impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
-    fn dag(&self) -> IpldDag<Types> {
-        IpldDag::new(self.clone())
-    }
-
     fn ipns(&self) -> Ipns<Types> {
         Ipns::new(self.clone())
     }
@@ -401,23 +397,22 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Puts an ipld dag node into the ipfs repo.
     pub async fn put_dag(&self, ipld: Ipld) -> Result<Cid, Error> {
-        self.dag()
-            .put(ipld, Codec::DagCBOR)
+        self.repo
+            .put_dag(ipld, Codec::DagCBOR)
             .instrument(self.span.clone())
             .await
     }
 
     /// Gets an ipld dag node from the ipfs repo.
     pub async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
-        self.dag().get(path).instrument(self.span.clone()).await
+        self.repo.get_dag(path).instrument(self.span.clone()).await
     }
 
     /// Adds a file into the ipfs repo.
     pub async fn add(&self, path: PathBuf) -> Result<Cid, Error> {
-        let dag = self.dag();
         let file = File::new(path).await?;
         let path = file
-            .put_unixfs_v1(&dag)
+            .put_unixfs_v1(&self.repo)
             .instrument(self.span.clone())
             .await?;
         Ok(path)
@@ -425,7 +420,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Gets a file from the ipfs repo.
     pub async fn get(&self, path: IpfsPath) -> Result<File, Error> {
-        File::get_unixfs_v1(&self.dag(), path)
+        File::get_unixfs_v1(&self.repo, path)
             .instrument(self.span.clone())
             .await
     }
