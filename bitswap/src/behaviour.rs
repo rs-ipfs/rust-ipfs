@@ -159,11 +159,9 @@ impl Bitswap {
     /// Called from a Strategy.
     pub fn send_block(&mut self, peer_id: PeerId, block: Block) {
         trace!("queueing block to be sent to {}: {}", peer_id, block.cid);
-        let ledger = self
-            .connected_peers
-            .get_mut(&peer_id)
-            .expect("Peer not in ledger?!");
-        ledger.add_block(block);
+        if let Some(ledger) = self.connected_peers.get_mut(&peer_id) {
+            ledger.add_block(block);
+        }
     }
 
     /// Sends the wantlist to the peer.
