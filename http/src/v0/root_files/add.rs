@@ -88,10 +88,7 @@ where
     async_stream::try_stream! {
         // TODO: wrap-in-directory option
         let mut tree = BufferingTreeBuilder::default();
-
         let mut buffer = BytesMut::new();
-
-        tracing::trace!("stream started");
 
         while let Some(mut field) = fields
             .try_next()
@@ -99,20 +96,6 @@ where
         {
 
             let field_name = field.name().map_err(AddError::Header)?;
-
-            // files are file{,-1,-2,-3,..}
-            // directories are dir{,-1,-2,-3,..}
-
-            let _ = if !field_name.starts_with("file") {
-                // this seems constant for files and directories
-                Err(AddError::UnsupportedField(field_name.to_string()))
-            } else {
-                // this is a bit ackward with the ? operator but it should save us the yield
-                // Err(..) followed by return; this is only available in the `stream!` variant,
-                // which continues after errors by default..
-                Ok(())
-            }?;
-
             let filename = field.filename().map_err(AddError::Header)?;
             let filename = percent_encoding::percent_decode_str(filename)
                 .decode_utf8()
@@ -123,7 +106,14 @@ where
 
             let next = match content_type {
                 "application/octet-stream" => {
-                    tracing::trace!("processing file {:?}", filename);
+
+                    // files are file{,-1,-2,-3,..}
+                    let _ = if field_name != "file" && !field_name.starts_with("file-") {
+                        Err(AddError::UnsupportedField(field_name.to_string()))
+                    } else {
+                        Ok(())
+                    }?;
+
                     let mut adder = FileAdder::default();
                     let mut total = 0u64;
 
@@ -144,8 +134,6 @@ where
 
                                     total += maybe_tuple.map(|t| t.1).unwrap_or(0);
                                 }
-
-                                tracing::trace!("read {} bytes", read);
                             }
                             None => break,
                         }
@@ -166,7 +154,8 @@ where
                         .map_err(AddError::TreeGathering)?;
 
                     let filename: Cow<'_, str> = if filename.is_empty() {
-                        // cid needs to be repeated if no filename was given
+                        // cid needs to be repeated if no filename was given; in which case there
+                        // should not be anything to build as tree either.
                         Cow::Owned(root.to_string())
                     } else {
                         Cow::Owned(filename)
@@ -182,8 +171,26 @@ where
 
                     Ok(buffer.split().freeze())
                 },
-                /*"application/x-directory"
-                |*/ unsupported => {
+                "application/x-directory" => {
+                    // dirs are dir{,-1,-2,-3,..}
+                    let _ = if field_name != "dir" && !field_name.starts_with("dir-") {
+                        Err(AddError::UnsupportedField(field_name.to_string()))
+                    } else {
+                        Ok(())
+                    }?;
+
+                    // we need to fully consume this part, even though there shouldn't be anything
+                    // except for the already parsed *but* ignored headers
+                    while let Some(_) = field.try_next().await.map_err(AddError::Parsing)? {}
+
+                    // while we don't at the moment parse the mtime, mtime-nsec headers and mode
+                    // those should be reflected in the metadata. this will still add an empty
+                    // directory which is good thing.
+                    tree.set_metadata(&filename, ipfs::unixfs::ll::Metadata::default())
+                        .map_err(AddError::TreeGathering)?;
+                    continue;
+                }
+                unsupported => {
                     Err(AddError::UnsupportedContentType(unsupported.to_string()))
                 }
             }?;

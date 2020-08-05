@@ -1,3 +1,4 @@
+use crate::Metadata;
 use cid::Cid;
 use std::collections::hash_map::Entry::*;
 use std::collections::{BTreeMap, HashMap};
@@ -622,12 +623,6 @@ impl DirBuilder {
     fn set_metadata(&mut self, metadata: Metadata) {
         self.metadata = metadata;
     }
-}
-
-#[derive(Default, Debug)]
-pub struct Metadata {
-    mtime: Option<(i64, u32)>,
-    mode: Option<u32>,
 }
 
 #[cfg(test)]
