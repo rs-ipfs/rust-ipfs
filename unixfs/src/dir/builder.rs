@@ -340,13 +340,6 @@ pub struct PostOrderIterator<'a> {
     wrap_in_directory: bool,
 }
 
-fn identity_cid(number: usize) -> Cid {
-    use multihash::{Multihash, Sha2_256};
-
-    let mh = Sha2_256::digest(&number.to_le_bytes());
-    Cid::new_v0(mh).unwrap()
-}
-
 #[derive(Debug)]
 pub enum TreeConstructionFailed {
     // TODO: at least any quick_protobuf errors here?
@@ -362,12 +355,59 @@ impl std::error::Error for TreeConstructionFailed {}
 
 impl<'a> PostOrderIterator<'a> {
     fn render_directory(
-        links: &BTreeMap<String, Leaf>,
-        _buffer: &mut Vec<u8>,
+        links: &mut BTreeMap<String, Leaf>,
+        buffer: &mut Vec<u8>,
     ) -> Result<Leaf, TreeConstructionFailed> {
+        use crate::pb::{FlatUnixFs, PBLink, UnixFs, UnixFsType};
+        use quick_protobuf::{BytesWriter, MessageWrite, Writer};
+        use sha2::{Digest, Sha256};
+        use std::borrow::Cow;
+
+        // TODO: this could quite easily be made so that the links are read from the btreemap for
+        // calculating the size and rendering
+        let mut combined_from_links = 0;
+
+        let flat = FlatUnixFs {
+            links: links
+                .iter() // .drain() would be the most reasonable
+                .inspect(|(_, Leaf { total_size, .. })| combined_from_links += total_size)
+                .map(|(name, Leaf { link, total_size })| PBLink {
+                    Hash: Some(link.to_bytes().into()),
+                    Name: Some(Cow::Borrowed(name.as_str())),
+                    Tsize: Some(*total_size),
+                })
+                .collect::<Vec<_>>(),
+            data: UnixFs {
+                Type: UnixFsType::Directory,
+                Data: None,
+                ..Default::default()
+            },
+        };
+
+        let size = flat.get_size();
+
+        // FIXME: we shouldn't be creating too large structures (bitswap block size limit!)
+        // FIXME: changing this to autosharding is going to take some thinking
+
+        buffer.clear();
+        let cap = buffer.capacity();
+
+        if let Some(additional) = size.checked_sub(cap) {
+            buffer.reserve(additional);
+        }
+
+        // argh
+        buffer.extend(std::iter::repeat(0).take(size));
+
+        let mut writer = Writer::new(BytesWriter::new(&mut buffer[..]));
+        flat.write_message(&mut writer)
+            .expect("unsure how this could fail");
+        let mh = multihash::wrap(multihash::Code::Sha2_256, &Sha256::digest(&buffer));
+        let cid = Cid::new_v0(mh).expect("sha2_256 is the correct multihash for cidv0");
+
         Ok(Leaf {
-            link: identity_cid(links.len()),
-            total_size: 42,
+            link: cid,
+            total_size: buffer.len() as u64 + combined_from_links,
         })
     }
 
@@ -448,7 +488,7 @@ impl<'a> PostOrderIterator<'a> {
                     let buffer = &mut self.block_buffer;
                     buffer.clear();
 
-                    let leaf = match Self::render_directory(&collected, buffer) {
+                    let leaf = match Self::render_directory(&mut collected, buffer) {
                         Ok(leaf) => leaf,
                         Err(e) => return Some(Err(e)),
                     };
@@ -586,7 +626,7 @@ pub struct Metadata {
 
 #[cfg(test)]
 mod tests {
-    use super::{identity_cid, BufferingTreeBuilder, Metadata, TreeBuildingFailed, TreeOptions};
+    use super::{BufferingTreeBuilder, Metadata, TreeBuildingFailed, TreeOptions};
     use cid::Cid;
     use std::convert::TryFrom;
 
@@ -599,13 +639,13 @@ mod tests {
             Cid::try_from("QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6").unwrap();
 
         builder
-            .put_file("a/b/c/d/e/f/g.txt", five_block_foobar.clone(), 1)
+            .put_file("a/b/c/d/e/f/g.txt", five_block_foobar.clone(), 221)
             .unwrap();
         builder
-            .put_file("a/b/c/d/e/h.txt", five_block_foobar.clone(), 2)
+            .put_file("a/b/c/d/e/h.txt", five_block_foobar.clone(), 221)
             .unwrap();
         builder
-            .put_file("a/b/c/d/e/i.txt", five_block_foobar.clone(), 3)
+            .put_file("a/b/c/d/e/i.txt", five_block_foobar.clone(), 221)
             .unwrap();
 
         let mut full_path = String::new();
@@ -613,7 +653,7 @@ mod tests {
 
         let iter = builder.build(&mut full_path, &mut buffer);
         let mut actual = iter
-            .map(|res| res.map(|(p, cid, _)| (p, cid)))
+            .map(|res| res.map(|(p, cid, buf)| (p, cid, buf)))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
@@ -640,14 +680,32 @@ mod tests {
         while let Some(actual) = actual.pop() {
             let expected = expected.pop().expect("size mismatch");
             assert_eq!(actual.0, expected.0);
-            assert_eq!(actual.1.to_string(), expected.1, "{:?}", actual.0);
+            assert_eq!(
+                actual.1.to_string(),
+                expected.1,
+                "{:?}: {:?}",
+                actual.0,
+                Hex(&actual.2)
+            );
+        }
+    }
+
+    struct Hex<'a>(&'a [u8]);
+    use std::fmt;
+
+    impl<'a> fmt::Debug for Hex<'a> {
+        fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+            for b in self.0 {
+                write!(fmt, "{:02x}", b)?;
+            }
+            Ok(())
         }
     }
 
     #[test]
     fn empty_path() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("", identity_cid(0), 1).unwrap();
+        builder.put_file("", some_cid(0), 1).unwrap();
 
         let mut full_path = String::new();
         let mut buffer = Vec::new();
@@ -668,22 +726,28 @@ mod tests {
     #[should_panic]
     fn rooted_path() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("/a", identity_cid(0), 1).unwrap();
+        builder.put_file("/a", some_cid(0), 1).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn successive_slashes() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("a//b", identity_cid(0), 1).unwrap();
+        builder.put_file("a//b", some_cid(0), 1).unwrap();
     }
 
     #[test]
     fn multiple_roots() {
+        // foobar\n
+        let five_block_foobar =
+            Cid::try_from("QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6").unwrap();
+
         let opts = TreeOptions::default().with_wrap_in_directory();
         let mut builder = BufferingTreeBuilder::new(opts);
-        builder.put_file("a", identity_cid(0), 1).unwrap();
-        builder.put_file("b", identity_cid(1), 1).unwrap();
+        builder
+            .put_file("a", five_block_foobar.clone(), 221)
+            .unwrap();
+        builder.put_file("b", five_block_foobar, 221).unwrap();
 
         let mut full_path = String::new();
         let mut buffer = Vec::new();
@@ -694,32 +758,31 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
-        // FIXME: how to test that this element has two links?
-        assert_eq!(actual, &[identity_cid(2).to_string()]);
+        assert_eq!(actual, &["QmdbWuhpVCX9weVMMqvVTMeGwKMqCNJDbx7ZK1zG36sea7"]);
     }
 
     #[test]
     #[should_panic]
     fn denied_multiple_root_dirs() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("a/c.txt", identity_cid(0), 1).unwrap();
-        builder.put_file("b/d.txt", identity_cid(1), 1).unwrap();
+        builder.put_file("a/c.txt", some_cid(0), 1).unwrap();
+        builder.put_file("b/d.txt", some_cid(1), 1).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn denied_multiple_root_files() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("a.txt", identity_cid(0), 1).unwrap();
-        builder.put_file("b.txt", identity_cid(1), 1).unwrap();
+        builder.put_file("a.txt", some_cid(0), 1).unwrap();
+        builder.put_file("b.txt", some_cid(1), 1).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn using_leaf_as_node() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("a.txt", identity_cid(0), 1).unwrap();
-        builder.put_file("a.txt/b.txt", identity_cid(1), 1).unwrap();
+        builder.put_file("a.txt", some_cid(0), 1).unwrap();
+        builder.put_file("a.txt/b.txt", some_cid(1), 1).unwrap();
     }
 
     #[test]
@@ -728,12 +791,8 @@ mod tests {
         builder
             .set_metadata("a/b/c/d", Metadata::default())
             .unwrap();
-        builder
-            .put_file("a/b/c/d/e.txt", identity_cid(1), 1)
-            .unwrap();
-        builder
-            .put_file("a/b/c/d/f.txt", identity_cid(2), 1)
-            .unwrap();
+        builder.put_file("a/b/c/d/e.txt", some_cid(1), 1).unwrap();
+        builder.put_file("a/b/c/d/f.txt", some_cid(2), 1).unwrap();
 
         let mut full_path = String::new();
         let mut buffer = Vec::new();
@@ -750,7 +809,7 @@ mod tests {
     #[test]
     fn set_metadata_on_file() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("a/a.txt", identity_cid(0), 1).unwrap();
+        builder.put_file("a/a.txt", some_cid(0), 1).unwrap();
         let err = builder
             .set_metadata("a/a.txt", Metadata::default())
             .unwrap_err();
@@ -760,5 +819,12 @@ mod tests {
             "{:?}",
             err
         );
+    }
+
+    /// Returns a quick and dirty sha2-256 of the given number as a Cidv0
+    fn some_cid(number: usize) -> Cid {
+        use multihash::Sha2_256;
+        let mh = Sha2_256::digest(&number.to_le_bytes());
+        Cid::new_v0(mh).unwrap()
     }
 }
