@@ -355,7 +355,7 @@ impl std::error::Error for TreeConstructionFailed {}
 
 impl<'a> PostOrderIterator<'a> {
     fn render_directory(
-        links: &mut BTreeMap<String, Leaf>,
+        links: &BTreeMap<String, Leaf>,
         buffer: &mut Vec<u8>,
     ) -> Result<Leaf, TreeConstructionFailed> {
         use crate::pb::{FlatUnixFs, PBLink, UnixFs, UnixFsType};
@@ -488,7 +488,7 @@ impl<'a> PostOrderIterator<'a> {
                     let buffer = &mut self.block_buffer;
                     buffer.clear();
 
-                    let leaf = match Self::render_directory(&mut collected, buffer) {
+                    let leaf = match Self::render_directory(&collected, buffer) {
                         Ok(leaf) => leaf,
                         Err(e) => return Some(Err(e)),
                     };
