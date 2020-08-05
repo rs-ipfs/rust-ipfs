@@ -84,10 +84,12 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     }
                     GetClosestPeers(Ok(GetClosestPeersOk { key: _, peers })) => {
                         for peer in peers {
+                            // don't mention the key here, as this is just the id of our node
                             debug!("kad: peer {} is close", peer);
                         }
                     }
                     GetClosestPeers(Err(GetClosestPeersError::Timeout { key: _, peers })) => {
+                        // don't mention the key here, as this is just the id of our node
                         warn!(
                             "kad: timed out trying to find all closest peers; got the following:"
                         );
