@@ -2,7 +2,7 @@ use super::AddArgs;
 use crate::v0::support::StringError;
 use bytes::{buf::BufMutExt, Buf, BufMut, Bytes, BytesMut};
 use cid::Cid;
-use futures::stream::{Stream, StreamExt, TryStreamExt};
+use futures::stream::{Stream, TryStreamExt};
 use ipfs::unixfs::ll::{
     dir::builder::{BufferingTreeBuilder, TreeBuildingFailed, TreeConstructionFailed},
     file::adder::FileAdder,
@@ -181,7 +181,7 @@ where
 
                     // we need to fully consume this part, even though there shouldn't be anything
                     // except for the already parsed *but* ignored headers
-                    while let Some(_) = field.try_next().await.map_err(AddError::Parsing)? {}
+                    while field.try_next().await.map_err(AddError::Parsing)?.is_some() {}
 
                     // while we don't at the moment parse the mtime, mtime-nsec headers and mode
                     // those should be reflected in the metadata. this will still add an empty
