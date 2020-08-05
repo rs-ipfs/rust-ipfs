@@ -76,13 +76,11 @@ tests.root.get(factory);
 tests.root.add(factory, {
   skip: [
     // ordered in the order of most likely implementation
+    // directories:
+    "should wrap content in a directory",
     // progress:
     "should add a BIG Buffer with progress enabled",
-    // directories:
-    "should add a nested directory as array of tupples",
     "should add a nested directory as array of tupples with progress",
-    "should add files to a directory non sequentially",
-    "should wrap content in a directory",
     // unixfsv1.5 metadata
     "should add with mode as string",
     "should add with mode as number",
