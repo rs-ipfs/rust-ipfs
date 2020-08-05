@@ -1,8 +1,6 @@
 //! Persistent fs backed repo
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore};
-#[cfg(feature = "rocksdb")]
-use crate::repo::{Column, DataStore};
 use async_std::fs;
 use async_std::path::PathBuf;
 use async_std::prelude::*;
@@ -132,105 +130,6 @@ impl BlockStore for FsBlockStore {
     }
 }
 
-#[derive(Debug)]
-#[cfg(feature = "rocksdb")]
-pub struct RocksDataStore {
-    path: PathBuf,
-    db: Mutex<Option<rocksdb::DB>>,
-}
-
-#[cfg(feature = "rocksdb")]
-trait ResolveColumnFamily {
-    fn resolve<'a>(&self, db: &'a rocksdb::DB) -> &'a rocksdb::ColumnFamily;
-}
-
-#[cfg(feature = "rocksdb")]
-impl ResolveColumnFamily for Column {
-    fn resolve<'a>(&self, db: &'a rocksdb::DB) -> &'a rocksdb::ColumnFamily {
-        let name = match *self {
-            Column::Ipns => "ipns",
-            Column::Pin => "pin",
-        };
-
-        // not sure why this isn't always present?
-        db.cf_handle(name).unwrap()
-    }
-}
-
-#[cfg(feature = "rocksdb")]
-#[async_trait]
-impl DataStore for RocksDataStore {
-    fn new(path: PathBuf) -> Self {
-        RocksDataStore {
-            path,
-            db: Default::default(),
-        }
-    }
-
-    async fn init(&self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    async fn open(&self) -> Result<(), Error> {
-        let db = &self.db;
-        let path = self.path.clone();
-        let mut db_opts = rocksdb::Options::default();
-        db_opts.create_missing_column_families(true);
-        db_opts.create_if_missing(true);
-
-        let ipns_opts = rocksdb::Options::default();
-        let ipns_cf = rocksdb::ColumnFamilyDescriptor::new("ipns", ipns_opts);
-        let rdb = rocksdb::DB::open_cf_descriptors(&db_opts, &path, vec![ipns_cf])?;
-        *db.lock().await = Some(rdb);
-        Ok(())
-    }
-
-    async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
-        let db = &self.db;
-        let key = key.to_owned();
-        let db = db.lock().await;
-        let db = db.as_ref().unwrap();
-        let cf = col.resolve(db);
-        let contains = db.get_cf(cf, &key)?.is_some();
-        Ok(contains)
-    }
-
-    async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        let db = &self.db;
-        let key = key.to_owned();
-        let db = db.lock().await;
-        let db = db.as_ref().unwrap();
-        let cf = col.resolve(db);
-        let get = db.get_cf(cf, &key)?.map(|value| value.to_vec());
-        Ok(get)
-    }
-
-    async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error> {
-        let db = &self.db;
-        let key = key.to_owned();
-        let value = value.to_owned();
-        let db = db.lock().await;
-        let db = db.as_ref().unwrap();
-        let cf = col.resolve(db);
-        db.put_cf(cf, &key, &value)?;
-        Ok(())
-    }
-
-    async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error> {
-        let db = &self.db;
-        let key = key.to_owned();
-        let db = db.lock().await;
-        let db = db.as_ref().unwrap();
-        let cf = col.resolve(db);
-        db.delete_cf(cf, &key)?;
-        Ok(())
-    }
-
-    async fn wipe(&self) {
-        // this function is currently only intended to be used with in-memory test setups
-    }
-}
-
 fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
     let mut file = cid.to_string();
     file.push_str(".data");
@@ -331,41 +230,5 @@ mod tests {
         for cid in cids.iter() {
             assert!(block_store.contains(cid).await.unwrap());
         }
-    }
-
-    #[async_std::test]
-    #[cfg(feature = "rocksdb")]
-    async fn test_rocks_datastore() {
-        let mut tmp = temp_dir();
-        tmp.push("datastore1");
-        std::fs::remove_dir_all(&tmp).ok();
-        let store = RocksDataStore::new(tmp.clone().into());
-
-        let col = Column::Ipns;
-        let key = [1, 2, 3, 4];
-        let value = [5, 6, 7, 8];
-
-        store.init().await.unwrap();
-        store.open().await.unwrap();
-
-        let contains = store.contains(col, &key);
-        assert_eq!(contains.await.unwrap(), false);
-        let get = store.get(col, &key);
-        assert_eq!(get.await.unwrap(), None);
-        store.remove(col, &key).await.unwrap();
-
-        store.put(col, &key, &value).await.unwrap();
-        let contains = store.contains(col, &key);
-        assert_eq!(contains.await.unwrap(), true);
-        let get = store.get(col, &key);
-        assert_eq!(get.await.unwrap(), Some(value.to_vec()));
-
-        store.remove(col, &key).await.unwrap();
-        let contains = store.contains(col, &key);
-        assert_eq!(contains.await.unwrap(), false);
-        let get = store.get(col, &key);
-        assert_eq!(get.await.unwrap(), None);
-
-        std::fs::remove_dir_all(&tmp).ok();
     }
 }

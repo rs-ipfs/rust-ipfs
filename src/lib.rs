@@ -66,9 +66,6 @@ impl<T: SwarmTypes + RepoTypes> IpfsTypes for T {}
 pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
-    #[cfg(feature = "rocksdb")]
-    type TDataStore = repo::fs::RocksDataStore;
-    #[cfg(not(feature = "rocksdb"))]
     type TDataStore = repo::mem::MemDataStore;
 }
 
