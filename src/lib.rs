@@ -347,14 +347,6 @@ impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
-    fn dag(&self) -> IpldDag<Types> {
-        IpldDag::new(self.clone())
-    }
-
-    fn ipns(&self) -> Ipns<Types> {
-        Ipns::new(self.clone())
-    }
-
     /// Puts a block into the ipfs repo.
     pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
         self.repo
@@ -398,23 +390,22 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Puts an ipld dag node into the ipfs repo.
     pub async fn put_dag(&self, ipld: Ipld) -> Result<Cid, Error> {
-        self.dag()
-            .put(ipld, Codec::DagCBOR)
+        self.repo
+            .put_dag(ipld, Codec::DagCBOR)
             .instrument(self.span.clone())
             .await
     }
 
     /// Gets an ipld dag node from the ipfs repo.
     pub async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
-        self.dag().get(path).instrument(self.span.clone()).await
+        self.repo.get_dag(path).instrument(self.span.clone()).await
     }
 
     /// Adds a file into the ipfs repo.
     pub async fn add(&self, path: PathBuf) -> Result<Cid, Error> {
-        let dag = self.dag();
         let file = File::new(path).await?;
         let path = file
-            .put_unixfs_v1(&dag)
+            .put_unixfs_v1(&self.repo)
             .instrument(self.span.clone())
             .await?;
         Ok(path)
@@ -422,7 +413,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Gets a file from the ipfs repo.
     pub async fn get(&self, path: IpfsPath) -> Result<File, Error> {
-        File::get_unixfs_v1(&self.dag(), path)
+        File::get_unixfs_v1(&self.repo, path)
             .instrument(self.span.clone())
             .await
     }
@@ -447,23 +438,26 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Resolves a ipns path to an ipld path.
     pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        self.ipns()
-            .resolve(path)
+        self.repo
+            .resolve_ipns(path)
             .instrument(self.span.clone())
             .await
     }
 
     /// Publishes an ipld path.
     pub async fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        self.ipns()
-            .publish(key, path)
+        self.repo
+            .publish_ipns(key, path)
             .instrument(self.span.clone())
             .await
     }
 
     /// Cancel an ipns path.
     pub async fn cancel_ipns(&self, key: &PeerId) -> Result<(), Error> {
-        self.ipns().cancel(key).instrument(self.span.clone()).await
+        self.repo
+            .cancel_ipns(key)
+            .instrument(self.span.clone())
+            .await
     }
 
     pub async fn connect<T: Into<ConnectionTarget>>(&self, target: T) -> Result<(), Error> {
