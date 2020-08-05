@@ -433,6 +433,9 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     ) -> Result<SubscriptionFuture<(), String>, anyhow::Error> {
         let key = cid.to_bytes();
         match self.kademlia.start_providing(key.into()) {
+            // Kademlia queries are marked with QueryIds, which are most fitting to
+            // be used as kad Subscription keys - they are small and require no
+            // conversion for the applicable finish_subscription calls
             Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
             Err(e) => Err(anyhow!("kad: can't provide block {}: {:?}", cid, e)),
         }

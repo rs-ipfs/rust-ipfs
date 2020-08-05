@@ -204,17 +204,20 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let (_cid, res) = self.block_store.put(block.clone()).await?;
         self.subscriptions
             .finish_subscription(cid.clone().into(), Ok(block));
-        // sending only fails if no one is listening anymore
-        // and that is okay with us.
-        let (tx, rx) = oneshot::channel();
 
-        self.events
-            .clone()
-            .send(RepoEvent::ProvideBlock(cid.clone(), tx))
-            .await
-            .ok();
+        if let BlockPut::NewBlock = res {
+            // sending only fails if no one is listening anymore
+            // and that is okay with us.
+            let (tx, rx) = oneshot::channel();
 
-        rx.await??.await?;
+            self.events
+                .clone()
+                .send(RepoEvent::ProvideBlock(cid.clone(), tx))
+                .await
+                .ok();
+
+            rx.await??.await?;
+        }
 
         Ok((cid, res))
     }
