@@ -1,10 +1,8 @@
-use crate::Metadata;
 use cid::Cid;
-use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 mod dir_builder;
-use dir_builder::{DirBuilder, DuplicateName, FoundLeaf};
+use dir_builder::DirBuilder;
 
 mod iter;
 pub use iter::PostOrderIterator;
@@ -63,12 +61,19 @@ impl TreeOptions {
     }
 }
 
+/// Tree building failure cases.
 #[derive(Debug)]
 pub enum TreeBuildingFailed {
+    /// The given full path started with a slash; paths in the `/add` convention are not rooted.
     RootedPath(String),
+    /// The given full path contained empty segment.
     RepeatSlashesInPath(String),
+    /// If the `BufferingTreeBuilder` was created without `TreeOptions` with the option `wrap in
+    /// directory` enabled, then there can be only a single element at the root.
     TooManyRootLevelEntries,
+    /// The given full path had already been added.
     DuplicatePath(String),
+    /// The given full path had already been added as a link to an opaque entry.
     LeafAsDirectory(String),
 }
 

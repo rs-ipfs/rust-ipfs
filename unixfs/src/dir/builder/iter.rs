@@ -1,7 +1,7 @@
 use super::{Entry, Leaf, TreeConstructionFailed, TreeOptions, Visited};
 use cid::Cid;
 use std::collections::{BTreeMap, HashMap};
-use std::fmt::{self, Write};
+use std::fmt::Write;
 
 /// Constructs the directory nodes required for a tree.
 ///
