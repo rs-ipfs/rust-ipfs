@@ -46,7 +46,7 @@ pub use self::error::Error;
 use self::ipns::Ipns;
 pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
-pub use self::p2p::{Connection, ConnectionTarget, SwarmTypes};
+pub use self::p2p::{Connection, ConnectionTarget};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
@@ -55,9 +55,8 @@ use self::unixfs::File;
 
 /// All types can be changed at compile time by implementing
 /// `IpfsTypes`.
-pub trait IpfsTypes: SwarmTypes + RepoTypes {}
-impl<T: RepoTypes> SwarmTypes for T {}
-impl<T: SwarmTypes + RepoTypes> IpfsTypes for T {}
+pub trait IpfsTypes: RepoTypes {}
+impl<T: RepoTypes> IpfsTypes for T {}
 
 /// Default IPFS types.
 #[derive(Debug)]
