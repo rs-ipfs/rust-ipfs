@@ -6,7 +6,6 @@ use libp2p::swarm::protocols_handler::{
 };
 use libp2p::swarm::{self, DialPeerCondition, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 /// A description of currently active connection.
@@ -20,43 +19,11 @@ pub struct Connection {
     pub rtt: Option<Duration>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ConnectionTarget {
     Addr(Multiaddr),
     PeerId(PeerId),
     PeerWithAddrs(PeerId, Vec<Multiaddr>),
-}
-
-impl PartialEq for ConnectionTarget {
-    fn eq(&self, other: &Self) -> bool {
-        match self {
-            Self::Addr(addr) => match other {
-                Self::PeerWithAddrs(_, addrs) => addrs.contains(addr),
-                Self::Addr(peer_addr) => peer_addr == addr,
-                Self::PeerId(_) => false,
-            },
-            Self::PeerId(id) => match other {
-                Self::PeerWithAddrs(peer_id, _) => peer_id == id,
-                Self::PeerId(peer_id) => peer_id == id,
-                Self::Addr(_) => false,
-            },
-            Self::PeerWithAddrs(id, addrs) => match other {
-                Self::PeerId(peer_id) => peer_id == id,
-                Self::Addr(peer_addr) => addrs.contains(peer_addr),
-                Self::PeerWithAddrs(peer_id, _) => peer_id == id,
-            },
-        }
-    }
-}
-impl Eq for ConnectionTarget {}
-
-impl Hash for ConnectionTarget {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            Self::Addr(addr) => addr.hash(state),
-            Self::PeerId(id) | Self::PeerWithAddrs(id, _) => id.hash(state),
-        }
-    }
 }
 
 impl From<Multiaddr> for ConnectionTarget {
@@ -148,26 +115,17 @@ impl SwarmApi {
     pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<Result<(), String>> {
         trace!("Connecting to {:?}", target);
 
-        match target {
-            ConnectionTarget::Addr(ref addr) => {
-                self.events.push_back(NetworkBehaviourAction::DialAddress {
-                    address: addr.clone(),
-                })
-            }
-            ConnectionTarget::PeerId(ref id) => {
-                self.events.push_back(NetworkBehaviourAction::DialPeer {
+        self.events.push_back(match target {
+            ConnectionTarget::Addr(ref addr) => NetworkBehaviourAction::DialAddress {
+                address: addr.clone(),
+            },
+            ConnectionTarget::PeerId(ref id) | ConnectionTarget::PeerWithAddrs(ref id, _) => {
+                NetworkBehaviourAction::DialPeer {
                     peer_id: id.clone(),
                     condition: DialPeerCondition::Disconnected,
-                })
-            }
-            ConnectionTarget::PeerWithAddrs(ref _peer_id, ref addrs) => {
-                for addr in addrs {
-                    self.events.push_back(NetworkBehaviourAction::DialAddress {
-                        address: addr.clone(),
-                    })
                 }
             }
-        };
+        });
 
         self.connect_registry
             .create_subscription(target.into(), None)

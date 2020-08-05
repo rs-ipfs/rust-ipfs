@@ -53,7 +53,11 @@ impl From<PeerId> for RequestKind {
 
 impl From<ConnectionTarget> for RequestKind {
     fn from(target: ConnectionTarget) -> Self {
-        Self::Connect(target)
+        match target {
+            ConnectionTarget::Addr(addr) => addr.into(),
+            ConnectionTarget::PeerId(id) => id.into(),
+            ConnectionTarget::PeerWithAddrs(peer_id, _) => peer_id.into(),
+        }
     }
 }
 
