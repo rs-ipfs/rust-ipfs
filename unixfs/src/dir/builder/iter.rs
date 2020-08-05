@@ -105,9 +105,9 @@ impl<'a> PostOrderIterator<'a> {
     }
 
     /// Construct the next dag-pb node, if any.
-    pub fn next_borrowed<'b>(
-        &'b mut self,
-    ) -> Option<Result<(&'b str, &'b Cid, u64, &'b [u8]), TreeConstructionFailed>> {
+    ///
+    /// Returns a `TreeNode` of the latest constructed tree node.
+    pub fn next_borrowed(&mut self) -> Option<Result<TreeNode<'_>, TreeConstructionFailed>> {
         while let Some(visited) = self.pending.pop() {
             let (name, depth) = match &visited {
                 Visited::Descent { name, depth, .. } => (name.as_deref(), *depth),
@@ -217,12 +217,12 @@ impl<'a> PostOrderIterator<'a> {
                         self.old_depth += 1;
                     }
 
-                    return Some(Ok((
-                        self.full_path.as_str(),
-                        self.cid.as_ref().unwrap(),
-                        self.total_size,
-                        &self.block_buffer,
-                    )));
+                    return Some(Ok(TreeNode {
+                        path: self.full_path.as_str(),
+                        cid: self.cid.as_ref().unwrap(),
+                        total_size: self.total_size,
+                        block: &self.block_buffer,
+                    }));
                 }
             }
         }
@@ -231,15 +231,48 @@ impl<'a> PostOrderIterator<'a> {
 }
 
 impl<'a> Iterator for PostOrderIterator<'a> {
-    type Item = Result<(String, Cid, Box<[u8]>), TreeConstructionFailed>;
+    type Item = Result<OwnedTreeNode, TreeConstructionFailed>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_borrowed().map(|res| {
-            res.map(|(full_path, cid, _, block)| {
-                (full_path.to_string(), cid.to_owned(), block.into())
-            })
-        })
+        self.next_borrowed()
+            .map(|res| res.map(TreeNode::into_owned))
     }
+}
+
+/// Borrowed representation of a node in the tree.
+pub struct TreeNode<'a> {
+    /// Full path to the node.
+    pub path: &'a str,
+    /// The Cid of the document.
+    pub cid: &'a Cid,
+    /// Cumulative total size of the subtree in bytes.
+    pub total_size: u64,
+    /// Raw dag-pb document.
+    pub block: &'a [u8],
+}
+
+impl TreeNode<'_> {
+    /// Convert to an owned and detached representation.
+    pub fn into_owned(self) -> OwnedTreeNode {
+        OwnedTreeNode {
+            path: self.path.to_owned(),
+            cid: self.cid.to_owned(),
+            total_size: self.total_size,
+            block: self.block.into(),
+        }
+    }
+}
+
+/// Owned representation of a node in the tree.
+pub struct OwnedTreeNode {
+    /// Full path to the node.
+    pub path: String,
+    /// The Cid of the document.
+    pub cid: Cid,
+    /// Cumulative total size of the subtree in bytes.
+    pub total_size: u64,
+    /// Raw dag-pb document.
+    pub block: Box<[u8]>,
 }
 
 fn update_full_path(

@@ -5,7 +5,7 @@ mod dir_builder;
 use dir_builder::DirBuilder;
 
 mod iter;
-pub use iter::PostOrderIterator;
+pub use iter::{OwnedTreeNode, PostOrderIterator, TreeNode};
 
 mod buffered;
 pub use buffered::BufferingTreeBuilder;

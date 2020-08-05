@@ -4,7 +4,7 @@ use bytes::{buf::BufMutExt, Buf, BufMut, Bytes, BytesMut};
 use cid::Cid;
 use futures::stream::{Stream, TryStreamExt};
 use ipfs::unixfs::ll::{
-    dir::builder::{BufferingTreeBuilder, TreeBuildingFailed, TreeConstructionFailed},
+    dir::builder::{BufferingTreeBuilder, TreeBuildingFailed, TreeConstructionFailed, TreeNode},
     file::adder::FileAdder,
 };
 use ipfs::{Block, Ipfs, IpfsTypes};
@@ -204,7 +204,7 @@ where
         let mut iter = tree.build(&mut full_path, &mut block_buffer);
 
         while let Some(res) = iter.next_borrowed() {
-            let (path, cid, total, block) = res.map_err(AddError::TreeBuilding)?;
+            let TreeNode { path, cid, total_size, block } = res.map_err(AddError::TreeBuilding)?;
 
             // shame we need to allocate once again here..
             ipfs.put_block(Block { cid: cid.to_owned(), data: block.into() }).await.map_err(AddError::Persisting)?;
@@ -212,7 +212,7 @@ where
             serde_json::to_writer((&mut buffer).writer(), &Response::Added {
                 name: Cow::Borrowed(path),
                 hash: Quoted(cid),
-                size: Quoted(total),
+                size: Quoted(total_size),
             }).map_err(AddError::ResponseSerialization)?;
 
             buffer.put(&b"\r\n"[..]);

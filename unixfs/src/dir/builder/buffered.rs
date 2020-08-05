@@ -184,7 +184,9 @@ impl BufferingTreeBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::{BufferingTreeBuilder, Metadata, TreeBuildingFailed, TreeOptions};
+    use super::{
+        super::OwnedTreeNode, BufferingTreeBuilder, Metadata, TreeBuildingFailed, TreeOptions,
+    };
     use cid::Cid;
     use std::convert::TryFrom;
 
@@ -211,7 +213,7 @@ mod tests {
 
         let iter = builder.build(&mut full_path, &mut buffer);
         let mut actual = iter
-            .map(|res| res.map(|(p, cid, buf)| (p, cid, buf)))
+            .map(|res| res.map(|n| (n.path, n.cid, n.block)))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
@@ -270,7 +272,7 @@ mod tests {
 
         let iter = builder.build(&mut full_path, &mut buffer);
         let actual = iter
-            .map(|res| res.map(|(p, _, _)| p))
+            .map(|res| res.map(|OwnedTreeNode { path, .. }| path))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
@@ -312,7 +314,7 @@ mod tests {
 
         let iter = builder.build(&mut full_path, &mut buffer);
         let actual = iter
-            .map(|res| res.map(|(p, _, _)| p))
+            .map(|res| res.map(|OwnedTreeNode { path, .. }| path))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
@@ -357,7 +359,7 @@ mod tests {
 
         let iter = builder.build(&mut full_path, &mut buffer);
         let actual = iter
-            .map(|res| res.map(|(p, _, _)| p))
+            .map(|res| res.map(|OwnedTreeNode { path, .. }| path))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
