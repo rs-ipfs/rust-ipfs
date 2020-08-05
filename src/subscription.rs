@@ -417,8 +417,9 @@ impl<T: Debug + PartialEq, E: Debug> fmt::Debug for SubscriptionFuture<T, E> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmt,
-            "SubscriptionFuture<Output = Result<{}, Cancelled>>",
-            std::any::type_name::<T>()
+            "SubscriptionFuture<Output = Result<{}, {}>>",
+            std::any::type_name::<T>(),
+            std::any::type_name::<E>(),
         )
     }
 }

@@ -207,7 +207,6 @@ impl NetworkBehaviour for SwarmApi {
             self.connected_peers.remove(peer_id);
         }
         self.connections.remove(closed_addr);
-        // FIXME: should be an error
         self.connect_registry.finish_subscription(
             closed_addr.clone().into(),
             Err("Connection reset by peer".to_owned()),
