@@ -10,6 +10,8 @@ pub use sharded_lookup::{Cache, LookupError, ShardError, ShardedLookup};
 mod directory;
 pub(crate) use directory::{check_directory_supported, UnexpectedDirectoryProperties};
 
+pub mod builder;
+
 pub(crate) fn check_hamtshard_supported(
     mut flat: FlatUnixFs<'_>,
 ) -> Result<FlatUnixFs<'_>, ShardError> {
