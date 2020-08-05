@@ -350,10 +350,6 @@ impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
-    fn ipns(&self) -> Ipns<Types> {
-        Ipns::new(self.clone())
-    }
-
     /// Puts a block into the ipfs repo.
     pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
         self.repo
@@ -445,23 +441,26 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Resolves a ipns path to an ipld path.
     pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        self.ipns()
-            .resolve(path)
+        self.repo
+            .resolve_ipns(path)
             .instrument(self.span.clone())
             .await
     }
 
     /// Publishes an ipld path.
     pub async fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        self.ipns()
-            .publish(key, path)
+        self.repo
+            .publish_ipns(key, path)
             .instrument(self.span.clone())
             .await
     }
 
     /// Cancel an ipns path.
     pub async fn cancel_ipns(&self, key: &PeerId) -> Result<(), Error> {
-        self.ipns().cancel(key).instrument(self.span.clone()).await
+        self.repo
+            .cancel_ipns(key)
+            .instrument(self.span.clone())
+            .await
     }
 
     pub async fn connect<T: Into<ConnectionTarget>>(&self, target: T) -> Result<(), Error> {

@@ -99,21 +99,19 @@ mod tests {
     #[async_std::test]
     async fn test_resolve_root_cid() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
-        let dag = IpldDag::new(ipfs);
         let data = ipld!([1, 2, 3]);
-        let cid = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
-        let res = dag.get(IpfsPath::from(cid)).await.unwrap();
+        let cid = ipfs.put_dag(data.clone()).await.unwrap();
+        let res = ipfs.get_dag(IpfsPath::from(cid)).await.unwrap();
         assert_eq!(res, data);
     }
 
     #[async_std::test]
     async fn test_resolve_array_elem() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
-        let dag = IpldDag::new(ipfs);
         let data = ipld!([1, 2, 3]);
-        let cid = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
-        let res = dag
-            .get(IpfsPath::from(cid).sub_path("1").unwrap())
+        let cid = ipfs.put_dag(data.clone()).await.unwrap();
+        let res = ipfs
+            .get_dag(IpfsPath::from(cid).sub_path("1").unwrap())
             .await
             .unwrap();
         assert_eq!(res, ipld!(2));
@@ -122,11 +120,10 @@ mod tests {
     #[async_std::test]
     async fn test_resolve_nested_array_elem() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
-        let dag = IpldDag::new(ipfs);
         let data = ipld!([1, [2], 3,]);
-        let cid = dag.put(data, Codec::DagCBOR).await.unwrap();
-        let res = dag
-            .get(IpfsPath::from(cid).sub_path("1/0").unwrap())
+        let cid = ipfs.put_dag(data).await.unwrap();
+        let res = ipfs
+            .get_dag(IpfsPath::from(cid).sub_path("1/0").unwrap())
             .await
             .unwrap();
         assert_eq!(res, ipld!(2));
@@ -135,13 +132,12 @@ mod tests {
     #[async_std::test]
     async fn test_resolve_object_elem() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
-        let dag = IpldDag::new(ipfs);
         let data = ipld!({
             "key": false,
         });
-        let cid = dag.put(data, Codec::DagCBOR).await.unwrap();
-        let res = dag
-            .get(IpfsPath::from(cid).sub_path("key").unwrap())
+        let cid = ipfs.put_dag(data).await.unwrap();
+        let res = ipfs
+            .get_dag(IpfsPath::from(cid).sub_path("key").unwrap())
             .await
             .unwrap();
         assert_eq!(res, ipld!(false));
@@ -150,13 +146,12 @@ mod tests {
     #[async_std::test]
     async fn test_resolve_cid_elem() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
-        let dag = IpldDag::new(ipfs);
         let data1 = ipld!([1]);
-        let cid1 = dag.put(data1, Codec::DagCBOR).await.unwrap();
+        let cid1 = ipfs.put_dag(data1).await.unwrap();
         let data2 = ipld!([cid1]);
-        let cid2 = dag.put(data2, Codec::DagCBOR).await.unwrap();
-        let res = dag
-            .get(IpfsPath::from(cid2).sub_path("0/0").unwrap())
+        let cid2 = ipfs.put_dag(data2).await.unwrap();
+        let res = ipfs
+            .get_dag(IpfsPath::from(cid2).sub_path("0/0").unwrap())
             .await
             .unwrap();
         assert_eq!(res, ipld!(1));

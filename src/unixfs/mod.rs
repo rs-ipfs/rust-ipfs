@@ -77,11 +77,10 @@ mod tests {
     #[async_std::test]
     async fn test_file_cid() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
-        let dag = IpldDag::new(ipfs);
         let file = File::from("\u{8}\u{2}\u{12}\u{12}Here is some data\n\u{18}\u{12}");
         let cid = Cid::try_from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
 
-        let cid2 = file.put_unixfs_v1(&dag).await.unwrap();
+        let cid2 = file.put_unixfs_v1(&ipfs.repo).await.unwrap();
         assert_eq!(cid.to_string(), cid2.to_string());
     }
 }
