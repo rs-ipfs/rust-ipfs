@@ -1,5 +1,6 @@
 use crate::pb::FlatUnixFs;
-use std::fmt;
+use alloc::vec::Vec;
+use core::fmt;
 
 /// Ensures the directory looks like something we actually support.
 pub(crate) fn check_directory_supported(

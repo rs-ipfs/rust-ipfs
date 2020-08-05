@@ -1,11 +1,14 @@
+use crate::{
+    file::{
+        reader::{FileContent, FileReader, Traversal},
+        FileReadFailed, Metadata,
+    },
+    pb::{merkledag::PBLink, FlatUnixFs},
+    InvalidCidInLink,
+};
+use alloc::{borrow::ToOwned, vec::Vec};
 use cid::Cid;
-use std::convert::TryFrom;
-use std::ops::Range;
-
-use crate::file::reader::{FileContent, FileReader, Traversal};
-use crate::file::{FileReadFailed, Metadata};
-use crate::pb::{merkledag::PBLink, FlatUnixFs};
-use crate::InvalidCidInLink;
+use core::{cmp, convert::TryFrom, ops::Range};
 
 /// IdleFileVisit represents a prepared file visit over a tree. The user has to know the CID and be
 /// able to get the block for the visit.
@@ -225,10 +228,8 @@ fn to_pending(
 /// Returns true if the blocks byte offsets are interesting for our target range, false otherwise.
 /// If there is no target, all blocks are of interest.
 fn block_is_in_target_range(block: &Range<u64>, target: Option<&Range<u64>>) -> bool {
-    use std::cmp::{max, min};
-
     if let Some(target) = target {
-        max(block.start, target.start) <= min(block.end, target.end)
+        cmp::max(block.start, target.start) <= cmp::min(block.end, target.end)
     } else {
         true
     }
@@ -249,8 +250,6 @@ fn maybe_target_slice<'a>(
 }
 
 fn target_slice<'a>(content: &'a [u8], block: &Range<u64>, target: &Range<u64>) -> &'a [u8] {
-    use std::cmp::min;
-
     if !block_is_in_target_range(block, Some(target)) {
         // defaulting to empty slice is good, and similar to the "cat" HTTP API operation.
         &[][..]
@@ -262,11 +261,11 @@ fn target_slice<'a>(content: &'a [u8], block: &Range<u64>, target: &Range<u64>) 
         if target.start < block.start {
             // we mostly need something before
             start = 0;
-            end = (min(target.end, block.end) - block.start) as usize;
+            end = (cmp::min(target.end, block.end) - block.start) as usize;
         } else if target.end > block.end {
             // we mostly need something after
             start = (target.start - block.start) as usize;
-            end = (min(target.end, block.end) - block.start) as usize;
+            end = (cmp::min(target.end, block.end) - block.start) as usize;
         } else {
             // inside
             start = (target.start - block.start) as usize;

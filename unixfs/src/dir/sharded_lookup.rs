@@ -1,11 +1,11 @@
-use super::{try_convert_cid, MaybeResolved, MultipleMatchingLinks, ResolveError};
-use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
-use crate::{InvalidCidInLink, UnexpectedNodeType};
+use crate::{
+    dir::{try_convert_cid, MaybeResolved, MultipleMatchingLinks, ResolveError},
+    pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType},
+    InvalidCidInLink, UnexpectedNodeType,
+};
+use alloc::{borrow::Cow, collections::VecDeque, vec::Vec};
 use cid::Cid;
-use std::borrow::Cow;
-use std::collections::VecDeque;
-use std::convert::TryFrom;
-use std::fmt;
+use core::{convert::TryFrom, fmt};
 
 /// A cache of data structures used while traversing. Reduces allocations when walking over multiple
 /// path segments.
@@ -148,7 +148,7 @@ impl<'needle> ShardedLookup<'needle> {
         } else if hamt.data.filesize.is_some() || !hamt.data.blocksizes.is_empty() {
             Err(ShardError::UnexpectedProperties {
                 filesize: hamt.data.filesize,
-                blocksizes: std::mem::take(&mut hamt.data.blocksizes),
+                blocksizes: core::mem::take(&mut hamt.data.blocksizes),
             })
         } else {
             Ok(())
@@ -262,6 +262,7 @@ impl fmt::Display for ShardError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for ShardError {}
 
 /// Errors which can occur when looking up a HAMTSharded directory.
@@ -323,6 +324,7 @@ impl fmt::Display for LookupError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for LookupError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         use LookupError::*;

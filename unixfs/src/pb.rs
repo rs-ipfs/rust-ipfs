@@ -1,16 +1,11 @@
+use alloc::{borrow::Cow, vec::Vec};
+use core::{convert::TryFrom, fmt, ops::Range};
+pub(crate) use merkledag::{PBLink, PBNode};
 use quick_protobuf::{errors::Result as ProtobufResult, Writer, WriterBackend};
-use std::borrow::Cow;
-use std::convert::TryFrom;
-use std::fmt;
-use std::ops::Range;
+pub(crate) use unixfs::{mod_Data::DataType as UnixFsType, Data as UnixFs};
 
 pub(crate) mod merkledag;
-pub(crate) use merkledag::PBLink;
-pub(crate) use merkledag::PBNode;
-
 pub(crate) mod unixfs;
-pub(crate) use unixfs::mod_Data::DataType as UnixFsType;
-pub(crate) use unixfs::Data as UnixFs;
 
 /// Failure cases for nested serialization, which allows recovery of the outer `PBNode` when desired.
 #[derive(Debug)]
@@ -35,6 +30,7 @@ impl fmt::Display for ParsingFailed<'_> {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for ParsingFailed<'_> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         use ParsingFailed::*;

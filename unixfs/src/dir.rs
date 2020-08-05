@@ -1,14 +1,14 @@
-use crate::pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType};
-use crate::{InvalidCidInLink, UnexpectedNodeType};
+use crate::{
+    pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType},
+    InvalidCidInLink, UnexpectedNodeType,
+};
 use cid::Cid;
-use std::convert::TryFrom;
-use std::fmt;
-
-mod sharded_lookup;
+use core::{convert::TryFrom, fmt};
+pub(crate) use directory::{check_directory_supported, UnexpectedDirectoryProperties};
 pub use sharded_lookup::{Cache, LookupError, ShardError, ShardedLookup};
 
 mod directory;
-pub(crate) use directory::{check_directory_supported, UnexpectedDirectoryProperties};
+mod sharded_lookup;
 
 pub(crate) fn check_hamtshard_supported(
     mut flat: FlatUnixFs<'_>,
@@ -126,6 +126,7 @@ impl fmt::Display for ResolveError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for ResolveError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         use ResolveError::*;

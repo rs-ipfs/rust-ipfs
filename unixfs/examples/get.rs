@@ -1,8 +1,9 @@
 use cid::Cid;
-use std::convert::TryFrom;
-use std::fmt;
-use std::io::{Error as IoError, Read};
-use std::path::{Path, PathBuf};
+use core::{convert::TryFrom, fmt};
+use std::{
+    io::{Error as IoError, Read},
+    path::{Path, PathBuf},
+};
 
 fn main() {
     let cid = match std::env::args().nth(1).map(Cid::try_from) {

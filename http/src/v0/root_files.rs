@@ -161,7 +161,7 @@ fn walk<Types: IpfsTypes>(
                 ContinuedWalk::File(segment, item) => {
                     if let Entry::Metadata(MetadataEntry::File(.., p, md, size)) = item.as_entry() {
                         if segment.is_first() {
-                            for mut bytes in tar_helper.apply_file(p, md, size)?.iter_mut() {
+                            for mut bytes in tar_helper.apply_file(Path::new(p), md, size)?.iter_mut() {
                                 if let Some(bytes) = bytes.take() {
                                     yield bytes;
                                 }
@@ -193,7 +193,7 @@ fn walk<Types: IpfsTypes>(
                 ContinuedWalk::Directory(item) => {
                     if let Entry::Metadata(metadata_entry) = item.as_entry() {
                         let metadata = metadata_entry.metadata();
-                        let path = metadata_entry.path();
+                        let path = Path::new(metadata_entry.path());
                         for mut bytes in tar_helper.apply_directory(path, metadata)?.iter_mut() {
                             if let Some(bytes) = bytes.take() {
                                 yield bytes;
@@ -205,7 +205,7 @@ fn walk<Types: IpfsTypes>(
                 ContinuedWalk::Symlink(bytes, item) => {
                     if let Entry::Metadata(metadata_entry) = item.as_entry() {
                         // converting a symlink is the most tricky part
-                        let path = metadata_entry.path();
+                        let path = Path::new(metadata_entry.path());
                         let target = std::str::from_utf8(bytes).map_err(|_| GetError::NonUtf8Symlink)?;
                         let target = Path::new(target);
                         let metadata = metadata_entry.metadata();

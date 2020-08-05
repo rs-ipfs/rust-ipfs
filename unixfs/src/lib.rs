@@ -1,4 +1,3 @@
-#![warn(rust_2018_idioms, missing_docs)]
 //! ipfs-unixfs: UnixFs tree support in Rust.
 //!
 //! The crate aims to provide a blockstore implementation independent of the UnixFs implementation by
@@ -8,28 +7,27 @@
 //! `ipfs_unixfs::walk::Walker`. To resolve `IpfsPath` segments over dag-pb nodes,
 //! `ipfs_unixfs::resolve` should be used.
 
-use std::borrow::Cow;
-use std::fmt;
+#![cfg_attr(not(feature = "std"), no_std)]
+#![warn(rust_2018_idioms, missing_docs)]
 
-/// UnixFS file support.
-pub mod file;
+extern crate alloc;
 
-/// UnixFS directory support, currently only the resolving re-exported at root level.
-pub mod dir;
-
+use alloc::borrow::Cow;
+use core::fmt;
 pub use dir::{resolve, LookupError, MaybeResolved, ResolveError};
-
-mod pb;
 use pb::{UnixFs, UnixFsType};
 
 /// Support operations for the dag-pb, the outer shell of UnixFS.
 pub mod dagpb;
-
-/// Support for walking over all UnixFs trees.
-pub mod walk;
-
+/// UnixFS directory support, currently only the resolving re-exported at root level.
+pub mod dir;
+/// UnixFS file support.
+pub mod file;
+mod pb;
 #[cfg(test)]
 pub(crate) mod test_support;
+/// Support for walking over all UnixFs trees.
+pub mod walk;
 
 /// A link could not be transformed into a Cid.
 #[derive(Debug)]
@@ -56,7 +54,7 @@ impl<'a> From<(usize, pb::PBLink<'a>, cid::Error)> for InvalidCidInLink {
         };
 
         let name = match link.Name {
-            Some(Cow::Borrowed(x)) if !x.is_empty() => Cow::Owned(x.to_string()),
+            Some(Cow::Borrowed(x)) if !x.is_empty() => Cow::Owned(x.into()),
             Some(Cow::Borrowed(_)) | None => Cow::Borrowed(""),
             Some(Cow::Owned(x)) => Cow::Owned(x),
         };
@@ -81,6 +79,7 @@ impl fmt::Display for InvalidCidInLink {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for InvalidCidInLink {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.source)
@@ -157,7 +156,7 @@ impl Metadata {
     }
 
     /// Returns the mtime metadata as a `FileTime`. Enabled only in the `filetime` feature.
-    #[cfg(feature = "filetime")]
+    #[cfg(feature = "with-filetime")]
     pub fn mtime_as_filetime(&self) -> Option<filetime::FileTime> {
         self.mtime()
             .map(|(seconds, nanos)| filetime::FileTime::from_unix_time(seconds, nanos))

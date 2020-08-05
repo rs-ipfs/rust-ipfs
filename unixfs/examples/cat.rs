@@ -1,9 +1,10 @@
 use cid::Cid;
+use core::{convert::TryFrom, fmt};
 use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
-use std::convert::TryFrom;
-use std::fmt;
-use std::io::{Error as IoError, Read, Write};
-use std::path::PathBuf;
+use std::{
+    io::{Error as IoError, Read, Write},
+    path::PathBuf,
+};
 
 fn main() {
     let cid = match std::env::args().nth(1).map(Cid::try_from) {

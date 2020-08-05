@@ -1,11 +1,11 @@
+use alloc::collections::BTreeMap;
 use cid::Cid;
+use core::convert::TryFrom;
 use hex_literal::hex;
-use std::collections::HashMap;
-use std::convert::TryFrom;
 
 #[derive(Default)]
 pub struct FakeBlockstore {
-    blocks: HashMap<Cid, Vec<u8>>,
+    blocks: BTreeMap<Cid, Vec<u8>>,
 }
 
 impl FakeBlockstore {

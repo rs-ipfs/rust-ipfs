@@ -1,26 +1,32 @@
-use crate::dir::{ShardError, UnexpectedDirectoryProperties};
-use crate::file::visit::{Cache, FileVisit, IdleFileVisit};
-use crate::file::{FileError, FileReadFailed};
-use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
-use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
+use crate::{
+    dir::{ShardError, UnexpectedDirectoryProperties},
+    file::{
+        visit::{Cache, FileVisit, IdleFileVisit},
+        FileError, FileReadFailed,
+    },
+    pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType},
+    InvalidCidInLink, Metadata, UnexpectedNodeType,
+};
+use alloc::{
+    borrow::{Cow, ToOwned},
+    string::String,
+    vec::Vec,
+};
 use cid::Cid;
+use core::{convert::TryFrom, fmt};
 use either::Either;
-use std::borrow::Cow;
-use std::convert::TryFrom;
-use std::fmt;
-use std::path::{Path, PathBuf};
 
 /// Representation of the current item of Walker or the last observed item with medatada.
 #[derive(Debug)]
 pub enum MetadataEntry<'a> {
     /// Current item is a non-root plain Directory or a HAMTShard directory.
-    Directory(&'a Cid, &'a Path, &'a Metadata),
+    Directory(&'a Cid, &'a str, &'a Metadata),
     /// Current item is possibly a root file with a path, metadata, and a total file size.
-    File(&'a Cid, &'a Path, &'a Metadata, u64),
+    File(&'a Cid, &'a str, &'a Metadata, u64),
     /// Current item is the root directory (HAMTShard or plain Directory).
-    RootDirectory(&'a Cid, &'a Path, &'a Metadata),
+    RootDirectory(&'a Cid, &'a str, &'a Metadata),
     /// Current item is possibly a root symlink.
-    Symlink(&'a Cid, &'a Path, &'a Metadata),
+    Symlink(&'a Cid, &'a str, &'a Metadata),
 }
 
 impl MetadataEntry<'_> {
@@ -37,7 +43,7 @@ impl MetadataEntry<'_> {
 
     /// Returns the path for the latest entry. This is created from a UTF-8 string and, as such, is always
     /// representable on all supported platforms.
-    pub fn path(&self) -> &'_ Path {
+    pub fn path(&self) -> &'_ str {
         match self {
             MetadataEntry::Directory(_, p, ..)
             | MetadataEntry::File(_, p, ..)
@@ -358,7 +364,7 @@ impl Walker {
 #[derive(Debug)]
 struct InnerEntry {
     kind: InnerKind,
-    path: PathBuf,
+    path: String,
     metadata: Metadata,
     depth: usize,
 }
@@ -407,7 +413,7 @@ impl fmt::Debug for InnerKind {
 pub enum Entry<'a> {
     /// Current item is a continuation of a HAMTShard directory. Only the root HAMTShard will have
     /// file metadata.
-    Bucket(&'a Cid, &'a Path),
+    Bucket(&'a Cid, &'a str),
     /// All items that have metadata.
     Metadata(MetadataEntry<'a>),
 }
@@ -426,7 +432,7 @@ impl<'a> Entry<'a> {
 
     /// Returns the path for the latest entry. This is created from a UTF-8 string and, as such, is always
     /// representable on all supported platforms.
-    pub fn path(&self) -> &'a Path {
+    pub fn path(&self) -> &'a str {
         match self {
             Self::Bucket(_, p) => p,
             Self::Metadata(MetadataEntry::Directory(_, p, ..))
@@ -439,8 +445,8 @@ impl<'a> Entry<'a> {
 
 impl InnerEntry {
     fn new_root_dir(cid: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
-        let mut path = PathBuf::new();
-        path.push(name);
+        let mut path = String::new();
+        path.push_str(name);
         Self {
             kind: InnerKind::RootDirectory(cid),
             path,
@@ -450,8 +456,8 @@ impl InnerEntry {
     }
 
     fn new_root_bucket(cid: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
-        let mut path = PathBuf::new();
-        path.push(name);
+        let mut path = String::new();
+        path.push_str(name);
         Self {
             kind: InnerKind::BucketAtRoot(cid),
             path,
@@ -468,8 +474,8 @@ impl InnerEntry {
         file_size: u64,
         depth: usize,
     ) -> Self {
-        let mut path = PathBuf::new();
-        path.push(name);
+        let mut path = String::new();
+        path.push_str(name);
         Self {
             kind: InnerKind::File(cid, step, file_size),
             path,
@@ -479,8 +485,8 @@ impl InnerEntry {
     }
 
     fn new_root_symlink(cid: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
-        let mut path = PathBuf::new();
-        path.push(name);
+        let mut path = String::new();
+        path.push_str(name);
         Self {
             kind: InnerKind::Symlink(cid),
             path,
@@ -511,20 +517,18 @@ impl InnerEntry {
     }
 
     fn set_path(&mut self, name: &str, depth: usize) {
-        debug_assert_eq!(self.depth, self.path.ancestors().count());
-
         while self.depth >= depth && self.depth > 0 {
-            assert!(self.path.pop());
+            assert!(path_pop(&mut self.path));
             self.depth = self
                 .depth
                 .checked_sub(1)
                 .expect("undeflowed path components");
         }
-
-        self.path.push(name);
+        if !self.path.is_empty() {
+            self.path.push('/');
+        }
+        self.path.push_str(name);
         self.depth = depth;
-
-        debug_assert_eq!(self.depth, self.path.ancestors().count());
     }
 
     fn as_directory(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
@@ -578,7 +582,7 @@ impl InnerEntry {
                 assert!(name.is_empty());
                 // continuation bucket going bucket -> bucket
                 while self.depth > depth {
-                    assert!(self.path.pop());
+                    assert!(path_pop(&mut self.path));
                     self.depth = self
                         .depth
                         .checked_sub(1)
@@ -847,7 +851,21 @@ impl fmt::Display for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for Error {}
+
+fn path_pop(path: &mut String) -> bool {
+    if path.is_empty() || path == "/" {
+        return false;
+    }
+    let truncate_idx = if let Some(last_slash_idx) = path.trim_end_matches('/').rfind('/') {
+        last_slash_idx
+    } else {
+        0
+    };
+    path.truncate(truncate_idx);
+    true
+}
 
 #[cfg(test)]
 mod tests {

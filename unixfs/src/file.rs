@@ -2,19 +2,16 @@
 ///!
 ///! Most usable for walking UnixFS file trees provided by the `visit::IdleFileVisit` and
 ///! `visit::FileVisit` types.
-use crate::pb::ParsingFailed;
-use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
-use std::borrow::Cow;
-use std::fmt;
-
-/// Low level UnixFS file descriptor reader support.
-mod reader;
-
-/// Higher level API for visiting the file tree.
-pub mod visit;
+use crate::{pb::ParsingFailed, InvalidCidInLink, Metadata, UnexpectedNodeType};
+use alloc::borrow::Cow;
+use core::fmt;
 
 /// Initial version of file adder capable of constructing UnixFs v1 trees
 pub mod adder;
+/// Low level UnixFS file descriptor reader support.
+mod reader;
+/// Higher level API for visiting the file tree.
+pub mod visit;
 
 /// Describes the errors which can happen during a visit or lower level block-by-block walking of
 /// the DAG.
@@ -46,6 +43,7 @@ impl fmt::Display for FileReadFailed {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for FileReadFailed {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         use FileReadFailed::*;
@@ -137,6 +135,7 @@ impl fmt::Display for FileError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for FileError {}
 
 impl From<FileError> for FileReadFailed {

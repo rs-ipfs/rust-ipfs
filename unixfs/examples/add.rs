@@ -1,8 +1,7 @@
 use cid::Cid;
+use core::{fmt, time::Duration};
 use ipfs_unixfs::file::adder::FileAdder;
-use std::fmt;
 use std::io::{BufRead, BufReader};
-use std::time::Duration;
 
 fn main() {
     // read stdin, maybe produce stdout car?

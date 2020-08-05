@@ -1,9 +1,9 @@
-use crate::pb::{FlatUnixFs, PBLink, RangeLinks, UnixFsType};
-use std::convert::TryFrom;
-use std::fmt;
-use std::ops::Range;
-
-use crate::file::{FileError, FileReadFailed, Metadata, UnwrapBorrowedExt};
+use crate::{
+    file::{FileError, FileReadFailed, Metadata, UnwrapBorrowedExt},
+    pb::{FlatUnixFs, PBLink, RangeLinks, UnixFsType},
+};
+use alloc::vec::Vec;
+use core::{convert::TryFrom, fmt, ops::Range};
 
 /// Navigates the UnixFs files, which are either:
 ///  - single block files which have everything needed to all of the contents

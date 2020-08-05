@@ -1,9 +1,10 @@
 use cid::Cid;
+use core::{convert::TryFrom, fmt};
 use ipfs_unixfs::dir::{resolve, LookupError, ResolveError};
-use std::convert::TryFrom;
-use std::fmt;
-use std::io::{Error as IoError, Read};
-use std::path::PathBuf;
+use std::{
+    io::{Error as IoError, Read},
+    path::PathBuf,
+};
 
 fn main() {
     let path = match std::env::args()
