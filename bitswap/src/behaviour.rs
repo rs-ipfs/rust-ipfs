@@ -232,6 +232,8 @@ impl NetworkBehaviour for Bitswap {
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
         debug!("bitswap: inject_disconnected {:?}", peer_id);
         self.connected_peers.remove(peer_id);
+        // the related stats are not dropped, so that they
+        // persist for peers regardless of disconnects
     }
 
     fn inject_event(&mut self, source: PeerId, _connection: ConnectionId, message: MessageWrapper) {
