@@ -1,11 +1,15 @@
 use super::AddArgs;
 use crate::v0::support::StringError;
-use bytes::{Buf, Bytes};
+use bytes::{buf::BufMutExt, Buf, BufMut, Bytes, BytesMut};
 use cid::Cid;
-use futures::stream::{Stream, TryStreamExt};
-use ipfs::{Ipfs, IpfsTypes};
+use futures::stream::{Stream, StreamExt, TryStreamExt};
+use ipfs::unixfs::ll::{
+    dir::builder::{BufferingTreeBuilder, TreeBuildingFailed, TreeConstructionFailed},
+    file::adder::FileAdder,
+};
+use ipfs::{Block, Ipfs, IpfsTypes};
 use mime::Mime;
-use mpart_async::server::MultipartStream;
+use mpart_async::server::{MultipartError, MultipartStream};
 use serde::Serialize;
 use std::borrow::Cow;
 use std::fmt;
@@ -15,142 +19,206 @@ pub(super) async fn add_inner<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     _opts: AddArgs,
     content_type: Mime,
-    body: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin,
+    body: impl Stream<Item = Result<impl Buf, warp::Error>> + Send + Unpin + 'static,
 ) -> Result<impl Reply, Rejection> {
-    // FIXME: this should be without adder at least
-    use ipfs::unixfs::ll::{dir::builder::BufferingTreeBuilder, file::adder::FileAdder};
-
     let boundary = content_type
         .get_param("boundary")
         .map(|v| v.to_string())
         .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
 
-    let mut stream =
-        MultipartStream::new(Bytes::from(boundary), body.map_ok(|mut buf| buf.to_bytes()));
+    let stream = MultipartStream::new(Bytes::from(boundary), body.map_ok(|mut buf| buf.to_bytes()));
 
-    // TODO: wrap-in-directory option
-    let mut tree = BufferingTreeBuilder::default();
+    // Stream<Output = Result<Json, impl Rejection>>
+    //
+    // refine it to
+    //
+    // Stream<Output = Result<Json, AddError>>
+    //                          |      |
+    //                          |   convert rejection and stop the stream?
+    //                          |      |
+    //                          |     /
+    // Stream<Output = Result<impl Into<Bytes>, impl std::error::Error + Send + Sync + 'static>>
 
-    // this should be a while loop but clippy will warn if this is a while loop which will only get
-    // executed once.
-    while let Some(mut field) = stream
-        .try_next()
-        .await
-        .map_err(|e| StringError::from(format!("IO error: {}", e)))?
-    {
-        let field_name = field
-            .name()
-            .map_err(|e| StringError::from(format!("unparseable headers: {}", e)))?;
+    let st = add_stream(ipfs, stream);
 
-        if field_name != "file" {
-            // this seems constant for files and directories
-            return Err(StringError::from(format!("unsupported field: {}", field_name)).into());
-        }
+    // TODO: we could map the errors into json objects at least? (as we cannot return them as
+    // trailers)
 
-        let filename = field
-            .filename()
-            .map_err(|e| StringError::from(format!("unparseable filename: {}", e)))?
-            .to_string();
+    let body = crate::v0::support::StreamResponse(st);
 
-        // unixfsv1.5 metadata seems to be in custom headers for both files and additional
-        // directories:
-        //  - mtime: timespec
-        //  - mtime-nsecs: timespec
-        //
-        // should probably read the metadata here to have it available for both files and
-        // directories?
-        //
-        // FIXME: tomorrow:
-        //  - need to make this a stream
-        //  - need to yield progress reports
-        //  - before yielding file results, we should add it to builder
-        //  - finally at the end we should build the tree
+    Ok(body)
+}
 
-        let content_type = field
-            .content_type()
-            .map_err(|e| StringError::from(format!("unparseable content-type: {}", e)))?;
+#[derive(Debug)]
+enum AddError {
+    Parsing(MultipartError),
+    Header(MultipartError),
+    InvalidFilename(std::str::Utf8Error),
+    UnsupportedField(String),
+    UnsupportedContentType(String),
+    ResponseSerialization(serde_json::Error),
+    Persisting(ipfs::Error),
+    TreeGathering(TreeBuildingFailed),
+    TreeBuilding(TreeConstructionFailed),
+}
 
-        if content_type == "application/octet-stream" {
-            // Content-Type: application/octet-stream for files
-            let mut adder = FileAdder::default();
-            let mut total = 0u64;
+impl From<MultipartError> for AddError {
+    fn from(e: MultipartError) -> AddError {
+        AddError::Parsing(e)
+    }
+}
 
-            loop {
-                let next = field
-                    .try_next()
-                    .await
-                    .map_err(|e| StringError::from(format!("IO error: {}", e)))?;
+impl fmt::Display for AddError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // TODO
+        write!(fmt, "{:?}", self)
+    }
+}
 
-                match next {
-                    Some(next) => {
-                        let mut read = 0usize;
-                        while read < next.len() {
-                            let (iter, used) = adder.push(&next.slice(read..));
-                            read += used;
+impl std::error::Error for AddError {}
 
-                            let maybe_tuple = import_all(&ipfs, iter).await.map_err(|e| {
-                                StringError::from(format!("Failed to save blocks: {}", e))
-                            })?;
+fn add_stream<St, E>(
+    ipfs: Ipfs<impl IpfsTypes>,
+    mut fields: MultipartStream<St, E>,
+) -> impl Stream<Item = Result<Bytes, AddError>> + Send + 'static
+where
+    St: Stream<Item = Result<Bytes, E>> + Send + Unpin + 'static,
+    E: Into<anyhow::Error> + Send + 'static,
+{
+    async_stream::try_stream! {
+        // TODO: wrap-in-directory option
+        let mut tree = BufferingTreeBuilder::default();
 
-                            total += maybe_tuple.map(|t| t.1).unwrap_or(0);
+        let mut buffer = BytesMut::new();
+
+        tracing::trace!("stream started");
+
+        while let Some(mut field) = fields
+            .try_next()
+            .await?
+        {
+
+            let field_name = field.name().map_err(AddError::Header)?;
+
+            // files are file{,-1,-2,-3,..}
+            // directories are dir{,-1,-2,-3,..}
+
+            let _ = if !field_name.starts_with("file") {
+                // this seems constant for files and directories
+                Err(AddError::UnsupportedField(field_name.to_string()))
+            } else {
+                // this is a bit ackward with the ? operator but it should save us the yield
+                // Err(..) followed by return; this is only available in the `stream!` variant,
+                // which continues after errors by default..
+                Ok(())
+            }?;
+
+            let filename = field.filename().map_err(AddError::Header)?;
+            let filename = percent_encoding::percent_decode_str(filename)
+                .decode_utf8()
+                .map(|cow| cow.into_owned())
+                .map_err(AddError::InvalidFilename)?;
+
+            let content_type = field.content_type().map_err(AddError::Header)?;
+
+            let next = match content_type {
+                "application/octet-stream" => {
+                    tracing::trace!("processing file {:?}", filename);
+                    let mut adder = FileAdder::default();
+                    let mut total = 0u64;
+
+                    loop {
+                        let next = field
+                            .try_next()
+                            .await
+                            .map_err(AddError::Parsing)?;
+
+                        match next {
+                            Some(next) => {
+                                let mut read = 0usize;
+                                while read < next.len() {
+                                    let (iter, used) = adder.push(&next.slice(read..));
+                                    read += used;
+
+                                    let maybe_tuple = import_all(&ipfs, iter).await.map_err(AddError::Persisting)?;
+
+                                    total += maybe_tuple.map(|t| t.1).unwrap_or(0);
+                                }
+
+                                tracing::trace!("read {} bytes", read);
+                            }
+                            None => break,
                         }
                     }
-                    None => break,
+
+                    let (root, subtotal) = import_all(&ipfs, adder.finish())
+                        .await
+                        .map_err(AddError::Persisting)?
+                        .expect("I think there should always be something from finish -- except if the link block has just been compressed?");
+
+                    total += subtotal;
+
+                    tracing::trace!("completed processing file of {} bytes: {:?}", total, filename);
+
+                    // using the filename as the path since we can tolerate a single empty named file
+                    // however the second one will cause issues
+                    tree.put_file(&filename, root.clone(), total)
+                        .map_err(AddError::TreeGathering)?;
+
+                    let filename: Cow<'_, str> = if filename.is_empty() {
+                        // cid needs to be repeated if no filename was given
+                        Cow::Owned(root.to_string())
+                    } else {
+                        Cow::Owned(filename)
+                    };
+
+                    serde_json::to_writer((&mut buffer).writer(), &Response::Added {
+                        name: filename,
+                        hash: Quoted(&root),
+                        size: Quoted(total),
+                    }).map_err(AddError::ResponseSerialization)?;
+
+                    buffer.put(&b"\r\n"[..]);
+
+                    Ok(buffer.split().freeze())
+                },
+                /*"application/x-directory"
+                |*/ unsupported => {
+                    Err(AddError::UnsupportedContentType(unsupported.to_string()))
                 }
-            }
+            }?;
 
-            let (root, subtotal) = import_all(&ipfs, adder.finish())
-                .await
-                .map_err(|e| StringError::from(format!("Failed to save blocks: {}", e)))?
-                .expect("I think there should always be something from finish -- except if the link block has just been compressed?");
+            yield next;
+        }
 
-            total += subtotal;
+        let mut full_path = String::new();
+        let mut block_buffer = Vec::new();
 
-            // using the filename as the path since we can tolerate a single empty named file
-            // however the second one will cause issues
-            tree.put_file(filename.as_ref().unwrap_or_default(), root, total)
-                .map_err(|e| {
-                    StringError::from(format!("Failed to record file in the tree: {}", e))
-                })?;
+        let mut iter = tree.build(&mut full_path, &mut block_buffer);
 
-            let root = root.to_string();
+        while let Some(res) = iter.next_borrowed() {
+            let (path, cid, total, block) = res.map_err(AddError::TreeBuilding)?;
 
-            let filename: Cow<'_, str> = if filename.is_empty() {
-                // cid needs to be repeated if no filename was given
-                Cow::Borrowed(&root)
-            } else {
-                Cow::Owned(filename)
-            };
+            // shame we need to allocate once again here..
+            ipfs.put_block(Block { cid: cid.to_owned(), data: block.into() }).await.map_err(AddError::Persisting)?;
 
-            return Ok(warp::reply::json(&Response::Added {
-                name: filename,
-                hash: Cow::Borrowed(&root),
+            serde_json::to_writer((&mut buffer).writer(), &Response::Added {
+                name: Cow::Borrowed(path),
+                hash: Quoted(cid),
                 size: Quoted(total),
-            }));
-        } else if content_type == "application/x-directory" {
-            // Content-Type: application/x-directory for additional directories or for setting
-            // metadata on them
-            return Err(StringError::from(format!(
-                "not implemented: {}",
-                content_type
-            )));
-        } else {
-            // should be 405?
-            return Err(StringError::from(format!(
-                "unsupported content-type: {}",
-                content_type
-            )));
+            }).map_err(AddError::ResponseSerialization)?;
+
+            buffer.put(&b"\r\n"[..]);
+
+            yield buffer.split().freeze();
         }
     }
-
-    Err(StringError::from("not implemented").into())
 }
 
 async fn import_all(
     ipfs: &Ipfs<impl IpfsTypes>,
     iter: impl Iterator<Item = (Cid, Vec<u8>)>,
 ) -> Result<Option<(Cid, u64)>, ipfs::Error> {
-    use ipfs::Block;
     // TODO: use FuturesUnordered
     let mut last: Option<Cid> = None;
     let mut total = 0u64;
@@ -188,10 +256,10 @@ enum Response<'a> {
     #[serde(rename_all = "PascalCase")]
     Added {
         /// The resulting Cid as a string.
-        hash: Cow<'a, str>,
+        hash: Quoted<&'a Cid>,
         /// Name of the file added from filename or the resulting Cid.
         name: Cow<'a, str>,
-        /// Stringified version of the total size in bytes.
+        /// Stringified version of the total cumulative size in bytes.
         size: Quoted<u64>,
     },
 }

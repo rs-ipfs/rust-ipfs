@@ -243,7 +243,7 @@ impl BufferingTreeBuilder {
     /// Returned `PostOrderIterator` will use the given `full_path` and `block_buffer` to store
     /// it's data during the walk. `PostOrderIterator` implements `Iterator` while also allowing
     /// borrowed access via `next_borrowed`.
-    fn build<'a>(
+    pub fn build<'a>(
         self,
         full_path: &'a mut String,
         block_buffer: &'a mut Vec<u8>,
@@ -263,6 +263,7 @@ impl BufferingTreeBuilder {
             persisted_cids: Default::default(),
             reused_children: Vec::new(),
             cid: None,
+            total_size: 0,
             wrap_in_directory: self.opts.wrap_in_directory,
         }
     }
@@ -336,6 +337,7 @@ pub struct PostOrderIterator<'a> {
     persisted_cids: HashMap<Option<u64>, BTreeMap<String, Leaf>>,
     reused_children: Vec<Visited>,
     cid: Option<Cid>,
+    total_size: u64,
     // from TreeOptions
     wrap_in_directory: bool,
 }
@@ -411,9 +413,9 @@ impl<'a> PostOrderIterator<'a> {
         })
     }
 
-    fn next_borrowed<'b>(
+    pub fn next_borrowed<'b>(
         &'b mut self,
-    ) -> Option<Result<(&'b str, &'b Cid, &'b [u8]), TreeConstructionFailed>> {
+    ) -> Option<Result<(&'b str, &'b Cid, u64, &'b [u8]), TreeConstructionFailed>> {
         while let Some(visited) = self.pending.pop() {
             let (name, depth) = match &visited {
                 Visited::Descent { name, depth, .. } => (name.as_deref(), *depth),
@@ -494,6 +496,7 @@ impl<'a> PostOrderIterator<'a> {
                     };
 
                     self.cid = Some(leaf.link.clone());
+                    self.total_size = leaf.total_size;
 
                     // this reuse strategy is probably good enough
                     collected.clear();
@@ -525,6 +528,7 @@ impl<'a> PostOrderIterator<'a> {
                     return Some(Ok((
                         self.full_path.as_str(),
                         self.cid.as_ref().unwrap(),
+                        self.total_size,
                         &self.block_buffer,
                     )));
                 }
@@ -539,7 +543,9 @@ impl<'a> Iterator for PostOrderIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.next_borrowed().map(|res| {
-            res.map(|(full_path, cid, block)| (full_path.to_string(), cid.to_owned(), block.into()))
+            res.map(|(full_path, cid, _, block)| {
+                (full_path.to_string(), cid.to_owned(), block.into())
+            })
         })
     }
 }
