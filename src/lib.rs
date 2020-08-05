@@ -268,11 +268,11 @@ enum IpfsEvent {
 
 /// Configured Ipfs instace or value which can be only initialized.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
-    repo: Option<Repo<Types>>,
+    repo: Repo<Types>,
     span: Span,
     keys: Keypair,
     options: IpfsOptions<Types>,
-    moved_on_init: Option<Receiver<RepoEvent>>,
+    repo_events: Receiver<RepoEvent>,
 }
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
@@ -289,30 +289,30 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let span = span.unwrap_or_else(|| tracing::trace_span!("ipfs"));
 
         UninitializedIpfs {
-            repo: Some(repo),
+            repo,
             span,
             keys,
             options,
-            moved_on_init: Some(repo_events),
+            repo_events,
         }
     }
 
     /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
     /// future should be spawned on a executor as soon as possible.
-    pub async fn start(mut self) -> Result<(Ipfs<Types>, impl Future<Output = ()>), Error> {
+    pub async fn start(self) -> Result<(Ipfs<Types>, impl Future<Output = ()>), Error> {
         use futures::stream::StreamExt;
 
-        let repo = Option::take(&mut self.repo).unwrap();
+        let UninitializedIpfs {
+            repo,
+            span,
+            keys,
+            repo_events,
+            ..
+        } = self;
+
         repo.init().await?;
 
-        let repo_events = self
-            .moved_on_init
-            .take()
-            .expect("start cannot be called twice");
-
         let (to_task, receiver) = channel::<IpfsEvent>(1);
-
-        let UninitializedIpfs { span, keys, .. } = self;
 
         let ipfs = Ipfs(Arc::new(IpfsInner {
             span,
