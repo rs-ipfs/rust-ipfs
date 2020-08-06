@@ -1,5 +1,7 @@
+use async_std::future::timeout;
 use ipfs::Node;
 use libp2p::PeerId;
+use std::time::Duration;
 
 // Make sure two instances of ipfs can be connected.
 #[async_std::test]
@@ -10,16 +12,15 @@ async fn connect_two_nodes_by_addr() {
     let (_, b_addrs) = node_b.identity().await.unwrap();
     assert!(!b_addrs.is_empty());
 
-    let mut connected = false;
-
+    // this is a bit bonkers structure since we only have a single address
     for addr in b_addrs {
-        if node_a.connect(addr.clone()).await.is_ok() {
-            connected = true;
-            break;
+        let fut = timeout(Duration::from_secs(10), node_a.connect(addr.clone()));
+        if let Ok(Ok(_)) = fut.await {
+            return;
         }
     }
 
-    assert!(connected);
+    panic!("failed to connect to another node");
 }
 
 // Make sure two instances of ipfs can be connected by `PeerId`.
@@ -34,7 +35,10 @@ async fn connect_two_nodes_by_peer_id() {
     while let Some(addr) = b_addrs.pop() {
         node_a.add_peer(b_id.clone(), addr).await.unwrap();
     }
-    node_a.connect(b_id).await.unwrap();
+    timeout(Duration::from_secs(10), node_a.connect(b_id))
+        .await
+        .expect("timeout")
+        .expect("should've connected");
 }
 
 // More complicated one to the above; first node will have two listening addresses and the second
@@ -58,7 +62,10 @@ async fn connect_two_nodes_with_two_connections_doesnt_panic() {
     );
 
     for addr in addresses {
-        node_b.connect(addr).await.unwrap();
+        timeout(Duration::from_secs(10), node_b.connect(addr))
+            .await
+            .expect("timeout")
+            .expect("should've connected");
     }
 
     // not too sure on this, since there'll be a single peer but two connections; the return
