@@ -28,7 +28,7 @@ pub struct Behaviour<Types: IpfsTypes> {
     mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
     #[behaviour(ignore)]
-    kad_subscriptions: SubscriptionRegistry<Result<(), String>>,
+    kad_subscriptions: SubscriptionRegistry<(), String>,
     bitswap: Bitswap,
     ping: Ping,
     identify: Identify,
@@ -84,15 +84,17 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     }
                     GetClosestPeers(Ok(GetClosestPeersOk { key: _, peers })) => {
                         for peer in peers {
-                            info!("kad: peer {} is close", peer);
+                            // don't mention the key here, as this is just the id of our node
+                            debug!("kad: peer {} is close", peer);
                         }
                     }
                     GetClosestPeers(Err(GetClosestPeersError::Timeout { key: _, peers })) => {
+                        // don't mention the key here, as this is just the id of our node
                         warn!(
                             "kad: timed out trying to find all closest peers; got the following:"
                         );
                         for peer in peers {
-                            info!("kad: peer {} is close", peer);
+                            debug!("kad: peer {} is close", peer);
                         }
                     }
                     GetProviders(Ok(GetProvidersOk {
@@ -105,7 +107,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                             warn!("kad: could not find a provider for {}", key);
                         } else {
                             for peer in closest_peers.into_iter().chain(providers.into_iter()) {
-                                info!("kad: {} is provided by {}", key, peer);
+                                debug!("kad: {} is provided by {}", key, peer);
                                 self.bitswap.connect(peer);
                             }
                         }
@@ -116,7 +118,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     }
                     StartProviding(Ok(AddProviderOk { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        info!("kad: providing {}", key);
+                        debug!("kad: providing {}", key);
                     }
                     StartProviding(Err(AddProviderError::Timeout { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
@@ -124,7 +126,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     }
                     RepublishProvider(Ok(AddProviderOk { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        info!("kad: republished provider {}", key);
+                        debug!("kad: republished provider {}", key);
                     }
                     RepublishProvider(Err(AddProviderError::Timeout { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
@@ -133,7 +135,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     GetRecord(Ok(GetRecordOk { records })) => {
                         for record in records {
                             let key = multibase::encode(Base::Base32Lower, record.record.key);
-                            info!("kad: got record {}:{:?}", key, record.record.value);
+                            debug!("kad: got record {}:{:?}", key, record.record.value);
                         }
                     }
                     GetRecord(Err(GetRecordError::NotFound {
@@ -156,7 +158,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         );
                         for record in records {
                             let key = multibase::encode(Base::Base32Lower, record.record.key);
-                            info!("kad: got record {}:{:?}", key, record.record.value);
+                            debug!("kad: got record {}:{:?}", key, record.record.value);
                         }
                     }
                     GetRecord(Err(GetRecordError::Timeout {
@@ -172,13 +174,13 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         );
                         for record in records {
                             let key = multibase::encode(Base::Base32Lower, record.record.key);
-                            info!("kad: got record {}:{:?}", key, record.record.value);
+                            debug!("kad: got record {}:{:?}", key, record.record.value);
                         }
                     }
                     PutRecord(Ok(PutRecordOk { key }))
                     | RepublishRecord(Ok(PutRecordOk { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        info!("kad: successfully put record {}", key);
+                        debug!("kad: successfully put record {}", key);
                     }
                     PutRecord(Err(PutRecordError::QuorumFailed {
                         key,
@@ -191,7 +193,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         quorum,
                     })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        info!(
+                        warn!(
                             "kad: quorum failed ({}) trying to put record {}",
                             quorum, key
                         );
@@ -207,7 +209,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         quorum: _,
                     })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        info!("kad: timed out trying to put record {}", key);
+                        warn!("kad: timed out trying to put record {}", key);
                     }
                 }
             }
@@ -369,7 +371,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             options.keypair.public(),
         );
         let pubsub = Pubsub::new(options.peer_id);
-        let swarm = SwarmApi::new();
+        let swarm = SwarmApi::default();
 
         Behaviour {
             ipfs,
@@ -411,7 +413,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.swarm.connections()
     }
 
-    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<Result<(), String>> {
+    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<(), String> {
         self.swarm.connect(target)
     }
 
@@ -427,20 +429,23 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.bitswap.want_block(cid, 1);
     }
 
-    // FIXME: it would probably be best if this could return a SubscriptionFuture, so
-    // that the put_block operation truly finishes only when the block is already being
-    // provided; it is, however, pretty tricky in terms of internal communication between
-    // Ipfs and IpfsFuture objects - it would currently require some extra back-and-forth
-    pub fn provide_block(&mut self, cid: Cid) {
-        let key = cid.to_bytes();
-        match self.kademlia.start_providing(key.into()) {
-            Ok(_id) => {
-                // Ok(self.kad_subscriptions.create_subscription(id.into(), None))
+    pub fn provide_block(
+        &mut self,
+        cid: Cid,
+    ) -> Result<SubscriptionFuture<(), String>, anyhow::Error> {
+        // currently disabled; see https://github.com/rs-ipfs/rust-ipfs/pull/281#discussion_r465583345
+        // for details regarding the concerns about enabling this functionality as-is
+        if false {
+            let key = cid.to_bytes();
+            match self.kademlia.start_providing(key.into()) {
+                // Kademlia queries are marked with QueryIds, which are most fitting to
+                // be used as kad Subscription keys - they are small and require no
+                // conversion for the applicable finish_subscription calls
+                Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
+                Err(e) => Err(anyhow!("kad: can't provide block {}: {:?}", cid, e)),
             }
-            Err(e) => {
-                error!("kad: can't provide block {}: {:?}", cid, e);
-                // Err(anyhow!("kad: can't provide block {}", key))
-            }
+        } else {
+            Err(anyhow!("providing blocks is currently unsupported"))
         }
     }
 
@@ -458,7 +463,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         &mut self.bitswap
     }
 
-    pub fn bootstrap(&mut self) -> Result<SubscriptionFuture<Result<(), String>>, anyhow::Error> {
+    pub fn bootstrap(&mut self) -> Result<SubscriptionFuture<(), String>, anyhow::Error> {
         match self.kademlia.bootstrap() {
             Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
             Err(e) => {
@@ -468,7 +473,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         }
     }
 
-    pub fn get_closest_peers(&mut self, id: PeerId) -> SubscriptionFuture<Result<(), String>> {
+    pub fn get_closest_peers(&mut self, id: PeerId) -> SubscriptionFuture<(), String> {
         let id = id.to_base58();
 
         self.kad_subscriptions

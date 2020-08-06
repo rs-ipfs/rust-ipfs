@@ -59,17 +59,13 @@ type NetworkBehaviourAction = swarm::NetworkBehaviourAction<<<<SwarmApi as Netwo
 pub struct SwarmApi {
     events: VecDeque<NetworkBehaviourAction>,
     peers: HashSet<PeerId>,
-    connect_registry: SubscriptionRegistry<Result<(), String>>,
+    connect_registry: SubscriptionRegistry<(), String>,
     connections: HashMap<Multiaddr, PeerId>,
     roundtrip_times: HashMap<PeerId, Duration>,
     connected_peers: HashMap<PeerId, Vec<Multiaddr>>,
 }
 
 impl SwarmApi {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn add_peer(&mut self, peer_id: PeerId) {
         self.peers.insert(peer_id);
     }
@@ -105,7 +101,7 @@ impl SwarmApi {
         self.roundtrip_times.insert(peer_id.clone(), rtt);
     }
 
-    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<Result<(), String>> {
+    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<(), String> {
         trace!("Connecting to {:?}", target);
 
         self.events.push_back(match target {
@@ -211,9 +207,10 @@ impl NetworkBehaviour for SwarmApi {
             self.connected_peers.remove(peer_id);
         }
         self.connections.remove(closed_addr);
-        // FIXME: should be an error
-        self.connect_registry
-            .finish_subscription(closed_addr.clone().into(), Ok(()));
+        self.connect_registry.finish_subscription(
+            closed_addr.clone().into(),
+            Err("Connection reset by peer".to_owned()),
+        );
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
@@ -259,50 +256,22 @@ fn connection_point_addr(cp: &ConnectedPoint) -> &Multiaddr {
 mod tests {
     use super::*;
     use crate::p2p::transport::{build_transport, TTransport};
-    use futures::channel::mpsc;
-    use futures::future::{select, FutureExt};
-    use futures::sink::SinkExt;
-    use futures::stream::StreamExt;
     use libp2p::identity::Keypair;
     use libp2p::swarm::Swarm;
 
     #[async_std::test]
     async fn swarm_api() {
         let (peer1_id, trans) = mk_transport();
-        let mut swarm1 = Swarm::new(trans, SwarmApi::new(), peer1_id);
+        let mut swarm1 = Swarm::new(trans, SwarmApi::default(), peer1_id);
 
         let (peer2_id, trans) = mk_transport();
-        let mut swarm2 = Swarm::new(trans, SwarmApi::new(), peer2_id);
+        let mut swarm2 = Swarm::new(trans, SwarmApi::default(), peer2_id);
 
-        let (mut tx, mut rx) = mpsc::channel::<Multiaddr>(1);
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
-        let peer1 = async move {
-            while swarm1.next().now_or_never().is_some() {}
-
-            for l in Swarm::listeners(&swarm1) {
-                tx.send(l.clone()).await.unwrap();
-            }
-
-            loop {
-                swarm1.next().await;
-            }
-        };
-
-        let peer2 = async move {
-            let future = swarm2.connect(rx.next().await.unwrap().into());
-
-            let poll_swarm = async move {
-                loop {
-                    swarm2.next().await;
-                }
-            };
-
-            select(Box::pin(future), Box::pin(poll_swarm)).await;
-        };
-
-        let result = select(Box::pin(peer1), Box::pin(peer2));
-        result.await;
+        for l in Swarm::listeners(&swarm1) {
+            swarm2.connect(l.to_owned().into()).await.unwrap();
+        }
     }
 
     fn mk_transport() -> (PeerId, TTransport) {
