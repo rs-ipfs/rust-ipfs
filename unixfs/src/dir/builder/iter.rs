@@ -1,7 +1,6 @@
 use super::{Entry, Leaf, TreeConstructionFailed, TreeOptions, Visited};
 use cid::Cid;
 use std::collections::{BTreeMap, HashMap};
-use std::fmt::Write;
 
 /// Constructs the directory nodes required for a tree.
 ///
@@ -203,18 +202,6 @@ impl<'a> PostOrderIterator<'a> {
                             .insert(name, leaf);
 
                         assert!(previous.is_none());
-                    }
-
-                    if parent_id.is_none() {
-                        // rewrite the full_path for the wrap_in_directory
-                        assert!(
-                            self.full_path.is_empty(),
-                            "full_path should had been empty but it was not: {:?}",
-                            self.full_path
-                        );
-                        // at the wrap_in_directory level the name should be the root level Cid
-                        write!(self.full_path, "{}", self.cid.as_ref().unwrap()).unwrap();
-                        self.old_depth += 1;
                     }
 
                     return Some(Ok(TreeNode {

@@ -76,8 +76,6 @@ tests.root.get(factory);
 tests.root.add(factory, {
   skip: [
     // ordered in the order of most likely implementation
-    // directories:
-    "should wrap content in a directory",
     // progress:
     "should add a BIG Buffer with progress enabled",
     "should add a nested directory as array of tupples with progress",

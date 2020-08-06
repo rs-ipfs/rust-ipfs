@@ -24,11 +24,14 @@ mod add;
 #[derive(Debug, Deserialize)]
 pub struct AddArgs {
     // probably never interesting
-    #[serde(default)]
+    #[serde(default, rename = "stream-channels")]
     stream_channels: bool,
     // unsure what this does
     #[serde(default)]
     progress: bool,
+    /// When true, a new directory is created to hold more than 1 root level directories.
+    #[serde(default, rename = "wrap-with-directory")]
+    wrap_with_directory: bool,
 }
 
 pub fn add<T: IpfsTypes>(

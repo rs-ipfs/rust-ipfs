@@ -7,7 +7,9 @@ use bytes::{
 use cid::Cid;
 use futures::stream::{Stream, StreamExt, TryStreamExt};
 use ipfs::unixfs::ll::{
-    dir::builder::{BufferingTreeBuilder, TreeBuildingFailed, TreeConstructionFailed, TreeNode},
+    dir::builder::{
+        BufferingTreeBuilder, TreeBuildingFailed, TreeConstructionFailed, TreeNode, TreeOptions,
+    },
     file::adder::FileAdder,
 };
 use ipfs::{Block, Ipfs, IpfsTypes};
@@ -20,7 +22,7 @@ use warp::{Rejection, Reply};
 
 pub(super) async fn add_inner<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    _opts: AddArgs,
+    opts: AddArgs,
     content_type: Mime,
     body: impl Stream<Item = Result<impl Buf, warp::Error>> + Send + Unpin + 'static,
 ) -> Result<impl Reply, Rejection> {
@@ -31,7 +33,7 @@ pub(super) async fn add_inner<T: IpfsTypes>(
 
     let st = MultipartStream::new(Bytes::from(boundary), body.map_ok(|mut buf| buf.to_bytes()));
 
-    let st = add_stream(ipfs, st);
+    let st = add_stream(ipfs, st, opts);
 
     // map the errors into json objects at least as we cannot return them as trailers (yet)
 
@@ -100,14 +102,22 @@ impl std::error::Error for AddError {}
 fn add_stream<St, E>(
     ipfs: Ipfs<impl IpfsTypes>,
     mut fields: MultipartStream<St, E>,
+    opts: AddArgs,
 ) -> impl Stream<Item = Result<Bytes, AddError>> + Send + 'static
 where
     St: Stream<Item = Result<Bytes, E>> + Send + Unpin + 'static,
     E: Into<anyhow::Error> + Send + 'static,
 {
     async_stream::try_stream! {
-        // TODO: wrap-in-directory option
-        let mut tree = BufferingTreeBuilder::default();
+
+        let tree_opts = TreeOptions::default();
+        let tree_opts = if opts.wrap_with_directory {
+            tree_opts.with_wrap_in_directory()
+        } else {
+            tree_opts
+        };
+
+        let mut tree = BufferingTreeBuilder::new(tree_opts);
         let mut buffer = BytesMut::new();
 
         while let Some(mut field) = fields

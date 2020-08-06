@@ -314,11 +314,45 @@ mod tests {
 
         let iter = builder.build(&mut full_path, &mut buffer);
         let actual = iter
-            .map(|res| res.map(|OwnedTreeNode { path, .. }| path))
+            .map(|res| res.map(|OwnedTreeNode { path, cid, .. }| (path, cid.to_string())))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
-        assert_eq!(actual, &["QmdbWuhpVCX9weVMMqvVTMeGwKMqCNJDbx7ZK1zG36sea7"]);
+        assert_eq!(
+            actual,
+            &[(
+                "".to_string(),
+                "QmdbWuhpVCX9weVMMqvVTMeGwKMqCNJDbx7ZK1zG36sea7".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn single_wrapped_root() {
+        // foobar\n
+        let five_block_foobar =
+            Cid::try_from("QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6").unwrap();
+
+        let opts = TreeOptions::default().with_wrap_in_directory();
+        let mut builder = BufferingTreeBuilder::new(opts);
+        builder.put_file("a", five_block_foobar, 221).unwrap();
+
+        let mut full_path = String::new();
+        let mut buffer = Vec::new();
+
+        let iter = builder.build(&mut full_path, &mut buffer);
+        let actual = iter
+            .map(|res| res.map(|OwnedTreeNode { path, cid, .. }| (path, cid.to_string())))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(
+            actual,
+            &[(
+                "".to_string(),
+                "QmQBseoi3b2FBrYhjM2E4mCF4Q7C8MgCUbzAbGNfyVwgNk".to_string()
+            )]
+        );
     }
 
     #[test]
