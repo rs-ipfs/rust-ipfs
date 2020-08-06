@@ -153,7 +153,10 @@ where
                     }?;
 
                     let mut adder = FileAdder::default();
-                    let mut total = 0u64;
+                    // how much of bytes have we stored as blocks
+                    let mut total_written = 0u64;
+                    // how much of bytes have we read of input
+                    let mut total_read = 0u64;
 
                     loop {
                         let next = field
@@ -164,17 +167,52 @@ where
                         match next {
                             Some(next) => {
                                 let mut read = 0usize;
+                                let mut saved_any = false;
+
                                 while read < next.len() {
                                     let (iter, used) = adder.push(&next.slice(read..));
                                     read += used;
 
                                     let maybe_tuple = import_all(&ipfs, iter).await.map_err(AddError::Persisting)?;
 
-                                    total += maybe_tuple.map(|t| t.1).unwrap_or(0);
+                                    let subtotal = maybe_tuple.map(|t| t.1);
+
+                                    total_written += subtotal.unwrap_or(0);
+
+                                    saved_any |= subtotal.is_some();
+                                }
+
+                                total_read += read as u64;
+
+                                if saved_any && opts.progress {
+                                    // technically we could just send messages but that'd
+                                    // need us to let go using Cow's or use Arc<String> or
+                                    // similar. not especially fond of either.
+                                    serde_json::to_writer((&mut buffer).writer(), &Response::Progress {
+                                        name: Cow::Borrowed(&filename),
+                                        bytes: total_read,
+                                    }).map_err(AddError::ResponseSerialization)?;
+
+                                    buffer.put(&b"\r\n"[..]);
+                                    yield buffer.split().freeze();
                                 }
                             }
                             None => break,
                         }
+                    }
+
+                    if opts.progress {
+                        // in the interface-http-core tests the subtotal is expected to be full
+                        // size, ordering w.r.t. to the "added" is not specified
+                        serde_json::to_writer((&mut buffer).writer(), &Response::Progress {
+                            name: Cow::Borrowed(&filename),
+                            bytes: total_read,
+                        }).map_err(AddError::ResponseSerialization)?;
+
+                        buffer.put(&b"\r\n"[..]);
+
+                        // it is not required to yield here so perhaps we just accumulate the next
+                        // response in as well
                     }
 
                     let (root, subtotal) = import_all(&ipfs, adder.finish())
@@ -182,13 +220,13 @@ where
                         .map_err(AddError::Persisting)?
                         .expect("I think there should always be something from finish -- except if the link block has just been compressed?");
 
-                    total += subtotal;
+                    total_written += subtotal;
 
-                    tracing::trace!("completed processing file of {} bytes: {:?}", total, filename);
+                    tracing::trace!("completed processing file of {} bytes: {:?}", total_read, filename);
 
                     // using the filename as the path since we can tolerate a single empty named file
                     // however the second one will cause issues
-                    tree.put_file(&filename, root.clone(), total)
+                    tree.put_file(&filename, root.clone(), total_written)
                         .map_err(AddError::TreeGathering)?;
 
                     let filename: Cow<'_, str> = if filename.is_empty() {
@@ -202,7 +240,7 @@ where
                     serde_json::to_writer((&mut buffer).writer(), &Response::Added {
                         name: filename,
                         hash: Quoted(&root),
-                        size: Quoted(total),
+                        size: Quoted(total_written),
                     }).map_err(AddError::ResponseSerialization)?;
 
                     buffer.put(&b"\r\n"[..]);
@@ -289,12 +327,12 @@ async fn import_all(
 enum Response<'a> {
     /// When progress=true query parameter has been given, this will be output every N bytes, or
     /// perhaps every chunk.
-    #[allow(unused)] // unused == not implemented yet
     Progress {
         /// Probably the name of the file being added or empty if none was provided.
         name: Cow<'a, str>,
         /// Bytes processed since last progress; for a file, all progress reports must add up to
-        /// the total file size.
+        /// the total file size. Interestingly this should not be stringified with `Quoted`,
+        /// whereas the `Added::size` needs to be `Quoted`.
         bytes: u64,
     },
     /// Output for every input item.
