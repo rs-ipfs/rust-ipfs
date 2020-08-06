@@ -35,9 +35,6 @@ const factory = createFactory(options)
 tests.miscellaneous(factory, { skip: [
   'dns',
   'resolve',
-  // these cause a hang 20% of time:
-  'should respect timeout option when getting the node id',
-  'should respect timeout option when getting the node version',
   // this hangs on windows, see #251
   'stop'
 ] })
