@@ -18,7 +18,7 @@ pub struct PostOrderIterator<'a> {
     pub(super) cid: Option<Cid>,
     pub(super) total_size: u64,
     // from TreeOptions
-    pub(super) wrap_in_directory: bool,
+    pub(super) wrap_with_directory: bool,
 }
 
 impl<'a> PostOrderIterator<'a> {
@@ -40,7 +40,7 @@ impl<'a> PostOrderIterator<'a> {
             reused_children: Vec::new(),
             cid: None,
             total_size: 0,
-            wrap_in_directory: opts.wrap_in_directory,
+            wrap_with_directory: opts.wrap_with_directory,
         }
     }
 
@@ -164,8 +164,8 @@ impl<'a> PostOrderIterator<'a> {
                     // FIXME: leaves could be drained and reused
                     collected.extend(leaves);
 
-                    if !self.wrap_in_directory && parent_id.is_none() {
-                        // we aren't supposed to wrap_in_directory, and we are now looking at the
+                    if !self.wrap_with_directory && parent_id.is_none() {
+                        // we aren't supposed to wrap_with_directory, and we are now looking at the
                         // possibly to be generated root directory.
 
                         assert_eq!(
@@ -193,7 +193,7 @@ impl<'a> PostOrderIterator<'a> {
                     collected.clear();
 
                     if let Some(name) = name {
-                        // name is none only for the wrap_in_directory, which cannot really be
+                        // name is none only for the wrap_with_directory, which cannot really be
                         // propagated up but still the parent_id is allowed to be None
                         let previous = self
                             .persisted_cids

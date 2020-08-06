@@ -108,7 +108,7 @@ impl BufferingTreeBuilder {
             }
 
             // our first level can be full given the options
-            let full = depth == 0 && !self.opts.wrap_in_directory && dir_builder.is_empty();
+            let full = depth == 0 && !self.opts.wrap_with_directory && dir_builder.is_empty();
 
             if last {
                 let mut next_id = Some(*counter);
@@ -302,7 +302,8 @@ mod tests {
         let five_block_foobar =
             Cid::try_from("QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6").unwrap();
 
-        let opts = TreeOptions::default().with_wrap_in_directory();
+        let mut opts = TreeOptions::default();
+        opts.wrap_with_directory();
         let mut builder = BufferingTreeBuilder::new(opts);
         builder
             .put_file("a", five_block_foobar.clone(), 221)
@@ -333,7 +334,8 @@ mod tests {
         let five_block_foobar =
             Cid::try_from("QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6").unwrap();
 
-        let opts = TreeOptions::default().with_wrap_in_directory();
+        let mut opts = TreeOptions::default();
+        opts.wrap_with_directory();
         let mut builder = BufferingTreeBuilder::new(opts);
         builder.put_file("a", five_block_foobar, 221).unwrap();
 

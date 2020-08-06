@@ -48,16 +48,16 @@ impl fmt::Debug for Leaf {
 }
 
 /// Configuration for customizing how the tree is built.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct TreeOptions {
-    wrap_in_directory: bool,
+    wrap_with_directory: bool,
 }
 
 impl TreeOptions {
-    /// When true, allow multiple top level entries, otherwise error on the second entry
-    pub fn with_wrap_in_directory(mut self) -> TreeOptions {
-        self.wrap_in_directory = true;
-        self
+    /// When true, allow multiple top level entries, otherwise error on the second entry.
+    /// Defaults to false.
+    pub fn wrap_with_directory(&mut self) {
+        self.wrap_with_directory = true;
     }
 }
 
@@ -86,7 +86,7 @@ impl fmt::Display for TreeBuildingFailed {
             RepeatSlashesInPath(s) => write!(fmt, "path contains repeat slashes: {:?}", s),
             TooManyRootLevelEntries => write!(
                 fmt,
-                "multiple root level entries while configured wrap_in_directory = false"
+                "multiple root level entries while configured wrap_with_directory = false"
             ),
             // TODO: perhaps we should allow adding two leafs with same Cid?
             DuplicatePath(s) => write!(fmt, "path exists already: {:?}", s),
