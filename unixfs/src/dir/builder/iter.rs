@@ -47,10 +47,9 @@ impl<'a> PostOrderIterator<'a> {
         links: &BTreeMap<String, Leaf>,
         buffer: &mut Vec<u8>,
     ) -> Result<Leaf, TreeConstructionFailed> {
-        use crate::pb::{FlatUnixFs, PBLink, UnixFs, UnixFsType};
-        use quick_protobuf::{BytesWriter, MessageWrite, Writer};
+        use crate::pb::{UnixFs, UnixFsType};
+        use quick_protobuf::{BytesWriter, MessageWrite, Writer, WriterBackend};
         use sha2::{Digest, Sha256};
-        use std::borrow::Cow;
 
         // FIXME: ideas on how to turn this into a HAMT sharding on some heuristic. we probably
         // need to introduce states in to the "iterator":
@@ -66,21 +65,71 @@ impl<'a> PostOrderIterator<'a> {
         // heuristic can be detected *at* bufferedtreewriter. there the split would be easier, and
         // this would "just" be a single node rendering, and not need any additional states..
 
-        // track the combined size which we'll report to our parent
-        let mut combined_from_links = 0;
+        /// Newtype which uses the BTreeMap<String, Leaf> as Vec<PBLink>.
+        struct BTreeMappedDir<'a> {
+            links: &'a BTreeMap<String, Leaf>,
+            data: UnixFs<'a>,
+        }
 
-        // TODO: this could quite easily be made so that the links are read from the btreemap for
-        // calculating the size and rendering
-        let flat = FlatUnixFs {
-            links: links
-                .iter() // .drain() would be the most reasonable
-                .inspect(|(_, Leaf { total_size, .. })| combined_from_links += total_size)
-                .map(|(name, Leaf { link, total_size })| PBLink {
-                    Hash: Some(link.to_bytes().into()),
-                    Name: Some(Cow::Borrowed(name.as_str())),
-                    Tsize: Some(*total_size),
-                })
-                .collect::<Vec<_>>(),
+        /// Newtype which represents an entry from BTreeMap<String, Leaf> as PBLink as far as the
+        /// protobuf representation goes.
+        struct EntryAsPBLink<'a>(&'a String, &'a Leaf);
+
+        impl<'a> MessageWrite for EntryAsPBLink<'a> {
+            fn get_size(&self) -> usize {
+                use quick_protobuf::sizeofs::*;
+
+                // ones are the tags
+                1 + sizeof_len(self.0.len())
+                    + 1
+                    + sizeof_len(self.1.link.hash().as_bytes().len())
+                    + 1
+                    + sizeof_varint(self.1.total_size)
+            }
+
+            fn write_message<W: WriterBackend>(
+                &self,
+                w: &mut Writer<W>,
+            ) -> quick_protobuf::Result<()> {
+                w.write_with_tag(10, |w| w.write_bytes(self.1.link.hash().as_bytes()))?;
+                w.write_with_tag(18, |w| w.write_string(self.0.as_str()))?;
+                w.write_with_tag(24, |w| w.write_uint64(self.1.total_size))?;
+                Ok(())
+            }
+        }
+
+        impl<'a> MessageWrite for BTreeMappedDir<'a> {
+            fn get_size(&self) -> usize {
+                use quick_protobuf::sizeofs::*;
+
+                let links = self
+                    .links
+                    .iter()
+                    .inspect(|(_, Leaf { link, .. })| {
+                        assert!(
+                            link.version() == cid::Version::V0,
+                            "size calc is only impl for v0 cids"
+                        )
+                    })
+                    .map(|(k, v)| EntryAsPBLink(k, v))
+                    .map(|link| 1 + sizeof_len(link.get_size()))
+                    .sum::<usize>();
+
+                links + 1 + sizeof_len(self.data.get_size())
+            }
+            fn write_message<W: WriterBackend>(
+                &self,
+                w: &mut Writer<W>,
+            ) -> quick_protobuf::Result<()> {
+                for l in self.links.iter().map(|(k, v)| EntryAsPBLink(k, v)) {
+                    w.write_with_tag(18, |w| w.write_message(&l))?;
+                }
+                w.write_with_tag(10, |w| w.write_message(&self.data))
+            }
+        }
+
+        let btreed = BTreeMappedDir {
+            links,
             data: UnixFs {
                 Type: UnixFsType::Directory,
                 Data: None,
@@ -88,7 +137,7 @@ impl<'a> PostOrderIterator<'a> {
             },
         };
 
-        let size = flat.get_size();
+        let size = btreed.get_size();
 
         // FIXME: we shouldn't be creating too large structures (bitswap block size limit!)
         // FIXME: changing this to autosharding is going to take some thinking
@@ -104,13 +153,19 @@ impl<'a> PostOrderIterator<'a> {
         }
 
         let mut writer = Writer::new(BytesWriter::new(&mut buffer[..]));
-        flat.write_message(&mut writer)
+        btreed
+            .write_message(&mut writer)
             .expect("unsure how this could fail");
 
         buffer.truncate(size);
 
         let mh = multihash::wrap(multihash::Code::Sha2_256, &Sha256::digest(&buffer));
         let cid = Cid::new_v0(mh).expect("sha2_256 is the correct multihash for cidv0");
+
+        let combined_from_links = links
+            .values()
+            .map(|Leaf { total_size, .. }| total_size)
+            .sum::<u64>();
 
         Ok(Leaf {
             link: cid,
