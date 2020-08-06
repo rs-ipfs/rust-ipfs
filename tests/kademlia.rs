@@ -53,6 +53,7 @@ async fn kademlia_local_peer_discovery() {
     assert!(peer.get_closest_peers().await.is_ok());
 }
 
+#[ignore = "targets an actual bootstrapper, so random failures can happen"]
 #[async_std::test]
 async fn kademlia_popular_content_discovery() {
     let (bootstrapper_id, bootstrapper_addr): (PeerId, Multiaddr) = (
