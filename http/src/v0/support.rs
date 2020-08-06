@@ -53,6 +53,12 @@ impl MessageKind {
 #[derive(Debug, Clone)]
 pub struct MessageResponseBuilder(MessageKind, usize);
 
+impl Default for MessageResponseBuilder {
+    fn default() -> Self {
+        MessageResponseBuilder(MessageKind::Error, 0)
+    }
+}
+
 impl MessageResponseBuilder {
     pub fn with_message<S: Into<Cow<'static, str>>>(self, message: S) -> MessageResponse {
         let Self(kind, code) = self;

@@ -1,8 +1,11 @@
 use super::AddArgs;
 use crate::v0::support::StringError;
-use bytes::{buf::BufMutExt, Buf, BufMut, Bytes, BytesMut};
+use bytes::{
+    buf::{BufExt, BufMutExt},
+    Buf, BufMut, Bytes, BytesMut,
+};
 use cid::Cid;
-use futures::stream::{Stream, TryStreamExt};
+use futures::stream::{Stream, StreamExt, TryStreamExt};
 use ipfs::unixfs::ll::{
     dir::builder::{BufferingTreeBuilder, TreeBuildingFailed, TreeConstructionFailed, TreeNode},
     file::adder::FileAdder,
@@ -26,23 +29,30 @@ pub(super) async fn add_inner<T: IpfsTypes>(
         .map(|v| v.to_string())
         .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
 
-    let stream = MultipartStream::new(Bytes::from(boundary), body.map_ok(|mut buf| buf.to_bytes()));
+    let st = MultipartStream::new(Bytes::from(boundary), body.map_ok(|mut buf| buf.to_bytes()));
 
-    // Stream<Output = Result<Json, impl Rejection>>
-    //
-    // refine it to
-    //
-    // Stream<Output = Result<Json, AddError>>
-    //                          |      |
-    //                          |   convert rejection and stop the stream?
-    //                          |      |
-    //                          |     /
-    // Stream<Output = Result<impl Into<Bytes>, impl std::error::Error + Send + Sync + 'static>>
+    let st = add_stream(ipfs, st);
 
-    let st = add_stream(ipfs, stream);
+    // map the errors into json objects at least as we cannot return them as trailers (yet)
 
-    // TODO: we could map the errors into json objects at least? (as we cannot return them as
-    // trailers)
+    let st = st.map(|res| match res {
+        passthrough @ Ok(_) | passthrough @ Err(AddError::ResponseSerialization(_)) => {
+            // there is nothing we should do or could do for these; the assumption is that hyper
+            // will send the bytes and stop on serialization error and log it. the response
+            // *should* be closed on the error.
+            passthrough
+        }
+        Err(something_else) => {
+            let msg = crate::v0::support::MessageResponseBuilder::default()
+                .with_message(format!("{}", something_else));
+            let bytes: Bytes = serde_json::to_vec(&msg)
+                .expect("serializing here should not have failed")
+                .into();
+            let crlf = Bytes::from(&b"\r\n"[..]);
+            // note that here we are assuming that the stream ends on error
+            Ok(bytes.chain(crlf).to_bytes())
+        }
+    });
 
     let body = crate::v0::support::StreamResponse(st);
 
@@ -70,8 +80,18 @@ impl From<MultipartError> for AddError {
 
 impl fmt::Display for AddError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // TODO
-        write!(fmt, "{:?}", self)
+        use AddError::*;
+        match self {
+            Parsing(me) => write!(fmt, "invalid request body: {}", me),
+            Header(me) => write!(fmt, "invalid multipart header(s): {}", me),
+            InvalidFilename(e) => write!(fmt, "invalid multipart filename: {:?}", e),
+            UnsupportedField(name) => write!(fmt, "unsupported field name: {:?}", name),
+            UnsupportedContentType(t) => write!(fmt, "unsupported content-type: {:?} (supported: application/{{octet-stream,x-directory}})", t),
+            ResponseSerialization(e) => write!(fmt, "progress serialization failed: {}", e),
+            Persisting(e) => write!(fmt, "put_block failed: {}", e),
+            TreeGathering(g) => write!(fmt, "invalid directory tree: {}", g),
+            TreeBuilding(b) => write!(fmt, "constructed invalid directory tree: {}", b),
+        }
     }
 }
 
