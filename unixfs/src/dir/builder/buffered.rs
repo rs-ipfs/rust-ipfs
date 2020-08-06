@@ -123,7 +123,7 @@ impl BufferingTreeBuilder {
             }
 
             // our first level can be full given the options
-            let full = depth == 0 && !self.opts.wrap_with_directory && dir_builder.is_empty();
+            let full = depth == 0 && !self.opts.wrap_with_directory && !dir_builder.is_empty();
 
             if last {
                 let mut next_id = Some(*counter);
