@@ -82,7 +82,8 @@ impl<'a> PostOrderIterator<'a> {
                 // ones are the tags
                 1 + sizeof_len(self.0.len())
                     + 1
-                    + sizeof_len(self.1.link.hash().as_bytes().len())
+                    //+ sizeof_len(WriteableCid(&self.1.link).get_size())
+                    + sizeof_len(self.1.link.to_bytes().len())
                     + 1
                     + sizeof_varint(self.1.total_size)
             }
@@ -91,10 +92,58 @@ impl<'a> PostOrderIterator<'a> {
                 &self,
                 w: &mut Writer<W>,
             ) -> quick_protobuf::Result<()> {
-                w.write_with_tag(10, |w| w.write_bytes(self.1.link.hash().as_bytes()))?;
+                // w.write_with_tag(10, |w| w.write_message(&WriteableCid(&self.1.link)))?;
+                w.write_with_tag(10, |w| w.write_bytes(&self.1.link.to_bytes()))?;
                 w.write_with_tag(18, |w| w.write_string(self.0.as_str()))?;
                 w.write_with_tag(24, |w| w.write_uint64(self.1.total_size))?;
                 Ok(())
+            }
+        }
+
+        struct WriteableCid<'a>(&'a Cid);
+
+        // Cid by default does not have a way to count it's length or just write it out without
+        // allocating a vector.
+        impl<'a> MessageWrite for WriteableCid<'a> {
+            fn get_size(&self) -> usize {
+                use cid::Version::*;
+                use quick_protobuf::sizeofs::*;
+
+                match self.0.version() {
+                    V0 => self.0.hash().as_bytes().len(),
+                    V1 => {
+                        let version_len = 1;
+                        let codec_len = sizeof_varint(u64::from(self.0.codec()));
+                        let hash_len = self.0.hash().as_bytes().len();
+                        version_len + codec_len + hash_len
+                    }
+                }
+            }
+
+            fn write_message<W: WriterBackend>(
+                &self,
+                w: &mut Writer<W>,
+            ) -> quick_protobuf::Result<()> {
+                use cid::Version::*;
+
+                match self.0.version() {
+                    V0 => {
+                        for b in self.0.hash().as_bytes() {
+                            w.write_u8(*b)?;
+                        }
+                        Ok(())
+                    }
+                    V1 => {
+                        // it is possible that Cidv1 should not be linked to from a unixfs
+                        // directory; at least go-ipfs 0.5 `ipfs files` denies making a cbor link
+                        w.write_u8(1)?;
+                        w.write_varint(u64::from(self.0.codec()))?;
+                        for b in self.0.hash().as_bytes() {
+                            w.write_u8(*b)?;
+                        }
+                        Ok(())
+                    }
+                }
             }
         }
 
@@ -105,12 +154,6 @@ impl<'a> PostOrderIterator<'a> {
                 let links = self
                     .links
                     .iter()
-                    .inspect(|(_, Leaf { link, .. })| {
-                        assert!(
-                            link.version() == cid::Version::V0,
-                            "size calc is only impl for v0 cids"
-                        )
-                    })
                     .map(|(k, v)| EntryAsPBLink(k, v))
                     .map(|link| 1 + sizeof_len(link.get_size()))
                     .sum::<usize>();

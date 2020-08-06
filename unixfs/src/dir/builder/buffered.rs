@@ -417,6 +417,44 @@ mod tests {
         );
     }
 
+    #[test]
+    fn dir_with_cidv1_link() {
+        // this is `echo '{ "name": "hello" }` | ./ipfs dag put`
+        let target =
+            Cid::try_from("bafyreihakpd7te5nbmlhdk5ntvcvhf2hmfgrvcwna2sddq5zz5342mcbli").unwrap();
+
+        let mut builder = BufferingTreeBuilder::default();
+        builder.put_file("a/b", target, 12).unwrap();
+
+        let mut full_path = String::new();
+        let mut buffer = Vec::new();
+
+        let iter = builder.build(&mut full_path, &mut buffer);
+        let mut actual = iter
+            .map(|res| res.map(|n| (n.path, n.cid, n.block)))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        let mut expected = vec![("a", "QmPMDMPG8dbHDC9GuvqWr9pfruLnp4GZCAWrskwCmenVQa")];
+
+        // hopefully this way the errors will be easier to hunt down
+
+        actual.reverse();
+        expected.reverse();
+
+        while let Some(actual) = actual.pop() {
+            let expected = expected.pop().expect("size mismatch");
+            assert_eq!(actual.0, expected.0);
+            assert_eq!(
+                actual.1.to_string(),
+                expected.1,
+                "{:?}: {:?}",
+                actual.0,
+                Hex(&actual.2)
+            );
+        }
+    }
+
     /// Returns a quick and dirty sha2-256 of the given number as a Cidv0
     fn some_cid(number: usize) -> Cid {
         use multihash::Sha2_256;
