@@ -29,7 +29,6 @@ impl<'a> PostOrderIterator<'a> {
         opts: TreeOptions,
     ) -> Self {
         full_path.clear();
-        block_buffer.clear();
 
         PostOrderIterator {
             full_path,
@@ -79,21 +78,22 @@ impl<'a> PostOrderIterator<'a> {
         // FIXME: we shouldn't be creating too large structures (bitswap block size limit!)
         // FIXME: changing this to autosharding is going to take some thinking
 
-        buffer.clear();
         let cap = buffer.capacity();
 
         if let Some(additional) = size.checked_sub(cap) {
             buffer.reserve(additional);
         }
 
-        // TODO: this could be done more integelligently; for example, we could just zero extend
-        // on reserving, then just truncate or somehow carry around the real length of the buffer
-        // to avoid truncating and zero extending.
-        buffer.extend(std::iter::repeat(0).take(size));
+        if let Some(needed_zeroes) = size.checked_sub(buffer.len()) {
+            buffer.extend(std::iter::repeat(0).take(needed_zeroes));
+        }
 
         let mut writer = Writer::new(BytesWriter::new(&mut buffer[..]));
         flat.write_message(&mut writer)
             .expect("unsure how this could fail");
+
+        buffer.truncate(size);
+
         let mh = multihash::wrap(multihash::Code::Sha2_256, &Sha256::digest(&buffer));
         let cid = Cid::new_v0(mh).expect("sha2_256 is the correct multihash for cidv0");
 
@@ -177,9 +177,7 @@ impl<'a> PostOrderIterator<'a> {
                         return None;
                     }
 
-                    // render unixfs, maybe return it?
                     let buffer = &mut self.block_buffer;
-                    buffer.clear();
 
                     let leaf = match Self::render_directory(&collected, buffer) {
                         Ok(leaf) => leaf,
