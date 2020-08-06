@@ -18,7 +18,7 @@ pub struct PostOrderIterator<'a> {
     pub(super) cid: Option<Cid>,
     pub(super) total_size: u64,
     // from TreeOptions
-    pub(super) wrap_with_directory: bool,
+    pub(super) opts: TreeOptions,
 }
 
 impl<'a> PostOrderIterator<'a> {
@@ -39,13 +39,14 @@ impl<'a> PostOrderIterator<'a> {
             reused_children: Vec::new(),
             cid: None,
             total_size: 0,
-            wrap_with_directory: opts.wrap_with_directory,
+            opts,
         }
     }
 
     fn render_directory(
         links: &BTreeMap<String, Leaf>,
         buffer: &mut Vec<u8>,
+        block_size_limit: &Option<u64>,
     ) -> Result<Leaf, TreeConstructionFailed> {
         use crate::pb::{UnixFs, UnixFsType};
         use quick_protobuf::{BytesWriter, MessageWrite, Writer, WriterBackend};
@@ -181,6 +182,14 @@ impl<'a> PostOrderIterator<'a> {
 
         let size = btreed.get_size();
 
+        if let Some(limit) = block_size_limit {
+            let size = size as u64;
+            if *limit < size {
+                // FIXME: this could probably be detected at
+                return Err(TreeConstructionFailed::TooLargeBlock(size));
+            }
+        }
+
         // FIXME: we shouldn't be creating too large structures (bitswap block size limit!)
         // FIXME: changing this to autosharding is going to take some thinking
 
@@ -197,7 +206,7 @@ impl<'a> PostOrderIterator<'a> {
         let mut writer = Writer::new(BytesWriter::new(&mut buffer[..]));
         btreed
             .write_message(&mut writer)
-            .expect("unsure how this could fail");
+            .map_err(TreeConstructionFailed::Protobuf)?;
 
         buffer.truncate(size);
 
@@ -276,7 +285,7 @@ impl<'a> PostOrderIterator<'a> {
                     // FIXME: leaves could be drained and reused
                     collected.extend(leaves);
 
-                    if !self.wrap_with_directory && parent_id.is_none() {
+                    if !self.opts.wrap_with_directory && parent_id.is_none() {
                         // we aren't supposed to wrap_with_directory, and we are now looking at the
                         // possibly to-be-generated root directory.
 
@@ -291,7 +300,11 @@ impl<'a> PostOrderIterator<'a> {
 
                     let buffer = &mut self.block_buffer;
 
-                    let leaf = match Self::render_directory(&collected, buffer) {
+                    let leaf = match Self::render_directory(
+                        &collected,
+                        buffer,
+                        &self.opts.block_size_limit,
+                    ) {
                         Ok(leaf) => leaf,
                         Err(e) => return Some(Err(e)),
                     };

@@ -48,12 +48,29 @@ impl fmt::Debug for Leaf {
 }
 
 /// Configuration for customizing how the tree is built.
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct TreeOptions {
+    block_size_limit: Option<u64>,
     wrap_with_directory: bool,
 }
 
+impl Default for TreeOptions {
+    fn default() -> Self {
+        TreeOptions {
+            // this is just a guess; our bitswap message limit is a bit more
+            block_size_limit: Some(512 * 1024),
+            wrap_with_directory: false,
+        }
+    }
+}
+
 impl TreeOptions {
+    /// Overrides the default directory block size limit. If the size limit is set to `None`, no
+    /// directory will be too large.
+    pub fn block_size_limit(&mut self, limit: Option<u64>) {
+        self.block_size_limit = limit;
+    }
+
     /// When true, allow multiple top level entries, otherwise error on the second entry.
     /// Defaults to false.
     pub fn wrap_with_directory(&mut self) {
@@ -123,12 +140,21 @@ enum Visited {
 /// Failure cases for `PostOrderIterator` creating the tree dag-pb nodes.
 #[derive(Debug)]
 pub enum TreeConstructionFailed {
-    // TODO: at least any quick_protobuf errors here?
+    /// Failed to serialize the protobuf node for the directory
+    Protobuf(quick_protobuf::Error),
+    /// The resulting directory would be too large and HAMT sharding is yet to be implemented or
+    /// denied.
+    TooLargeBlock(u64),
 }
 
 impl fmt::Display for TreeConstructionFailed {
-    fn fmt(&self, _fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use TreeConstructionFailed::*;
+
+        match self {
+            Protobuf(e) => write!(fmt, "serialization failed: {}", e),
+            TooLargeBlock(size) => write!(fmt, "attempted to create block of {} bytes", size),
+        }
     }
 }
 
