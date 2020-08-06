@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, HashMap};
 
 /// Constructs the directory nodes required for a tree.
 ///
-/// Implements the Iterator interface for owned values and the borrowed version `next_borrowed`.
-/// Tree is fully constructed once this has been exhausted.
+/// Implements the Iterator interface for owned values and the borrowed version, `next_borrowed`.
+/// The tree is fully constructed once this has been exhausted.
 pub struct PostOrderIterator<'a> {
     pub(super) full_path: &'a mut String,
     pub(super) old_depth: usize,
@@ -102,7 +102,7 @@ impl<'a> PostOrderIterator<'a> {
 
         struct WriteableCid<'a>(&'a Cid);
 
-        // Cid by default does not have a way to count it's length or just write it out without
+        // Cid by default does not have a way to count its length or just write it out without
         // allocating a vector.
         impl<'a> MessageWrite for WriteableCid<'a> {
             fn get_size(&self) -> usize {
@@ -278,7 +278,7 @@ impl<'a> PostOrderIterator<'a> {
 
                     if !self.wrap_with_directory && parent_id.is_none() {
                         // we aren't supposed to wrap_with_directory, and we are now looking at the
-                        // possibly to be generated root directory.
+                        // possibly to-be-generated root directory.
 
                         assert_eq!(
                             collected.len(),
@@ -303,7 +303,7 @@ impl<'a> PostOrderIterator<'a> {
                     collected.clear();
 
                     if let Some(name) = name {
-                        // name is none only for the wrap_with_directory, which cannot really be
+                        // name is None only for wrap_with_directory, which cannot really be
                         // propagated up but still the parent_id is allowed to be None
                         let previous = self
                             .persisted_cids
@@ -378,14 +378,14 @@ fn update_full_path(
     depth: usize,
 ) {
     if depth < 2 {
-        // initially thought it might be good idea to add slash to all components; removing it made
+        // initially thought it might be a good idea to add a slash to all components; removing it made
         // it impossible to get back down to empty string, so fixing this for depths 0 and 1.
         full_path.clear();
         *old_depth = 0;
     } else {
         while *old_depth >= depth && *old_depth > 0 {
             // we now want to pop the last segment
-            // this would be easier with pathbuf
+            // this would be easier with PathBuf
             let slash_at = full_path.bytes().rposition(|ch| ch == b'/');
             if let Some(slash_at) = slash_at {
                 full_path.truncate(slash_at);

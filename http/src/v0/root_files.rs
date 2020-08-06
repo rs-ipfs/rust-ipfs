@@ -23,10 +23,10 @@ mod add;
 
 #[derive(Debug, Deserialize)]
 pub struct AddArgs {
-    // probably never interesting
+    // unknown meaning; ignoring it doesn't fail any tests
     #[serde(default, rename = "stream-channels")]
     stream_channels: bool,
-    // unsure what this does
+    // progress reports totaling to the input file size
     #[serde(default)]
     progress: bool,
     /// When true, a new directory is created to hold more than 1 root level directories.

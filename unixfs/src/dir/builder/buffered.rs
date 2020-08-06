@@ -3,15 +3,15 @@ use crate::Metadata;
 use cid::Cid;
 use std::collections::hash_map::Entry::*;
 
-/// UnixFs directory tree builder, which buffers entries until `build()` is called.
+/// UnixFs directory tree builder which buffers entries until `build()` is called.
 #[derive(Debug)]
 pub struct BufferingTreeBuilder {
     /// At the root there can be only one element, unless an option was given to create a new
     /// directory surrounding the root elements.
     root_builder: DirBuilder,
     longest_path: usize,
-    // used to generate each node an unique id which is used when doing the post order traversal to
-    // recover all childrens rendered Cids
+    // used to generate a unique id for each node; it is used when doing the post order traversal to
+    // recover all children's rendered Cids
     counter: u64,
     opts: TreeOptions,
 }
@@ -33,7 +33,7 @@ impl BufferingTreeBuilder {
         }
     }
 
-    /// Records the give path to be a link to the following cid.
+    /// Registers the given path to be a link to the cid that follows.
     ///
     /// FIXME: this should be renamed as "put_leaf" or "put_opaque_leaf".
     pub fn put_file(
@@ -80,7 +80,7 @@ impl BufferingTreeBuilder {
     {
         // create all paths along the way
         //
-        // assuming it's ok to split '/' since that cannot be escaped in linux at least
+        // assuming it's ok to split at '/' since that cannot be escaped in linux at least
 
         self.longest_path = full_path.len().max(self.longest_path);
         let mut remaining = full_path.split('/').enumerate().peekable();
@@ -122,7 +122,7 @@ impl BufferingTreeBuilder {
                 _ => {}
             }
 
-            // our first level can be full given the options
+            // our first level can be full, depending on the options given
             let full = depth == 0 && !self.opts.wrap_with_directory && !dir_builder.is_empty();
 
             if last {
@@ -172,12 +172,12 @@ impl BufferingTreeBuilder {
     }
 
     /// Called to build the tree. The built tree will have the added files and their implied
-    /// directory structure, along with the any directory entries which were created using
+    /// directory structure, along with the directory entries which were created using
     /// `set_metadata`. To build the whole hierarchy, one must iterate the returned iterator to
     /// completion while storing the created blocks.
     ///
     /// Returned `PostOrderIterator` will use the given `full_path` and `block_buffer` to store
-    /// it's data during the walk. `PostOrderIterator` implements `Iterator` while also allowing
+    /// its data during the walk. `PostOrderIterator` implements `Iterator` while also allowing
     /// borrowed access via `next_borrowed`.
     pub fn build<'a>(
         self,

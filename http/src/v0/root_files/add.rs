@@ -35,7 +35,7 @@ pub(super) async fn add_inner<T: IpfsTypes>(
 
     let st = add_stream(ipfs, st, opts);
 
-    // map the errors into json objects at least as we cannot return them as trailers (yet)
+    // map the errors into json objects; as we can't return them as trailers yet
 
     let st = st.map(|res| match res {
         passthrough @ Ok(_) | passthrough @ Err(AddError::ResponseSerialization(_)) => {
@@ -46,7 +46,7 @@ pub(super) async fn add_inner<T: IpfsTypes>(
         }
         Err(something_else) => {
             let msg = crate::v0::support::MessageResponseBuilder::default()
-                .with_message(format!("{}", something_else));
+                .with_message(something_else.to_string());
             let bytes: Bytes = serde_json::to_vec(&msg)
                 .expect("serializing here should not have failed")
                 .into();
@@ -134,7 +134,7 @@ where
                 // test cases post with paths '/some-directory/...' and others post with
                 // 'some-directory/...'.
 
-                // since slash is single code point we can just
+                // since slash is a single code point, we can just do
                 filename[1..].to_owned()
             } else {
                 filename.into_owned()
@@ -145,7 +145,7 @@ where
             let next = match content_type {
                 "application/octet-stream" => {
 
-                    // files are file{,-1,-2,-3,..}
+                    // files are of the form "file-{1,2,3,..}"
                     let _ = if field_name != "file" && !field_name.starts_with("file-") {
                         Err(AddError::UnsupportedField(field_name.to_string()))
                     } else {
@@ -153,9 +153,9 @@ where
                     }?;
 
                     let mut adder = FileAdder::default();
-                    // how much of bytes have we stored as blocks
+                    // how many bytes we have stored as blocks
                     let mut total_written = 0u64;
-                    // how much of bytes have we read of input
+                    // how many bytes of input we have read
                     let mut total_read = 0u64;
 
                     loop {
@@ -186,7 +186,7 @@ where
 
                                 if saved_any && opts.progress {
                                     // technically we could just send messages but that'd
-                                    // need us to let go using Cow's or use Arc<String> or
+                                    // require us to stop using Cow's and use Arc<String> or
                                     // similar. not especially fond of either.
                                     serde_json::to_writer((&mut buffer).writer(), &Response::Progress {
                                         name: Cow::Borrowed(&filename),
@@ -248,7 +248,7 @@ where
                     Ok(buffer.split().freeze())
                 },
                 "application/x-directory" => {
-                    // dirs are dir{,-1,-2,-3,..}
+                    // dirs are of the form "dir-{1,2,3,..}"
                     let _ = if field_name != "dir" && !field_name.starts_with("dir-") {
                         Err(AddError::UnsupportedField(field_name.to_string()))
                     } else {
@@ -259,9 +259,9 @@ where
                     // except for the already parsed *but* ignored headers
                     while field.try_next().await.map_err(AddError::Parsing)?.is_some() {}
 
-                    // while we don't at the moment parse the mtime, mtime-nsec headers and mode
+                    // while at the moment we don't parse the mtime, mtime-nsec headers and mode
                     // those should be reflected in the metadata. this will still add an empty
-                    // directory which is good thing.
+                    // directory which is a good thing.
                     tree.set_metadata(&filename, ipfs::unixfs::ll::Metadata::default())
                         .map_err(AddError::TreeGathering)?;
                     continue;

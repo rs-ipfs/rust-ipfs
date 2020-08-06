@@ -66,7 +66,7 @@ impl TreeOptions {
 pub enum TreeBuildingFailed {
     /// The given full path started with a slash; paths in the `/add` convention are not rooted.
     RootedPath(String),
-    /// The given full path contained empty segment.
+    /// The given full path contained an empty segment.
     RepeatSlashesInPath(String),
     /// The given full path ends in slash.
     PathEndsInSlash(String),
@@ -91,7 +91,7 @@ impl fmt::Display for TreeBuildingFailed {
                 fmt,
                 "multiple root level entries while configured wrap_with_directory = false"
             ),
-            // TODO: perhaps we should allow adding two leafs with same Cid?
+            // TODO: perhaps we should allow adding two leafs with the same Cid?
             DuplicatePath(s) => write!(fmt, "path exists already: {:?}", s),
             LeafAsDirectory(s) => write!(
                 fmt,
