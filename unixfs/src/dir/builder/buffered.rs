@@ -86,6 +86,18 @@ impl BufferingTreeBuilder {
         let mut remaining = full_path.split('/').enumerate().peekable();
         let mut dir_builder = &mut self.root_builder;
 
+        // check these before to avoid creation of bogus nodes in the tree or having to clean up.
+
+        if full_path.ends_with('/') {
+            return Err(TreeBuildingFailed::PathEndsInSlash(full_path.to_string()));
+        }
+
+        if full_path.contains("//") {
+            return Err(TreeBuildingFailed::RepeatSlashesInPath(
+                full_path.to_string(),
+            ));
+        }
+
         // needed to avoid borrowing into the DirBuilder::new calling closure
         let counter = &mut self.counter;
 
@@ -94,16 +106,19 @@ impl BufferingTreeBuilder {
 
             match (depth, next, last) {
                 // this might need to be accepted in case there is just a single file
-                (0, "", true) => { /* accepted */ }
+                (0, "", true) => {
+                    // accepted: allows unconditional tree building in ipfs-http
+                    // but the resulting tree will have at most single node, which doesn't prompt
+                    // creation of new directories and should be fine.
+                }
                 (0, "", false) => {
-                    return Err(TreeBuildingFailed::RootedPath(full_path.to_string()))
+                    // ok to keep this inside the loop; we are yet to create any
+                    // note the ipfs-http (and for example js-ipfs) normalizes the path by
+                    // removing the slash from the start.
+                    return Err(TreeBuildingFailed::RootedPath(full_path.to_string()));
                 }
-                (_, "", false) => {
-                    return Err(TreeBuildingFailed::RepeatSlashesInPath(
-                        full_path.to_string(),
-                    ))
-                }
-                (_, "", true) => todo!("path ends in slash"),
+                (_, "", false) => unreachable!("already validated: no repeat slashes"),
+                (_, "", true) => unreachable!("already validated: path does not end in slash"),
                 _ => {}
             }
 

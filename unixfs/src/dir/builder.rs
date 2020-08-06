@@ -68,6 +68,8 @@ pub enum TreeBuildingFailed {
     RootedPath(String),
     /// The given full path contained empty segment.
     RepeatSlashesInPath(String),
+    /// The given full path ends in slash.
+    PathEndsInSlash(String),
     /// If the `BufferingTreeBuilder` was created without `TreeOptions` with the option `wrap in
     /// directory` enabled, then there can be only a single element at the root.
     TooManyRootLevelEntries,
@@ -84,6 +86,7 @@ impl fmt::Display for TreeBuildingFailed {
         match self {
             RootedPath(s) => write!(fmt, "path is rooted: {:?}", s),
             RepeatSlashesInPath(s) => write!(fmt, "path contains repeat slashes: {:?}", s),
+            PathEndsInSlash(s) => write!(fmt, "path ends in a slash: {:?}", s),
             TooManyRootLevelEntries => write!(
                 fmt,
                 "multiple root level entries while configured wrap_with_directory = false"
