@@ -15,7 +15,7 @@ pub struct PostOrderIterator {
     block_buffer: Vec<u8>,
     // our stack of pending work
     pending: Vec<Visited>,
-    // "communication channel" from nested entries back to their parents this hashmap is only used
+    // "communication channel" from nested entries back to their parents; this hashmap is only used
     // in the event of mixed child nodes (leaves and nodes).
     persisted_cids: HashMap<u64, Vec<Option<NamedLeaf>>>,
     reused_children: Vec<Visited>,

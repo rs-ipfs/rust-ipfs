@@ -219,8 +219,9 @@ where
 
                     let filename: Cow<'_, str> = if filename.is_empty() {
                         // cid needs to be repeated if no filename was given; in which case there
-                        // should not be anything to build as tree either. however note that during
-                        // the tree building
+                        // should not be anything to build as tree either. note that intentionally
+                        // no such Cid repeating happens when building the tree and a new wrapping
+                        // root will have empty filename in the progress report.
                         Cow::Owned(root.to_string())
                     } else {
                         Cow::Owned(filename)
