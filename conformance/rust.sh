@@ -31,6 +31,16 @@ on_killed () {
 
 echo ">>>> new execution $$ with args: $@" | tee -a /tmp/rust.log >&2
 killed=true
+# 256 crashes at p2p swarm init
+# 300 at behaviour building
+# 350 built the threadpool
+# 375 p2p init
+# 387 kad init
+# 390 ok
+# 393 ok
+# 400 ok
+# 450 ok
+ulimit -s 8192 -c unlimited
 ./http "$@" 2>&1 | tee -a /tmp/rust.log || retval=$?
 killed=false
 echo "<<<< exiting $$ with $retval" | tee -a /tmp/rust.log >&2
