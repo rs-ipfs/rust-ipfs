@@ -10,7 +10,7 @@ prost-build = { default-features = false, version = "0.6" }
 vergen = { default-features = false, version = "3.1" }
 
 [dependencies]
-async-stream = { default-features = false, version = "0.2" }
+async-stream = { default-features = false, version = "0.3" }
 bytes = { default-features = false, version = "0.5" }
 cid = { default-features = false, version = "0.5" }
 futures = { default-features = false, version = "0.3" }
@@ -33,7 +33,7 @@ tar = { default-features = false, version = "0.4" }
 thiserror = { default-features = false, version = "1.0" }
 tokio = { default-features = false, features = ["full"], version = "0.2" }
 tracing = { default-features = false, features = ["log"], version = "0.1" }
-tracing-subscriber = { default-features = false, features = ["fmt", "tracing-log"], version = "0.2" }
+tracing-subscriber = { default-features = false, features = ["fmt", "tracing-log", "env-filter"], version = "0.2" }
 url = { default-features = false, version = "2.1" }
 warp = { default-features = false, version = "0.2" }
 

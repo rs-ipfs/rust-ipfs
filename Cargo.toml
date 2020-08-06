@@ -12,7 +12,7 @@ nightly = []
 [dependencies]
 anyhow = { default-features = false, version = "1.0" }
 async-std = { default-features = false, features = ["attributes", "std"], version = "1.6" }
-async-stream = { default-features = false, version = "0.2" }
+async-stream = { default-features = false, version = "0.3" }
 async-trait = { default-features = false, version = "0.1" }
 bitswap = { path = "bitswap" }
 byteorder =  { default-features = false, version = "1.3" }

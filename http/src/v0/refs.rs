@@ -472,7 +472,7 @@ fn iplds_refs<T: IpfsTypes>(
                 }
             };
 
-            let mut ipld = match decode_ipld(&cid, &data) {
+            let ipld = match decode_ipld(&cid, &data) {
                 Ok(ipld) => ipld,
                 Err(e) => {
                     warn!("failed to parse {}, linked from {}: {}", cid, source, e);

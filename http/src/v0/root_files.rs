@@ -161,7 +161,7 @@ fn walk<Types: IpfsTypes>(
                 ContinuedWalk::File(segment, item) => {
                     if let Entry::Metadata(MetadataEntry::File(.., p, md, size)) = item.as_entry() {
                         if segment.is_first() {
-                            for mut bytes in tar_helper.apply_file(p, md, size)?.iter_mut() {
+                            for bytes in tar_helper.apply_file(p, md, size)?.iter_mut() {
                                 if let Some(bytes) = bytes.take() {
                                     yield bytes;
                                 }
@@ -194,7 +194,7 @@ fn walk<Types: IpfsTypes>(
                     if let Entry::Metadata(metadata_entry) = item.as_entry() {
                         let metadata = metadata_entry.metadata();
                         let path = metadata_entry.path();
-                        for mut bytes in tar_helper.apply_directory(path, metadata)?.iter_mut() {
+                        for bytes in tar_helper.apply_directory(path, metadata)?.iter_mut() {
                             if let Some(bytes) = bytes.take() {
                                 yield bytes;
                             }
@@ -210,7 +210,7 @@ fn walk<Types: IpfsTypes>(
                         let target = Path::new(target);
                         let metadata = metadata_entry.metadata();
 
-                        for mut bytes in tar_helper.apply_symlink(path, target, metadata)?.iter_mut() {
+                        for bytes in tar_helper.apply_symlink(path, target, metadata)?.iter_mut() {
                             if let Some(bytes) = bytes.take() {
                                 yield bytes;
                             }
