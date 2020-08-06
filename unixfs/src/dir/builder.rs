@@ -70,8 +70,8 @@ pub enum TreeBuildingFailed {
     RepeatSlashesInPath(String),
     /// The given full path ends in slash.
     PathEndsInSlash(String),
-    /// If the `BufferingTreeBuilder` was created without `TreeOptions` with the option `wrap in
-    /// directory` enabled, then there can be only a single element at the root.
+    /// If the `BufferingTreeBuilder` was created without `TreeOptions` with the option
+    /// `wrap_with_directory` enabled, then there can be only a single element at the root.
     TooManyRootLevelEntries,
     /// The given full path had already been added.
     DuplicatePath(String),
