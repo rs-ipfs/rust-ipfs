@@ -119,8 +119,18 @@ where
             let filename = field.filename().map_err(AddError::Header)?;
             let filename = percent_encoding::percent_decode_str(filename)
                 .decode_utf8()
-                .map(|cow| cow.into_owned())
                 .map_err(AddError::InvalidFilename)?;
+
+            let filename = if filename.starts_with('/') {
+                // normalize single first slash; seems similar to what js-ipfs does: filesystem
+                // test cases post with paths '/some-directory/...' and others post with
+                // 'some-directory/...'.
+
+                // since slash is single code point we can just
+                filename[1..].to_owned()
+            } else {
+                filename.into_owned()
+            };
 
             let content_type = field.content_type().map_err(AddError::Header)?;
 

@@ -88,12 +88,6 @@ tests.root.add(factory, {
     "should add with mtime as { nsecs, secs }",
     "should add with mtime as timespec",
     "should add with mtime as hrtime",
-    // filesystem (maybe)
-    "should add a directory from the file system",
-    "should add a directory from the file system with an odd name",
-    "should ignore a directory from the file system",
-    "should add a file from the file system",
-    "should add a hidden file in a directory from the file system",
     // raw leaves
     "should respect raw leaves when file is smaller than one block and no metadata is present",
     "should override raw leaves when file is smaller than one block and metadata is present",
