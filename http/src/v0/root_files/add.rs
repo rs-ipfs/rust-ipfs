@@ -166,23 +166,9 @@ where
 
                         match next {
                             Some(next) => {
-                                let mut read = 0usize;
-                                let mut saved_any = false;
-
-                                while read < next.len() {
-                                    let (iter, used) = adder.push(&next.slice(read..));
-                                    read += used;
-
-                                    let maybe_tuple = import_all(&ipfs, iter).await.map_err(AddError::Persisting)?;
-
-                                    let subtotal = maybe_tuple.map(|t| t.1);
-
-                                    total_written += subtotal.unwrap_or(0);
-
-                                    saved_any |= subtotal.is_some();
-                                }
-
-                                total_read += read as u64;
+                                let (read, saved_any, written) = push_all(&ipfs, &mut adder, next).await?;
+                                total_written += written;
+                                total_read += read;
 
                                 if saved_any && opts.progress {
                                     // technically we could just send messages but that'd
@@ -293,6 +279,33 @@ where
             yield buffer.split().freeze();
         }
     }
+}
+
+async fn push_all(
+    ipfs: &Ipfs<impl IpfsTypes>,
+    adder: &mut FileAdder,
+    next: Bytes,
+) -> Result<(u64, bool, u64), AddError> {
+    let mut read = 0usize;
+    let mut saved_any = false;
+    let mut total_written = 0;
+
+    while read < next.len() {
+        let (iter, used) = adder.push(&next.slice(read..));
+        read += used;
+
+        let maybe_tuple = import_all(&ipfs, iter)
+            .await
+            .map_err(AddError::Persisting)?;
+
+        let subtotal = maybe_tuple.map(|t| t.1);
+
+        total_written += subtotal.unwrap_or(0);
+
+        saved_any |= subtotal.is_some();
+    }
+
+    Ok((read as u64, saved_any, total_written))
 }
 
 async fn import_all(
