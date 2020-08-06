@@ -268,10 +268,10 @@ impl std::error::Error for GetError {
 
 #[cfg(test)]
 mod tests {
+    use cid::Cid;
     use futures::stream::{FuturesOrdered, TryStreamExt};
     use hex_literal::hex;
     use ipfs::{Block, Ipfs, IpfsTypes, Node};
-    use libipld::cid::Cid;
     use multihash::Sha2_256;
     use std::convert::TryFrom;
     use std::path::PathBuf;

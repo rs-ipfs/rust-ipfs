@@ -3,10 +3,10 @@ use crate::v0::support::{
     StringSerialized,
 };
 use bytes::Buf;
+use cid::{Cid, Codec, Version};
 use futures::stream::{FuturesOrdered, Stream, StreamExt};
 use ipfs::error::Error;
 use ipfs::{Ipfs, IpfsTypes};
-use libipld::cid::{Cid, Codec, Version};
 use mime::Mime;
 
 use multihash::Multihash;

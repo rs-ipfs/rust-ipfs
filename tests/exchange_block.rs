@@ -1,6 +1,6 @@
 use async_std::future::timeout;
+use cid::{Cid, Codec};
 use ipfs::{Block, Node};
-use libipld::cid::{Cid, Codec};
 use multihash::Sha2_256;
 use std::time::Duration;
 

@@ -302,7 +302,8 @@ impl ExactSizeIterator for IpfsPath {
 #[cfg(test)]
 mod tests {
     use super::{IpfsPath, WalkSuccess};
-    use libipld::{cid::Cid, ipld, Ipld};
+    use cid::Cid;
+    use libipld::{ipld, Ipld};
     use std::convert::TryFrom;
 
     // good_paths, good_but_unsupported, bad_paths from https://github.com/ipfs/go-path/blob/master/path_test.go

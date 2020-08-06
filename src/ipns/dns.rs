@@ -1,14 +1,14 @@
 use crate::error::Error;
 use crate::path::IpfsPath;
-use domain::core::iana::Rtype;
-use domain::core::rdata::Txt;
-use domain::core::{Dname, Question};
-use domain::resolv::stub::resolver::Query;
-use domain::resolv::{Resolver, StubResolver};
-use futures::compat::{Compat01As03, Future01CompatExt};
+use bytes::Bytes;
+use domain::base::iana::Rtype;
+use domain::base::{Dname, Question};
+use domain::rdata::rfc1035::Txt;
+use domain_resolv::{stub::Answer, StubResolver};
 use futures::future::{select_ok, SelectOk};
 use futures::pin_mut;
 use std::future::Future;
+use std::io;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::task::{Context, Poll};
@@ -18,8 +18,10 @@ use thiserror::Error;
 #[error("no dnslink entry")]
 pub struct DnsLinkError;
 
+type FutureAnswer = Pin<Box<dyn Future<Output = Result<Answer, io::Error>>>>;
+
 pub struct DnsLinkFuture {
-    query: SelectOk<Compat01As03<Query>>,
+    query: SelectOk<FutureAnswer>,
 }
 
 impl Future for DnsLinkFuture {
@@ -32,9 +34,9 @@ impl Future for DnsLinkFuture {
             pin_mut!(query);
             match query.poll(context) {
                 Poll::Ready(Ok((answer, rest))) => {
-                    for record in answer.answer()?.limit_to::<Txt>() {
+                    for record in answer.answer()?.limit_to::<Txt<_>>() {
                         let txt = record?;
-                        let bytes = txt.data().text();
+                        let bytes: &[u8] = txt.data().as_flat_slice().unwrap_or(b"");
                         let string = String::from_utf8_lossy(&bytes).to_string();
                         if string.starts_with("dnslink=") {
                             let path = IpfsPath::from_str(&string[8..])?;
@@ -57,16 +59,18 @@ impl Future for DnsLinkFuture {
 pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
     let mut dnslink = "_dnslink.".to_string();
     dnslink.push_str(domain);
-    let qname = Dname::from_str(&domain)?;
+    let qname = Dname::<Bytes>::from_str(&domain)?;
     let question = Question::new_in(qname, Rtype::Txt);
-    let query1 = StubResolver::new().query(question).compat();
+    let resolver = StubResolver::new();
+    let query1 = Box::pin(async move { resolver.query(question).await });
 
-    let qname = Dname::from_str(&dnslink)?;
+    let qname = Dname::<Bytes>::from_str(&dnslink)?;
     let question = Question::new_in(qname, Rtype::Txt);
-    let query2 = StubResolver::new().query(question).compat();
+    let resolver = StubResolver::new();
+    let query2 = Box::pin(async move { resolver.query(question).await });
 
     Ok(DnsLinkFuture {
-        query: select_ok(vec![query1, query2]),
+        query: select_ok(vec![query1 as FutureAnswer, query2]),
     }
     .await?)
 }
