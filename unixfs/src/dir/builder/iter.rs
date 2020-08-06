@@ -175,7 +175,6 @@ impl<'a> PostOrderIterator<'a> {
             links,
             data: UnixFs {
                 Type: UnixFsType::Directory,
-                Data: None,
                 ..Default::default()
             },
         };
