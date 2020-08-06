@@ -112,7 +112,7 @@ impl BufferingTreeBuilder {
                     // creation of new directories and should be fine.
                 }
                 (0, "", false) => {
-                    // ok to keep this inside the loop; we are yet to create any
+                    // ok to keep this inside the loop; we are yet to create any nodes.
                     // note the ipfs-http (and for example js-ipfs) normalizes the path by
                     // removing the slash from the start.
                     return Err(TreeBuildingFailed::RootedPath(full_path.to_string()));
