@@ -205,7 +205,7 @@ mod tests {
             .put_file("a/b/c/d/e/h.txt", five_block_foobar.clone(), 221)
             .unwrap();
         builder
-            .put_file("a/b/c/d/e/i.txt", five_block_foobar.clone(), 221)
+            .put_file("a/b/c/d/e/i.txt", five_block_foobar, 221)
             .unwrap();
 
         let mut full_path = String::new();
