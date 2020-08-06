@@ -1,8 +1,8 @@
 #![recursion_limit = "512"]
 
 use async_std::task;
+use cid::{Cid, Codec};
 use ipfs::{Block, IpfsOptions, TestTypes, UninitializedIpfs};
-use libipld::cid::{Cid, Codec};
 use multihash::Sha2_256;
 
 fn main() {

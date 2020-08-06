@@ -1,5 +1,5 @@
+use cid::{Cid, Codec};
 use ipfs::{Block, Node};
-use libipld::cid::{Cid, Codec};
 use multihash::Sha2_256;
 
 fn filter(i: usize) -> bool {

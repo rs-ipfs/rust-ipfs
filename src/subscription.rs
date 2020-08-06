@@ -6,12 +6,12 @@
 use crate::{p2p::ConnectionTarget, RepoEvent};
 use async_std::future::Future;
 use async_std::task::{self, Context, Poll, Waker};
+use cid::Cid;
 use core::fmt::Debug;
 use core::hash::Hash;
 use core::pin::Pin;
 use futures::channel::mpsc::Sender;
 use futures::lock::Mutex;
-use libipld::Cid;
 use libp2p::{kad::QueryId, Multiaddr, PeerId};
 use std::collections::HashMap;
 use std::convert::TryFrom;

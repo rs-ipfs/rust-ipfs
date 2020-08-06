@@ -1,10 +1,10 @@
 #![recursion_limit = "512"]
 
+use cid::Cid;
 use futures::io::AsyncWriteExt;
 use futures::pin_mut;
 use futures::stream::StreamExt; // needed for StreamExt::next
 use ipfs::{IpfsOptions, TestTypes, UninitializedIpfs};
-use libipld::cid::Cid;
 use std::convert::TryFrom;
 use std::env;
 use std::process::exit;

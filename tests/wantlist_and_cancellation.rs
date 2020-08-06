@@ -2,10 +2,10 @@ use async_std::{
     future::{pending, timeout},
     task,
 };
+use cid::Cid;
 use futures::future::{select, Either, FutureExt};
 use futures::future::{AbortHandle, Abortable};
 use ipfs::Node;
-use libipld::Cid;
 
 use std::{
     convert::TryFrom,

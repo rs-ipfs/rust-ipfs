@@ -150,7 +150,7 @@ impl DataStore for MemDataStore {
 mod tests {
     use super::*;
     use bitswap::Block;
-    use libipld::cid::{Cid, Codec};
+    use cid::{Cid, Codec};
     use multihash::Sha2_256;
     use std::env::temp_dir;
 
