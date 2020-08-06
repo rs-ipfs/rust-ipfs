@@ -263,6 +263,7 @@ enum IpfsEvent {
     Bootstrap(OneshotSender<Result<SubscriptionFuture<(), String>, Error>>),
     AddPeer(PeerId, Multiaddr),
     GetClosestPeers(PeerId, OneshotSender<SubscriptionFuture<(), String>>),
+    GetBitswapPeers(OneshotSender<Vec<PeerId>>),
     Exit,
 }
 
@@ -983,6 +984,16 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         let future = self.swarm.get_closest_peers(self_peer);
                         let _ = ret.send(future);
                     }
+                    IpfsEvent::GetBitswapPeers(ret) => {
+                        let peers = self
+                            .swarm
+                            .bitswap()
+                            .connected_peers
+                            .keys()
+                            .cloned()
+                            .collect();
+                        let _ = ret.send(peers);
+                    }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
                         return Poll::Ready(());
@@ -1112,6 +1123,17 @@ mod node {
                 .await?;
 
             Ok(())
+        }
+
+        pub async fn get_bitswap_peers(&self) -> Result<Vec<PeerId>, Error> {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GetBitswapPeers(tx))
+                .await?;
+
+            rx.await.map_err(|e| anyhow!(e))
         }
 
         pub async fn shutdown(self) {

@@ -86,7 +86,7 @@ impl Stats {
 pub struct Bitswap {
     /// Queue of events to report to the user.
     events: VecDeque<NetworkBehaviourAction<Message, BitswapEvent>>,
-    /// List of peers to send messages to.
+    /// List of prospect peers to connect to.
     target_peers: FnvHashSet<PeerId>,
     /// Ledger
     pub connected_peers: HashMap<PeerId, Ledger>,
@@ -159,11 +159,9 @@ impl Bitswap {
     /// Called from a Strategy.
     pub fn send_block(&mut self, peer_id: PeerId, block: Block) {
         trace!("queueing block to be sent to {}: {}", peer_id, block.cid);
-        let ledger = self
-            .connected_peers
-            .get_mut(&peer_id)
-            .expect("Peer not in ledger?!");
-        ledger.add_block(block);
+        if let Some(ledger) = self.connected_peers.get_mut(&peer_id) {
+            ledger.add_block(block);
+        }
     }
 
     /// Sends the wantlist to the peer.
@@ -231,7 +229,9 @@ impl NetworkBehaviour for Bitswap {
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
         debug!("bitswap: inject_disconnected {:?}", peer_id);
-        //self.connected_peers.remove(peer_id);
+        self.connected_peers.remove(peer_id);
+        // the related stats are not dropped, so that they
+        // persist for peers regardless of disconnects
     }
 
     fn inject_event(&mut self, source: PeerId, _connection: ConnectionId, message: MessageWrapper) {
