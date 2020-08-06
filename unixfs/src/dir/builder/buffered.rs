@@ -227,12 +227,12 @@ mod tests {
         let mut buffer = Vec::new();
 
         let iter = builder.build(&mut full_path, &mut buffer);
-        let mut actual = iter
+        let actual = iter
             .map(|res| res.map(|n| (n.path, n.cid, n.block)))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
-        let mut expected = vec![
+        let expected = vec![
             (
                 "a/b/c/d/e/f",
                 "Qmbgf44ztW9wLcGNRNYGinGQB6SQDQtbHVbkM5MrWms698",
@@ -247,34 +247,7 @@ mod tests {
             ("a", "QmSTUFaPwJW8xD4KNRLLQRqVTYtYC29xuhYTJoYPWdzvKp"),
         ];
 
-        // hopefully this way the errors will be easier to hunt down
-
-        actual.reverse();
-        expected.reverse();
-
-        while let Some(actual) = actual.pop() {
-            let expected = expected.pop().expect("size mismatch");
-            assert_eq!(actual.0, expected.0);
-            assert_eq!(
-                actual.1.to_string(),
-                expected.1,
-                "{:?}: {:?}",
-                actual.0,
-                Hex(&actual.2)
-            );
-        }
-    }
-
-    struct Hex<'a>(&'a [u8]);
-    use std::fmt;
-
-    impl<'a> fmt::Debug for Hex<'a> {
-        fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-            for b in self.0 {
-                write!(fmt, "{:02x}", b)?;
-            }
-            Ok(())
-        }
+        verify_results(expected, actual);
     }
 
     #[test]
@@ -445,12 +418,32 @@ mod tests {
         let mut buffer = Vec::new();
 
         let iter = builder.build(&mut full_path, &mut buffer);
-        let mut actual = iter
+        let actual = iter
             .map(|res| res.map(|n| (n.path, n.cid, n.block)))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
-        let mut expected = vec![("a", "QmPMDMPG8dbHDC9GuvqWr9pfruLnp4GZCAWrskwCmenVQa")];
+        let expected = vec![("a", "QmPMDMPG8dbHDC9GuvqWr9pfruLnp4GZCAWrskwCmenVQa")];
+
+        verify_results(expected, actual);
+    }
+
+    fn verify_results(
+        mut expected: Vec<(impl AsRef<str>, impl AsRef<str>)>,
+        mut actual: Vec<(String, Cid, Box<[u8]>)>,
+    ) {
+        use std::fmt;
+
+        struct Hex<'a>(&'a [u8]);
+
+        impl<'a> fmt::Debug for Hex<'a> {
+            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+                for b in self.0 {
+                    write!(fmt, "{:02x}", b)?;
+                }
+                Ok(())
+            }
+        }
 
         // hopefully this way the errors will be easier to hunt down
 
@@ -459,15 +452,17 @@ mod tests {
 
         while let Some(actual) = actual.pop() {
             let expected = expected.pop().expect("size mismatch");
-            assert_eq!(actual.0, expected.0);
+            assert_eq!(actual.0, expected.0.as_ref());
             assert_eq!(
                 actual.1.to_string(),
-                expected.1,
+                expected.1.as_ref(),
                 "{:?}: {:?}",
                 actual.0,
                 Hex(&actual.2)
             );
         }
+
+        assert_eq!(expected.len(), 0);
     }
 
     /// Returns a quick and dirty sha2-256 of the given number as a Cidv0
