@@ -40,7 +40,7 @@ killed=true
 # 393 ok
 # 400 ok
 # 450 ok
-ulimit -s 8192 -c unlimited
+# ulimit -s 8192 -c unlimited
 ./http "$@" 2>&1 | tee -a /tmp/rust.log || retval=$?
 killed=false
 echo "<<<< exiting $$ with $retval" | tee -a /tmp/rust.log >&2
