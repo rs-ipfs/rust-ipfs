@@ -156,11 +156,9 @@ async fn not_implemented() -> Result<(impl warp::Reply,), std::convert::Infallib
 
 #[cfg(test)]
 mod tests {
-    use std::convert::Infallible;
-
     /// Creates routes for tests, the ipfs will not work as no background task is being spawned.
     async fn testing_routes(
-    ) -> impl warp::Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
+    ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         use super::routes;
         use ipfs::{IpfsOptions, UninitializedIpfs};
 
