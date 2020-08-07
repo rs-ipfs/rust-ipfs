@@ -1183,7 +1183,6 @@ dependencies = [
 name = "ipfs-http"
 version = "0.1.0"
 dependencies = [
- "async-std",
  "async-stream",
  "bytes 0.5.6",
  "cid",
