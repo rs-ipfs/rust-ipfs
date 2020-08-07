@@ -7,18 +7,18 @@ use std::collections::{BTreeMap, HashMap};
 /// Implements the Iterator interface for owned values and the borrowed version, `next_borrowed`.
 /// The tree is fully constructed once this has been exhausted.
 pub struct PostOrderIterator<'a> {
-    pub(super) full_path: &'a mut String,
-    pub(super) old_depth: usize,
-    pub(super) block_buffer: &'a mut Vec<u8>,
+    full_path: &'a mut String,
+    old_depth: usize,
+    block_buffer: &'a mut Vec<u8>,
     // our stack of pending work
-    pub(super) pending: Vec<Visited>,
+    pending: Vec<Visited>,
     // "communication channel" from nested entries back to their parents
-    pub(super) persisted_cids: HashMap<Option<u64>, BTreeMap<String, Leaf>>,
-    pub(super) reused_children: Vec<Visited>,
-    pub(super) cid: Option<Cid>,
-    pub(super) total_size: u64,
+    persisted_cids: HashMap<Option<u64>, BTreeMap<String, Leaf>>,
+    reused_children: Vec<Visited>,
+    cid: Option<Cid>,
+    total_size: u64,
     // from TreeOptions
-    pub(super) opts: TreeOptions,
+    opts: TreeOptions,
 }
 
 impl<'a> PostOrderIterator<'a> {
