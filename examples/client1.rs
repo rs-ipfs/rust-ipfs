@@ -1,7 +1,6 @@
 use async_std::task;
 use futures::join;
-use ipfs::{Ipfs, TestTypes, UninitializedIpfs};
-use libipld::ipld;
+use ipfs::{make_ipld, Ipfs, TestTypes, UninitializedIpfs};
 
 fn main() {
     tracing_subscriber::fmt::init();
@@ -11,11 +10,11 @@ fn main() {
             UninitializedIpfs::default().await.start().await.unwrap();
         task::spawn(fut);
 
-        let f1 = ipfs.put_dag(ipld!("block1"));
-        let f2 = ipfs.put_dag(ipld!("block2"));
+        let f1 = ipfs.put_dag(make_ipld!("block1"));
+        let f2 = ipfs.put_dag(make_ipld!("block2"));
         let (res1, res2) = join!(f1, f2);
 
-        let root = ipld!([res1.unwrap(), res2.unwrap()]);
+        let root = make_ipld!([res1.unwrap(), res2.unwrap()]);
         ipfs.put_dag(root).await.unwrap();
 
         ipfs.exit_daemon().await;

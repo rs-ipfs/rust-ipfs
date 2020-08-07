@@ -1,13 +1,12 @@
 use crate::dag::IpldDag;
 use crate::error::Error;
+use crate::ipld::{dag_pb::PbNode, Ipld};
 use crate::path::IpfsPath;
 use crate::repo::RepoTypes;
 use async_std::fs;
 use async_std::io::ReadExt;
 use async_std::path::PathBuf;
 use cid::{Cid, Codec};
-use libipld::ipld::Ipld;
-use libipld::pb::PbNode;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 

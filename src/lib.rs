@@ -6,6 +6,7 @@
 #[macro_use]
 extern crate tracing;
 
+pub use crate::ipld::Ipld;
 use anyhow::{anyhow, format_err};
 use async_std::path::PathBuf;
 pub use bitswap::{BitswapEvent, Block, Stats};
@@ -15,7 +16,6 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use futures::sink::SinkExt;
 use futures::stream::{Fuse, Stream};
-pub use libipld::ipld::Ipld;
 pub use libp2p::core::{connection::ListenerId, ConnectedPoint, Multiaddr, PeerId, PublicKey};
 pub use libp2p::identity::Keypair;
 use tracing::Span;
@@ -33,6 +33,8 @@ use std::task::{Context, Poll};
 mod config;
 mod dag;
 pub mod error;
+#[macro_use]
+pub mod ipld;
 pub mod ipns;
 pub mod p2p;
 pub mod path;
@@ -1203,7 +1205,7 @@ fn could_be_bound_from_ephemeral(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libipld::ipld;
+    use crate::make_ipld;
     use libp2p::build_multiaddr;
     use multihash::Sha2_256;
 
@@ -1289,7 +1291,7 @@ mod tests {
     async fn test_put_and_get_dag() {
         let ipfs = Node::new("test_node").await;
 
-        let data = ipld!([-1, -2, -3]);
+        let data = make_ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
         let new_data = ipfs.get_dag(cid.into()).await.unwrap();
         assert_eq!(data, new_data);
@@ -1299,7 +1301,7 @@ mod tests {
     async fn test_pin_and_unpin() {
         let ipfs = Node::new("test_node").await;
 
-        let data = ipld!([-1, -2, -3]);
+        let data = make_ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
 
         ipfs.pin_block(&cid).await.unwrap();

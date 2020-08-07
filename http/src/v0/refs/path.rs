@@ -6,7 +6,7 @@
 //! Does not allow the root to be anything else than `/ipfs/` or missing at the moment.
 
 use cid::{self, Cid};
-use libipld::Ipld;
+use ipfs::ipld::Ipld;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::fmt;
@@ -303,7 +303,7 @@ impl ExactSizeIterator for IpfsPath {
 mod tests {
     use super::{IpfsPath, WalkSuccess};
     use cid::Cid;
-    use libipld::{ipld, Ipld};
+    use ipfs::{ipld::Ipld, make_ipld};
     use std::convert::TryFrom;
 
     // good_paths, good_but_unsupported, bad_paths from https://github.com/ipfs/go-path/blob/master/path_test.go
@@ -389,7 +389,7 @@ mod tests {
 
     fn example_doc_and_a_cid() -> (Ipld, Cid) {
         let cid = Cid::try_from("QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n").unwrap();
-        let doc = ipld!({
+        let doc = make_ipld!({
             "nested": {
                 "even": [
                     {
@@ -453,7 +453,7 @@ mod tests {
     #[test]
     fn walk_link_with_dot() {
         let cid = Cid::try_from("QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n").unwrap();
-        let doc = ipld!(cid.clone());
+        let doc = make_ipld!(cid.clone());
         let path = "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/./foobar";
 
         let mut p = IpfsPath::try_from(path).unwrap();
@@ -468,7 +468,7 @@ mod tests {
     #[test]
     fn walk_link_without_dot_is_unsupported() {
         let cid = Cid::try_from("QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n").unwrap();
-        let doc = ipld!(cid);
+        let doc = make_ipld!(cid);
         let path = "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/foobar";
 
         let mut p = IpfsPath::try_from(path).unwrap();

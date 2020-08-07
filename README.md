@@ -79,8 +79,7 @@ _Note: binaries available via `cargo install` is coming soon._
 ```rust,no_run
 use async_std::task;
 use futures::join;
-use ipfs::{Ipfs, IpfsOptions, IpfsPath, Ipld, Types, UninitializedIpfs};
-use libipld::ipld;
+use ipfs::{make_ipld, Ipfs, IpfsPath, Ipld, Types, UninitializedIpfs};
 
 fn main() {
     tracing_subscriber::fmt::init();
@@ -91,10 +90,10 @@ fn main() {
         task::spawn(fut);
 
         // Create a DAG
-        let f1 = ipfs.put_dag(ipld!("block1"));
-        let f2 = ipfs.put_dag(ipld!("block2"));
+        let f1 = ipfs.put_dag(make_ipld!("block1"));
+        let f2 = ipfs.put_dag(make_ipld!("block2"));
         let (res1, res2) = join!(f1, f2);
-        let root = ipld!([res1.unwrap(), res2.unwrap()]);
+        let root = make_ipld!([res1.unwrap(), res2.unwrap()]);
         let cid = ipfs.put_dag(root).await.unwrap();
         let path = IpfsPath::from(cid);
 
