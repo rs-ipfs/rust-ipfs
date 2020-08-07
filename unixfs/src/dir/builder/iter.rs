@@ -6,10 +6,10 @@ use std::collections::{BTreeMap, HashMap};
 ///
 /// Implements the Iterator interface for owned values and the borrowed version, `next_borrowed`.
 /// The tree is fully constructed once this has been exhausted.
-pub struct PostOrderIterator<'a> {
-    full_path: &'a mut String,
+pub struct PostOrderIterator {
+    full_path: String,
     old_depth: usize,
-    block_buffer: &'a mut Vec<u8>,
+    block_buffer: Vec<u8>,
     // our stack of pending work
     pending: Vec<Visited>,
     // "communication channel" from nested entries back to their parents
@@ -21,19 +21,12 @@ pub struct PostOrderIterator<'a> {
     opts: TreeOptions,
 }
 
-impl<'a> PostOrderIterator<'a> {
-    pub(super) fn new(
-        root: Visited,
-        full_path: &'a mut String,
-        block_buffer: &'a mut Vec<u8>,
-        opts: TreeOptions,
-    ) -> Self {
-        full_path.clear();
-
+impl PostOrderIterator {
+    pub(super) fn new(root: Visited, opts: TreeOptions) -> Self {
         PostOrderIterator {
-            full_path,
+            full_path: Default::default(),
             old_depth: 0,
-            block_buffer,
+            block_buffer: Default::default(),
             pending: vec![root],
             persisted_cids: Default::default(),
             reused_children: Vec::new(),
@@ -233,7 +226,7 @@ impl<'a> PostOrderIterator<'a> {
                 Visited::Post { name, depth, .. } => (name.as_deref(), *depth),
             };
 
-            update_full_path((self.full_path, &mut self.old_depth), name, depth);
+            update_full_path((&mut self.full_path, &mut self.old_depth), name, depth);
 
             match visited {
                 Visited::Descent { node, name, depth } => {
@@ -339,7 +332,7 @@ impl<'a> PostOrderIterator<'a> {
     }
 }
 
-impl<'a> Iterator for PostOrderIterator<'a> {
+impl Iterator for PostOrderIterator {
     type Item = Result<OwnedTreeNode, TreeConstructionFailed>;
 
     fn next(&mut self) -> Option<Self::Item> {

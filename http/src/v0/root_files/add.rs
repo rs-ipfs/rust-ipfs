@@ -274,10 +274,7 @@ where
             yield next;
         }
 
-        let mut full_path = String::new();
-        let mut block_buffer = Vec::new();
-
-        let mut iter = tree.build(&mut full_path, &mut block_buffer);
+        let mut iter = tree.build();
 
         while let Some(res) = iter.next_borrowed() {
             let TreeNode { path, cid, total_size, block } = res.map_err(AddError::TreeBuilding)?;

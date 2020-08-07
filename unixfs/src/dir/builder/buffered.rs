@@ -179,19 +179,13 @@ impl BufferingTreeBuilder {
     /// Returned `PostOrderIterator` will use the given `full_path` and `block_buffer` to store
     /// its data during the walk. `PostOrderIterator` implements `Iterator` while also allowing
     /// borrowed access via `next_borrowed`.
-    pub fn build<'a>(
-        self,
-        full_path: &'a mut String,
-        block_buffer: &'a mut Vec<u8>,
-    ) -> PostOrderIterator<'a> {
+    pub fn build(self) -> PostOrderIterator {
         PostOrderIterator::new(
             Visited::Descent {
                 node: self.root_builder,
                 name: None,
                 depth: 0,
             },
-            full_path,
-            block_buffer,
             self.opts,
         )
     }
@@ -223,11 +217,8 @@ mod tests {
             .put_file("a/b/c/d/e/i.txt", five_block_foobar, 221)
             .unwrap();
 
-        let mut full_path = String::new();
-        let mut buffer = Vec::new();
-
-        let iter = builder.build(&mut full_path, &mut buffer);
-        let actual = iter
+        let actual = builder
+            .build()
             .map(|res| res.map(|n| (n.path, n.cid, n.block)))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
@@ -255,11 +246,8 @@ mod tests {
         let mut builder = BufferingTreeBuilder::default();
         builder.put_file("", some_cid(0), 1).unwrap();
 
-        let mut full_path = String::new();
-        let mut buffer = Vec::new();
-
-        let iter = builder.build(&mut full_path, &mut buffer);
-        let actual = iter
+        let actual = builder
+            .build()
             .map(|res| res.map(|OwnedTreeNode { path, .. }| path))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
@@ -298,11 +286,8 @@ mod tests {
             .unwrap();
         builder.put_file("b", five_block_foobar, 221).unwrap();
 
-        let mut full_path = String::new();
-        let mut buffer = Vec::new();
-
-        let iter = builder.build(&mut full_path, &mut buffer);
-        let actual = iter
+        let actual = builder
+            .build()
             .map(|res| res.map(|OwnedTreeNode { path, cid, .. }| (path, cid.to_string())))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
@@ -327,11 +312,8 @@ mod tests {
         let mut builder = BufferingTreeBuilder::new(opts);
         builder.put_file("a", five_block_foobar, 221).unwrap();
 
-        let mut full_path = String::new();
-        let mut buffer = Vec::new();
-
-        let iter = builder.build(&mut full_path, &mut buffer);
-        let actual = iter
+        let actual = builder
+            .build()
             .map(|res| res.map(|OwnedTreeNode { path, cid, .. }| (path, cid.to_string())))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
@@ -378,11 +360,8 @@ mod tests {
         builder.put_file("a/b/c/d/e.txt", some_cid(1), 1).unwrap();
         builder.put_file("a/b/c/d/f.txt", some_cid(2), 1).unwrap();
 
-        let mut full_path = String::new();
-        let mut buffer = Vec::new();
-
-        let iter = builder.build(&mut full_path, &mut buffer);
-        let actual = iter
+        let actual = builder
+            .build()
             .map(|res| res.map(|OwnedTreeNode { path, .. }| path))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
@@ -414,11 +393,8 @@ mod tests {
         let mut builder = BufferingTreeBuilder::default();
         builder.put_file("a/b", target, 12).unwrap();
 
-        let mut full_path = String::new();
-        let mut buffer = Vec::new();
-
-        let iter = builder.build(&mut full_path, &mut buffer);
-        let actual = iter
+        let actual = builder
+            .build()
             .map(|res| res.map(|n| (n.path, n.cid, n.block)))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
