@@ -14,7 +14,7 @@ use serde::Deserialize;
 use std::convert::TryFrom;
 use std::fmt;
 use std::path::Path;
-use warp::{path, query, Filter, Rejection, Reply};
+use warp::{query, Filter, Rejection, Reply};
 
 mod tar_helper;
 use tar_helper::TarHelper;
@@ -36,9 +36,8 @@ pub struct AddArgs {
 
 pub fn add<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("add")
-        .and(with_ipfs(ipfs))
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(query::<AddArgs>())
         .and(warp::header::<mime::Mime>("content-type")) // TODO: rejects if missing
         .and(warp::body::stream())
@@ -56,11 +55,8 @@ pub struct CatArgs {
 
 pub fn cat<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("cat")
-        .and(with_ipfs(ipfs))
-        .and(query::<CatArgs>())
-        .and_then(cat_inner)
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs).and(query::<CatArgs>()).and_then(cat_inner)
 }
 
 async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Reply, Rejection> {
@@ -115,11 +111,8 @@ struct GetArgs {
 
 pub fn get<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("get")
-        .and(with_ipfs(ipfs))
-        .and(query::<GetArgs>())
-        .and_then(get_inner)
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs).and(query::<GetArgs>()).and_then(get_inner)
 }
 
 async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Reply, Rejection> {

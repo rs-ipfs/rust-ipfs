@@ -23,9 +23,8 @@ async fn connect_query<T: IpfsTypes>(
 
 pub fn connect<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path!("swarm" / "connect")
-        .and(with_ipfs(ipfs))
+) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(query::<ConnectQuery>())
         .and_then(connect_query)
 }
@@ -89,9 +88,8 @@ async fn peers_query<T: IpfsTypes>(
 
 pub fn peers<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path!("swarm" / "peers")
-        .and(with_ipfs(ipfs))
+) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(query::<PeersQuery>())
         .and_then(peers_query)
 }
@@ -120,10 +118,8 @@ async fn addrs_query<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl warp::Reply, wa
 
 pub fn addrs<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path!("swarm" / "addrs")
-        .and(with_ipfs(ipfs))
-        .and_then(addrs_query)
+) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+    with_ipfs(ipfs).and_then(addrs_query)
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,9 +150,8 @@ async fn addrs_local_query<T: IpfsTypes>(
 
 pub fn addrs_local<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path!("swarm" / "addrs" / "local")
-        .and(with_ipfs(ipfs))
+) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(query::<AddrsLocalQuery>())
         .and_then(addrs_local_query)
 }
@@ -179,9 +174,8 @@ async fn disconnect_query<T: IpfsTypes>(
 
 pub fn disconnect<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path!("swarm" / "disconnect")
-        .and(with_ipfs(ipfs))
+) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(query::<DisconnectQuery>())
         .and_then(disconnect_query)
 }

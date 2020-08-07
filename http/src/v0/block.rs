@@ -12,7 +12,7 @@ use mime::Mime;
 use multihash::Multihash;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
-use warp::{http::Response, path, query, reply, Filter, Rejection, Reply};
+use warp::{http::Response, query, reply, Filter, Rejection, Reply};
 
 mod options;
 use options::RmOptions;
@@ -44,9 +44,8 @@ async fn get_query<T: IpfsTypes>(
 
 pub fn get<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("block" / "get")
-        .and(with_ipfs(ipfs))
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(query::<GetStatOptions>())
         .and_then(get_query)
 }
@@ -88,9 +87,8 @@ impl PutQuery {
 
 pub fn put<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("block" / "put")
-        .and(with_ipfs(ipfs))
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(query::<PutQuery>())
         .and(warp::header::<Mime>("content-type")) // TODO: rejects if missing
         .and(warp::body::stream())
@@ -151,11 +149,8 @@ pub struct EmptyResponse;
 
 pub fn rm<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("block" / "rm")
-        .and(with_ipfs(ipfs))
-        .and(rm_options())
-        .and_then(rm_query)
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs).and(rm_options()).and_then(rm_query)
 }
 
 fn rm_options() -> impl Filter<Extract = (RmOptions,), Error = Rejection> + Clone {
@@ -221,6 +216,14 @@ async fn rm_query<T: IpfsTypes>(
     Ok(StreamResponse(st))
 }
 
+pub fn stat<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs)
+        .and(query::<GetStatOptions>())
+        .and_then(stat_query)
+}
+
 async fn stat_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: GetStatOptions,
@@ -237,13 +240,4 @@ async fn stat_query<T: IpfsTypes>(
         "Key": query.arg,
         "Size": block.data().len(),
     })))
-}
-
-pub fn stat<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("block" / "stat")
-        .and(with_ipfs(ipfs))
-        .and(query::<GetStatOptions>())
-        .and_then(stat_query)
 }

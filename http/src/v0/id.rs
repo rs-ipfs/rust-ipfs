@@ -6,9 +6,8 @@ use warp::{query, Filter};
 
 pub fn identity<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path!("id")
-        .and(with_ipfs(ipfs))
+) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(optional_peer_id())
         .and_then(identity_query)
 }

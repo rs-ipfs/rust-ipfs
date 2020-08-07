@@ -2,7 +2,7 @@ use crate::v0::support::{with_ipfs, InvalidPeerId, StringError};
 use ipfs::{BitswapStats, Ipfs, IpfsTypes};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use warp::{path, query, reply, Filter, Rejection, Reply};
+use warp::{query, reply, Filter, Rejection, Reply};
 
 #[derive(Debug, Deserialize)]
 pub struct WantlistQuery {
@@ -39,9 +39,8 @@ async fn wantlist_query<T: IpfsTypes>(
 
 pub fn wantlist<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("bitswap" / "wantlist")
-        .and(with_ipfs(ipfs))
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(query::<WantlistQuery>())
         .and_then(wantlist_query)
 }
@@ -99,8 +98,6 @@ async fn stat_query<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejection
 
 pub fn stat<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("bitswap" / "stat")
-        .and(with_ipfs(ipfs))
-        .and_then(stat_query)
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs).and_then(stat_query)
 }

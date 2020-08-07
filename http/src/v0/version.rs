@@ -24,12 +24,14 @@ pub struct Response {
 // https://docs-beta.ipfs.io/reference/http/api/#api-v0-version
 // Note: the parameter formatting is only verified, feature looks to be unimplemented for `go-ipfs
 // 0.4.23` and handled by cli. This is not compatible with `rust-ipfs-api`.
-pub async fn version(_query: Query) -> Result<impl warp::Reply, std::convert::Infallible> {
+pub fn version(
+    _query: Query,
+) -> impl std::future::Future<Output = Result<(impl warp::Reply,), std::convert::Infallible>> {
     let response = Response {
         version: env!("CARGO_PKG_VERSION"), // TODO: move over to rust-ipfs not to worry about syncing version numbers?
         commit: env!("VERGEN_SHA_SHORT"),
         repo: "",
     };
 
-    Ok(warp::reply::json(&response))
+    futures::future::ready(Ok((warp::reply::json(&response),)))
 }

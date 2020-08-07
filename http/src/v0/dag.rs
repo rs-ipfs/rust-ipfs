@@ -9,7 +9,7 @@ use mime::Mime;
 
 use serde::Deserialize;
 use serde_json::json;
-use warp::{path, query, reply, Buf, Filter, Rejection, Reply};
+use warp::{query, reply, Buf, Filter, Rejection, Reply};
 
 #[derive(Debug, Deserialize)]
 pub struct PutQuery {
@@ -35,9 +35,8 @@ impl Default for InputEncoding {
 
 pub fn put<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("dag" / "put")
-        .and(with_ipfs(ipfs))
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(query::<PutQuery>())
         .and(warp::header::<Mime>("content-type")) // TODO: rejects if missing
         .and(warp::body::stream())
@@ -106,9 +105,8 @@ async fn put_query<T: IpfsTypes>(
 /// (rempath).
 pub fn resolve<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    path!("dag" / "resolve")
-        .and(with_ipfs(ipfs))
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(query::<ResolveOptions>())
         .and_then(inner_resolve)
 }
