@@ -560,7 +560,7 @@ mod tests {
         })
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn url_hacked_args() {
         let response = request()
             .path("/pubsub/pub?arg=some_channel&arg=foobar")
@@ -570,7 +570,7 @@ mod tests {
         assert_eq!(body, r#"{"message":"foobar","topic":"some_channel"}"#);
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn message_in_body() {
         let response = request()
             .path("/pubsub/pub?arg=some_channel")
