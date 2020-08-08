@@ -1,6 +1,7 @@
 use super::{Entry, Leaf, TreeConstructionFailed, TreeOptions, Visited};
 use cid::Cid;
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 
 /// Constructs the directory nodes required for a tree.
 ///
@@ -351,6 +352,17 @@ pub struct TreeNode<'a> {
     pub total_size: u64,
     /// Raw dag-pb document.
     pub block: &'a [u8],
+}
+
+impl<'a> fmt::Debug for TreeNode<'a> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("TreeNode")
+            .field("path", &format_args!("{:?}", self.path))
+            .field("cid", &format_args!("{}", self.cid))
+            .field("total_size", &self.total_size)
+            .field("size", &self.block.len())
+            .finish()
+    }
 }
 
 impl TreeNode<'_> {
