@@ -12,7 +12,7 @@ fn main() {
     let stdin = stdin.lock();
 
     let mut archive = tar::Archive::new(stdin);
-    let mut entries = archive.entries().unwrap();
+    let entries = archive.entries().unwrap();
 
     let mut buffer = Vec::new();
 
@@ -20,7 +20,7 @@ fn main() {
     opts.wrap_with_directory();
     let mut tree = BufferingTreeBuilder::new(opts);
 
-    while let Some(entry) = entries.next() {
+    for entry in entries {
         let mut entry = entry.unwrap();
         let path = std::str::from_utf8(&*entry.path_bytes())
             .unwrap()

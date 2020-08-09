@@ -10,7 +10,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             eprintln!("could not find {:?}:", file);
             eprintln!("please download a linux kernel and unpack it to enable benchmark. specific version doesn't matter.");
-            return;
         }
         Err(e) => panic!("failed to read the {:?}: {}", file, e),
     }
@@ -25,14 +24,15 @@ fn ingest_tar(bytes: &[u8]) {
     let mut buffer = Vec::new();
 
     let mut archive = tar::Archive::new(std::io::Cursor::new(bytes));
-    let mut entries = archive.entries().unwrap();
+    let entries = archive.entries().unwrap();
 
     let mut opts = TreeOptions::default();
     opts.wrap_with_directory();
     let mut tree = BufferingTreeBuilder::new(opts);
 
-    while let Some(entry) = entries.next() {
-        let mut entry = entry.unwrap();
+    for entry in entries {
+        let mut entry = entry.except("assuming good tar");
+
         let path = std::str::from_utf8(&*entry.path_bytes())
             .unwrap()
             .to_string(); // need to get rid of this
@@ -107,17 +107,7 @@ fn ingest_tar(bytes: &[u8]) {
 
     while let Some(res) = iter.next_borrowed() {
         let res = res.unwrap();
-
-        match &mut last {
-            Some(ref mut s) => {
-                s.0 = res.cid.to_owned();
-                s.1 = res.total_size;
-                s.2 = res.block.len();
-            }
-            n @ None => {
-                *n = Some((res.cid.to_owned(), res.total_size, res.block.len()));
-            }
-        }
+        last = Some((res.cid.to_owned(), res.total_size, res.block.len()));
     }
 
     let last = last.unwrap();
