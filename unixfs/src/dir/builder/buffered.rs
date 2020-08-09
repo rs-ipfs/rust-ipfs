@@ -180,7 +180,7 @@ impl BufferingTreeBuilder {
     /// its data during the walk. `PostOrderIterator` implements `Iterator` while also allowing
     /// borrowed access via `next_borrowed`.
     pub fn build(self) -> PostOrderIterator {
-        PostOrderIterator::new(self.root_builder, self.opts)
+        PostOrderIterator::new(self.root_builder, self.opts, self.longest_path)
     }
 }
 

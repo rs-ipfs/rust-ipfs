@@ -51,10 +51,10 @@ enum Visited {
 }
 
 impl PostOrderIterator {
-    pub(super) fn new(root: DirBuilder, opts: TreeOptions) -> Self {
+    pub(super) fn new(root: DirBuilder, opts: TreeOptions, longest_path: usize) -> Self {
         let root = Visited::DescentRoot(root);
         PostOrderIterator {
-            full_path: Default::default(),
+            full_path: String::with_capacity(longest_path),
             old_depth: 0,
             block_buffer: Default::default(),
             pending: vec![root],
