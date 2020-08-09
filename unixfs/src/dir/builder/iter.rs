@@ -1,6 +1,6 @@
 use super::{DirBuilder, Entry, Leaf, TreeConstructionFailed, TreeOptions};
 use cid::Cid;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt;
 
 /// Constructs the directory nodes required for a tree.
@@ -13,8 +13,9 @@ pub struct PostOrderIterator {
     block_buffer: Vec<u8>,
     // our stack of pending work
     pending: Vec<Visited>,
-    // "communication channel" from nested entries back to their parents
-    persisted_cids: HashMap<Option<u64>, BTreeMap<String, Leaf>>,
+    // "communication channel" from nested entries back to their parents this hashmap is only used
+    // in the event of mixed child nodes (leaves and nodes).
+    persisted_cids: HashMap<u64, Vec<Option<NamedLeaf>>>,
     reused_children: Vec<Visited>,
     cid: Option<Cid>,
     total_size: u64,
@@ -22,33 +23,41 @@ pub struct PostOrderIterator {
     opts: TreeOptions,
 }
 
+type Leaves = Vec<Option<NamedLeaf>>;
+
+#[derive(Debug)]
+struct NamedLeaf(String, Cid, u64);
+
 #[derive(Debug)]
 enum Visited {
+    // handle root differently not to infect everything with the Option<String> and so on
+    DescentRoot(DirBuilder),
     Descent {
         node: DirBuilder,
-        name: Option<String>,
+        name: String,
         depth: usize,
+        index: usize,
     },
     Post {
-        parent_id: Option<u64>,
-        id: u64,
-        name: Option<String>,
+        parent_id: u64,
         depth: usize,
-        leaves: Vec<(String, Leaf)>,
+        name: String,
+        index: usize,
+        leaves: LeafStorage,
+    },
+    PostRoot {
+        leaves: LeafStorage,
     },
 }
 
 impl PostOrderIterator {
     pub(super) fn new(root: DirBuilder, opts: TreeOptions) -> Self {
+        let root = Visited::DescentRoot(root);
         PostOrderIterator {
             full_path: Default::default(),
             old_depth: 0,
             block_buffer: Default::default(),
-            pending: vec![Visited::Descent {
-                node: root,
-                name: None,
-                depth: 0,
-            }],
+            pending: vec![root],
             persisted_cids: Default::default(),
             reused_children: Vec::new(),
             cid: None,
@@ -58,7 +67,7 @@ impl PostOrderIterator {
     }
 
     fn render_directory(
-        links: &BTreeMap<String, Leaf>,
+        links: &[Option<NamedLeaf>],
         buffer: &mut Vec<u8>,
         block_size_limit: &Option<u64>,
     ) -> Result<Leaf, TreeConstructionFailed> {
@@ -88,12 +97,13 @@ impl PostOrderIterator {
                 use cid::Version::*;
                 use quick_protobuf::sizeofs::*;
 
+                let hash_len = self.0.hash().as_bytes().len();
+
                 match self.0.version() {
-                    V0 => self.0.hash().as_bytes().len(),
+                    V0 => hash_len,
                     V1 => {
                         let version_len = 1;
                         let codec_len = sizeof_varint(u64::from(self.0.codec()));
-                        let hash_len = self.0.hash().as_bytes().len();
                         version_len + codec_len + hash_len
                     }
                 }
@@ -106,21 +116,22 @@ impl PostOrderIterator {
                 use cid::Version::*;
 
                 match self.0.version() {
-                    V0 => {
-                        for b in self.0.hash().as_bytes() {
-                            w.write_u8(*b)?;
-                        }
-                        Ok(())
-                    }
+                    V0 => self
+                        .0
+                        .hash()
+                        .as_bytes()
+                        .iter()
+                        .try_for_each(|b| w.write_u8(*b)),
                     V1 => {
                         // it is possible that Cidv1 should not be linked to from a unixfs
                         // directory; at least go-ipfs 0.5 `ipfs files` denies making a cbor link
                         w.write_u8(1)?;
                         w.write_varint(u64::from(self.0.codec()))?;
-                        for b in self.0.hash().as_bytes() {
-                            w.write_u8(*b)?;
-                        }
-                        Ok(())
+                        self.0
+                            .hash()
+                            .as_bytes()
+                            .iter()
+                            .try_for_each(|b| w.write_u8(*b))
                     }
                 }
             }
@@ -128,36 +139,44 @@ impl PostOrderIterator {
 
         /// Newtype which uses the BTreeMap<String, Leaf> as Vec<PBLink>.
         struct BTreeMappedDir<'a> {
-            links: &'a BTreeMap<String, Leaf>,
+            links: &'a [Option<NamedLeaf>],
             data: UnixFs<'a>,
         }
 
         /// Newtype which represents an entry from BTreeMap<String, Leaf> as PBLink as far as the
         /// protobuf representation goes.
-        struct EntryAsPBLink<'a>(&'a String, &'a Leaf);
+        struct EntryAsPBLink<'a>(&'a NamedLeaf);
 
         impl<'a> MessageWrite for EntryAsPBLink<'a> {
             fn get_size(&self) -> usize {
                 use quick_protobuf::sizeofs::*;
 
                 // ones are the tags
-                1 + sizeof_len(self.0.len())
+                1 + sizeof_len((self.0).0.len())
                     + 1
-                    //+ sizeof_len(WriteableCid(&self.1.link).get_size())
-                    + sizeof_len(self.1.link.to_bytes().len())
+                    + sizeof_len(WriteableCid(&(self.0).1).get_size())
+                    //+ sizeof_len(self.1.link.to_bytes().len())
                     + 1
-                    + sizeof_varint(self.1.total_size)
+                    + sizeof_varint((self.0).2)
             }
 
             fn write_message<W: WriterBackend>(
                 &self,
                 w: &mut Writer<W>,
             ) -> quick_protobuf::Result<()> {
-                // w.write_with_tag(10, |w| w.write_message(&WriteableCid(&self.1.link)))?;
-                w.write_with_tag(10, |w| w.write_bytes(&self.1.link.to_bytes()))?;
-                w.write_with_tag(18, |w| w.write_string(self.0.as_str()))?;
-                w.write_with_tag(24, |w| w.write_uint64(self.1.total_size))?;
+                w.write_with_tag(10, |w| w.write_message(&WriteableCid(&(self.0).1)))?;
+                //w.write_with_tag(10, |w| w.write_bytes(&self.1.link.to_bytes()))?;
+                w.write_with_tag(18, |w| w.write_string((self.0).0.as_str()))?;
+                w.write_with_tag(24, |w| w.write_uint64((self.0).2))?;
                 Ok(())
+            }
+        }
+
+        impl<'a> BTreeMappedDir<'a> {
+            fn mapped(&self) -> impl Iterator<Item = EntryAsPBLink<'_>> + '_ {
+                self.links
+                    .iter()
+                    .map(|triple| triple.as_ref().map(|l| EntryAsPBLink(l)).unwrap())
             }
         }
 
@@ -166,9 +185,7 @@ impl PostOrderIterator {
                 use quick_protobuf::sizeofs::*;
 
                 let links = self
-                    .links
-                    .iter()
-                    .map(|(k, v)| EntryAsPBLink(k, v))
+                    .mapped()
                     .map(|link| 1 + sizeof_len(link.get_size()))
                     .sum::<usize>();
 
@@ -178,7 +195,7 @@ impl PostOrderIterator {
                 &self,
                 w: &mut Writer<W>,
             ) -> quick_protobuf::Result<()> {
-                for l in self.links.iter().map(|(k, v)| EntryAsPBLink(k, v)) {
+                for l in self.mapped() {
                     w.write_with_tag(18, |w| w.write_message(&l))?;
                 }
                 w.write_with_tag(10, |w| w.write_message(&self.data))
@@ -193,6 +210,25 @@ impl PostOrderIterator {
             },
         };
 
+        /*
+
+        use crate::pb::{FlatUnixFs, PBLink};
+        use std::borrow::Cow;
+        let btreed = FlatUnixFs {
+            links: links
+                .iter() // .drain() would be the most reasonable
+                .map(|(name, Leaf { link, total_size })| PBLink {
+                    Hash: Some(link.to_bytes().into()),
+                    Name: Some(Cow::Borrowed(name.as_str())),
+                    Tsize: Some(*total_size),
+                })
+                .collect::<Vec<_>>(),
+            data: UnixFs {
+                Type: UnixFsType::Directory,
+                ..Default::default()
+            },
+        };*/
+        /**/
         let size = btreed.get_size();
 
         if let Some(limit) = block_size_limit {
@@ -227,8 +263,12 @@ impl PostOrderIterator {
         let cid = Cid::new_v0(mh).expect("sha2_256 is the correct multihash for cidv0");
 
         let combined_from_links = links
-            .values()
-            .map(|Leaf { total_size, .. }| total_size)
+            .iter()
+            .map(|opt| {
+                opt.as_ref()
+                    .map(|NamedLeaf(_, _, total_size)| total_size)
+                    .unwrap()
+            })
             .sum::<u64>();
 
         Ok(Leaf {
@@ -243,78 +283,81 @@ impl PostOrderIterator {
     pub fn next_borrowed(&mut self) -> Option<Result<TreeNode<'_>, TreeConstructionFailed>> {
         while let Some(visited) = self.pending.pop() {
             let (name, depth) = match &visited {
-                Visited::Descent { name, depth, .. } => (name.as_deref(), *depth),
-                Visited::Post { name, depth, .. } => (name.as_deref(), *depth),
+                Visited::DescentRoot(_) => (None, 0),
+                Visited::Descent { name, depth, .. } => (Some(name.as_ref()), *depth),
+                Visited::Post { name, depth, .. } => (Some(name.as_ref()), *depth),
+                Visited::PostRoot { .. } => (None, 0),
             };
 
             update_full_path((&mut self.full_path, &mut self.old_depth), name, depth);
 
             match visited {
-                Visited::Descent { node, name, depth } => {
-                    let mut leaves = Vec::new();
-
+                Visited::DescentRoot(node) => {
                     let children = &mut self.reused_children;
 
-                    for (k, v) in node.nodes {
-                        match v {
-                            Entry::Directory(node) => children.push(Visited::Descent {
-                                node,
-                                name: Some(k),
-                                depth: depth + 1,
-                            }),
-                            Entry::Leaf(leaf) => leaves.push((k, leaf)),
-                        }
-                    }
+                    let leaves = partition_children_leaves(depth, node.nodes.into_iter(), children);
 
-                    self.pending.push(Visited::Post {
-                        parent_id: node.parent_id,
-                        id: node.id,
-                        name,
-                        depth,
-                        leaves,
-                    });
+                    // initial idea was to validate something with
 
                     let any_children = !children.is_empty();
 
-                    self.pending.extend(children.drain(..));
+                    let leaves = if any_children {
+                        // we only need to put the leaves in there in the case of wrapping
+                        self.persisted_cids.insert(node.id, leaves);
+                        LeafStorage::from(node.id)
+                    } else {
+                        leaves.into()
+                    };
 
-                    if any_children {
-                        // we could strive to do everything right now but pushing and popping might
-                        // turn out easier code wise, or in other words, when there are no child_nodes
-                        // we wouldn't need to go through Visited::Post.
-                    }
+                    self.pending.push(Visited::PostRoot { leaves });
+                    self.pending.extend(children.drain(..));
+                }
+                Visited::Descent {
+                    node,
+                    name,
+                    depth,
+                    index,
+                } => {
+                    let children = &mut self.reused_children;
+
+                    let leaves = partition_children_leaves(depth, node.nodes.into_iter(), children);
+
+                    let any_children = !children.is_empty();
+
+                    // this would be none for only the single first node, however we know already
+                    // this is not the branch DescentRoot
+                    let parent_id = node.parent_id.expect("this is not root");
+
+                    let leaves = if any_children {
+                        self.persisted_cids.insert(node.id, leaves);
+                        node.id.into()
+                    } else {
+                        leaves.into()
+                    };
+
+                    self.pending.push(Visited::Post {
+                        parent_id,
+                        name,
+                        depth,
+                        leaves,
+                        index,
+                    });
+
+                    self.pending.extend(children.drain(..));
                 }
                 Visited::Post {
                     parent_id,
-                    id,
                     name,
                     leaves,
+                    index,
                     ..
                 } => {
-                    // all of our children have now been visited; we should be able to find their
-                    // Cids in the btreemap
-                    let mut collected = self.persisted_cids.remove(&Some(id)).unwrap_or_default();
-
-                    // FIXME: leaves could be drained and reused
-                    collected.extend(leaves);
-
-                    if !self.opts.wrap_with_directory && parent_id.is_none() {
-                        // we aren't supposed to wrap_with_directory, and we are now looking at the
-                        // possibly to-be-generated root directory.
-
-                        assert_eq!(
-                            collected.len(),
-                            1,
-                            "should not have gone this far with multiple added roots"
-                        );
-
-                        return None;
-                    }
+                    let leaves = leaves.into_inner(&mut self.persisted_cids);
 
                     let buffer = &mut self.block_buffer;
 
                     let leaf = match Self::render_directory(
-                        &collected,
+                        &leaves,
                         buffer,
                         &self.opts.block_size_limit,
                     ) {
@@ -325,20 +368,52 @@ impl PostOrderIterator {
                     self.cid = Some(leaf.link.clone());
                     self.total_size = leaf.total_size;
 
-                    // this reuse strategy is probably good enough
-                    collected.clear();
-
-                    if let Some(name) = name {
+                    {
                         // name is None only for wrap_with_directory, which cannot really be
                         // propagated up but still the parent_id is allowed to be None
-                        let previous = self
-                            .persisted_cids
-                            .entry(parent_id)
-                            .or_insert(collected)
-                            .insert(name, leaf);
+                        let parent_leaves = self.persisted_cids.get_mut(&parent_id);
 
-                        assert!(previous.is_none());
+                        match (parent_id, parent_leaves, index) {
+                            (pid, None, index) => panic!(
+                                "leaves not found for parent_id = {} and index = {}",
+                                pid, index
+                            ),
+                            (_, Some(vec), index) => {
+                                let cell = &mut vec[index];
+                                // all
+                                assert!(cell.is_none());
+                                *cell = Some(NamedLeaf(name, leaf.link, leaf.total_size));
+                            }
+                        }
                     }
+
+                    return Some(Ok(TreeNode {
+                        path: self.full_path.as_str(),
+                        cid: self.cid.as_ref().unwrap(),
+                        total_size: self.total_size,
+                        block: &self.block_buffer,
+                    }));
+                }
+                Visited::PostRoot { leaves } => {
+                    let leaves = leaves.into_inner(&mut self.persisted_cids);
+
+                    if !self.opts.wrap_with_directory {
+                        break;
+                    }
+
+                    let buffer = &mut self.block_buffer;
+
+                    let leaf = match Self::render_directory(
+                        &leaves,
+                        buffer,
+                        &self.opts.block_size_limit,
+                    ) {
+                        Ok(leaf) => leaf,
+                        Err(e) => return Some(Err(e)),
+                    };
+
+                    self.cid = Some(leaf.link.clone());
+                    self.total_size = leaf.total_size;
 
                     return Some(Ok(TreeNode {
                         path: self.full_path.as_str(),
@@ -425,6 +500,11 @@ fn update_full_path(
             // this would be easier with PathBuf
             let slash_at = full_path.bytes().rposition(|ch| ch == b'/');
             if let Some(slash_at) = slash_at {
+                if *old_depth == depth && Some(&full_path[(slash_at + 1)..]) == name {
+                    // minor unmeasurable perf optimization:
+                    // going from a/b/foo/zz => a/b/foo does not need to go through the a/b
+                    return;
+                }
                 full_path.truncate(slash_at);
                 *old_depth -= 1;
             } else {
@@ -449,4 +529,65 @@ fn update_full_path(
     }
 
     assert_eq!(*old_depth, depth);
+    // eprintln!("{:>4} {:?}", depth, full_path);
+}
+
+fn partition_children_leaves(
+    depth: usize,
+    it: impl Iterator<Item = (String, Entry)>,
+    children: &mut Vec<Visited>,
+) -> Leaves {
+    let mut leaves = Vec::new();
+
+    for (i, (k, v)) in it.enumerate() {
+        match v {
+            Entry::Directory(node) => {
+                children.push(Visited::Descent {
+                    node,
+                    // this needs to be pushed down to update the full_path
+                    name: k,
+                    depth: depth + 1,
+                    index: i,
+                });
+
+                // this will be overwritten later, but the order is fixed
+                leaves.push(None);
+            }
+            Entry::Leaf(leaf) => leaves.push(Some(NamedLeaf(k, leaf.link, leaf.total_size))),
+        }
+    }
+
+    leaves
+}
+
+#[derive(Debug)]
+enum LeafStorage {
+    Direct(Leaves),
+    Stashed(u64),
+}
+
+impl LeafStorage {
+    fn into_inner(self, stash: &mut HashMap<u64, Leaves>) -> Leaves {
+        use LeafStorage::*;
+
+        match self {
+            Direct(leaves) => leaves,
+            Stashed(id) => stash
+                .remove(&id)
+                .ok_or(id)
+                .expect("could not find stashed leaves"),
+        }
+    }
+}
+
+impl From<u64> for LeafStorage {
+    fn from(key: u64) -> LeafStorage {
+        LeafStorage::Stashed(key)
+    }
+}
+
+impl From<Leaves> for LeafStorage {
+    fn from(leaves: Leaves) -> LeafStorage {
+        LeafStorage::Direct(leaves)
+    }
 }

@@ -1,7 +1,7 @@
 use super::{Entry, Leaf};
 use crate::Metadata;
-use std::collections::hash_map::Entry::*;
-use std::collections::HashMap;
+use std::collections::btree_map::Entry::*;
+use std::collections::BTreeMap;
 
 pub(super) struct DuplicateName;
 pub(super) struct FoundLeaf;
@@ -10,7 +10,7 @@ pub(super) struct FoundLeaf;
 #[derive(Debug)]
 pub(super) struct DirBuilder {
     /// Immediate files, symlinks or directories in this directory
-    pub nodes: HashMap<String, Entry>,
+    pub nodes: BTreeMap<String, Entry>,
     /// Metadata for this directory
     metadata: Metadata,
     /// Id of the parent; None for the root node
@@ -23,7 +23,7 @@ impl DirBuilder {
     pub fn new(parent_id: u64, id: u64) -> Self {
         assert_ne!(parent_id, id);
         DirBuilder {
-            nodes: HashMap::new(),
+            nodes: Default::default(),
             metadata: Default::default(),
             parent_id: Some(parent_id),
             id,
@@ -32,7 +32,7 @@ impl DirBuilder {
 
     pub fn root(id: u64) -> Self {
         DirBuilder {
-            nodes: HashMap::new(),
+            nodes: Default::default(),
             metadata: Default::default(),
             parent_id: None,
             id,
