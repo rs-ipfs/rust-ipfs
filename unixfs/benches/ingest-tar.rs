@@ -31,7 +31,7 @@ fn ingest_tar(bytes: &[u8]) {
     let mut tree = BufferingTreeBuilder::new(opts);
 
     for entry in entries {
-        let mut entry = entry.except("assuming good tar");
+        let mut entry = entry.expect("assuming good tar");
 
         let path = std::str::from_utf8(&*entry.path_bytes())
             .unwrap()

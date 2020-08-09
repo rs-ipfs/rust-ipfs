@@ -31,6 +31,11 @@ pub struct PostOrderIterator {
 /// to have only `Some` values.
 type Leaves = Vec<Option<NamedLeaf>>;
 
+/// The nodes in the visit. We need to do a post-order visit, which starts from a single
+/// `DescentRoot`, followed by N `Descents` where N is the deepest directory in the tree. On each
+/// descent, we'll need to first schedule a `Post` (or `PostRoot`) followed the immediate children
+/// of the node. Directories are rendered when all of their direct and indirect descendants have
+/// been serialized into NamedLeafs.
 #[derive(Debug)]
 enum Visited {
     // handle root differently not to infect with the Option<String> and Option<usize>
@@ -39,6 +44,7 @@ enum Visited {
         node: DirBuilder,
         name: String,
         depth: usize,
+        /// The index in the parents `Leaves` accessible through `PostOrderIterator::persisted_cids`.
         index: usize,
     },
     Post {
@@ -46,6 +52,8 @@ enum Visited {
         depth: usize,
         name: String,
         index: usize,
+        /// Leaves will be stored directly in this field when there are no DirBuilder descendants,
+        /// in the `PostOrderIterator::persisted_cids` otherwise.
         leaves: LeafStorage,
     },
     PostRoot {
@@ -168,15 +176,10 @@ impl PostOrderIterator {
             match visited {
                 Visited::DescentRoot(node) => {
                     let children = &mut self.reused_children;
-
                     let leaves = partition_children_leaves(depth, node.nodes.into_iter(), children);
-
-                    // initial idea was to validate something with
-
                     let any_children = !children.is_empty();
 
                     let leaves = if any_children {
-                        // we only need to put the leaves in there in the case of wrapping
                         self.persisted_cids.insert(node.id, leaves);
                         LeafStorage::from(node.id)
                     } else {
@@ -193,14 +196,9 @@ impl PostOrderIterator {
                     index,
                 } => {
                     let children = &mut self.reused_children;
-
                     let leaves = partition_children_leaves(depth, node.nodes.into_iter(), children);
-
                     let any_children = !children.is_empty();
-
-                    // this would be none for only the single first node, however we know already
-                    // this is not the branch DescentRoot
-                    let parent_id = node.parent_id.expect("this is not root");
+                    let parent_id = node.parent_id.expect("only roots parent_id is None");
 
                     let leaves = if any_children {
                         self.persisted_cids.insert(node.id, leaves);
@@ -227,7 +225,6 @@ impl PostOrderIterator {
                     ..
                 } => {
                     let leaves = leaves.into_inner(&mut self.persisted_cids);
-
                     let buffer = &mut self.block_buffer;
 
                     let leaf = match Self::render_directory(
@@ -450,7 +447,7 @@ impl LeafStorage {
             Stashed(id) => stash
                 .remove(&id)
                 .ok_or(id)
-                .expect("could not find stashed leaves"),
+                .expect("leaves are either stashed or direct, must able to find with id"),
         }
     }
 }
