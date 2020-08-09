@@ -1,8 +1,19 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    let tar_bytes = std::fs::read("linux-5.6.tar").expect("read failed");
-    c.bench_function("ingest-linux-tar", |b| b.iter(|| ingest_tar(&tar_bytes)));
+    let file = "benchmark.tar";
+
+    match std::fs::read(file) {
+        Ok(tar_bytes) => {
+            c.bench_function("ingest-tar", |b| b.iter(|| ingest_tar(&tar_bytes)));
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("could not find {:?}:", file);
+            eprintln!("please download a linux kernel and unpack it to enable benchmark. specific version doesn't matter.");
+            return;
+        }
+        Err(e) => panic!("failed to read the {:?}: {}", file, e),
+    }
 }
 
 fn ingest_tar(bytes: &[u8]) {
@@ -42,7 +53,7 @@ fn ingest_tar(bytes: &[u8]) {
             }
 
             if let Some(mut needed) = adder.size_hint().checked_sub(buffer.len()) {
-                let zeros = [0u8; 64];
+                let zeros = [0u8; 8];
 
                 while needed > zeros.len() {
                     buffer.extend_from_slice(&zeros[..]);

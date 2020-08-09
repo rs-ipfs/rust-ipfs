@@ -27,5 +27,5 @@ tar = { default-features = false, version = "0.4" }
 criterion = "0.3"
 
 [[bench]]
-name = "ingest-linux-tar"
+name = "ingest-tar"
 harness = false
