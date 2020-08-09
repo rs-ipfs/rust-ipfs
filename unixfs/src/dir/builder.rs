@@ -10,6 +10,9 @@ pub use iter::{OwnedTreeNode, PostOrderIterator, TreeNode};
 mod buffered;
 pub use buffered::BufferingTreeBuilder;
 
+mod custom_pb;
+use custom_pb::CustomFlatUnixFs;
+
 enum Entry {
     Leaf(Leaf),
     Directory(DirBuilder),
@@ -143,3 +146,6 @@ impl fmt::Display for TreeConstructionFailed {
 }
 
 impl std::error::Error for TreeConstructionFailed {}
+
+#[derive(Debug)]
+struct NamedLeaf(String, Cid, u64);
