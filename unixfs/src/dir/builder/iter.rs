@@ -1,4 +1,4 @@
-use super::{Entry, Leaf, TreeConstructionFailed, TreeOptions, Visited};
+use super::{DirBuilder, Entry, Leaf, TreeConstructionFailed, TreeOptions};
 use cid::Cid;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
@@ -22,13 +22,33 @@ pub struct PostOrderIterator {
     opts: TreeOptions,
 }
 
+#[derive(Debug)]
+enum Visited {
+    Descent {
+        node: DirBuilder,
+        name: Option<String>,
+        depth: usize,
+    },
+    Post {
+        parent_id: Option<u64>,
+        id: u64,
+        name: Option<String>,
+        depth: usize,
+        leaves: Vec<(String, Leaf)>,
+    },
+}
+
 impl PostOrderIterator {
-    pub(super) fn new(root: Visited, opts: TreeOptions) -> Self {
+    pub(super) fn new(root: DirBuilder, opts: TreeOptions) -> Self {
         PostOrderIterator {
             full_path: Default::default(),
             old_depth: 0,
             block_buffer: Default::default(),
-            pending: vec![root],
+            pending: vec![Visited::Descent {
+                node: root,
+                name: None,
+                depth: 0,
+            }],
             persisted_cids: Default::default(),
             reused_children: Vec::new(),
             cid: None,

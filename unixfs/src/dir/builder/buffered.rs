@@ -1,4 +1,4 @@
-use super::{DirBuilder, Entry, Leaf, PostOrderIterator, TreeBuildingFailed, TreeOptions, Visited};
+use super::{DirBuilder, Entry, Leaf, PostOrderIterator, TreeBuildingFailed, TreeOptions};
 use crate::Metadata;
 use cid::Cid;
 use std::collections::hash_map::Entry::*;
@@ -180,14 +180,7 @@ impl BufferingTreeBuilder {
     /// its data during the walk. `PostOrderIterator` implements `Iterator` while also allowing
     /// borrowed access via `next_borrowed`.
     pub fn build(self) -> PostOrderIterator {
-        PostOrderIterator::new(
-            Visited::Descent {
-                node: self.root_builder,
-                name: None,
-                depth: 0,
-            },
-            self.opts,
-        )
+        PostOrderIterator::new(self.root_builder, self.opts)
     }
 }
 

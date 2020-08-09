@@ -121,22 +121,6 @@ impl fmt::Display for TreeBuildingFailed {
 
 impl std::error::Error for TreeBuildingFailed {}
 
-#[derive(Debug)]
-enum Visited {
-    Descent {
-        node: DirBuilder,
-        name: Option<String>,
-        depth: usize,
-    },
-    Post {
-        parent_id: Option<u64>,
-        id: u64,
-        name: Option<String>,
-        depth: usize,
-        leaves: Vec<(String, Leaf)>,
-    },
-}
-
 /// Failure cases for `PostOrderIterator` creating the tree dag-pb nodes.
 #[derive(Debug)]
 pub enum TreeConstructionFailed {
