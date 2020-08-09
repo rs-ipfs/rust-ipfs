@@ -398,7 +398,10 @@ mod tests {
     }
 
     fn verify_results(
-        mut expected: Vec<(impl AsRef<str>, impl AsRef<str>)>,
+        mut expected: Vec<(
+            impl AsRef<str> + std::fmt::Debug,
+            impl AsRef<str> + std::fmt::Debug,
+        )>,
         mut actual: Vec<(String, Cid, Box<[u8]>)>,
     ) {
         use std::fmt;
@@ -431,7 +434,7 @@ mod tests {
             );
         }
 
-        assert_eq!(expected.len(), 0);
+        assert_eq!(expected.len(), 0, "size mismatch: {:?}", actual);
     }
 
     /// Returns a quick and dirty sha2-256 of the given number as a Cidv0
