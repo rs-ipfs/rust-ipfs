@@ -403,9 +403,10 @@ fn update_full_path(
     }
 
     assert_eq!(*old_depth, depth);
-    // eprintln!("{:>4} {:?}", depth, full_path);
 }
 
+/// Returns a Vec of the links in order with only the leaves, the given `children` will contain yet
+/// incomplete nodes of the tree.
 fn partition_children_leaves(
     depth: usize,
     it: impl Iterator<Item = (String, Entry)>,
