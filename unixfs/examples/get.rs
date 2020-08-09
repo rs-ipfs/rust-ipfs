@@ -56,9 +56,9 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
 
     let mut buf = Vec::new();
     let mut cache = None;
-    let mut visit = Some(Walker::new(start.to_owned(), String::new()));
+    let mut walker = Walker::new(start.to_owned(), String::new());
 
-    while let Some(walker) = visit {
+    while walker.should_continue() {
         buf.clear();
 
         // Note: if you bind the pending or the "prefetchable", it must be dropped before the next
@@ -70,49 +70,44 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
         // interface for all of the nodes. we could start moving Metadata to the ContinuedWalk in
         // the future to have it matched immediatedly, or have an "Item" for different types of
         // items.
-        visit = match walker.continue_walk(&buf, &mut cache)? {
-            ContinuedWalk::File(segment, item) => {
-                if let Entry::Metadata(MetadataEntry::File(.., path, md, size)) = item.as_entry() {
-                    if segment.is_first() {
-                        // this is set on the root block, no actual bytes are present for multiblock
-                        // files
-                    }
+        match walker.inspect(&buf, &mut cache)? {
+            ContinuedWalk::File(
+                segment,
+                Entry::Metadata(MetadataEntry::File(.., path, md, size)),
+            ) => {
+                if segment.is_first() {
+                    // this is set on the root block, no actual bytes are present for multiblock
+                    // files
+                }
 
-                    if segment.is_last() {
-                        let mode = md.mode().unwrap_or(0o0644) & 0o7777;
-                        let (seconds, _) = md.mtime().unwrap_or((0, 0));
-                        println!("f {:o} {:>12} {:>16} {:?}", mode, seconds, size, path);
-                    }
+                if segment.is_last() {
+                    let mode = md.mode().unwrap_or(0o0644) & 0o7777;
+                    let (seconds, _) = md.mtime().unwrap_or((0, 0));
+                    println!("f {:o} {:>12} {:>16} {:?}", mode, seconds, size, path);
                 }
-                item.into_inner()
             }
-            ContinuedWalk::Directory(item) => {
-                // presense of metadata can be used to determine if this is the first apperiance of
-                // a directory by looking at the metadata: sibling hamt shard buckets do not have
-                // metadata.
-                if let Entry::Metadata(metadata_entry) = item.as_entry() {
-                    let metadata = metadata_entry.metadata();
-                    let path = item.as_entry().path();
-                    let mode = metadata.mode().unwrap_or(0o0755) & 0o7777;
-                    let (seconds, _) = metadata.mtime().unwrap_or((0, 0));
-                    println!("d {:o} {:>12} {:>16} {:?}", mode, seconds, "-", path);
-                }
-                item.into_inner()
+            // presense of metadata can be used to determine if this is the first apperiance of
+            // a directory by looking at the metadata: sibling hamt shard buckets do not have
+            // metadata.
+            ContinuedWalk::Directory(Entry::Metadata(metadata_entry)) => {
+                let metadata = metadata_entry.metadata();
+                let path = metadata_entry.path();
+                let mode = metadata.mode().unwrap_or(0o0755) & 0o7777;
+                let (seconds, _) = metadata.mtime().unwrap_or((0, 0));
+                println!("d {:o} {:>12} {:>16} {:?}", mode, seconds, "-", path);
             }
-            ContinuedWalk::Symlink(bytes, item) => {
-                if let Entry::Metadata(metadata_entry) = item.as_entry() {
-                    let metadata = metadata_entry.metadata();
-                    let path = metadata_entry.path();
-                    let target = Path::new(std::str::from_utf8(bytes).unwrap());
-                    let mode = metadata.mode().unwrap_or(0o0755) & 0o7777;
-                    let (seconds, _) = metadata.mtime().unwrap_or((0, 0));
-                    println!(
-                        "s {:o} {:>12} {:>16} {:?} -> {:?}",
-                        mode, seconds, "-", path, target
-                    );
-                }
-                item.into_inner()
+            ContinuedWalk::Symlink(bytes, Entry::Metadata(metadata_entry)) => {
+                let metadata = metadata_entry.metadata();
+                let path = metadata_entry.path();
+                let target = Path::new(std::str::from_utf8(bytes).unwrap());
+                let mode = metadata.mode().unwrap_or(0o0755) & 0o7777;
+                let (seconds, _) = metadata.mtime().unwrap_or((0, 0));
+                println!(
+                    "s {:o} {:>12} {:>16} {:?} -> {:?}",
+                    mode, seconds, "-", path, target
+                );
             }
+            _ => {}
         };
     }
 

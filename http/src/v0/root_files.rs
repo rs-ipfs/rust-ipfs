@@ -150,74 +150,66 @@ fn walk<Types: IpfsTypes>(
     // the HTTP api uses the final Cid name as the root name in the generated tar
     // archive.
     let name = root.to_string();
-    let mut visit: Option<Walker> = Some(Walker::new(root, name));
+    let mut walker = Walker::new(root, name);
 
     try_stream! {
-        while let Some(walker) = visit {
+        while walker.should_continue() {
             let (next, _) = walker.pending_links();
             let Block { data, .. } = ipfs.get_block(next).await?;
 
-            visit = match walker.continue_walk(&data, &mut cache)? {
-                ContinuedWalk::File(segment, item) => {
-                    if let Entry::Metadata(MetadataEntry::File(.., p, md, size)) = item.as_entry() {
-                        if segment.is_first() {
-                            for bytes in tar_helper.apply_file(p, md, size)?.iter_mut() {
-                                if let Some(bytes) = bytes.take() {
-                                    yield bytes;
-                                }
-                            }
-                        }
-
-                        // even if the largest of files can have 256 kB blocks and about the same
-                        // amount of content, try to consume it in small parts not to grow the buffers
-                        // too much.
-
-                        let mut n = 0usize;
-                        let slice = segment.as_ref();
-                        let total = slice.len();
-
-                        while n < total {
-                            let next = tar_helper.buffer_file_contents(&slice[n..]);
-                            n += next.len();
-                            yield next;
-                        }
-
-                        if segment.is_last() {
-                            if let Some(zeroes) = tar_helper.pad(size) {
-                                yield zeroes;
-                            }
-                        }
-                    }
-                    item.into_inner()
-                },
-                ContinuedWalk::Directory(item) => {
-                    if let Entry::Metadata(metadata_entry) = item.as_entry() {
-                        let metadata = metadata_entry.metadata();
-                        let path = metadata_entry.path();
-                        for bytes in tar_helper.apply_directory(path, metadata)?.iter_mut() {
+            match walker.inspect(&data, &mut cache)? {
+                ContinuedWalk::File(segment, Entry::Metadata(MetadataEntry::File(.., p, md, size))) => {
+                    if segment.is_first() {
+                        for bytes in tar_helper.apply_file(p, md, size)?.iter_mut() {
                             if let Some(bytes) = bytes.take() {
                                 yield bytes;
                             }
                         }
                     }
-                    item.into_inner()
-                },
-                ContinuedWalk::Symlink(bytes, item) => {
-                    if let Entry::Metadata(metadata_entry) = item.as_entry() {
-                        // converting a symlink is the most tricky part
-                        let path = metadata_entry.path();
-                        let target = std::str::from_utf8(bytes).map_err(|_| GetError::NonUtf8Symlink)?;
-                        let target = Path::new(target);
-                        let metadata = metadata_entry.metadata();
 
-                        for bytes in tar_helper.apply_symlink(path, target, metadata)?.iter_mut() {
-                            if let Some(bytes) = bytes.take() {
-                                yield bytes;
-                            }
+                    // even if the largest of files can have 256 kB blocks and about the same
+                    // amount of content, try to consume it in small parts not to grow the buffers
+                    // too much.
+
+                    let mut n = 0usize;
+                    let slice = segment.as_ref();
+                    let total = slice.len();
+
+                    while n < total {
+                        let next = tar_helper.buffer_file_contents(&slice[n..]);
+                        n += next.len();
+                        yield next;
+                    }
+
+                    if segment.is_last() {
+                        if let Some(zeroes) = tar_helper.pad(size) {
+                            yield zeroes;
                         }
                     }
-                    item.into_inner()
                 },
+                ContinuedWalk::Directory(Entry::Metadata(metadata_entry)) => {
+                    let metadata = metadata_entry.metadata();
+                    let path = metadata_entry.path();
+                    for bytes in tar_helper.apply_directory(path, metadata)?.iter_mut() {
+                        if let Some(bytes) = bytes.take() {
+                            yield bytes;
+                        }
+                    }
+                },
+                ContinuedWalk::Symlink(bytes, Entry::Metadata(metadata_entry)) => {
+                    // converting a symlink is the most tricky part
+                    let path = metadata_entry.path();
+                    let target = std::str::from_utf8(bytes).map_err(|_| GetError::NonUtf8Symlink)?;
+                    let target = Path::new(target);
+                    let metadata = metadata_entry.metadata();
+
+                    for bytes in tar_helper.apply_symlink(path, target, metadata)?.iter_mut() {
+                        if let Some(bytes) = bytes.take() {
+                            yield bytes;
+                        }
+                    }
+                },
+                _ => {}
             };
         }
     }
