@@ -23,6 +23,10 @@ pub struct PostOrderIterator {
     opts: TreeOptions,
 }
 
+/// The link list used to create the directory node. This list is created from a the BTreeMap
+/// inside DirBuilder, and initially it will have `Some` values only for the initial leaves and
+/// `None` values for subnodes which are not yet ready. At the time of use, this list is expected
+/// to have only `Some` values.
 type Leaves = Vec<Option<NamedLeaf>>;
 
 #[derive(Debug)]
@@ -30,7 +34,7 @@ struct NamedLeaf(String, Cid, u64);
 
 #[derive(Debug)]
 enum Visited {
-    // handle root differently not to infect everything with the Option<String> and so on
+    // handle root differently not to infect with the Option<String> and Option<usize>
     DescentRoot(DirBuilder),
     Descent {
         node: DirBuilder,
@@ -116,38 +120,30 @@ impl PostOrderIterator {
                 use cid::Version::*;
 
                 match self.0.version() {
-                    V0 => self
-                        .0
-                        .hash()
-                        .as_bytes()
-                        .iter()
-                        .try_for_each(|b| w.write_u8(*b)),
+                    V0 => { /* cidv0 has only the _multi_hash */ }
                     V1 => {
-                        // it is possible that Cidv1 should not be linked to from a unixfs
+                        // it is possible that CidV1 should not be linked to from a unixfs
                         // directory; at least go-ipfs 0.5 `ipfs files` denies making a cbor link
+                        // but happily accepts and does refs over one.
                         w.write_u8(1)?;
                         w.write_varint(u64::from(self.0.codec()))?;
-                        self.0
-                            .hash()
-                            .as_bytes()
-                            .iter()
-                            .try_for_each(|b| w.write_u8(*b))
                     }
                 }
+
+                self.0
+                    .hash()
+                    .as_bytes()
+                    .iter()
+                    // while this looks bad it cannot be measured; note we cannot use the
+                    // write_bytes because that is length prefixed bytes write
+                    .try_for_each(|b| w.write_u8(*b))
             }
         }
 
-        /// Newtype which uses the BTreeMap<String, Leaf> as Vec<PBLink>.
-        struct BTreeMappedDir<'a> {
-            links: &'a [Option<NamedLeaf>],
-            data: UnixFs<'a>,
-        }
+        /// Custom NamedLeaf as PBLink "adapter."
+        struct NamedLeafAsPBLink<'a>(&'a NamedLeaf);
 
-        /// Newtype which represents an entry from BTreeMap<String, Leaf> as PBLink as far as the
-        /// protobuf representation goes.
-        struct EntryAsPBLink<'a>(&'a NamedLeaf);
-
-        impl<'a> MessageWrite for EntryAsPBLink<'a> {
+        impl<'a> MessageWrite for NamedLeafAsPBLink<'a> {
             fn get_size(&self) -> usize {
                 use quick_protobuf::sizeofs::*;
 
@@ -172,15 +168,21 @@ impl PostOrderIterator {
             }
         }
 
-        impl<'a> BTreeMappedDir<'a> {
-            fn mapped(&self) -> impl Iterator<Item = EntryAsPBLink<'_>> + '_ {
+        /// Newtype which uses the &[Option<(NamedLeaf)>] as Vec<PBLink>.
+        struct CustomFlatUnixFs<'a> {
+            links: &'a [Option<NamedLeaf>],
+            data: UnixFs<'a>,
+        }
+
+        impl<'a> CustomFlatUnixFs<'a> {
+            fn mapped(&self) -> impl Iterator<Item = NamedLeafAsPBLink<'_>> + '_ {
                 self.links
                     .iter()
-                    .map(|triple| triple.as_ref().map(|l| EntryAsPBLink(l)).unwrap())
+                    .map(|triple| triple.as_ref().map(|l| NamedLeafAsPBLink(l)).unwrap())
             }
         }
 
-        impl<'a> MessageWrite for BTreeMappedDir<'a> {
+        impl<'a> MessageWrite for CustomFlatUnixFs<'a> {
             fn get_size(&self) -> usize {
                 use quick_protobuf::sizeofs::*;
 
@@ -191,6 +193,7 @@ impl PostOrderIterator {
 
                 links + 1 + sizeof_len(self.data.get_size())
             }
+
             fn write_message<W: WriterBackend>(
                 &self,
                 w: &mut Writer<W>,
@@ -202,7 +205,7 @@ impl PostOrderIterator {
             }
         }
 
-        let btreed = BTreeMappedDir {
+        let node = CustomFlatUnixFs {
             links,
             data: UnixFs {
                 Type: UnixFsType::Directory,
@@ -210,37 +213,15 @@ impl PostOrderIterator {
             },
         };
 
-        /*
-
-        use crate::pb::{FlatUnixFs, PBLink};
-        use std::borrow::Cow;
-        let btreed = FlatUnixFs {
-            links: links
-                .iter() // .drain() would be the most reasonable
-                .map(|(name, Leaf { link, total_size })| PBLink {
-                    Hash: Some(link.to_bytes().into()),
-                    Name: Some(Cow::Borrowed(name.as_str())),
-                    Tsize: Some(*total_size),
-                })
-                .collect::<Vec<_>>(),
-            data: UnixFs {
-                Type: UnixFsType::Directory,
-                ..Default::default()
-            },
-        };*/
-        /**/
-        let size = btreed.get_size();
+        let size = node.get_size();
 
         if let Some(limit) = block_size_limit {
             let size = size as u64;
             if *limit < size {
-                // FIXME: this could probably be detected at
+                // FIXME: this could probably be detected at builder
                 return Err(TreeConstructionFailed::TooLargeBlock(size));
             }
         }
-
-        // FIXME: we shouldn't be creating too large structures (bitswap block size limit!)
-        // FIXME: changing this to autosharding is going to take some thinking
 
         let cap = buffer.capacity();
 
@@ -248,13 +229,19 @@ impl PostOrderIterator {
             buffer.reserve(additional);
         }
 
-        if let Some(needed_zeroes) = size.checked_sub(buffer.len()) {
+        if let Some(mut needed_zeroes) = size.checked_sub(buffer.len()) {
+            let zeroes = [0; 8];
+
+            while needed_zeroes > 8 {
+                buffer.extend_from_slice(&zeroes[..]);
+                needed_zeroes -= zeroes.len();
+            }
+
             buffer.extend(std::iter::repeat(0).take(needed_zeroes));
         }
 
         let mut writer = Writer::new(BytesWriter::new(&mut buffer[..]));
-        btreed
-            .write_message(&mut writer)
+        node.write_message(&mut writer)
             .map_err(TreeConstructionFailed::Protobuf)?;
 
         buffer.truncate(size);
