@@ -1,8 +1,6 @@
 //! P2P handling for IPFS nodes.
-use crate::{Ipfs, IpfsOptions, IpfsTypes};
-use libp2p::identity::Keypair;
+use crate::{Ipfs, IpfsTypes};
 use libp2p::Swarm;
-use libp2p::{Multiaddr, PeerId};
 use tracing::Span;
 
 mod behaviour;
@@ -14,50 +12,17 @@ pub use swarm::{Connection, ConnectionTarget};
 
 pub type TSwarm<T> = Swarm<behaviour::Behaviour<T>>;
 
-pub struct SwarmOptions {
-    pub keypair: Keypair,
-    pub peer_id: PeerId,
-    pub bootstrap: Vec<(Multiaddr, PeerId)>,
-    pub mdns: bool,
-    pub kad_protocol: Option<String>,
-}
-
-impl From<IpfsOptions> for SwarmOptions {
-    fn from(options: IpfsOptions) -> Self {
-        let IpfsOptions {
-            keypair,
-            bootstrap,
-            mdns,
-            kad_protocol,
-            ..
-        } = options;
-
-        let peer_id = keypair.public().into_peer_id();
-
-        SwarmOptions {
-            keypair,
-            peer_id,
-            bootstrap,
-            mdns,
-            kad_protocol,
-        }
-    }
-}
-
 /// Creates a new IPFS swarm.
-pub async fn create_swarm<TIpfsTypes: IpfsTypes>(
-    options: SwarmOptions,
-    ipfs: Ipfs<TIpfsTypes>,
-) -> TSwarm<TIpfsTypes> {
-    let peer_id = options.peer_id.clone();
+pub async fn create_swarm<TIpfsTypes: IpfsTypes>(ipfs: Ipfs<TIpfsTypes>) -> TSwarm<TIpfsTypes> {
+    let peer_id = ipfs.options.keypair.public().into_peer_id();
 
     // Set up an encrypted TCP transport over the Mplex protocol.
-    let transport = transport::build_transport(options.keypair.clone());
+    let transport = transport::build_transport(ipfs.options.keypair.clone());
 
     let swarm_span = ipfs.0.span.clone();
 
     // Create a Kademlia behaviour
-    let behaviour = behaviour::build_behaviour(options, ipfs).await;
+    let behaviour = behaviour::build_behaviour(ipfs).await;
 
     // Create a Swarm
     let mut swarm = libp2p::swarm::SwarmBuilder::new(transport, behaviour, peer_id)

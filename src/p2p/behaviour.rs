@@ -1,6 +1,5 @@
 use super::pubsub::Pubsub;
 use super::swarm::{Connection, ConnectionTarget, Disconnector, SwarmApi};
-use crate::p2p::SwarmOptions;
 use crate::repo::BlockPut;
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use crate::{Ipfs, IpfsTypes};
@@ -336,27 +335,28 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour
 
 impl<Types: IpfsTypes> Behaviour<Types> {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
-    pub async fn new(options: SwarmOptions, ipfs: Ipfs<Types>) -> Self {
-        info!("net: starting with peer id {}", options.peer_id);
+    pub async fn new(ipfs: Ipfs<Types>) -> Self {
+        let peer_id = ipfs.options.keypair.public().into_peer_id();
+        info!("net: starting with peer id {}", peer_id);
 
-        let mdns = if options.mdns {
+        let mdns = if ipfs.options.mdns {
             Some(Mdns::new().expect("Failed to create mDNS service"))
         } else {
             None
         }
         .into();
 
-        let store = MemoryStore::new(options.peer_id.to_owned());
+        let store = MemoryStore::new(peer_id.to_owned());
 
         let mut kad_config = KademliaConfig::default();
         kad_config.disjoint_query_paths(true);
         kad_config.set_query_timeout(std::time::Duration::from_secs(300));
-        if let Some(protocol) = options.kad_protocol {
-            kad_config.set_protocol_name(protocol.into_bytes());
+        if let Some(ref protocol) = ipfs.options.kad_protocol {
+            kad_config.set_protocol_name(protocol.clone().into_bytes());
         }
-        let mut kademlia = Kademlia::with_config(options.peer_id.to_owned(), store, kad_config);
+        let mut kademlia = Kademlia::with_config(peer_id.to_owned(), store, kad_config);
 
-        for (addr, peer_id) in &options.bootstrap {
+        for (addr, peer_id) in &ipfs.options.bootstrap {
             kademlia.add_address(peer_id, addr.to_owned());
         }
 
@@ -365,9 +365,9 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         let identify = Identify::new(
             "/ipfs/0.1.0".into(),
             "rust-ipfs".into(),
-            options.keypair.public(),
+            ipfs.options.keypair.public(),
         );
-        let pubsub = Pubsub::new(options.peer_id);
+        let pubsub = Pubsub::new(peer_id);
         let swarm = SwarmApi::default();
 
         Behaviour {
@@ -480,8 +480,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.
 pub async fn build_behaviour<TIpfsTypes: IpfsTypes>(
-    options: SwarmOptions,
     ipfs: Ipfs<TIpfsTypes>,
 ) -> Behaviour<TIpfsTypes> {
-    Behaviour::new(options, ipfs).await
+    Behaviour::new(ipfs).await
 }

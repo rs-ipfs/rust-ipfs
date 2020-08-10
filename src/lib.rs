@@ -46,7 +46,7 @@ use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
 pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
-use self::p2p::{create_swarm, SwarmOptions, TSwarm};
+use self::p2p::{create_swarm, TSwarm};
 pub use self::p2p::{Connection, ConnectionTarget};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
@@ -340,8 +340,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             to_task,
         }));
 
-        let swarm_options = SwarmOptions::from(options);
-        let swarm = create_swarm(swarm_options, ipfs.clone()).await;
+        let swarm = create_swarm(ipfs.clone()).await;
 
         let fut = IpfsFuture {
             repo_events: repo_events.fuse(),
