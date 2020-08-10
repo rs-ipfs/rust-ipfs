@@ -101,21 +101,31 @@ impl SwarmApi {
         self.roundtrip_times.insert(peer_id.clone(), rtt);
     }
 
-    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<(), String> {
+    pub fn connect(&mut self, target: ConnectionTarget) -> Option<SubscriptionFuture<(), String>> {
+        let will_attempt_connection = match target {
+            ConnectionTarget::PeerId(ref id) => self.connected_peers.get(id).is_none(),
+            ConnectionTarget::Addr(ref addr) => !self.connections.contains_key(addr),
+        };
+
+        if !will_attempt_connection {
+            return None;
+        }
+
         trace!("Connecting to {:?}", target);
 
+        let subscription = self
+            .connect_registry
+            .create_subscription(target.clone().into(), None);
+
         self.events.push_back(match target {
-            ConnectionTarget::Addr(ref addr) => NetworkBehaviourAction::DialAddress {
-                address: addr.clone(),
-            },
-            ConnectionTarget::PeerId(ref id) => NetworkBehaviourAction::DialPeer {
-                peer_id: id.clone(),
+            ConnectionTarget::Addr(address) => NetworkBehaviourAction::DialAddress { address },
+            ConnectionTarget::PeerId(peer_id) => NetworkBehaviourAction::DialPeer {
+                peer_id,
                 condition: DialPeerCondition::Disconnected,
             },
         });
 
-        self.connect_registry
-            .create_subscription(target.into(), None)
+        Some(subscription)
     }
 
     pub fn disconnect(&mut self, address: Multiaddr) -> Option<Disconnector> {
@@ -211,6 +221,10 @@ impl NetworkBehaviour for SwarmApi {
             closed_addr.clone().into(),
             Err("Connection reset by peer".to_owned()),
         );
+        self.connect_registry.finish_subscription(
+            peer_id.clone().into(),
+            Err("Connection reset by peer".to_owned()),
+        );
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
@@ -223,13 +237,17 @@ impl NetworkBehaviour for SwarmApi {
 
     fn inject_addr_reach_failure(
         &mut self,
-        _peer_id: Option<&PeerId>,
+        peer_id: Option<&PeerId>,
         addr: &Multiaddr,
         error: &dyn std::error::Error,
     ) {
         trace!("inject_addr_reach_failure {} {}", addr, error);
         self.connect_registry
             .finish_subscription(addr.clone().into(), Err(error.to_string()));
+        if let Some(peer_id) = peer_id {
+            self.connect_registry
+                .finish_subscription(peer_id.clone().into(), Err(error.to_string()));
+        }
     }
 
     fn poll(
@@ -270,7 +288,9 @@ mod tests {
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
         for l in Swarm::listeners(&swarm1) {
-            swarm2.connect(l.to_owned().into()).await.unwrap();
+            if let Some(fut) = swarm2.connect(l.to_owned().into()) {
+                fut.await.unwrap();
+            }
         }
     }
 

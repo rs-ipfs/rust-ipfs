@@ -410,7 +410,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.swarm.connections()
     }
 
-    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<(), String> {
+    pub fn connect(&mut self, target: ConnectionTarget) -> Option<SubscriptionFuture<(), String>> {
         self.swarm.connect(target)
     }
 
