@@ -22,13 +22,17 @@ pub struct SwarmOptions {
     pub kad_protocol: Option<String>,
 }
 
-impl From<&IpfsOptions> for SwarmOptions {
-    fn from(options: &IpfsOptions) -> Self {
-        let keypair = options.keypair.clone();
+impl From<IpfsOptions> for SwarmOptions {
+    fn from(options: IpfsOptions) -> Self {
+        let IpfsOptions {
+            keypair,
+            bootstrap,
+            mdns,
+            kad_protocol,
+            ..
+        } = options;
+
         let peer_id = keypair.public().into_peer_id();
-        let bootstrap = options.bootstrap.clone();
-        let mdns = options.mdns;
-        let kad_protocol = options.kad_protocol.clone();
 
         SwarmOptions {
             keypair,

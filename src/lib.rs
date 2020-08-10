@@ -75,6 +75,16 @@ impl RepoTypes for TestTypes {
     type TDataStore = repo::mem::MemDataStore;
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+/// The way the IPFS node operates within the Kademlia DHT.
+pub enum DhtMode {
+    /// As a client, able to discover peers and content.
+    Client,
+    /// As a server, able to both discover peers and data
+    /// and also provide them to the network's DHT.
+    Server,
+}
+
 /// Ipfs options
 #[derive(Clone)]
 pub struct IpfsOptions {
@@ -88,6 +98,8 @@ pub struct IpfsOptions {
     pub mdns: bool,
     /// Custom Kademlia protocol name.
     pub kad_protocol: Option<String>,
+    /// DHT mode.
+    pub dht_mode: DhtMode,
 }
 
 impl fmt::Debug for IpfsOptions {
@@ -113,6 +125,7 @@ impl IpfsOptions {
             mdns: Default::default(),
             bootstrap: Default::default(),
             kad_protocol: Default::default(),
+            dht_mode: DhtMode::Client,
         }
     }
 }
@@ -147,6 +160,7 @@ impl IpfsOptions {
         bootstrap: Vec<(Multiaddr, PeerId)>,
         mdns: bool,
         kad_protocol: Option<String>,
+        dht_mode: DhtMode,
     ) -> Self {
         Self {
             ipfs_path,
@@ -154,6 +168,7 @@ impl IpfsOptions {
             bootstrap,
             mdns,
             kad_protocol,
+            dht_mode,
         }
     }
 }
@@ -203,6 +218,7 @@ impl Default for IpfsOptions {
             bootstrap,
             mdns: true,
             kad_protocol: None,
+            dht_mode: DhtMode::Client,
         }
     }
 }
@@ -221,6 +237,7 @@ impl<Types: IpfsTypes> Clone for Ipfs<Types> {
 #[derive(Debug)]
 pub struct IpfsInner<Types: IpfsTypes> {
     pub span: Span,
+    options: IpfsOptions,
     repo: Repo<Types>,
     keys: DebuggableKeypair<Keypair>,
     to_task: Sender<IpfsEvent>,
@@ -308,7 +325,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             span,
             keys,
             repo_events,
-            ..
+            options,
         } = self;
 
         repo.init().await?;
@@ -316,13 +333,14 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let (to_task, receiver) = channel::<IpfsEvent>(1);
 
         let ipfs = Ipfs(Arc::new(IpfsInner {
+            options: options.clone(),
             span,
             repo,
             keys: DebuggableKeypair(keys),
             to_task,
         }));
 
-        let swarm_options = SwarmOptions::from(&self.options);
+        let swarm_options = SwarmOptions::from(options);
         let swarm = create_swarm(swarm_options, ipfs.clone()).await;
 
         let fut = IpfsFuture {
