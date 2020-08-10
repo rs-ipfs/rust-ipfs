@@ -1,7 +1,7 @@
 use crate::error::{Error, TryError};
+use crate::ipld::Ipld;
 use cid::Cid;
 use core::convert::{TryFrom, TryInto};
-use libipld::ipld::Ipld;
 use libp2p::PeerId;
 use std::fmt;
 use std::str::FromStr;

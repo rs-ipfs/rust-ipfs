@@ -2,9 +2,9 @@ use crate::v0::support::{with_ipfs, MaybeTimeoutExt, StringError};
 use cid::{self, Cid};
 use futures::stream;
 use futures::stream::Stream;
+use ipfs::ipld::{decode_ipld, Ipld};
 use ipfs::{Block, Error};
 use ipfs::{Ipfs, IpfsTypes};
-use libipld::{block::decode_ipld, Ipld};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::VecDeque;
@@ -161,7 +161,7 @@ pub struct WalkError {
 #[derive(Debug)]
 pub enum WalkFailed {
     Loading(Error),
-    Parsing(libipld::error::BlockError),
+    Parsing(ipfs::ipld::BlockError),
     DagPb(ipfs::unixfs::ll::ResolveError),
     IpldWalking(path::WalkFailed),
 }
@@ -204,8 +204,8 @@ impl From<Error> for WalkFailed {
     }
 }
 
-impl From<libipld::error::BlockError> for WalkFailed {
-    fn from(e: libipld::error::BlockError) -> Self {
+impl From<ipfs::ipld::BlockError> for WalkFailed {
+    fn from(e: ipfs::ipld::BlockError) -> Self {
         WalkFailed::Parsing(e)
     }
 }
@@ -621,8 +621,8 @@ mod tests {
     use super::{ipld_links, local, refs_paths, Edge, IpfsPath};
     use cid::{self, Cid};
     use futures::stream::TryStreamExt;
+    use ipfs::ipld::{decode_ipld, validate};
     use ipfs::{Block, Node};
-    use libipld::block::{decode_ipld, validate};
     use std::collections::HashSet;
     use std::convert::TryFrom;
 
