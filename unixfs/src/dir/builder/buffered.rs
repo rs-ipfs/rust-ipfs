@@ -33,16 +33,15 @@ impl BufferingTreeBuilder {
         }
     }
 
-    /// Registers the given path to be a link to the cid that follows.
-    ///
-    /// FIXME: this should be renamed as "put_leaf" or "put_opaque_leaf".
-    pub fn put_file(
+    /// Registers the given path to be a link to the cid that follows. The target leaf should be
+    /// either a file, directory or symlink but could of course be anything. It will be treated as
+    /// an opaque link.
+    pub fn put_link(
         &mut self,
         full_path: &str,
         target: Cid,
         total_size: u64,
     ) -> Result<(), TreeBuildingFailed> {
-        // inserted at the depth
         let leaf = Leaf {
             link: target,
             total_size,
@@ -201,13 +200,13 @@ mod tests {
             Cid::try_from("QmRJHYTNvC3hmd9gJQARxLR1QMEincccBV53bBw524yyq6").unwrap();
 
         builder
-            .put_file("a/b/c/d/e/f/g.txt", five_block_foobar.clone(), 221)
+            .put_link("a/b/c/d/e/f/g.txt", five_block_foobar.clone(), 221)
             .unwrap();
         builder
-            .put_file("a/b/c/d/e/h.txt", five_block_foobar.clone(), 221)
+            .put_link("a/b/c/d/e/h.txt", five_block_foobar.clone(), 221)
             .unwrap();
         builder
-            .put_file("a/b/c/d/e/i.txt", five_block_foobar, 221)
+            .put_link("a/b/c/d/e/i.txt", five_block_foobar, 221)
             .unwrap();
 
         let actual = builder
@@ -237,7 +236,7 @@ mod tests {
     #[test]
     fn empty_path() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("", some_cid(0), 1).unwrap();
+        builder.put_link("", some_cid(0), 1).unwrap();
 
         let actual = builder
             .build()
@@ -255,14 +254,14 @@ mod tests {
     #[should_panic]
     fn rooted_path() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("/a", some_cid(0), 1).unwrap();
+        builder.put_link("/a", some_cid(0), 1).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn successive_slashes() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("a//b", some_cid(0), 1).unwrap();
+        builder.put_link("a//b", some_cid(0), 1).unwrap();
     }
 
     #[test]
@@ -275,9 +274,9 @@ mod tests {
         opts.wrap_with_directory();
         let mut builder = BufferingTreeBuilder::new(opts);
         builder
-            .put_file("a", five_block_foobar.clone(), 221)
+            .put_link("a", five_block_foobar.clone(), 221)
             .unwrap();
-        builder.put_file("b", five_block_foobar, 221).unwrap();
+        builder.put_link("b", five_block_foobar, 221).unwrap();
 
         let actual = builder
             .build()
@@ -303,7 +302,7 @@ mod tests {
         let mut opts = TreeOptions::default();
         opts.wrap_with_directory();
         let mut builder = BufferingTreeBuilder::new(opts);
-        builder.put_file("a", five_block_foobar, 221).unwrap();
+        builder.put_link("a", five_block_foobar, 221).unwrap();
 
         let actual = builder
             .build()
@@ -324,24 +323,24 @@ mod tests {
     #[should_panic]
     fn denied_multiple_root_dirs() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("a/c.txt", some_cid(0), 1).unwrap();
-        builder.put_file("b/d.txt", some_cid(1), 1).unwrap();
+        builder.put_link("a/c.txt", some_cid(0), 1).unwrap();
+        builder.put_link("b/d.txt", some_cid(1), 1).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn denied_multiple_root_files() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("a.txt", some_cid(0), 1).unwrap();
-        builder.put_file("b.txt", some_cid(1), 1).unwrap();
+        builder.put_link("a.txt", some_cid(0), 1).unwrap();
+        builder.put_link("b.txt", some_cid(1), 1).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn using_leaf_as_node() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("a.txt", some_cid(0), 1).unwrap();
-        builder.put_file("a.txt/b.txt", some_cid(1), 1).unwrap();
+        builder.put_link("a.txt", some_cid(0), 1).unwrap();
+        builder.put_link("a.txt/b.txt", some_cid(1), 1).unwrap();
     }
 
     #[test]
@@ -350,8 +349,8 @@ mod tests {
         builder
             .set_metadata("a/b/c/d", Metadata::default())
             .unwrap();
-        builder.put_file("a/b/c/d/e.txt", some_cid(1), 1).unwrap();
-        builder.put_file("a/b/c/d/f.txt", some_cid(2), 1).unwrap();
+        builder.put_link("a/b/c/d/e.txt", some_cid(1), 1).unwrap();
+        builder.put_link("a/b/c/d/f.txt", some_cid(2), 1).unwrap();
 
         let actual = builder
             .build()
@@ -365,7 +364,7 @@ mod tests {
     #[test]
     fn set_metadata_on_file() {
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("a/a.txt", some_cid(0), 1).unwrap();
+        builder.put_link("a/a.txt", some_cid(0), 1).unwrap();
         let err = builder
             .set_metadata("a/a.txt", Metadata::default())
             .unwrap_err();
@@ -384,7 +383,7 @@ mod tests {
             Cid::try_from("bafyreihakpd7te5nbmlhdk5ntvcvhf2hmfgrvcwna2sddq5zz5342mcbli").unwrap();
 
         let mut builder = BufferingTreeBuilder::default();
-        builder.put_file("a/b", target, 12).unwrap();
+        builder.put_link("a/b", target, 12).unwrap();
 
         let actual = builder
             .build()

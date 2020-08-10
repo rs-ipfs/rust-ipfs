@@ -82,7 +82,7 @@ fn ingest_tar(bytes: &[u8]) {
 
                         total_written += subtotal;
 
-                        tree.put_file(&path, cid, total_written as u64).unwrap();
+                        tree.put_link(&path, cid, total_written as u64).unwrap();
                         break;
                     }
                     n => {

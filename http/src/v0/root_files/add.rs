@@ -212,7 +212,7 @@ where
 
                     // using the filename as the path since we can tolerate a single empty named file
                     // however the second one will cause issues
-                    tree.put_file(&filename, root.clone(), total_written)
+                    tree.put_link(&filename, root.clone(), total_written)
                         .map_err(AddError::TreeGathering)?;
 
                     let filename: Cow<'_, str> = if filename.is_empty() {
