@@ -204,7 +204,9 @@ where
                     let (root, subtotal) = import_all(&ipfs, adder.finish())
                         .await
                         .map_err(AddError::Persisting)?
-                        .expect("I think there should always be something from finish -- except if the link block has just been compressed?");
+                        // there was a bug in ipfs-unixfs however in general the "push" operation
+                        // should flush so that the final finish would still have work to do.
+                        .expect("there should always be something from finish");
 
                     total_written += subtotal;
 
@@ -217,7 +219,8 @@ where
 
                     let filename: Cow<'_, str> = if filename.is_empty() {
                         // cid needs to be repeated if no filename was given; in which case there
-                        // should not be anything to build as tree either.
+                        // should not be anything to build as tree either. however note that during
+                        // the tree building
                         Cow::Owned(root.to_string())
                     } else {
                         Cow::Owned(filename)

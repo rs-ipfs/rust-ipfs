@@ -45,8 +45,10 @@ fn ingest_tar(bytes: &[u8]) {
             let mut adder = FileAdder::default();
 
             // with the std::io::Read it'd be good to read into the fileadder, or read into ...
-            // something. trying to acccess the buffer from in side FileAdder does not seem the be the
+            // something. trying to acccess the buffer from inside FileAdder does not seem the be the
             // way to go.
+            //
+            // reusing the buffers between files would make a lot of sense as well
 
             if let Some(needed) = adder.size_hint().checked_sub(buffer.capacity()) {
                 buffer.reserve(needed);
