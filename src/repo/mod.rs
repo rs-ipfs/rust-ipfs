@@ -9,7 +9,6 @@ use bitswap::Block;
 use cid::{self, Cid};
 use core::convert::TryFrom;
 use core::fmt::Debug;
-use core::marker::PhantomData;
 use futures::channel::{
     mpsc::{channel, Receiver, Sender},
     oneshot,
@@ -27,22 +26,20 @@ pub trait RepoTypes: Send + Sync + 'static {
 }
 
 #[derive(Clone, Debug)]
-pub struct RepoOptions<TRepoTypes: RepoTypes> {
-    _marker: PhantomData<TRepoTypes>,
+pub struct RepoOptions {
     path: PathBuf,
 }
 
-impl<TRepoTypes: RepoTypes> From<&IpfsOptions<TRepoTypes>> for RepoOptions<TRepoTypes> {
-    fn from(options: &IpfsOptions<TRepoTypes>) -> Self {
+impl From<&IpfsOptions> for RepoOptions {
+    fn from(options: &IpfsOptions) -> Self {
         RepoOptions {
-            _marker: PhantomData,
             path: options.ipfs_path.clone(),
         }
     }
 }
 
 pub fn create_repo<TRepoTypes: RepoTypes>(
-    options: RepoOptions<TRepoTypes>,
+    options: RepoOptions,
 ) -> (Repo<TRepoTypes>, Receiver<RepoEvent>) {
     Repo::new(options)
 }
@@ -151,7 +148,7 @@ impl TryFrom<RequestKind> for RepoEvent {
 }
 
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
-    pub fn new(options: RepoOptions<TRepoTypes>) -> (Self, Receiver<RepoEvent>) {
+    pub fn new(options: RepoOptions) -> (Self, Receiver<RepoEvent>) {
         let mut blockstore_path = options.path.clone();
         let mut datastore_path = options.path;
         blockstore_path.push("blockstore");
@@ -369,10 +366,7 @@ pub(crate) mod tests {
     pub fn create_mock_repo() -> (Repo<Types>, Receiver<RepoEvent>) {
         let mut tmp = temp_dir();
         tmp.push("rust-ipfs-repo");
-        let options: RepoOptions<Types> = RepoOptions {
-            _marker: PhantomData,
-            path: tmp.into(),
-        };
+        let options: RepoOptions = RepoOptions { path: tmp.into() };
         Repo::new(options)
     }
 

@@ -25,7 +25,6 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::{atomic::Ordering, Arc};
@@ -46,7 +45,7 @@ pub use self::error::Error;
 use self::ipns::Ipns;
 pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
-pub use self::p2p::{Connection, ConnectionTarget, SwarmTypes};
+pub use self::p2p::{Connection, ConnectionTarget};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
@@ -55,9 +54,8 @@ use self::unixfs::File;
 
 /// All types can be changed at compile time by implementing
 /// `IpfsTypes`.
-pub trait IpfsTypes: SwarmTypes + RepoTypes {}
-impl<T: RepoTypes> SwarmTypes for T {}
-impl<T: SwarmTypes + RepoTypes> IpfsTypes for T {}
+pub trait IpfsTypes: RepoTypes {}
+impl<T: RepoTypes> IpfsTypes for T {}
 
 /// Default IPFS types.
 #[derive(Debug)]
@@ -77,8 +75,7 @@ impl RepoTypes for TestTypes {
 
 /// Ipfs options
 #[derive(Clone)]
-pub struct IpfsOptions<Types: IpfsTypes> {
-    _marker: PhantomData<Types>,
+pub struct IpfsOptions {
     /// The path of the ipfs repo.
     pub ipfs_path: PathBuf,
     /// The keypair used with libp2p.
@@ -91,7 +88,7 @@ pub struct IpfsOptions<Types: IpfsTypes> {
     pub kad_protocol: Option<String>,
 }
 
-impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
+impl fmt::Debug for IpfsOptions {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         // needed since libp2p::identity::Keypair does not have a Debug impl, and the IpfsOptions
         // is a struct with all public fields, so don't enforce users to use this wrapper.
@@ -105,11 +102,10 @@ impl<Types: IpfsTypes> fmt::Debug for IpfsOptions<Types> {
     }
 }
 
-impl IpfsOptions<TestTypes> {
+impl IpfsOptions {
     /// Creates an inmemory store backed node for tests
     pub fn inmemory_with_generated_keys() -> Self {
         Self {
-            _marker: PhantomData,
             ipfs_path: std::env::temp_dir().into(),
             keypair: Keypair::generate_ed25519(),
             mdns: Default::default(),
@@ -142,7 +138,7 @@ impl<I: Borrow<Keypair>> DebuggableKeypair<I> {
     }
 }
 
-impl<Types: IpfsTypes> IpfsOptions<Types> {
+impl IpfsOptions {
     pub fn new(
         ipfs_path: PathBuf,
         keypair: Keypair,
@@ -156,12 +152,11 @@ impl<Types: IpfsTypes> IpfsOptions<Types> {
             bootstrap,
             mdns,
             kad_protocol,
-            _marker: PhantomData,
         }
     }
 }
 
-impl<T: IpfsTypes> Default for IpfsOptions<T> {
+impl Default for IpfsOptions {
     /// Create `IpfsOptions` from environment.
     ///
     /// # Panics
@@ -206,7 +201,6 @@ impl<T: IpfsTypes> Default for IpfsOptions<T> {
             bootstrap,
             mdns: true,
             kad_protocol: None,
-            _marker: PhantomData,
         }
     }
 }
@@ -269,11 +263,11 @@ enum IpfsEvent {
 
 /// Configured Ipfs instace or value which can be only initialized.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
-    repo: Option<Repo<Types>>,
+    repo: Repo<Types>,
     span: Span,
     keys: Keypair,
-    options: IpfsOptions<Types>,
-    moved_on_init: Option<Receiver<RepoEvent>>,
+    options: IpfsOptions,
+    repo_events: Receiver<RepoEvent>,
 }
 
 impl<Types: IpfsTypes> UninitializedIpfs<Types> {
@@ -283,37 +277,41 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// The span is attached to all operations called on the later created `Ipfs` along with all
     /// operations done in the background task as well as tasks spawned by the underlying
     /// `libp2p::Swarm`.
-    pub async fn new(options: IpfsOptions<Types>, span: Option<Span>) -> Self {
-        let repo_options = RepoOptions::<Types>::from(&options);
+    pub async fn new(options: IpfsOptions, span: Option<Span>) -> Self {
+        let repo_options = RepoOptions::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let keys = options.keypair.clone();
         let span = span.unwrap_or_else(|| tracing::trace_span!("ipfs"));
 
         UninitializedIpfs {
-            repo: Some(repo),
+            repo,
             span,
             keys,
             options,
-            moved_on_init: Some(repo_events),
+            repo_events,
         }
+    }
+
+    pub async fn default() -> Self {
+        Self::new(IpfsOptions::default(), None).await
     }
 
     /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
     /// future should be spawned on a executor as soon as possible.
-    pub async fn start(mut self) -> Result<(Ipfs<Types>, impl Future<Output = ()>), Error> {
+    pub async fn start(self) -> Result<(Ipfs<Types>, impl Future<Output = ()>), Error> {
         use futures::stream::StreamExt;
 
-        let repo = Option::take(&mut self.repo).unwrap();
+        let UninitializedIpfs {
+            repo,
+            span,
+            keys,
+            repo_events,
+            ..
+        } = self;
+
         repo.init().await?;
 
-        let repo_events = self
-            .moved_on_init
-            .take()
-            .expect("start cannot be called twice");
-
         let (to_task, receiver) = channel::<IpfsEvent>(1);
-
-        let UninitializedIpfs { span, keys, .. } = self;
 
         let ipfs = Ipfs(Arc::new(IpfsInner {
             span,
@@ -322,7 +320,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             to_task,
         }));
 
-        let swarm_options = SwarmOptions::<Types>::from(&self.options);
+        let swarm_options = SwarmOptions::from(&self.options);
         let swarm = create_swarm(swarm_options, ipfs.clone()).await;
 
         let fut = IpfsFuture {
@@ -1072,10 +1070,10 @@ mod node {
                 .await
         }
 
-        pub async fn with_options(opts: IpfsOptions<TestTypes>) -> Self {
+        pub async fn with_options(opts: IpfsOptions) -> Self {
             let span = Some(Span::current());
 
-            let (ipfs, fut) = UninitializedIpfs::new(opts, span)
+            let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts, span)
                 .in_current_span()
                 .await
                 .start()
@@ -1313,6 +1311,6 @@ mod tests {
     #[test]
     #[should_panic]
     fn default_ipfs_options_disabled_when_testing() {
-        IpfsOptions::<TestTypes>::default();
+        IpfsOptions::default();
     }
 }

@@ -1,19 +1,14 @@
 use async_std::task;
-use ipfs::{IpfsOptions, IpfsPath, PeerId, TestTypes, UninitializedIpfs};
+use ipfs::{Ipfs, IpfsPath, PeerId, TestTypes, UninitializedIpfs};
 use std::str::FromStr;
 
 fn main() {
     tracing_subscriber::fmt::init();
 
-    let options = IpfsOptions::<TestTypes>::default();
-
     task::block_on(async move {
         // Start daemon and initialize repo
-        let (ipfs, fut) = UninitializedIpfs::new(options, None)
-            .await
-            .start()
-            .await
-            .unwrap();
+        let (ipfs, fut): (Ipfs<TestTypes>, _) =
+            UninitializedIpfs::default().await.start().await.unwrap();
         task::spawn(fut);
 
         // Create a Block
