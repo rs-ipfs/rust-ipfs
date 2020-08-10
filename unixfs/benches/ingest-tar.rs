@@ -5,7 +5,13 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     match std::fs::read(file) {
         Ok(tar_bytes) => {
-            c.bench_function("ingest-tar", |b| b.iter(|| ingest_tar(&tar_bytes)));
+            // warmup should take care of right sizing these
+            let mut buffer = Vec::new();
+            let mut path = String::new();
+
+            c.bench_function("ingest-tar", |b| {
+                b.iter(|| ingest_tar(&tar_bytes, &mut buffer, &mut path))
+            });
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             eprintln!("could not find {:?}:", file);
@@ -15,13 +21,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     }
 }
 
-fn ingest_tar(bytes: &[u8]) {
+fn ingest_tar(bytes: &[u8], buffer: &mut Vec<u8>, path: &mut String) {
     use cid::Cid;
     use ipfs_unixfs::dir::builder::{BufferingTreeBuilder, TreeOptions};
     use ipfs_unixfs::file::adder::FileAdder;
     use std::io::Read;
-
-    let mut buffer = Vec::new();
 
     let mut archive = tar::Archive::new(std::io::Cursor::new(bytes));
     let entries = archive.entries().unwrap();
@@ -33,9 +37,10 @@ fn ingest_tar(bytes: &[u8]) {
     for entry in entries {
         let mut entry = entry.expect("assuming good tar");
 
-        let path = std::str::from_utf8(&*entry.path_bytes())
-            .unwrap()
-            .to_string(); // need to get rid of this
+        let path_bytes = entry.path_bytes();
+        let tmp_path = std::str::from_utf8(&*path_bytes).unwrap();
+        path.clear();
+        path.push_str(tmp_path);
 
         if let Some(_link_name) = entry.link_name_bytes() {
             continue;
