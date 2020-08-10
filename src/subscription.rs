@@ -231,6 +231,22 @@ pub enum Subscription<T, E> {
     Cancelled,
 }
 
+impl<T: Clone, E: Clone> Clone for Subscription<T, E> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Ready(res) => Self::Ready(res.clone()),
+            Self::Pending {
+                waker,
+                cancel_notifier,
+            } => Self::Pending {
+                waker: waker.clone(),
+                cancel_notifier: cancel_notifier.clone(),
+            },
+            Self::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
 impl<T, E> fmt::Debug for Subscription<T, E> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Subscription::*;
