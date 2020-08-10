@@ -37,14 +37,15 @@ fn ingest_tar(bytes: &[u8], buffer: &mut Vec<u8>, path: &mut String) {
     for entry in entries {
         let mut entry = entry.expect("assuming good tar");
 
+        if let Some(_link_name) = entry.link_name_bytes() {
+            // TODO: symlinks
+            continue;
+        }
+
         let path_bytes = entry.path_bytes();
         let tmp_path = std::str::from_utf8(&*path_bytes).unwrap();
         path.clear();
         path.push_str(tmp_path);
-
-        if let Some(_link_name) = entry.link_name_bytes() {
-            continue;
-        }
 
         if !path.ends_with('/') {
             let mut adder = FileAdder::default();
