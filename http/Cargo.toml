@@ -10,6 +10,7 @@ prost-build = { default-features = false, version = "0.6" }
 vergen = { default-features = false, version = "3.1" }
 
 [dependencies]
+anyhow = "*" # temporarily needed until the next release of mpart-async
 async-stream = { default-features = false, version = "0.3" }
 bytes = { default-features = false, version = "0.5" }
 cid = { default-features = false, version = "0.5" }

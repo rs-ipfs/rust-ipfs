@@ -31,6 +31,29 @@ on_killed () {
 
 echo ">>>> new execution $$ with args: $@" | tee -a /tmp/rust.log >&2
 killed=true
+
+#
+# testing around the time of PR #284
+#
+# binutils | lld-9 |
+# 2.33     | 9.0.0 | notes
+# ---------+-------+--------------------------------------
+# 256      |       | crashes at id, unlikely inits?
+#          | 256   | crashes at p2p swarm init
+#          | 300   | crashes at behaviour building
+#          | 350   | crashes but built the dns threadpool
+#          | 375   | crashes at p2p init
+#          | 387   | crashes at kad init
+#          | 390   | ok
+#          | 393   | ok
+#          | 400   | ok
+#          | 450   | ok
+# 512      |       | crashes at id, unlikely inits?
+# 1024     |       | crashes right away unlikely inits
+# 4096     |       | still the same
+# 8192     |       | works without -c unlimited?
+#
+# ulimit -s 8192 -c unlimited
 ./http "$@" 2>&1 | tee -a /tmp/rust.log || retval=$?
 killed=false
 echo "<<<< exiting $$ with $retval" | tee -a /tmp/rust.log >&2

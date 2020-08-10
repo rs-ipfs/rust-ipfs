@@ -40,26 +40,11 @@ pub struct Pubsub {
         Mutex<HashMap<String, broadcast::Sender<Result<PreformattedJsonMessage, StreamError>>>>,
 }
 
-/// Creates a filter composing pubsub/{peers,ls,pub,sub}.
-pub fn routes<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path("pubsub").and(
-        peers(ipfs)
-            .or(list_subscriptions(ipfs))
-            .or(publish(ipfs))
-            .or(subscribe(ipfs, Default::default())),
-    )
-}
-
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-pubsub-peers
 pub fn peers<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path!("peers")
-        .and(warp::get().or(warp::post()))
-        .unify()
-        .and(with_ipfs(ipfs))
+) -> impl warp::Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(warp::query::<OptionalTopicParameter>().map(|tp: OptionalTopicParameter| tp.topic))
         .and_then(inner_peers)
 }
@@ -67,44 +52,38 @@ pub fn peers<T: IpfsTypes>(
 async fn inner_peers<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     topic: Option<String>,
-) -> Result<impl warp::Reply, warp::Rejection> {
+) -> Result<(impl warp::Reply,), warp::Rejection> {
     let peers = ipfs
         .pubsub_peers(topic)
         .await
         .map_err(|e| warp::reject::custom(StringError::from(e)))?;
 
-    Ok(warp::reply::json(&StringListResponse {
+    Ok((warp::reply::json(&StringListResponse {
         strings: peers.into_iter().map(|id| id.to_string()).collect(),
-    }))
+    }),))
 }
 
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-pubsub-ls
 pub fn list_subscriptions<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path!("ls")
-        .and(warp::get().or(warp::post()))
-        .unify()
-        .and(with_ipfs(ipfs))
-        .and_then(inner_ls)
+) -> impl warp::Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+    with_ipfs(ipfs).and_then(inner_ls)
 }
 
-async fn inner_ls<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl warp::Reply, warp::Rejection> {
+async fn inner_ls<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<(impl warp::Reply,), warp::Rejection> {
     let topics = ipfs
         .pubsub_subscribed()
         .await
         .map_err(|e| warp::reject::custom(StringError::from(e)))?;
 
-    Ok(warp::reply::json(&StringListResponse { strings: topics }))
+    Ok((warp::reply::json(&StringListResponse { strings: topics }),))
 }
 
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-pubsub-pub
 pub fn publish<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path!("pub")
-        .and(warp::post())
-        .and(with_ipfs(ipfs))
+) -> impl warp::Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(publish_args("arg"))
         .and_then(inner_publish)
 }
@@ -112,11 +91,11 @@ pub fn publish<T: IpfsTypes>(
 async fn inner_publish<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     PublishArgs { topic, message }: PublishArgs,
-) -> Result<impl warp::Reply, warp::Rejection> {
+) -> Result<(impl warp::Reply,), warp::Rejection> {
     ipfs.pubsub_publish(topic, message.into_inner())
         .await
         .map_err(|e| warp::reject::custom(StringError::from(e)))?;
-    Ok(warp::reply::reply())
+    Ok((warp::reply::reply(),))
 }
 
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-pubsub-sub
@@ -127,11 +106,8 @@ async fn inner_publish<T: IpfsTypes>(
 pub fn subscribe<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
     pubsub: Arc<Pubsub>,
-) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path!("sub")
-        .and(warp::get().or(warp::post()))
-        .unify()
-        .and(with_ipfs(ipfs))
+) -> impl warp::Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+    with_ipfs(ipfs)
         .and(warp::any().map(move || pubsub.clone()))
         .and(warp::query::<TopicParameter>())
         .and_then(|ipfs, pubsub, TopicParameter { topic }| async move {

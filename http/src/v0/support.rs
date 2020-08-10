@@ -1,7 +1,6 @@
 use ipfs::{Ipfs, IpfsTypes};
 use serde::Serialize;
 use std::borrow::Cow;
-use std::convert::Infallible;
 use std::error::Error as StdError;
 use std::fmt;
 
@@ -52,6 +51,12 @@ impl MessageKind {
 /// `MessageResponseBuilder` which will only need a message to become `MessageResponse`.
 #[derive(Debug, Clone)]
 pub struct MessageResponseBuilder(MessageKind, usize);
+
+impl Default for MessageResponseBuilder {
+    fn default() -> Self {
+        MessageResponseBuilder(MessageKind::Error, 0)
+    }
+}
 
 impl MessageResponseBuilder {
     pub fn with_message<S: Into<Cow<'static, str>>>(self, message: S) -> MessageResponse {
@@ -141,7 +146,7 @@ impl StringError {
 /// Common rejection handling strategy for ipfs http api compatible error responses
 pub async fn recover_as_message_response(
     err: warp::reject::Rejection,
-) -> Result<impl warp::Reply, Infallible> {
+) -> Result<impl warp::Reply, warp::Rejection> {
     use warp::http::StatusCode;
     use warp::reject::{InvalidQuery, LengthRequired, MethodNotAllowed};
 

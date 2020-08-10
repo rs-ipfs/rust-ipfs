@@ -26,11 +26,8 @@ use crate::v0::support::{HandledErr, StreamResponse};
 /// https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs
 pub fn refs<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    warp::path!("refs")
-        .and(with_ipfs(ipfs))
-        .and(refs_options())
-        .and_then(refs_inner)
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs).and(refs_options()).and_then(refs_inner)
 }
 
 async fn refs_inner<T: IpfsTypes>(
@@ -588,10 +585,8 @@ fn dagpb_links(ipld: Ipld) -> Vec<(Option<String>, Cid)> {
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs-local
 pub fn local<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    warp::path!("refs" / "local")
-        .and(with_ipfs(ipfs))
-        .and_then(inner_local)
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs).and_then(inner_local)
 }
 
 async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
