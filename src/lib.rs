@@ -1090,7 +1090,7 @@ mod node {
 
         pub fn get_subscriptions(
             &self,
-        ) -> &futures::lock::Mutex<subscription::Subscriptions<Block, String>> {
+        ) -> &std::sync::Mutex<subscription::Subscriptions<Block, String>> {
             &self.ipfs.repo.subscriptions.subscriptions
         }
 
