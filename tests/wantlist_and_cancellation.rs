@@ -38,7 +38,7 @@ where
 }
 
 async fn check_cid_subscriptions(ipfs: &Node, cid: &Cid, expected_count: usize) {
-    let subs = ipfs.get_subscriptions().lock().await;
+    let subs = ipfs.get_subscriptions().lock().unwrap();
     if expected_count > 0 {
         assert_eq!(subs.len(), 1);
     }

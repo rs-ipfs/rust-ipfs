@@ -5,13 +5,12 @@
 
 use crate::{p2p::ConnectionTarget, RepoEvent};
 use async_std::future::Future;
-use async_std::task::{self, Context, Poll, Waker};
+use async_std::task::{Context, Poll, Waker};
 use cid::Cid;
 use core::fmt::Debug;
 use core::hash::Hash;
 use core::pin::Pin;
 use futures::channel::mpsc::Sender;
-use futures::lock::Mutex;
 use libp2p::{kad::QueryId, Multiaddr, PeerId};
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -19,7 +18,7 @@ use std::fmt;
 use std::mem;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 
 // a counter used to assign unique identifiers to `Subscription`s and `SubscriptionFuture`s
@@ -120,14 +119,12 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
             subscription.cancel(id, kind.clone(), true);
         }
 
-        task::block_on(async {
-            self.subscriptions
-                .lock()
-                .await
-                .entry(kind.clone())
-                .or_default()
-                .insert(id, subscription);
-        });
+        self.subscriptions
+            .lock()
+            .unwrap()
+            .entry(kind.clone())
+            .or_default()
+            .insert(id, subscription);
 
         SubscriptionFuture {
             id,
@@ -140,7 +137,7 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
     /// Finalizes all pending subscriptions of the specified kind with the given `result`.
     ///
     pub fn finish_subscription(&self, req_kind: RequestKind, result: Result<T, E>) {
-        let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
+        let mut subscriptions = self.subscriptions.lock().unwrap();
         let related_subs = subscriptions.get_mut(&req_kind);
 
         // find all the matching `Subscription`s and wake up their tasks; only `Pending`
@@ -174,9 +171,7 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
         debug!("Shutting down {:?}", self);
 
         let mut cancelled = 0;
-        let mut subscriptions = mem::take(&mut *task::block_on(async {
-            self.subscriptions.lock().await
-        }));
+        let mut subscriptions = mem::take(&mut *self.subscriptions.lock().unwrap());
 
         for (kind, subs) in subscriptions.iter_mut() {
             for (id, sub) in subs.iter_mut() {
@@ -333,7 +328,7 @@ impl<T: Debug + PartialEq, E: Debug + PartialEq> Future for SubscriptionFuture<T
         // acquiring. implementing the state machine manually might not be possible as all mutexes
         // lock futures seem to need a borrow, however using async fn does not allow implementing
         // Drop.
-        let mut subscriptions = task::block_on(async { self.subscriptions.lock().await });
+        let mut subscriptions = self.subscriptions.lock().unwrap();
 
         if let Some(related_subs) = subscriptions.get_mut(&self.kind) {
             let (became_empty, ret) = match related_subs.entry(self.id) {
@@ -386,23 +381,22 @@ impl<T: Debug + PartialEq, E: Debug> Drop for SubscriptionFuture<T, E> {
             return;
         }
 
-        let (sub, is_last) = task::block_on(async {
-            let mut subscriptions = self.subscriptions.lock().await;
-            let related_subs = if let Some(subs) = subscriptions.get_mut(&self.kind) {
-                subs
+        let (sub, is_last) = {
+            let mut subscriptions = self.subscriptions.lock().unwrap();
+            if let Some(subs) = subscriptions.get_mut(&self.kind) {
+                let sub = subs.remove(&self.id);
+                // check if this is the last subscription to this resource
+                let is_last = subs.is_empty();
+
+                if is_last {
+                    subscriptions.remove(&self.kind);
+                }
+
+                (sub, is_last)
             } else {
-                return (None, false);
-            };
-            let sub = related_subs.remove(&self.id);
-            // check if this is the last subscription to this resource
-            let is_last = related_subs.is_empty();
-
-            if is_last {
-                subscriptions.remove(&self.kind);
+                (None, false)
             }
-
-            (sub, is_last)
-        });
+        };
 
         if let Some(sub) = sub {
             // don't cancel anything that isn't `Pending`
