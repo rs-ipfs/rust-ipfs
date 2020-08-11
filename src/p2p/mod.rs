@@ -14,10 +14,10 @@ pub type TSwarm<T> = Swarm<behaviour::Behaviour<T>>;
 
 /// Creates a new IPFS swarm.
 pub async fn create_swarm<TIpfsTypes: IpfsTypes>(ipfs: Ipfs<TIpfsTypes>) -> TSwarm<TIpfsTypes> {
-    let peer_id = ipfs.options.keypair.public().into_peer_id();
+    let peer_id = ipfs.options.keypair.get_ref().public().into_peer_id();
 
     // Set up an encrypted TCP transport over the Mplex protocol.
-    let transport = transport::build_transport(ipfs.options.keypair.clone());
+    let transport = transport::build_transport(ipfs.options.keypair.get_ref().clone());
 
     let swarm_span = ipfs.0.span.clone();
 

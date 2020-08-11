@@ -336,7 +336,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour
 impl<Types: IpfsTypes> Behaviour<Types> {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
     pub async fn new(ipfs: Ipfs<Types>) -> Self {
-        let peer_id = ipfs.options.keypair.public().into_peer_id();
+        let peer_id = ipfs.options.keypair.get_ref().public().into_peer_id();
         info!("net: starting with peer id {}", peer_id);
 
         let mdns = if ipfs.options.mdns {
@@ -365,7 +365,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         let identify = Identify::new(
             "/ipfs/0.1.0".into(),
             "rust-ipfs".into(),
-            ipfs.options.keypair.public(),
+            ipfs.options.keypair.get_ref().public(),
         );
         let pubsub = Pubsub::new(peer_id);
         let swarm = SwarmApi::default();
