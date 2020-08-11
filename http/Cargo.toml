@@ -1,5 +1,5 @@
 [package]
-authors = ["Joonas Koivunen <joonas@equilibrium.co>"]
+authors = ["Rust-IPFS contributors"]
 build = "build.rs"
 edition = "2018"
 name = "ipfs-http"

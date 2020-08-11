@@ -1,5 +1,5 @@
 [package]
-authors = ["Joonas Koivunen <joonas@equilibrium.co>"]
+authors = ["Rust-IPFS contributors"]
 description = "UnixFs tree support"
 edition = "2018"
 license = "MIT OR Apache-2.0"

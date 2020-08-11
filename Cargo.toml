@@ -1,5 +1,5 @@
 [package]
-authors = ["David Craven <david@craven.ch>"]
+authors = ["Rust-IPFS contributors"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
 name = "ipfs"
