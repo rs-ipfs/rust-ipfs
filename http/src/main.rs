@@ -2,7 +2,7 @@ use std::num::NonZeroU16;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
+use ipfs::{DhtMode, Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
 use ipfs_http::{config, v0};
 
 #[derive(Debug, StructOpt)]
@@ -134,8 +134,14 @@ fn main() {
     let mut rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
 
     rt.block_on(async move {
-        let opts: IpfsOptions =
-            IpfsOptions::new(home.clone().into(), keypair, Vec::new(), false, None);
+        let opts: IpfsOptions = IpfsOptions::new(
+            home.clone().into(),
+            keypair,
+            Vec::new(),
+            false,
+            None,
+            DhtMode::Client,
+        );
 
         let (ipfs, task): (Ipfs<ipfs::TestTypes>, _) = UninitializedIpfs::new(opts, None)
             .await
