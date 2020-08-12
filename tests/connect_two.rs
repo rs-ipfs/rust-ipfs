@@ -1,26 +1,20 @@
 use async_std::future::timeout;
-use ipfs::Node;
-use libp2p::PeerId;
+use ipfs::{ConnectionTarget, Node};
 use std::time::Duration;
 
-// Make sure two instances of ipfs can be connected.
+// Make sure two instances of ipfs can be connected by `Multiaddr`.
 #[async_std::test]
 async fn connect_two_nodes_by_addr() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
 
-    let (_, b_addrs) = node_b.identity().await.unwrap();
-    assert!(!b_addrs.is_empty());
+    let (_, mut b_addrs) = node_b.identity().await.unwrap();
+    let b_addr = b_addrs.pop().unwrap();
 
-    // this is a bit bonkers structure since we only have a single address
-    for addr in b_addrs {
-        let fut = timeout(Duration::from_secs(10), node_a.connect(addr.clone()));
-        if let Ok(Ok(_)) = fut.await {
-            return;
-        }
-    }
-
-    panic!("failed to connect to another node");
+    timeout(Duration::from_secs(10), node_a.connect(b_addr))
+        .await
+        .expect("timeout")
+        .expect("should've connected");
 }
 
 // Make sure two instances of ipfs can be connected by `PeerId`.
@@ -34,7 +28,7 @@ async fn connect_two_nodes_by_peer_id() {
     let node_b = Node::new("b").await;
 
     let (b_key, mut b_addrs) = node_b.identity().await.unwrap();
-    let b_id = PeerId::from_public_key(b_key);
+    let b_id = b_key.into_peer_id();
 
     while let Some(addr) = b_addrs.pop() {
         node_a.add_peer(b_id.clone(), addr).await.unwrap();
@@ -45,16 +39,32 @@ async fn connect_two_nodes_by_peer_id() {
         .expect("should've connected");
 }
 
-// Ensure that duplicate connection attempts don't cause hangs.
+// Make sure two instances of ipfs can be connected with a multiaddr+peer combo.
 #[async_std::test]
-async fn connect_duplicate_targets() {
-    tracing_subscriber::fmt::init();
-
+async fn connect_two_nodes_by_addr_and_peer() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
 
     let (b_key, mut b_addrs) = node_b.identity().await.unwrap();
+
     let b_id = b_key.into_peer_id();
+    let b_addr = b_addrs.pop().unwrap();
+    let b_addr_long = format!("{}/p2p/{}", b_addr, b_id);
+    let b_conn_target = b_addr_long.parse::<ConnectionTarget>().unwrap();
+
+    timeout(Duration::from_secs(1), node_a.connect(b_conn_target))
+        .await
+        .expect("timeout")
+        .expect("should've connected");
+}
+
+// Ensure that duplicate connection attempts don't cause hangs.
+#[async_std::test]
+async fn connect_duplicate_multiaddr() {
+    let node_a = Node::new("a").await;
+    let node_b = Node::new("b").await;
+
+    let (_, mut b_addrs) = node_b.identity().await.unwrap();
     let b_addr = b_addrs.pop().unwrap();
 
     // test duplicate connections by address
@@ -64,6 +74,17 @@ async fn connect_duplicate_targets() {
             .await
             .unwrap();
     }
+}
+
+// Ensure that duplicate connection attempts don't cause hangs.
+#[async_std::test]
+async fn connect_duplicate_peer_id() {
+    let node_a = Node::new("a").await;
+    let node_b = Node::new("b").await;
+
+    let (b_key, mut b_addrs) = node_b.identity().await.unwrap();
+    let b_id = b_key.into_peer_id();
+    let b_addr = b_addrs.pop().unwrap();
 
     // test duplicate connections by peer id
     node_a.add_peer(b_id.clone(), b_addr).await.unwrap();
