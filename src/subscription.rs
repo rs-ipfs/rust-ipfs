@@ -506,7 +506,7 @@ mod tests {
     #[ignore]
     async fn subscription_stress_test() {
         use async_std::task;
-        use rand::{rngs::StdRng, Rng, SeedableRng};
+        use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
         use std::time::Duration;
 
         // optional
@@ -521,9 +521,9 @@ mod tests {
         // the iteration interval for the loop in create_task
         const CREATE_WAIT_TIME: u64 = 50;
         // the iteration interval for the loop in finish_task
-        const FINISH_WAIT_TIME: u64 = 50;
+        const FINISH_WAIT_TIME: u64 = 100;
         // the iteration interval for the loop in cancel_task
-        const CANCEL_WAIT_TIME: u64 = 1000;
+        const CANCEL_WAIT_TIME: u64 = 200;
 
         // the test's subscription registry
         let reg = Arc::new(SubscriptionRegistry::<u32, ()>::default());
@@ -538,7 +538,6 @@ mod tests {
         let subs_clone = Arc::clone(&subs);
         let mut rng_clone = rng.clone();
         let create_task = task::spawn(async move {
-            //let mut rng = StdRng::from_entropy();
             let (mut kind, mut count);
 
             loop {
@@ -562,23 +561,33 @@ mod tests {
 
         // the task below finishes subscriptions to random objects in a loop,
         // one object at a time
+        let reg_clone = Arc::clone(&reg);
         let mut rng_clone = rng.clone();
         let finish_task = task::spawn(async move {
-            let mut kind;
+            let (mut kinds, mut count);
 
             loop {
                 task::sleep(Duration::from_millis(FINISH_WAIT_TIME)).await;
 
-                kind = rng_clone.gen_range(0, KIND_COUNT);
+                kinds = reg_clone
+                    .subscriptions
+                    .lock()
+                    .unwrap()
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                count = rng_clone.gen_range(0, kinds.len());
 
-                reg.finish_subscription(kind.into(), Ok(0));
+                for kind in kinds.choose_multiple(&mut rng_clone, count) {
+                    reg.finish_subscription(kind.to_owned(), Ok(0));
+                }
             }
         });
 
         // the task below drops a random number of subscription futures from
         // the vector populated by the create_task
         let cancel_task = task::spawn(async move {
-            let (mut count, mut idx): (usize, usize);
+            let (mut count, mut idx);
 
             loop {
                 task::sleep(Duration::from_millis(CANCEL_WAIT_TIME)).await;
