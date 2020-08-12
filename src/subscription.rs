@@ -156,12 +156,16 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
 
             // ensure that the subscriptions are being handled correctly: normally
             // finish_subscriptions should result in some related futures being awoken
-            debug_assert!(
-                awoken != 0,
-                "no subscriptions to be awoken! subs: {:?}; req_kind: {:?}",
-                subscriptions,
-                req_kind
-            );
+            // FIXME: it appears that Kademlia sometimes reports a duplicate QueryResult
+            // and breaks this check; therefore exclude KadQuery, at least for now
+            if !matches!(req_kind, RequestKind::KadQuery(_)) {
+                debug_assert!(
+                    awoken != 0,
+                    "no subscriptions to be awoken! subs: {:?}; req_kind: {:?}",
+                    subscriptions,
+                    req_kind
+                );
+            }
 
             trace!("Woke {} related subscription(s)", awoken);
         }
