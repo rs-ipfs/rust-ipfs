@@ -24,6 +24,10 @@ async fn connect_two_nodes_by_addr() {
 }
 
 // Make sure two instances of ipfs can be connected by `PeerId`.
+// Currently ignored, as Ipfs::add_peer (that is necessary in
+// order to connect by PeerId) already performs a dial to the
+// given peer within Pubsub::add_node_to_partial_view it calls
+#[ignore]
 #[async_std::test]
 async fn connect_two_nodes_by_peer_id() {
     let node_a = Node::new("a").await;
