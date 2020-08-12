@@ -24,6 +24,10 @@ async fn connect_two_nodes_by_addr() {
 }
 
 // Make sure two instances of ipfs can be connected by `PeerId`.
+// Currently ignored, as Ipfs::add_peer (that is necessary in
+// order to connect by PeerId) already performs a dial to the
+// given peer within Pubsub::add_node_to_partial_view it calls
+#[ignore]
 #[async_std::test]
 async fn connect_two_nodes_by_peer_id() {
     let node_a = Node::new("a").await;
@@ -39,6 +43,36 @@ async fn connect_two_nodes_by_peer_id() {
         .await
         .expect("timeout")
         .expect("should've connected");
+}
+
+// Ensure that duplicate connection attempts don't cause hangs.
+#[async_std::test]
+async fn connect_duplicate_targets() {
+    tracing_subscriber::fmt::init();
+
+    let node_a = Node::new("a").await;
+    let node_b = Node::new("b").await;
+
+    let (b_key, mut b_addrs) = node_b.identity().await.unwrap();
+    let b_id = b_key.into_peer_id();
+    let b_addr = b_addrs.pop().unwrap();
+
+    // test duplicate connections by address
+    for _ in 0..3 {
+        // final success or failure doesn't matter, there should be no timeout
+        let _ = timeout(Duration::from_secs(1), node_a.connect(b_addr.clone()))
+            .await
+            .unwrap();
+    }
+
+    // test duplicate connections by peer id
+    node_a.add_peer(b_id.clone(), b_addr).await.unwrap();
+    for _ in 0..3 {
+        // final success or failure doesn't matter, there should be no timeout
+        let _ = timeout(Duration::from_secs(1), node_a.connect(b_id.clone()))
+            .await
+            .unwrap();
+    }
 }
 
 // More complicated one to the above; first node will have two listening addresses and the second

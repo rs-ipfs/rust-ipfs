@@ -386,6 +386,10 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     pub fn add_peer(&mut self, peer: PeerId, addr: Multiaddr) {
         self.kademlia.add_address(&peer, addr);
         self.swarm.add_peer(peer.clone());
+        // FIXME: the call below automatically performs a dial attempt
+        // to the given peer; it is unsure that we want it done within
+        // add_peer, especially since that peer might not belong to the
+        // expected identify protocol
         self.pubsub.add_node_to_partial_view(peer);
         // TODO self.bitswap.add_node_to_partial_view(peer);
     }
@@ -410,7 +414,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.swarm.connections()
     }
 
-    pub fn connect(&mut self, target: ConnectionTarget) -> SubscriptionFuture<(), String> {
+    pub fn connect(&mut self, target: ConnectionTarget) -> Option<SubscriptionFuture<(), String>> {
         self.swarm.connect(target)
     }
 
