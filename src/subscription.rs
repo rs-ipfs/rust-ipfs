@@ -509,18 +509,31 @@ mod tests {
         use rand::{rngs::StdRng, Rng, SeedableRng};
         use std::time::Duration;
 
+        // optional
         tracing_subscriber::fmt::init();
 
+        // the number of objects to which subscriptions can exist
         const KIND_COUNT: u32 = 100;
+        // the maximum number of subscriptions to a single object
+        // that can be created with every iteration of the loop in
+        // create_task
         const KIND_SUB_COUNT: u32 = 10;
+        // the iteration interval for the loop in create_task
         const CREATE_WAIT_TIME: u64 = 50;
+        // the iteration interval for the loop in finish_task
         const FINISH_WAIT_TIME: u64 = 50;
+        // the iteration interval for the loop in cancel_task
         const CANCEL_WAIT_TIME: u64 = 1000;
 
+        // the test's subscription registry
         let reg = Arc::new(SubscriptionRegistry::<u32, ()>::default());
+        // a collection to hold active subscription futures
         let subs = Arc::new(Mutex::new(Vec::with_capacity(1024)));
+        // an RNG to create some randomness
         let mut rng = StdRng::from_entropy();
 
+        // the task below creates a random number of subscriptions to a
+        // random object in a loop
         let reg_clone = Arc::clone(&reg);
         let subs_clone = Arc::clone(&subs);
         let mut rng_clone = rng.clone();
@@ -531,7 +544,9 @@ mod tests {
             loop {
                 task::sleep(Duration::from_millis(CREATE_WAIT_TIME)).await;
 
+                // the id of the object that will gain subscriptions
                 kind = rng_clone.gen_range(0, KIND_COUNT);
+                // the number of subscriptions it will gain
                 count = rng_clone.gen_range(0, KIND_SUB_COUNT);
 
                 if count > 0 {
@@ -545,6 +560,8 @@ mod tests {
             }
         });
 
+        // the task below finishes subscriptions to random objects in a loop,
+        // one object at a time
         let mut rng_clone = rng.clone();
         let finish_task = task::spawn(async move {
             let mut kind;
@@ -558,6 +575,8 @@ mod tests {
             }
         });
 
+        // the task below drops a random number of subscription futures from
+        // the vector populated by the create_task
         let cancel_task = task::spawn(async move {
             let (mut count, mut idx): (usize, usize);
 
@@ -574,6 +593,7 @@ mod tests {
             }
         });
 
+        // wait forever - this is a stress test after all
         let _ = futures::join!(create_task, finish_task, cancel_task);
     }
 }
