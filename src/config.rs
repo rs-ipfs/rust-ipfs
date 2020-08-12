@@ -161,7 +161,7 @@ impl ConfigFile {
         fs::write(path, string)
     }
 
-    pub fn secio_key_pair(&self) -> Keypair {
+    pub fn identity_key_pair(&self) -> Keypair {
         self.key.clone_keypair()
     }
 
