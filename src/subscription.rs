@@ -499,4 +499,81 @@ mod tests {
 
         assert_eq!(s2.await.unwrap(), 0);
     }
+
+    // this test is designed to verify that the subscription registry is working properly
+    // and doesn't break even under extreme conditions
+    #[async_std::test]
+    #[ignore]
+    async fn subscription_stress_test() {
+        use async_std::task;
+        use rand::{rngs::StdRng, Rng, SeedableRng};
+        use std::time::Duration;
+
+        tracing_subscriber::fmt::init();
+
+        const KIND_COUNT: u32 = 100;
+        const KIND_SUB_COUNT: u32 = 10;
+        const CREATE_WAIT_TIME: u64 = 50;
+        const FINISH_WAIT_TIME: u64 = 50;
+        const CANCEL_WAIT_TIME: u64 = 1000;
+
+        let reg = Arc::new(SubscriptionRegistry::<u32, ()>::default());
+        let subs = Arc::new(Mutex::new(Vec::with_capacity(1024)));
+        let mut rng = StdRng::from_entropy();
+
+        let reg_clone = Arc::clone(&reg);
+        let subs_clone = Arc::clone(&subs);
+        let mut rng_clone = rng.clone();
+        let create_task = task::spawn(async move {
+            //let mut rng = StdRng::from_entropy();
+            let (mut kind, mut count);
+
+            loop {
+                task::sleep(Duration::from_millis(CREATE_WAIT_TIME)).await;
+
+                kind = rng_clone.gen_range(0, KIND_COUNT);
+                count = rng_clone.gen_range(0, KIND_SUB_COUNT);
+
+                if count > 0 {
+                    let mut subs = subs_clone.lock().unwrap();
+                    for _ in 0..count {
+                        subs.push(task::spawn(
+                            reg_clone.create_subscription(kind.into(), None),
+                        ));
+                    }
+                }
+            }
+        });
+
+        let mut rng_clone = rng.clone();
+        let finish_task = task::spawn(async move {
+            let mut kind;
+
+            loop {
+                task::sleep(Duration::from_millis(FINISH_WAIT_TIME)).await;
+
+                kind = rng_clone.gen_range(0, KIND_COUNT);
+
+                reg.finish_subscription(kind.into(), Ok(0));
+            }
+        });
+
+        let cancel_task = task::spawn(async move {
+            let (mut count, mut idx): (usize, usize);
+
+            loop {
+                task::sleep(Duration::from_millis(CANCEL_WAIT_TIME)).await;
+
+                let subs_unlocked = &mut *subs.lock().unwrap();
+                count = rng.gen_range(0, subs_unlocked.len());
+
+                for _ in 0..count {
+                    idx = rng.gen_range(0, subs_unlocked.len());
+                    subs_unlocked.remove(idx);
+                }
+            }
+        });
+
+        let _ = futures::join!(create_task, finish_task, cancel_task);
+    }
 }
