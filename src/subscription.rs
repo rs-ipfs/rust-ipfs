@@ -156,7 +156,16 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
 
             // ensure that the subscriptions are being handled correctly: normally
             // finish_subscriptions should result in some related futures being awoken
-            debug_assert!(awoken != 0);
+            // FIXME: it appears that Kademlia sometimes reports a duplicate QueryResult
+            // and breaks this check; therefore exclude KadQuery, at least for now
+            if !matches!(req_kind, RequestKind::KadQuery(_)) {
+                debug_assert!(
+                    awoken != 0,
+                    "no subscriptions to be awoken! subs: {:?}; req_kind: {:?}",
+                    subscriptions,
+                    req_kind
+                );
+            }
 
             trace!("Woke {} related subscription(s)", awoken);
         }
@@ -334,16 +343,6 @@ impl<T: Debug + PartialEq, E: Debug + PartialEq> Future for SubscriptionFuture<T
     fn poll(mut self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
         use std::collections::hash_map::Entry::*;
 
-        // FIXME: using task::block_on ever is quite unfortunate. alternatives which have been
-        // discussed:
-        //
-        // - going back to std::sync::Mutex
-        // - using a state machine
-        //
-        // std::sync::Mutex might be ok here as long as we don't really need to await after
-        // acquiring. implementing the state machine manually might not be possible as all mutexes
-        // lock futures seem to need a borrow, however using async fn does not allow implementing
-        // Drop.
         let mut subscriptions = self.subscriptions.lock().unwrap();
 
         if let Some(related_subs) = subscriptions.get_mut(&self.kind) {
