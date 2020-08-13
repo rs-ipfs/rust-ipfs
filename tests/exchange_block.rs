@@ -1,10 +1,10 @@
-use async_std::future::timeout;
 use cid::{Cid, Codec};
 use ipfs::{Block, Node};
 use multihash::Sha2_256;
 use std::time::Duration;
+use tokio::time::timeout;
 
-#[async_std::test]
+#[tokio::test(max_threads = 1)]
 async fn exchange_block() {
     tracing_subscriber::fmt::init();
 

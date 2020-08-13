@@ -3,7 +3,6 @@ use crate::error::Error;
 use crate::path::IpfsPath;
 use crate::subscription::{RequestKind, SubscriptionFuture, SubscriptionRegistry};
 use crate::IpfsOptions;
-use async_std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::{self, Cid};
@@ -16,6 +15,7 @@ use futures::channel::{
 use futures::sink::SinkExt;
 use libp2p::core::PeerId;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 
 pub mod fs;
 pub mod mem;
@@ -366,11 +366,11 @@ pub(crate) mod tests {
     pub fn create_mock_repo() -> (Repo<Types>, Receiver<RepoEvent>) {
         let mut tmp = temp_dir();
         tmp.push("rust-ipfs-repo");
-        let options: RepoOptions = RepoOptions { path: tmp.into() };
+        let options: RepoOptions = RepoOptions { path: tmp };
         Repo::new(options)
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_repo() {
         let (repo, _) = create_mock_repo();
         repo.init().await.unwrap();

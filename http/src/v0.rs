@@ -175,7 +175,7 @@ mod tests {
         routes(&ipfs, shutdown_tx)
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn not_found_as_plaintext() {
         let routes = testing_routes().await;
         let resp = warp::test::request()
@@ -189,7 +189,7 @@ mod tests {
         assert_eq!(resp.body(), "404 page not found");
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn invalid_peer_id_as_messageresponse() {
         let routes = testing_routes().await;
         let resp = warp::test::request()

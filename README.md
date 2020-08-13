@@ -77,38 +77,37 @@ _Note: binaries available via `cargo install` is coming soon._
 
 ## Getting started
 ```rust,no_run
-use async_std::task;
+use tokio::task;
 use futures::join;
 use ipfs::{make_ipld, Ipfs, IpfsPath, Ipld, Types, UninitializedIpfs};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     tracing_subscriber::fmt::init();
 
-    task::block_on(async move {
-        // Start daemon and initialize repo
-        let (ipfs, fut): (Ipfs<Types>, _) = UninitializedIpfs::default().await.start().await.unwrap();
-        task::spawn(fut);
+    // Start daemon and initialize repo
+    let (ipfs, fut): (Ipfs<Types>, _) = UninitializedIpfs::default().await.start().await.unwrap();
+    task::spawn(fut);
 
-        // Create a DAG
-        let f1 = ipfs.put_dag(make_ipld!("block1"));
-        let f2 = ipfs.put_dag(make_ipld!("block2"));
-        let (res1, res2) = join!(f1, f2);
-        let root = make_ipld!([res1.unwrap(), res2.unwrap()]);
-        let cid = ipfs.put_dag(root).await.unwrap();
-        let path = IpfsPath::from(cid);
+    // Create a DAG
+    let f1 = ipfs.put_dag(make_ipld!("block1"));
+    let f2 = ipfs.put_dag(make_ipld!("block2"));
+    let (res1, res2) = join!(f1, f2);
+    let root = make_ipld!([res1.unwrap(), res2.unwrap()]);
+    let cid = ipfs.put_dag(root).await.unwrap();
+    let path = IpfsPath::from(cid);
 
-        // Query the DAG
-        let path1 = path.sub_path("0").unwrap();
-        let path2 = path.sub_path("1").unwrap();
-        let f1 = ipfs.get_dag(path1);
-        let f2 = ipfs.get_dag(path2);
-        let (res1, res2) = join!(f1, f2);
-        println!("Received block with contents: {:?}", res1.unwrap());
-        println!("Received block with contents: {:?}", res2.unwrap());
+    // Query the DAG
+    let path1 = path.sub_path("0").unwrap();
+    let path2 = path.sub_path("1").unwrap();
+    let f1 = ipfs.get_dag(path1);
+    let f2 = ipfs.get_dag(path2);
+    let (res1, res2) = join!(f1, f2);
+    println!("Received block with contents: {:?}", res1.unwrap());
+    println!("Received block with contents: {:?}", res2.unwrap());
 
-        // Exit
-        ipfs.exit_daemon();
-    });
+    // Exit
+    ipfs.exit_daemon();
 }
 ```
 

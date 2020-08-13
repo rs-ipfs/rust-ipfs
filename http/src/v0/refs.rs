@@ -626,7 +626,7 @@ mod tests {
     use std::collections::HashSet;
     use std::convert::TryFrom;
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_inner_local() {
         let filter = local(&*preloaded_testing_ipfs().await);
 
@@ -673,7 +673,7 @@ mod tests {
         assert!(diff.is_empty(), "{:?}", diff);
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn all_refs_from_root() {
         let Node { ipfs, bg_task: _bt } = preloaded_testing_ipfs().await;
 
@@ -714,7 +714,7 @@ mod tests {
         assert_edges(&expected, all_edges.as_slice());
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn all_unique_refs_from_root() {
         let Node { ipfs, bg_task: _bt } = preloaded_testing_ipfs().await;
 
@@ -757,7 +757,7 @@ mod tests {
         assert!(diff.is_empty(), "{:?}", diff);
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn refs_with_path() {
         let ipfs = preloaded_testing_ipfs().await;
 

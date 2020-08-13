@@ -1,9 +1,6 @@
 //! Persistent fs backed repo
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore};
-use async_std::fs;
-use async_std::path::PathBuf;
-use async_std::prelude::*;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
@@ -12,6 +9,11 @@ use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use std::collections::HashSet;
 use std::ffi::OsStr;
+use std::path::PathBuf;
+use tokio::{
+    fs,
+    io::{AsyncReadExt, AsyncWriteExt},
+};
 
 use super::{BlockRm, BlockRmError, RepoCid};
 
@@ -145,12 +147,12 @@ mod tests {
     use multihash::Sha2_256;
     use std::env::temp_dir;
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_fs_blockstore() {
         let mut tmp = temp_dir();
         tmp.push("blockstore1");
         std::fs::remove_dir_all(tmp.clone()).ok();
-        let store = FsBlockStore::new(tmp.clone().into());
+        let store = FsBlockStore::new(tmp.clone());
 
         let data = b"1".to_vec().into_boxed_slice();
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
@@ -183,7 +185,7 @@ mod tests {
         std::fs::remove_dir_all(tmp).ok();
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_fs_blockstore_open() {
         let mut tmp = temp_dir();
         tmp.push("blockstore2");
@@ -193,14 +195,14 @@ mod tests {
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
         let block = Block::new(data, cid);
 
-        let block_store = FsBlockStore::new(tmp.clone().into());
+        let block_store = FsBlockStore::new(tmp.clone());
         block_store.init().await.unwrap();
         block_store.open().await.unwrap();
 
         assert!(!block_store.contains(block.cid()).await.unwrap());
         block_store.put(block.clone()).await.unwrap();
 
-        let block_store = FsBlockStore::new(tmp.clone().into());
+        let block_store = FsBlockStore::new(tmp.clone());
         block_store.open().await.unwrap();
         assert!(block_store.contains(block.cid()).await.unwrap());
         assert_eq!(block_store.get(block.cid()).await.unwrap().unwrap(), block);
@@ -208,13 +210,13 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_fs_blockstore_list() {
         let mut tmp = temp_dir();
         tmp.push("blockstore_list");
         std::fs::remove_dir_all(&tmp).ok();
 
-        let block_store = FsBlockStore::new(tmp.clone().into());
+        let block_store = FsBlockStore::new(tmp.clone());
         block_store.init().await.unwrap();
         block_store.open().await.unwrap();
 

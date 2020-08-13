@@ -1,11 +1,11 @@
 //! Volatile memory backed repo
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore, Column, DataStore};
-use async_std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
 use futures::lock::Mutex;
+use std::path::PathBuf;
 
 use super::{BlockRm, BlockRmError, RepoCid};
 
@@ -154,10 +154,10 @@ mod tests {
     use multihash::Sha2_256;
     use std::env::temp_dir;
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_mem_blockstore() {
         let tmp = temp_dir();
-        let store = MemBlockStore::new(tmp.into());
+        let store = MemBlockStore::new(tmp);
         let data = b"1".to_vec().into_boxed_slice();
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
         let block = Block::new(data, cid.clone());
@@ -187,10 +187,10 @@ mod tests {
         assert_eq!(get.await.unwrap(), None);
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_mem_blockstore_list() {
         let tmp = temp_dir();
-        let mem_store = MemBlockStore::new(tmp.into());
+        let mem_store = MemBlockStore::new(tmp);
 
         mem_store.init().await.unwrap();
         mem_store.open().await.unwrap();
@@ -210,10 +210,10 @@ mod tests {
         }
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_mem_datastore() {
         let tmp = temp_dir();
-        let store = MemDataStore::new(tmp.into());
+        let store = MemDataStore::new(tmp);
         let col = Column::Ipns;
         let key = [1, 2, 3, 4];
         let value = [5, 6, 7, 8];

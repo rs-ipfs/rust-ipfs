@@ -1,11 +1,8 @@
-use async_std::{
-    future::{pending, timeout},
-    task,
-};
 use cid::Cid;
-use futures::future::{select, Either, FutureExt};
+use futures::future::{pending, select, Either, FutureExt};
 use futures::future::{AbortHandle, Abortable};
 use ipfs::Node;
+use tokio::{task, time::timeout};
 
 use std::{
     convert::TryFrom,
@@ -50,7 +47,7 @@ async fn check_cid_subscriptions(ipfs: &Node, cid: &Cid, expected_count: usize) 
 }
 
 /// Check if canceling a Cid affects the wantlist.
-#[async_std::test]
+#[tokio::test(max_threads = 1)]
 async fn wantlist_cancellation() {
     tracing_subscriber::fmt::init();
 

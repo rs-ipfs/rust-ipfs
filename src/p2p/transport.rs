@@ -5,7 +5,7 @@ use libp2p::core::upgrade::SelectUpgrade;
 use libp2p::identity;
 use libp2p::mplex::MplexConfig;
 use libp2p::noise::{self, NoiseConfig};
-use libp2p::tcp::TcpConfig;
+use libp2p::tcp::TokioTcpConfig;
 use libp2p::yamux::Config as YamuxConfig;
 use libp2p::{PeerId, Transport};
 use std::io::{Error, ErrorKind};
@@ -23,7 +23,7 @@ pub fn build_transport(keypair: identity::Keypair) -> TTransport {
         .unwrap();
     let noise_config = NoiseConfig::xx(xx_keypair).into_authenticated();
 
-    TcpConfig::new()
+    TokioTcpConfig::new()
         .nodelay(true)
         .upgrade(Version::V1)
         .authenticate(noise_config)

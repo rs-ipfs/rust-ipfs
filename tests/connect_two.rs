@@ -1,9 +1,9 @@
-use async_std::future::timeout;
 use ipfs::{ConnectionTarget, Node};
 use std::time::Duration;
+use tokio::time::timeout;
 
 // Make sure two instances of ipfs can be connected by `Multiaddr`.
-#[async_std::test]
+#[tokio::test(max_threads = 1)]
 async fn connect_two_nodes_by_addr() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
@@ -22,7 +22,7 @@ async fn connect_two_nodes_by_addr() {
 // order to connect by PeerId) already performs a dial to the
 // given peer within Pubsub::add_node_to_partial_view it calls
 #[ignore]
-#[async_std::test]
+#[tokio::test(max_threads = 1)]
 async fn connect_two_nodes_by_peer_id() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
@@ -40,7 +40,7 @@ async fn connect_two_nodes_by_peer_id() {
 }
 
 // Make sure two instances of ipfs can be connected with a multiaddr+peer combo.
-#[async_std::test]
+#[tokio::test(max_threads = 1)]
 async fn connect_two_nodes_by_addr_and_peer() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
@@ -59,7 +59,7 @@ async fn connect_two_nodes_by_addr_and_peer() {
 }
 
 // Ensure that duplicate connection attempts don't cause hangs.
-#[async_std::test]
+#[tokio::test(max_threads = 1)]
 async fn connect_duplicate_multiaddr() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
@@ -77,7 +77,7 @@ async fn connect_duplicate_multiaddr() {
 }
 
 // Ensure that duplicate connection attempts don't cause hangs.
-#[async_std::test]
+#[tokio::test(max_threads = 1)]
 async fn connect_duplicate_peer_id() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
@@ -98,7 +98,7 @@ async fn connect_duplicate_peer_id() {
 
 // More complicated one to the above; first node will have two listening addresses and the second
 // one should dial both of the addresses, resulting in two connections.
-#[async_std::test]
+#[tokio::test(max_threads = 1)]
 async fn connect_two_nodes_with_two_connections_doesnt_panic() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;

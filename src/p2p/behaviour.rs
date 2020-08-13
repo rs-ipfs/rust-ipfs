@@ -5,7 +5,6 @@ use crate::repo::BlockPut;
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use crate::{Ipfs, IpfsTypes};
 use anyhow::anyhow;
-use async_std::task;
 use bitswap::{Bitswap, BitswapEvent};
 use cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
@@ -19,6 +18,7 @@ use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
 use multibase::Base;
 use std::sync::Arc;
+use tokio::task;
 
 /// Behaviour type.
 #[derive(NetworkBehaviour)]

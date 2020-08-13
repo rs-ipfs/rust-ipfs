@@ -1,22 +1,21 @@
-use async_std::task;
 use futures::join;
 use ipfs::{make_ipld, Ipfs, TestTypes, UninitializedIpfs};
+use tokio::task;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     tracing_subscriber::fmt::init();
 
-    task::block_on(async move {
-        let (ipfs, fut): (Ipfs<TestTypes>, _) =
-            UninitializedIpfs::default().await.start().await.unwrap();
-        task::spawn(fut);
+    let (ipfs, fut): (Ipfs<TestTypes>, _) =
+        UninitializedIpfs::default().await.start().await.unwrap();
+    task::spawn(fut);
 
-        let f1 = ipfs.put_dag(make_ipld!("block1"));
-        let f2 = ipfs.put_dag(make_ipld!("block2"));
-        let (res1, res2) = join!(f1, f2);
+    let f1 = ipfs.put_dag(make_ipld!("block1"));
+    let f2 = ipfs.put_dag(make_ipld!("block2"));
+    let (res1, res2) = join!(f1, f2);
 
-        let root = make_ipld!([res1.unwrap(), res2.unwrap()]);
-        ipfs.put_dag(root).await.unwrap();
+    let root = make_ipld!([res1.unwrap(), res2.unwrap()]);
+    ipfs.put_dag(root).await.unwrap();
 
-        ipfs.exit_daemon().await;
-    });
+    ipfs.exit_daemon().await;
 }

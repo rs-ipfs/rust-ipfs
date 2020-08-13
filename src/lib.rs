@@ -8,7 +8,6 @@ extern crate tracing;
 
 pub use crate::ipld::Ipld;
 use anyhow::{anyhow, format_err};
-use async_std::path::PathBuf;
 pub use bitswap::{BitswapEvent, Block, Stats};
 pub use cid::Cid;
 use cid::Codec;
@@ -18,6 +17,7 @@ use futures::sink::SinkExt;
 use futures::stream::{Fuse, Stream};
 pub use libp2p::core::{connection::ListenerId, ConnectedPoint, Multiaddr, PeerId, PublicKey};
 pub use libp2p::identity::Keypair;
+use std::path::PathBuf;
 use tracing::Span;
 use tracing_futures::Instrument;
 
@@ -107,7 +107,7 @@ impl IpfsOptions {
     /// Creates an inmemory store backed node for tests
     pub fn inmemory_with_generated_keys() -> Self {
         Self {
-            ipfs_path: std::env::temp_dir().into(),
+            ipfs_path: std::env::temp_dir(),
             keypair: Keypair::generate_ed25519(),
             mdns: Default::default(),
             bootstrap: Default::default(),
@@ -186,7 +186,7 @@ impl Default for IpfsOptions {
             } else {
                 std::env::current_dir().unwrap()
             };
-            root.join(".rust-ipfs").into()
+            root.join(".rust-ipfs")
         };
         let config_path = dirs::config_dir()
             .unwrap()
@@ -1047,7 +1047,7 @@ mod node {
     /// easier.
     pub struct Node {
         pub ipfs: Ipfs<TestTypes>,
-        pub bg_task: async_std::task::JoinHandle<()>,
+        pub bg_task: tokio::task::JoinHandle<()>,
     }
 
     impl Node {
@@ -1069,7 +1069,7 @@ mod node {
                 .await
                 .unwrap();
 
-            let bg_task = async_std::task::spawn(fut.in_current_span());
+            let bg_task = tokio::task::spawn(fut.in_current_span());
 
             Node { ipfs, bg_task }
         }
@@ -1124,7 +1124,7 @@ mod node {
 
         pub async fn shutdown(self) {
             self.ipfs.exit_daemon().await;
-            self.bg_task.await;
+            let _ = self.bg_task.await;
         }
     }
 
@@ -1260,7 +1260,7 @@ mod tests {
         ));
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_put_and_get_block() {
         let ipfs = Node::new("test_node").await;
 
@@ -1273,7 +1273,7 @@ mod tests {
         assert_eq!(block, new_block);
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_put_and_get_dag() {
         let ipfs = Node::new("test_node").await;
 
@@ -1283,7 +1283,7 @@ mod tests {
         assert_eq!(data, new_data);
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_pin_and_unpin() {
         let ipfs = Node::new("test_node").await;
 

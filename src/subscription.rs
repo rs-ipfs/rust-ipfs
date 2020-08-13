@@ -4,13 +4,12 @@
 //! sharing the same unique numeric identifier, the `SubscriptionId`.
 
 use crate::{p2p::ConnectionTarget, RepoEvent};
-use async_std::future::Future;
-use async_std::task::{Context, Poll, Waker};
 use cid::Cid;
 use core::fmt::Debug;
 use core::hash::Hash;
 use core::pin::Pin;
 use futures::channel::mpsc::Sender;
+use futures::future::Future;
 use libp2p::{kad::QueryId, Multiaddr, PeerId};
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -20,6 +19,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
+use std::task::{Context, Poll, Waker};
 
 // a counter used to assign unique identifiers to `Subscription`s and `SubscriptionFuture`s
 // (which obtain the same number as their counterpart `Subscription`)
@@ -443,7 +443,7 @@ mod tests {
         }
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn subscription_basics() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -455,7 +455,7 @@ mod tests {
         assert_eq!(s3.await.unwrap(), 10);
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn subscription_cancelled_on_dropping_registry() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -463,7 +463,7 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn subscription_cancelled_on_shutdown() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -471,7 +471,7 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn new_subscriptions_cancelled_after_shutdown() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         registry.shutdown();
@@ -479,10 +479,10 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     async fn dropping_subscription_future_after_registering() {
-        use async_std::future::timeout;
         use std::time::Duration;
+        use tokio::time::timeout;
 
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = timeout(

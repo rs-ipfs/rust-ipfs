@@ -1,12 +1,12 @@
-use async_std::task;
 use ipfs::Node;
+use tokio::time;
 
 async fn wait(millis: u64) {
-    task::spawn(task::sleep(std::time::Duration::from_millis(millis))).await;
+    time::delay_for(std::time::Duration::from_millis(millis)).await;
 }
 
 // Ensure that the Bitswap object doesn't leak.
-#[async_std::test]
+#[tokio::test(max_threads = 1)]
 async fn check_bitswap_cleanups() {
     // create a few nodes
     let node_a = Node::new("a").await;
