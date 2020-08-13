@@ -366,7 +366,7 @@ pub(crate) mod tests {
     pub fn create_mock_repo() -> (Repo<Types>, Receiver<RepoEvent>) {
         let mut tmp = temp_dir();
         tmp.push("rust-ipfs-repo");
-        let options: RepoOptions = RepoOptions { path: tmp.into() };
+        let options: RepoOptions = RepoOptions { path: tmp };
         Repo::new(options)
     }
 

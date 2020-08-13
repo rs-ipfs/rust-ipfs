@@ -152,7 +152,7 @@ mod tests {
         let mut tmp = temp_dir();
         tmp.push("blockstore1");
         std::fs::remove_dir_all(tmp.clone()).ok();
-        let store = FsBlockStore::new(tmp.clone().into());
+        let store = FsBlockStore::new(tmp.clone());
 
         let data = b"1".to_vec().into_boxed_slice();
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
@@ -195,14 +195,14 @@ mod tests {
         let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
         let block = Block::new(data, cid);
 
-        let block_store = FsBlockStore::new(tmp.clone().into());
+        let block_store = FsBlockStore::new(tmp.clone());
         block_store.init().await.unwrap();
         block_store.open().await.unwrap();
 
         assert!(!block_store.contains(block.cid()).await.unwrap());
         block_store.put(block.clone()).await.unwrap();
 
-        let block_store = FsBlockStore::new(tmp.clone().into());
+        let block_store = FsBlockStore::new(tmp.clone());
         block_store.open().await.unwrap();
         assert!(block_store.contains(block.cid()).await.unwrap());
         assert_eq!(block_store.get(block.cid()).await.unwrap().unwrap(), block);
@@ -216,7 +216,7 @@ mod tests {
         tmp.push("blockstore_list");
         std::fs::remove_dir_all(&tmp).ok();
 
-        let block_store = FsBlockStore::new(tmp.clone().into());
+        let block_store = FsBlockStore::new(tmp.clone());
         block_store.init().await.unwrap();
         block_store.open().await.unwrap();
 

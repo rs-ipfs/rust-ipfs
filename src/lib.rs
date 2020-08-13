@@ -107,7 +107,7 @@ impl IpfsOptions {
     /// Creates an inmemory store backed node for tests
     pub fn inmemory_with_generated_keys() -> Self {
         Self {
-            ipfs_path: std::env::temp_dir().into(),
+            ipfs_path: std::env::temp_dir(),
             keypair: Keypair::generate_ed25519(),
             mdns: Default::default(),
             bootstrap: Default::default(),
@@ -186,7 +186,7 @@ impl Default for IpfsOptions {
             } else {
                 std::env::current_dir().unwrap()
             };
-            root.join(".rust-ipfs").into()
+            root.join(".rust-ipfs")
         };
         let config_path = dirs::config_dir()
             .unwrap()
