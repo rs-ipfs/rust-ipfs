@@ -6,7 +6,7 @@ use async_stream::try_stream;
 use bytes::Bytes;
 use cid::{Cid, Codec};
 use futures::stream::TryStream;
-use ipfs::unixfs::ll::walk::{self, ContinuedWalk, Entry, MetadataEntry, Walker};
+use ipfs::unixfs::ll::walk::{self, ContinuedWalk, Walker};
 use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed};
 use ipfs::Block;
 use ipfs::{Ipfs, IpfsTypes};
@@ -157,10 +157,11 @@ fn walk<Types: IpfsTypes>(
             let (next, _) = walker.pending_links();
             let Block { data, .. } = ipfs.get_block(next).await?;
 
-            match walker.inspect(&data, &mut cache)? {
-                ContinuedWalk::File(segment, Entry::Metadata(MetadataEntry::File(.., p, md, size))) => {
+            match walker.next(&data, &mut cache)? {
+                ContinuedWalk::Bucket(..) => {}
+                ContinuedWalk::File(segment, _, path, metadata, size) => {
                     if segment.is_first() {
-                        for bytes in tar_helper.apply_file(p, md, size)?.iter_mut() {
+                        for bytes in tar_helper.apply_file(path, metadata, size)?.iter_mut() {
                             if let Some(bytes) = bytes.take() {
                                 yield bytes;
                             }
@@ -187,21 +188,17 @@ fn walk<Types: IpfsTypes>(
                         }
                     }
                 },
-                ContinuedWalk::Directory(Entry::Metadata(metadata_entry)) => {
-                    let metadata = metadata_entry.metadata();
-                    let path = metadata_entry.path();
+                ContinuedWalk::Directory(_, path, metadata) | ContinuedWalk::RootDirectory(_, path, metadata) => {
                     for bytes in tar_helper.apply_directory(path, metadata)?.iter_mut() {
                         if let Some(bytes) = bytes.take() {
                             yield bytes;
                         }
                     }
                 },
-                ContinuedWalk::Symlink(bytes, Entry::Metadata(metadata_entry)) => {
+                ContinuedWalk::Symlink(bytes, _, path, metadata) => {
                     // converting a symlink is the most tricky part
-                    let path = metadata_entry.path();
                     let target = std::str::from_utf8(bytes).map_err(|_| GetError::NonUtf8Symlink)?;
                     let target = Path::new(target);
-                    let metadata = metadata_entry.metadata();
 
                     for bytes in tar_helper.apply_symlink(path, target, metadata)?.iter_mut() {
                         if let Some(bytes) = bytes.take() {
@@ -209,7 +206,6 @@ fn walk<Types: IpfsTypes>(
                         }
                     }
                 },
-                _ => {}
             };
         }
     }

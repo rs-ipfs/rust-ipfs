@@ -13,23 +13,29 @@ use std::path::{Path, PathBuf};
 /// Representation of the walk progress. The common `Item` can be used to continue the walk.
 #[derive(Debug)]
 pub enum ContinuedWalk<'a> {
+    /// Currently looking at a bucket.
+    Bucket(&'a Cid, &'a Path),
+    /// Currently looking at a directory.
+    Directory(&'a Cid, &'a Path, &'a Metadata),
     /// Currently looking at a file. The first tuple value contains the file bytes accessible
     /// from the block, which can also be an empty slice.
-    File(FileSegment<'a>, Entry<'a>),
-    /// Currently looking at a directory.
-    Directory(Entry<'a>),
+    File(FileSegment<'a>, &'a Cid, &'a Path, &'a Metadata, u64),
+    /// Currently looking at a root directory.
+    RootDirectory(&'a Cid, &'a Path, &'a Metadata),
     /// Currently looking at a symlink. The first tuple value contains the symlink target path. It
     /// might be convertible to UTF-8, but this is not specified in the spec.
-    Symlink(&'a [u8], Entry<'a>),
+    Symlink(&'a [u8], &'a Cid, &'a Path, &'a Metadata),
 }
 
-impl<'a> ContinuedWalk<'a> {
+impl ContinuedWalk<'_> {
     #[cfg(test)]
-    fn entry(self) -> Entry<'a> {
+    fn path(&self) -> &Path {
         match self {
-            Self::File(_, e) => e,
-            Self::Directory(e) => e,
-            Self::Symlink(_, e) => e,
+            Self::Bucket(_, p)
+            | Self::Directory(_, p, ..)
+            | Self::File(_, _, p, ..)
+            | Self::RootDirectory(_, p, ..)
+            | Self::Symlink(_, _, p, ..) => p,
         }
     }
 }
@@ -181,43 +187,6 @@ impl AsRef<[u8]> for FileSegment<'_> {
     }
 }
 
-/// Representation of the current item of Walker or the last observed item with medatada.
-#[derive(Debug)]
-pub enum MetadataEntry<'a> {
-    /// Current item is a non-root plain Directory or a HAMTShard directory.
-    Directory(&'a Cid, &'a Path, &'a Metadata),
-    /// Current item is possibly a root file with a path, metadata, and a total file size.
-    File(&'a Cid, &'a Path, &'a Metadata, u64),
-    /// Current item is the root directory (HAMTShard or plain Directory).
-    RootDirectory(&'a Cid, &'a Path, &'a Metadata),
-    /// Current item is possibly a root symlink.
-    Symlink(&'a Cid, &'a Path, &'a Metadata),
-}
-
-impl MetadataEntry<'_> {
-    /// Returns the metadata for the latest entry. It exists for initial directory entries, files,
-    /// and symlinks but not for continued HamtShards.
-    pub fn metadata(&self) -> &'_ Metadata {
-        match self {
-            Self::Directory(_, _, m)
-            | Self::File(_, _, m, ..)
-            | Self::RootDirectory(_, _, m)
-            | Self::Symlink(_, _, m) => m,
-        }
-    }
-
-    /// Returns the path for the latest entry. This is created from a UTF-8 string and, as such, is always
-    /// representable on all supported platforms.
-    pub fn path(&self) -> &'_ Path {
-        match self {
-            MetadataEntry::Directory(_, p, ..)
-            | MetadataEntry::File(_, p, ..)
-            | MetadataEntry::RootDirectory(_, p, ..)
-            | MetadataEntry::Symlink(_, p, ..) => p,
-        }
-    }
-}
-
 /// `Walker` helps with walking a UnixFS tree, including all of the content and files. It is created with
 /// `Walker::new` and walked over each block with `Walker::continue_block`. Use
 /// `Walker::pending_links` to obtain the next [`Cid`] to be loaded and the prefetchable links.
@@ -251,20 +220,13 @@ impl Walker {
         }
     }
 
-    /// Returns a description of the kind of node the `Walker` is currently looking at, if
-    /// `continue_walk` has been called after the value was created.
-    pub fn as_entry(&'_ self) -> Option<Entry<'_>> {
-        self.current.as_ref().map(|c| c.as_entry())
-    }
-
     /// Returns the next `Cid` to load and pass its associated content to `continue_walk`.
     pub fn pending_links<'a>(&'a self) -> (&'a Cid, impl Iterator<Item = &'a Cid> + 'a) {
-        use InnerKind::*;
         // rev: because we'll pop any of the pending
         let cids = self.pending.iter().map(|(cid, ..)| cid).rev();
 
         match self.current.as_ref().map(|c| &c.kind) {
-            Some(File(_, Some(ref visit), _)) => {
+            Some(InnerKind::File(Some(ref visit), _)) => {
                 let (first, rest) = visit.pending_links();
                 let next = self.next.iter().map(|(cid, _, _)| cid);
                 (first, Either::Left(rest.chain(next.chain(cids))))
@@ -284,13 +246,11 @@ impl Walker {
     /// Returns a descriptor for the next element found as `ContinuedWalk` which includes the means
     /// to further continue the walk. `bytes` is the raw data of the next block, `cache` is an
     /// optional cache for data structures which can always be substituted with `&mut None`.
-    pub fn inspect<'a: 'b, 'b>(
+    pub fn next<'a: 'c, 'b: 'c, 'c>(
         &'a mut self,
         bytes: &'b [u8],
         cache: &mut Option<Cache>,
-    ) -> Result<ContinuedWalk<'b>, Error> {
-        use InnerKind::*;
-
+    ) -> Result<ContinuedWalk<'c>, Error> {
         let Self {
             current,
             next,
@@ -300,23 +260,23 @@ impl Walker {
 
         *should_continue = false;
 
-        if let Some(ie) = current {
-            if let File(_, visit @ Some(_), _) = &mut ie.kind {
-                // we have an ongoing filevisit, the block must be related to it.
-                let (bytes, step) = visit
-                    .take()
-                    .expect("matched visit was Some")
-                    .continue_walk(bytes, cache)?;
-
-                let file_continues = step.is_some();
-                *visit = step;
-
-                let segment = FileSegment::later(bytes, !file_continues);
-                if file_continues || next.is_some() {
-                    *should_continue = true;
-                }
-                return Ok(ContinuedWalk::File(segment, self.as_entry().unwrap()));
+        if let Some(InnerEntry {
+            cid,
+            kind: InnerKind::File(visit @ Some(_), sz),
+            metadata,
+            path,
+            ..
+        }) = current
+        {
+            // we have an ongoing filevisit, the block must be related to it.
+            let (bytes, step) = visit.take().unwrap().continue_walk(bytes, cache)?;
+            let file_continues = step.is_some();
+            let segment = FileSegment::later(bytes, !file_continues);
+            *visit = step;
+            if file_continues || next.is_some() {
+                *should_continue = true;
             }
+            return Ok(ContinuedWalk::File(segment, cid, path, metadata, *sz));
         }
 
         let flat = FlatUnixFs::try_from(bytes)?;
@@ -326,16 +286,6 @@ impl Walker {
             UnixFsType::Directory => {
                 let flat = crate::dir::check_directory_supported(flat)?;
                 let (cid, name, depth) = next.take().expect("validated at new and earlier");
-
-                match current {
-                    None => {
-                        let ie = InnerEntry::new_root_dir(cid, metadata, &name, depth);
-                        *current = Some(ie);
-                    }
-                    Some(ie) => {
-                        ie.as_directory(cid, &name, depth, metadata);
-                    }
-                };
 
                 // depth + 1 because all entries below a directory are children of next, as in,
                 // deeper
@@ -352,33 +302,26 @@ impl Walker {
                     pending.push(link?);
                 }
 
-                if let next @ Some(_) = pending.pop() {
-                    self.next = next;
+                if let next_local @ Some(_) = pending.pop() {
+                    *next = next_local;
                     *should_continue = true;
                 }
 
-                Ok(ContinuedWalk::Directory(self.as_entry().unwrap()))
+                Ok(match current {
+                    None => {
+                        *current = Some(InnerEntry::new_root_dir(cid, metadata, &name, depth));
+                        let ie = current.as_ref().unwrap();
+                        ContinuedWalk::RootDirectory(&ie.cid, &ie.path, &ie.metadata)
+                    }
+                    Some(ie) => {
+                        ie.as_directory(cid, &name, depth, metadata);
+                        ContinuedWalk::Directory(&ie.cid, &ie.path, &ie.metadata)
+                    }
+                })
             }
             UnixFsType::HAMTShard => {
                 let flat = crate::dir::check_hamtshard_supported(flat)?;
-
-                // TODO: the first hamtshard must have metadata!
                 let (cid, name, depth) = next.take().expect("validated at start and this method");
-
-                match current {
-                    None => {
-                        *current = Some(InnerEntry::new_root_bucket(cid, metadata, &name, depth))
-                    }
-                    Some(ie) => {
-                        if name.is_empty() {
-                            // the name should be empty for all of the siblings
-                            ie.as_bucket(cid, &name, depth);
-                        } else {
-                            // but it should be non-empty for the directories
-                            ie.as_bucket_root(cid, &name, depth, metadata);
-                        }
-                    }
-                };
 
                 // similar to directory, the depth is +1 for nested entries, but the sibling buckets
                 // are at depth
@@ -392,17 +335,34 @@ impl Walker {
                 // TODO: it might be worthwhile to lose the `rev` and sort the pushed links using
                 // the depth ascending. This should make sure we are first visiting the shortest
                 // path items.
-
                 for link in links {
                     pending.push(link?);
                 }
 
-                if let next @ Some(_) = pending.pop() {
-                    self.next = next;
+                if let next_local @ Some(_) = pending.pop() {
+                    *next = next_local;
                     *should_continue = true;
                 }
 
-                Ok(ContinuedWalk::Directory(self.as_entry().unwrap()))
+                Ok(match current {
+                    None => {
+                        *current = Some(InnerEntry::new_root_bucket(cid, metadata, &name, depth));
+                        let ie = current.as_ref().unwrap();
+                        ContinuedWalk::RootDirectory(&ie.cid, &ie.path, &ie.metadata)
+                    }
+                    Some(ie) => {
+                        // the name should be empty for all of the siblings
+                        if name.is_empty() {
+                            ie.as_bucket(cid, &name, depth);
+                            ContinuedWalk::Bucket(&ie.cid, &ie.path)
+                        }
+                        // but it should be non-empty for the directories
+                        else {
+                            ie.as_bucket_root(cid, &name, depth, metadata);
+                            ContinuedWalk::RootDirectory(&ie.cid, &ie.path, &ie.metadata)
+                        }
+                    }
+                })
             }
             UnixFsType::Raw | UnixFsType::File => {
                 let (bytes, file_size, metadata, step) =
@@ -423,12 +383,20 @@ impl Walker {
 
                 let next_local = pending.pop();
                 if file_continues || next_local.is_some() {
-                    self.next = next_local;
+                    *next = next_local;
                     *should_continue = true;
                 }
 
                 let segment = FileSegment::first(bytes, !file_continues);
-                Ok(ContinuedWalk::File(segment, self.as_entry().unwrap()))
+
+                let ie = current.as_ref().unwrap();
+                Ok(ContinuedWalk::File(
+                    segment,
+                    &ie.cid,
+                    &ie.path,
+                    &ie.metadata,
+                    file_size,
+                ))
             }
             UnixFsType::Metadata => Err(Error::UnsupportedType(flat.data.Type.into())),
             UnixFsType::Symlink => {
@@ -449,12 +417,18 @@ impl Walker {
                     }
                 };
 
-                if let next @ Some(_) = pending.pop() {
-                    self.next = next;
+                if let next_local @ Some(_) = pending.pop() {
+                    *next = next_local;
                     *should_continue = true;
                 }
 
-                Ok(ContinuedWalk::Symlink(contents, self.as_entry().unwrap()))
+                let ie = current.as_ref().unwrap();
+                Ok(ContinuedWalk::Symlink(
+                    contents,
+                    &ie.cid,
+                    &ie.path,
+                    &ie.metadata,
+                ))
             }
         }
     }
@@ -470,44 +444,10 @@ impl Walker {
     // re-creating one? How to do the same for directories?
 }
 
-/// Representation of the current item of Walker or the last observed item.
-#[derive(Debug)]
-pub enum Entry<'a> {
-    /// Current item is a continuation of a HAMTShard directory. Only the root HAMTShard will have
-    /// file metadata.
-    Bucket(&'a Cid, &'a Path),
-    /// All items that have metadata.
-    Metadata(MetadataEntry<'a>),
-}
-
-impl<'a> Entry<'a> {
-    /// Returns the Cid for the latest entry.
-    pub fn cid(&self) -> &Cid {
-        match self {
-            Self::Bucket(cid, ..) => cid,
-            Self::Metadata(MetadataEntry::Directory(cid, ..))
-            | Self::Metadata(MetadataEntry::File(cid, ..))
-            | Self::Metadata(MetadataEntry::RootDirectory(cid, ..))
-            | Self::Metadata(MetadataEntry::Symlink(cid, ..)) => cid,
-        }
-    }
-
-    /// Returns the path for the latest entry. This is created from a UTF-8 string and, as such, is always
-    /// representable on all supported platforms.
-    pub fn path(&self) -> &'a Path {
-        match self {
-            Self::Bucket(_, p) => p,
-            Self::Metadata(MetadataEntry::Directory(_, p, ..))
-            | Self::Metadata(MetadataEntry::File(_, p, ..))
-            | Self::Metadata(MetadataEntry::RootDirectory(_, p, ..))
-            | Self::Metadata(MetadataEntry::Symlink(_, p, ..)) => p,
-        }
-    }
-}
-
 /// Represents what the `Walker` is currently looking at. Converted to `Entry` for public API.
 #[derive(Debug)]
 pub(crate) struct InnerEntry {
+    cid: Cid,
     kind: InnerKind,
     path: PathBuf,
     metadata: Metadata,
@@ -519,7 +459,8 @@ impl InnerEntry {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
-            kind: InnerKind::RootDirectory(cid),
+            cid,
+            kind: InnerKind::RootDirectory,
             path,
             metadata,
             depth,
@@ -530,7 +471,8 @@ impl InnerEntry {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
-            kind: InnerKind::BucketAtRoot(cid),
+            cid,
+            kind: InnerKind::BucketAtRoot,
             path,
             metadata,
             depth,
@@ -548,7 +490,8 @@ impl InnerEntry {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
-            kind: InnerKind::File(cid, step, file_size),
+            cid,
+            kind: InnerKind::File(step, file_size),
             path,
             metadata,
             depth,
@@ -559,31 +502,11 @@ impl InnerEntry {
         let mut path = PathBuf::new();
         path.push(name);
         Self {
-            kind: InnerKind::Symlink(cid),
+            cid,
+            kind: InnerKind::Symlink,
             path,
             metadata,
             depth,
-        }
-    }
-
-    pub fn as_entry(&self) -> Entry<'_> {
-        match &self.kind {
-            InnerKind::Bucket(cid) => Entry::Bucket(cid, &self.path),
-            InnerKind::Directory(cid) => {
-                Entry::Metadata(MetadataEntry::Directory(cid, &self.path, &self.metadata))
-            }
-            InnerKind::File(cid, _, sz) => {
-                Entry::Metadata(MetadataEntry::File(cid, &self.path, &self.metadata, *sz))
-            }
-            InnerKind::RootBucket(cid) => {
-                Entry::Metadata(MetadataEntry::Directory(cid, &self.path, &self.metadata))
-            }
-            InnerKind::RootDirectory(cid) | InnerKind::BucketAtRoot(cid) => Entry::Metadata(
-                MetadataEntry::RootDirectory(cid, &self.path, &self.metadata),
-            ),
-            InnerKind::Symlink(cid) => {
-                Entry::Metadata(MetadataEntry::Symlink(cid, &self.path, &self.metadata))
-            }
         }
     }
 
@@ -607,14 +530,14 @@ impl InnerEntry {
     fn as_directory(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
         use InnerKind::*;
         match self.kind {
-            RootDirectory(_)
-            | BucketAtRoot(_)
-            | Bucket(_)
-            | RootBucket(_)
-            | Directory(_)
-            | File(_, None, _)
-            | Symlink(_) => {
-                self.kind = Directory(cid);
+            InnerKind::BucketAtRoot
+            | InnerKind::Directory
+            | InnerKind::File(None, ..)
+            | InnerKind::RootBucket
+            | InnerKind::RootDirectory
+            | InnerKind::Symlink => {
+                self.cid = cid;
+                self.kind = Directory;
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
@@ -623,16 +546,16 @@ impl InnerEntry {
     }
 
     fn as_bucket_root(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
-        use InnerKind::*;
         match self.kind {
-            RootDirectory(_)
-            | BucketAtRoot(_)
-            | Bucket(_)
-            | RootBucket(_)
-            | Directory(_)
-            | File(_, None, _)
-            | Symlink(_) => {
-                self.kind = RootBucket(cid);
+            InnerKind::Bucket
+            | InnerKind::BucketAtRoot
+            | InnerKind::Directory
+            | InnerKind::File(None, ..)
+            | InnerKind::RootBucket
+            | InnerKind::RootDirectory
+            | InnerKind::Symlink => {
+                self.cid = cid;
+                self.kind = InnerKind::RootBucket;
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
@@ -644,13 +567,16 @@ impl InnerEntry {
     }
 
     fn as_bucket(&mut self, cid: Cid, name: &str, depth: usize) {
-        use InnerKind::*;
         match self.kind {
-            BucketAtRoot(_) => {
+            InnerKind::BucketAtRoot => {
                 assert_eq!(self.depth, depth, "{:?}", self.path);
             }
-            RootBucket(_) | Bucket(_) | File(_, None, _) | Symlink(_) => {
-                self.kind = Bucket(cid);
+            InnerKind::RootBucket
+            | InnerKind::Bucket
+            | InnerKind::File(None, ..)
+            | InnerKind::Symlink => {
+                self.cid = cid;
+                self.kind = InnerKind::Bucket;
 
                 assert!(name.is_empty());
                 // continuation bucket going bucket -> bucket
@@ -677,16 +603,16 @@ impl InnerEntry {
         step: Option<FileVisit>,
         file_size: u64,
     ) {
-        use InnerKind::*;
         match self.kind {
-            RootDirectory(_)
-            | BucketAtRoot(_)
-            | RootBucket(_)
-            | Bucket(_)
-            | Directory(_)
-            | File(_, None, _)
-            | Symlink(_) => {
-                self.kind = File(cid, step, file_size);
+            InnerKind::Bucket
+            | InnerKind::BucketAtRoot
+            | InnerKind::Directory
+            | InnerKind::File(None, ..)
+            | InnerKind::RootBucket
+            | InnerKind::RootDirectory
+            | InnerKind::Symlink => {
+                self.cid = cid;
+                self.kind = InnerKind::File(step, file_size);
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
@@ -698,16 +624,16 @@ impl InnerEntry {
     }
 
     fn as_symlink(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
-        use InnerKind::*;
         match self.kind {
-            Bucket(_)
-            | BucketAtRoot(_)
-            | Directory(_)
-            | File(_, None, _)
-            | RootBucket(_)
-            | RootDirectory(_)
-            | Symlink(_) => {
-                self.kind = Symlink(cid);
+            InnerKind::Bucket
+            | InnerKind::BucketAtRoot
+            | InnerKind::Directory
+            | InnerKind::File(None, ..)
+            | InnerKind::RootBucket
+            | InnerKind::RootDirectory
+            | InnerKind::Symlink => {
+                self.cid = cid;
+                self.kind = InnerKind::Symlink;
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
@@ -722,37 +648,23 @@ impl From<InnerEntry> for Metadata {
     }
 }
 
+#[derive(Debug)]
 // FIXME: could simplify roots to optinal cid variants?
 enum InnerKind {
     /// This is necessarily at the root of the walk
-    RootDirectory(Cid),
+    RootDirectory,
     /// This is necessarily at the root of the walk
-    BucketAtRoot(Cid),
+    BucketAtRoot,
     /// This is the metadata containing bucket, for which we have a name
-    RootBucket(Cid),
+    RootBucket,
     /// This is a sibling to a previous named metadata containing bucket
-    Bucket(Cid),
+    Bucket,
     /// Directory on any level except root
-    Directory(Cid),
+    Directory,
     /// File optionally on the root level
-    File(Cid, Option<FileVisit>, u64),
+    File(Option<FileVisit>, u64),
     /// Symlink optionally on the root level
-    Symlink(Cid),
-}
-
-impl fmt::Debug for InnerKind {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use InnerKind::*;
-        match self {
-            Bucket(cid) => write!(fmt, "Bucket({})", cid),
-            BucketAtRoot(cid) => write!(fmt, "BucketAtRoot({})", cid),
-            Directory(cid) => write!(fmt, "Directory({})", cid),
-            File(cid, _, sz) => write!(fmt, "File({}, _, {})", cid, sz),
-            RootBucket(cid) => write!(fmt, "RootBucket({})", cid),
-            RootDirectory(cid) => write!(fmt, "RootDirectory({})", cid),
-            Symlink(cid) => write!(fmt, "Symlink({})", cid),
-        }
-    }
+    Symlink,
 }
 
 /// Converts a link of specifically a Directory (and not a link of a HAMTShard).
@@ -945,8 +857,8 @@ mod tests {
 
             counter += 1;
 
-            match walker.inspect(&block, &mut None).unwrap() {
-                ContinuedWalk::File(segment, _) => {
+            match walker.next(&block, &mut None).unwrap() {
+                ContinuedWalk::File(segment, ..) => {
                     match counter {
                         1 => {
                             // the root block has only links
@@ -1005,8 +917,8 @@ mod tests {
         while walker.should_continue() {
             let (next, _) = walker.pending_links();
             let block = blocks.get_by_cid(next);
-            let entry = walker.inspect(block, &mut cache).unwrap().entry();
-            *ret.entry(PathBuf::from(entry.path())).or_insert(0) += 1;
+            let cw = walker.next(block, &mut cache).unwrap();
+            *ret.entry(PathBuf::from(cw.path())).or_insert(0) += 1;
         }
 
         ret

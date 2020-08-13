@@ -52,7 +52,7 @@ fn main() {
 }
 
 fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
-    use ipfs_unixfs::walk::{ContinuedWalk, Entry, MetadataEntry, Walker};
+    use ipfs_unixfs::walk::{ContinuedWalk, Walker};
 
     let mut buf = Vec::new();
     let mut cache = None;
@@ -66,39 +66,27 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
         let (next, _) = walker.pending_links();
         blocks.as_file(&next.to_bytes())?.read_to_end(&mut buf)?;
 
-        // FIXME: unwraps required below come from the fact that we cannot provide an uniform
-        // interface for all of the nodes. we could start moving Metadata to the ContinuedWalk in
-        // the future to have it matched immediatedly, or have an "Item" for different types of
-        // items.
-        match walker.inspect(&buf, &mut cache)? {
-            ContinuedWalk::File(
-                segment,
-                Entry::Metadata(MetadataEntry::File(.., path, md, size)),
-            ) => {
+        match walker.next(&buf, &mut cache)? {
+            // Continuation of a HAMT shard directory that is usually ignored
+            ContinuedWalk::Bucket(..) => {}
+            ContinuedWalk::File(segment, _, path, metadata, size) => {
                 if segment.is_first() {
                     // this is set on the root block, no actual bytes are present for multiblock
                     // files
                 }
-
                 if segment.is_last() {
-                    let mode = md.mode().unwrap_or(0o0644) & 0o7777;
-                    let (seconds, _) = md.mtime().unwrap_or((0, 0));
+                    let mode = metadata.mode().unwrap_or(0o0644) & 0o7777;
+                    let (seconds, _) = metadata.mtime().unwrap_or((0, 0));
                     println!("f {:o} {:>12} {:>16} {:?}", mode, seconds, size, path);
                 }
             }
-            // presense of metadata can be used to determine if this is the first apperiance of
-            // a directory by looking at the metadata: sibling hamt shard buckets do not have
-            // metadata.
-            ContinuedWalk::Directory(Entry::Metadata(metadata_entry)) => {
-                let metadata = metadata_entry.metadata();
-                let path = metadata_entry.path();
+            ContinuedWalk::Directory(_, path, metadata)
+            | ContinuedWalk::RootDirectory(_, path, metadata) => {
                 let mode = metadata.mode().unwrap_or(0o0755) & 0o7777;
                 let (seconds, _) = metadata.mtime().unwrap_or((0, 0));
                 println!("d {:o} {:>12} {:>16} {:?}", mode, seconds, "-", path);
             }
-            ContinuedWalk::Symlink(bytes, Entry::Metadata(metadata_entry)) => {
-                let metadata = metadata_entry.metadata();
-                let path = metadata_entry.path();
+            ContinuedWalk::Symlink(bytes, _, path, metadata) => {
                 let target = Path::new(std::str::from_utf8(bytes).unwrap());
                 let mode = metadata.mode().unwrap_or(0o0755) & 0o7777;
                 let (seconds, _) = metadata.mtime().unwrap_or((0, 0));
@@ -107,7 +95,6 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
                     mode, seconds, "-", path, target
                 );
             }
-            _ => {}
         };
     }
 
