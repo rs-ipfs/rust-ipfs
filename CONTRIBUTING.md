@@ -9,8 +9,12 @@ Welcome, and thank you for your interest in contributing to Rust IPFS. Issues an
 
 ## First Principles
 
-1. Keep the build time small
+1. Keep the patch size minimal
 2. Aim for high (but not absolute) code coverage in testing
+
+By keeping the patch size minimal we hope to avoid difficult to review situations where there are lot of lines changed with only a few necessary changes. If you wish to submit a pull request for reorganizing something, please keep all unnecessary changes out.
+
+For example, if you wanted to change the wording of this CONTRIBUTING.md file and dislike the fact that there is no static word wrap used, please push two separate pull requests to first change the wording, and finally to reformat the file.
 
 ## Target Build
 
