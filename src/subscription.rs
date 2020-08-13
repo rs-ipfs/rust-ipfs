@@ -502,12 +502,12 @@ mod tests {
 
     // this test is designed to verify that the subscription registry is working properly
     // and doesn't break even under extreme conditions
-    #[async_std::test]
+    #[tokio::test(max_threads = 1)]
     #[ignore]
     async fn subscription_stress_test() {
-        use async_std::task;
         use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
         use std::time::Duration;
+        use tokio::{task, time::delay_for};
 
         // optional
         tracing_subscriber::fmt::init();
@@ -541,7 +541,7 @@ mod tests {
             let (mut kind, mut count);
 
             loop {
-                task::sleep(Duration::from_millis(CREATE_WAIT_TIME)).await;
+                delay_for(Duration::from_millis(CREATE_WAIT_TIME)).await;
 
                 // the id of the object that will gain subscriptions
                 kind = rng_clone.gen_range(0, KIND_COUNT);
@@ -567,7 +567,7 @@ mod tests {
             let (mut kinds, mut count);
 
             loop {
-                task::sleep(Duration::from_millis(FINISH_WAIT_TIME)).await;
+                delay_for(Duration::from_millis(FINISH_WAIT_TIME)).await;
 
                 kinds = reg_clone
                     .subscriptions
@@ -590,7 +590,7 @@ mod tests {
             let (mut count, mut idx);
 
             loop {
-                task::sleep(Duration::from_millis(CANCEL_WAIT_TIME)).await;
+                delay_for(Duration::from_millis(CANCEL_WAIT_TIME)).await;
 
                 let subs_unlocked = &mut *subs.lock().unwrap();
                 count = rng.gen_range(0, subs_unlocked.len());
