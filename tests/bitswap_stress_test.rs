@@ -12,7 +12,7 @@ fn filter(i: usize) -> bool {
 // testing the bitswap protocol (though it would be advised to uncomment
 // the tracing_subscriber for stress-testing purposes)
 #[ignore]
-#[tokio::test]
+#[tokio::test(max_threads = 1)]
 async fn bitswap_stress_test() {
     tracing_subscriber::fmt::init();
 

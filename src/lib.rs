@@ -1260,7 +1260,7 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_put_and_get_block() {
         let ipfs = Node::new("test_node").await;
 
@@ -1273,7 +1273,7 @@ mod tests {
         assert_eq!(block, new_block);
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_put_and_get_dag() {
         let ipfs = Node::new("test_node").await;
 
@@ -1283,7 +1283,7 @@ mod tests {
         assert_eq!(data, new_data);
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_pin_and_unpin() {
         let ipfs = Node::new("test_node").await;
 

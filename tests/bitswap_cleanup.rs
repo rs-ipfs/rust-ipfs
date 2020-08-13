@@ -6,7 +6,7 @@ async fn wait(millis: u64) {
 }
 
 // Ensure that the Bitswap object doesn't leak.
-#[tokio::test]
+#[tokio::test(max_threads = 1)]
 async fn check_bitswap_cleanups() {
     // create a few nodes
     let node_a = Node::new("a").await;

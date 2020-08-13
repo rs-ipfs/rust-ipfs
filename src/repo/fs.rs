@@ -147,7 +147,7 @@ mod tests {
     use multihash::Sha2_256;
     use std::env::temp_dir;
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_fs_blockstore() {
         let mut tmp = temp_dir();
         tmp.push("blockstore1");
@@ -185,7 +185,7 @@ mod tests {
         std::fs::remove_dir_all(tmp).ok();
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_fs_blockstore_open() {
         let mut tmp = temp_dir();
         tmp.push("blockstore2");
@@ -210,7 +210,7 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_fs_blockstore_list() {
         let mut tmp = temp_dir();
         tmp.push("blockstore_list");

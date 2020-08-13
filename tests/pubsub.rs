@@ -4,14 +4,14 @@ use ipfs::{Node, PeerId};
 use std::time::Duration;
 use tokio::time::timeout;
 
-#[tokio::test]
+#[tokio::test(max_threads = 1)]
 async fn subscribe_only_once() {
     let a = Node::new("test_node").await;
     let _stream = a.pubsub_subscribe("some_topic".into()).await.unwrap();
     a.pubsub_subscribe("some_topic".into()).await.unwrap_err();
 }
 
-#[tokio::test]
+#[tokio::test(max_threads = 1)]
 async fn resubscribe_after_unsubscribe() {
     let a = Node::new("test_node").await;
 
@@ -23,7 +23,7 @@ async fn resubscribe_after_unsubscribe() {
     drop(a.pubsub_subscribe("topic".into()).await.unwrap());
 }
 
-#[tokio::test]
+#[tokio::test(max_threads = 1)]
 async fn unsubscribe_via_drop() {
     let a = Node::new("test_node").await;
 
@@ -36,7 +36,7 @@ async fn unsubscribe_via_drop() {
     assert_eq!(a.pubsub_subscribed().await.unwrap(), empty);
 }
 
-#[tokio::test]
+#[tokio::test(max_threads = 1)]
 async fn can_publish_without_subscribing() {
     let a = Node::new("test_node").await;
     a.pubsub_publish("topic".into(), b"foobar".to_vec())
@@ -44,7 +44,7 @@ async fn can_publish_without_subscribing() {
         .unwrap()
 }
 
-#[tokio::test]
+#[tokio::test(max_threads = 1)]
 #[allow(clippy::mutable_key_type)] // clippy doesn't like Vec inside HashSet
 async fn publish_between_two_nodes() {
     use futures::stream::StreamExt;

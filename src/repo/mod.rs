@@ -370,7 +370,7 @@ pub(crate) mod tests {
         Repo::new(options)
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn test_repo() {
         let (repo, _) = create_mock_repo();
         repo.init().await.unwrap();

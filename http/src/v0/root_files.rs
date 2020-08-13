@@ -316,7 +316,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn very_long_file_and_symlink_names() {
         let ipfs = Node::new("test_node").await;
 
@@ -372,7 +372,7 @@ mod tests {
         assert_eq!(found, expected);
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn get_multiblock_file() {
         let ipfs = Node::new("test_node").await;
 

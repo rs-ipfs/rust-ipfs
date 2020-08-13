@@ -4,7 +4,7 @@ use multihash::Sha2_256;
 use std::time::Duration;
 use tokio::time::timeout;
 
-#[tokio::test]
+#[tokio::test(max_threads = 1)]
 async fn exchange_block() {
     tracing_subscriber::fmt::init();
 

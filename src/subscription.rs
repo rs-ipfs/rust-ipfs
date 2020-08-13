@@ -443,7 +443,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn subscription_basics() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -455,7 +455,7 @@ mod tests {
         assert_eq!(s3.await.unwrap(), 10);
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn subscription_cancelled_on_dropping_registry() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -463,7 +463,7 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn subscription_cancelled_on_shutdown() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -471,7 +471,7 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn new_subscriptions_cancelled_after_shutdown() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         registry.shutdown();
@@ -479,7 +479,7 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[tokio::test]
+    #[tokio::test(max_threads = 1)]
     async fn dropping_subscription_future_after_registering() {
         use std::time::Duration;
         use tokio::time::timeout;
