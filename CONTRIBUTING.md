@@ -1,13 +1,19 @@
 # Contributing to Rust IPFS
 
-Welcome, and thank you for your interest in contributing to Rust IPFS. Issues and pull requests are encouraged. As we work through the efforts described in the approved IPFS Dev Grant, we're looking for help in the following
+Welcome, and thank you for your interest in contributing to Rust IPFS. Issues and pull requests are encouraged. You can make a difference by tackling any of the following items:
 
-* Implementing endpoints and features not covered in the dev grant (See the [README](./README.md#roadmap))
-* Tests and CI for existing functionality
-* Examples
+* Implementing the remaining features and corresponding HTTP endpoints not yet covered. See https://areweipfsyet.rs for info on which those are.
+* Additional tests and CI for existing functionality
+* Examples, particularly those that showcase Rust's unique capaibilities or performance
+* Any advancements toward `no_std` support
 * Documentation
+* Benchmarks
+
+Also, several issues are labeled as [help wanted](https://github.com/rs-ipfs/rust-ipfs/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22+) and [good first issue](https://github.com/rs-ipfs/rust-ipfs/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22), so please review those as well.
 
 ## First Principles
+
+Following these principles in your PRs will greatly increase your chances of a successful merge:
 
 1. Keep the patch size minimal
 2. Aim for high (but not absolute) code coverage in testing
@@ -51,6 +57,7 @@ We welcome all forms of contribution. Please open issues and PRs for:
 
 ## Style
 
+- Please separate stylistic things into separate PRs than functional changes
 - Git Commit Messages should lean towards [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) but will not be enforced
 - Rust code should conform to `rustfmt` and `clippy` before push, as the CI will catch errors there
 

@@ -16,17 +16,16 @@ This repository contains the crates for the IPFS core implementation which inclu
 
 There's a lot of great work in here, and a lot more coming that isn't implemented yet. Recently, this project was awarded a [dev grant from Protocol Labs](https://github.com/ipfs/devgrants/tree/master/open-grants/rs-ipfs), empowering us to raise our level of conformance. After the grant work is complete the project will achieve alpha stage.
 
-### You can help.
+### Contributing
 
-PRs and Issues accepted for any of the following. See [the contributing docs](./CONTRIBUTING.md) for more info.
+PRs and Issues accepted. The most important thing to ensure that your contriutions make it in is to _keep the patch sizes small_. This is a huge project maintained by few people so the easier it is to review the changes the better. We would prefer many small PRs over few large ones.
+
+Here are some ways you can help:
+
 * Implement endpoints not covered by the devgrant proposal. See the [roadmap section](#roadmap) below
 * Back the project financially by reaching out or by becoming a backer on [OpenCollective](https://opencollective.com/rs-ipfs)
 
-### What is IPFS?
-
-IPFS is a global, versioned, peer-to-peer filesystem. It combines good ideas from previous systems such Git, BitTorrent, Kademlia, SFS, and the Web. It is like a single bittorrent swarm, exchanging git objects. IPFS provides an interface as simple as the HTTP web, but with permanence built in. You can also mount the world at /ipfs.
-
-For more info see: https://docs.ipfs.io/introduction/overview/
+See [the contributing docs](./CONTRIBUTING.md) for more info.
 
 ## Table of Contents
 
