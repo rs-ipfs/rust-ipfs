@@ -1,15 +1,3 @@
-use crate::dag::IpldDag;
-use crate::error::Error;
-use crate::ipld::{dag_pb::PbNode, Ipld};
-use crate::path::IpfsPath;
-use crate::repo::RepoTypes;
-use async_std::fs;
-use async_std::io::ReadExt;
-use async_std::path::PathBuf;
-use cid::{Cid, Codec};
-use std::collections::BTreeMap;
-use std::convert::TryInto;
-
 pub use ipfs_unixfs as ll;
 
 mod cat;
@@ -17,8 +5,6 @@ pub use cat::{cat, TraversalFailed};
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_file_cid() {
         // note: old versions of `ipfs::unixfs::File` was an interface where user would provide the
