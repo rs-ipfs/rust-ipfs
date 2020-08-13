@@ -18,7 +18,6 @@ futures = { default-features = false, version = "0.3" }
 humantime = { default-features = false, version = "2.0" }
 hyper = { default-features = false, version = "0.13" }
 ipfs = { path = "../" }
-libipld = { branch = "update_cid", default-features = false, features = ["dag-pb", "dag-json"], git = "https://github.com/ljedrz/rust-ipld" }
 mime = { default-features = false, version = "0.3" }
 mpart-async = { default-features = false, version = "0.4" }
 multibase = { default-features = false, version = "0.8" }
