@@ -2,7 +2,10 @@ use cid::Cid;
 use futures::future::{pending, select, Either, FutureExt};
 use futures::future::{AbortHandle, Abortable};
 use ipfs::Node;
-use tokio::{task, time::timeout};
+use tokio::{
+    task,
+    time::{delay_for, timeout},
+};
 
 use std::{
     convert::TryFrom,
@@ -30,6 +33,7 @@ where
         if check(future().await) {
             return Ok(());
         }
+        delay_for(Duration::from_millis(100)).await;
         elapsed = started.elapsed();
     }
 }
@@ -69,7 +73,7 @@ async fn wantlist_cancellation() {
 
     // verify that the requested Cid is in the wantlist
     let wantlist_populated = bounded_retry(
-        Duration::from_millis(500),
+        Duration::from_secs(1),
         || ipfs.bitswap_wantlist(None),
         |ret| ret.unwrap().get(0).map(|x| &x.0) == Some(&cid),
     )
@@ -87,7 +91,7 @@ async fn wantlist_cancellation() {
     let ipfs_clone = ipfs.clone();
     let cid_clone = cid.clone();
     let get_request2 = ipfs_clone.get_block(&cid_clone);
-    let get_timeout = timeout(Duration::from_millis(500), pending::<()>());
+    let get_timeout = timeout(Duration::from_millis(100), pending::<()>());
     let get_request2 = match select(get_timeout.boxed(), get_request2.boxed()).await {
         Either::Left((_, fut)) => fut,
         Either::Right(_) => unreachable!(),
@@ -100,7 +104,7 @@ async fn wantlist_cancellation() {
     let ipfs_clone = ipfs.clone();
     let cid_clone = cid.clone();
     let get_request3 = ipfs_clone.get_block(&cid_clone);
-    let get_timeout = timeout(Duration::from_millis(500), pending::<()>());
+    let get_timeout = timeout(Duration::from_millis(100), pending::<()>());
     let get_request3 = match select(get_timeout.boxed(), get_request3.boxed()).await {
         Either::Left((_, fut)) => fut,
         Either::Right(_) => unreachable!(),
@@ -114,7 +118,7 @@ async fn wantlist_cancellation() {
 
     // verify that the requested Cid is still in the wantlist
     let wantlist_partially_cleared1 = bounded_retry(
-        Duration::from_millis(500),
+        Duration::from_secs(1),
         || ipfs.bitswap_wantlist(None),
         |ret| ret.unwrap().len() == 1,
     )
@@ -133,7 +137,7 @@ async fn wantlist_cancellation() {
 
     // verify that the requested Cid is STILL in the wantlist
     let wantlist_partially_cleared2 = bounded_retry(
-        Duration::from_millis(500),
+        Duration::from_secs(1),
         || ipfs.bitswap_wantlist(None),
         |ret| ret.unwrap().len() == 1,
     )
@@ -152,7 +156,7 @@ async fn wantlist_cancellation() {
 
     // verify that the requested Cid is no longer in the wantlist
     let wantlist_cleared = bounded_retry(
-        Duration::from_millis(500),
+        Duration::from_secs(1),
         || ipfs.bitswap_wantlist(None),
         |ret| ret.unwrap().is_empty(),
     )
