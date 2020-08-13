@@ -95,7 +95,7 @@ mod tests {
     use super::*;
     use crate::{make_ipld, Node};
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_resolve_root_cid() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(res, data);
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_resolve_array_elem() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -118,7 +118,7 @@ mod tests {
         assert_eq!(res, make_ipld!(2));
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_resolve_nested_array_elem() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -131,7 +131,7 @@ mod tests {
         assert_eq!(res, make_ipld!(2));
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_resolve_object_elem() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -146,7 +146,7 @@ mod tests {
         assert_eq!(res, make_ipld!(false));
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_resolve_cid_elem() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);

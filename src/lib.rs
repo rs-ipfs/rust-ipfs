@@ -8,7 +8,7 @@ extern crate tracing;
 
 pub use crate::ipld::Ipld;
 use anyhow::{anyhow, format_err};
-use async_std::path::PathBuf;
+use std::path::PathBuf;
 pub use bitswap::{BitswapEvent, Block, Stats};
 pub use cid::Cid;
 use cid::Codec;
@@ -1047,7 +1047,7 @@ mod node {
     /// easier.
     pub struct Node {
         pub ipfs: Ipfs<TestTypes>,
-        pub bg_task: async_std::task::JoinHandle<()>,
+        pub bg_task: tokio::task::JoinHandle<()>,
     }
 
     impl Node {
@@ -1069,7 +1069,7 @@ mod node {
                 .await
                 .unwrap();
 
-            let bg_task = async_std::task::spawn(fut.in_current_span());
+            let bg_task = tokio::task::spawn(fut.in_current_span());
 
             Node { ipfs, bg_task }
         }
@@ -1124,7 +1124,7 @@ mod node {
 
         pub async fn shutdown(self) {
             self.ipfs.exit_daemon().await;
-            self.bg_task.await;
+            let _ = self.bg_task.await;
         }
     }
 
@@ -1260,7 +1260,7 @@ mod tests {
         ));
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_put_and_get_block() {
         let ipfs = Node::new("test_node").await;
 
@@ -1273,7 +1273,7 @@ mod tests {
         assert_eq!(block, new_block);
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_put_and_get_dag() {
         let ipfs = Node::new("test_node").await;
 
@@ -1283,7 +1283,7 @@ mod tests {
         assert_eq!(data, new_data);
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_pin_and_unpin() {
         let ipfs = Node::new("test_node").await;
 

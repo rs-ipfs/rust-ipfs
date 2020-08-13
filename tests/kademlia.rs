@@ -1,10 +1,10 @@
-use async_std::future::timeout;
+use tokio::time::timeout;
 use cid::Cid;
 use ipfs::{IpfsOptions, Node};
 use libp2p::{Multiaddr, PeerId};
 use std::time::Duration;
 
-#[async_std::test]
+#[tokio::test]
 async fn kademlia_local_peer_discovery() {
     const BOOTSTRAPPER_COUNT: usize = 20;
 
@@ -54,7 +54,7 @@ async fn kademlia_local_peer_discovery() {
 }
 
 #[ignore = "targets an actual bootstrapper, so random failures can happen"]
-#[async_std::test]
+#[tokio::test]
 async fn kademlia_popular_content_discovery() {
     let (bootstrapper_id, bootstrapper_addr): (PeerId, Multiaddr) = (
         "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"

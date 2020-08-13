@@ -1,7 +1,7 @@
 //! Volatile memory backed repo
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore, Column, DataStore};
-use async_std::path::PathBuf;
+use std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
@@ -154,7 +154,7 @@ mod tests {
     use multihash::Sha2_256;
     use std::env::temp_dir;
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_mem_blockstore() {
         let tmp = temp_dir();
         let store = MemBlockStore::new(tmp.into());
@@ -187,7 +187,7 @@ mod tests {
         assert_eq!(get.await.unwrap(), None);
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_mem_blockstore_list() {
         let tmp = temp_dir();
         let mem_store = MemBlockStore::new(tmp.into());
@@ -210,7 +210,7 @@ mod tests {
         }
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_mem_datastore() {
         let tmp = temp_dir();
         let store = MemDataStore::new(tmp.into());

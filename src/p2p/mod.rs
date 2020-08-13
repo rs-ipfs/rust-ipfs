@@ -74,6 +74,6 @@ impl libp2p::core::Executor for SpannedExecutor {
         future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'static + Send>>,
     ) {
         use tracing_futures::Instrument;
-        async_std::task::spawn(future.instrument(self.0.clone()));
+        tokio::task::spawn(future.instrument(self.0.clone()));
     }
 }

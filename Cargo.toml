@@ -11,7 +11,6 @@ nightly = []
 
 [dependencies]
 anyhow = { default-features = false, version = "1.0" }
-async-std = { default-features = false, features = ["attributes", "std"], version = "1.6" }
 async-stream = { default-features = false, version = "0.3" }
 async-trait = { default-features = false, version = "0.1" }
 base64 = { default-features = false, features = ["alloc"], version = "0.12" }
@@ -24,7 +23,7 @@ domain = { default-features = false, version = "0.5" }
 domain-resolv = { default-features = false, version = "0.5" }
 futures = { default-features = false, features = ["compat", "io-compat"], version = "0.3.5" }
 ipfs-unixfs = { path = "unixfs" }
-libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-async-std", "mdns", "mplex", "noise", "ping", "yamux"], version = "0.23" }
+libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-tokio", "mdns", "mplex", "noise", "ping", "yamux"], version = "0.23" }
 multibase = { default-features = false, version = "0.8" }
 multihash = { default-features = false, version = "0.11" }
 prost = { default-features = false, version = "0.6" }
@@ -32,6 +31,7 @@ rand = { default-features = false, features = ["getrandom"], version = "0.7" }
 serde = { default-features = false, features = ["derive"], version = "1.0" }
 serde_json = { default-features = false, features = ["std"], version = "1.0" }
 thiserror = { default-features = false, version = "1.0" }
+tokio = { default-features = false, features = ["full"], version = "0.2" }
 tracing = { default-features = false, features = ["log"], version = "0.1" }
 tracing-futures = { default-features = false, features = ["std", "futures-03"], version = "0.2" }
 void = { default-features = false, version = "1.0" }

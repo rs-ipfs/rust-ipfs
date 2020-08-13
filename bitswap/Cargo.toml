@@ -8,7 +8,6 @@ version = "0.1.0"
 prost-build = { default-features = false, version = "0.6" }
 
 [dependencies]
-async-std = { default-features = false, version = "1.6" }
 async-trait = { default-features = false, version = "0.1" }
 cid = { default-features = false, version = "0.5" }
 fnv = { default-features = false, version = "1.0" }
@@ -18,5 +17,6 @@ libp2p-swarm = { default-features = false, version = "0.20" }
 multihash = { default-features = false, version = "0.11" }
 prost = { default-features = false, version = "0.6" }
 thiserror = { default-features = false, version = "1.0" }
+tokio = { default-features = false, features = ["full"], version = "0.2" }
 tracing = { default-features = false, version = "0.1" }
 unsigned-varint = { default-features = false, version = "0.3" }

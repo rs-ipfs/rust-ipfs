@@ -5,7 +5,7 @@ use crate::repo::BlockPut;
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use crate::{Ipfs, IpfsTypes};
 use anyhow::anyhow;
-use async_std::task;
+use tokio::task;
 use bitswap::{Bitswap, BitswapEvent};
 use cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};

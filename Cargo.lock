@@ -116,16 +116,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-attributes"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efd3d156917d94862e779f356c5acae312b08fd3121e792c857d7928c8088423"
-dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
 name = "async-channel"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -142,7 +132,6 @@ version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00d68a33ebc8b57800847d00787307f84a562224a14db069b0acefe4c2abbf5d"
 dependencies = [
- "async-attributes",
  "async-task",
  "crossbeam-utils",
  "futures-channel",
@@ -255,7 +244,6 @@ checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 name = "bitswap"
 version = "0.1.0"
 dependencies = [
- "async-std",
  "async-trait",
  "cid",
  "fnv",
@@ -266,6 +254,7 @@ dependencies = [
  "prost",
  "prost-build",
  "thiserror",
+ "tokio",
  "tracing",
  "unsigned-varint 0.3.3",
 ]
@@ -1354,7 +1343,6 @@ name = "ipfs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-std",
  "async-stream",
  "async-trait",
  "base64 0.12.3",
@@ -1378,6 +1366,7 @@ dependencies = [
  "serde_json",
  "sha2 0.9.1",
  "thiserror",
+ "tokio",
  "tracing",
  "tracing-futures",
  "tracing-subscriber",
@@ -1785,7 +1774,6 @@ version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b1fa2bbad054020cb875546a577a66a65a5bf42eff55ed5265f92ffee3cc052"
 dependencies = [
- "async-std",
  "futures 0.3.5",
  "futures-timer",
  "get_if_addrs",
@@ -1793,6 +1781,7 @@ dependencies = [
  "libp2p-core",
  "log",
  "socket2",
+ "tokio",
 ]
 
 [[package]]

@@ -1,9 +1,8 @@
 //! Persistent fs backed repo
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore};
-use async_std::fs;
-use async_std::path::PathBuf;
-use async_std::prelude::*;
+use tokio::{fs, io::{AsyncReadExt, AsyncWriteExt}};
+use std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
@@ -145,7 +144,7 @@ mod tests {
     use multihash::Sha2_256;
     use std::env::temp_dir;
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_fs_blockstore() {
         let mut tmp = temp_dir();
         tmp.push("blockstore1");
@@ -183,7 +182,7 @@ mod tests {
         std::fs::remove_dir_all(tmp).ok();
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_fs_blockstore_open() {
         let mut tmp = temp_dir();
         tmp.push("blockstore2");
@@ -208,7 +207,7 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_fs_blockstore_list() {
         let mut tmp = temp_dir();
         tmp.push("blockstore_list");

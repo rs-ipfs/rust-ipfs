@@ -339,7 +339,7 @@ mod tests {
         ));
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn swarm_api() {
         let (peer1_id, trans) = mk_transport();
         let mut swarm1 = Swarm::new(trans, SwarmApi::default(), peer1_id);

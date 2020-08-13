@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::path::IpfsPath;
 use crate::subscription::{RequestKind, SubscriptionFuture, SubscriptionRegistry};
 use crate::IpfsOptions;
-use async_std::path::PathBuf;
+use std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::{self, Cid};
@@ -370,7 +370,7 @@ pub(crate) mod tests {
         Repo::new(options)
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_repo() {
         let (repo, _) = create_mock_repo();
         repo.init().await.unwrap();
