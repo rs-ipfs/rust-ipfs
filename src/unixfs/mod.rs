@@ -1,86 +1,36 @@
-use crate::dag::IpldDag;
-use crate::error::Error;
-use crate::ipld::{dag_pb::PbNode, Ipld};
-use crate::path::IpfsPath;
-use crate::repo::RepoTypes;
-use async_std::fs;
-use async_std::io::ReadExt;
-use async_std::path::PathBuf;
-use cid::{Cid, Codec};
-use std::collections::BTreeMap;
-use std::convert::TryInto;
-
 pub use ipfs_unixfs as ll;
 
 mod cat;
 pub use cat::{cat, TraversalFailed};
 
-// No get provided at least as of now.
-
-pub struct File {
-    data: Vec<u8>,
-}
-
-impl File {
-    pub async fn new(path: PathBuf) -> Result<Self, Error> {
-        let mut file = fs::File::open(path).await?;
-        let mut data = Vec::new();
-        file.read_to_end(&mut data).await?;
-        Ok(File { data })
-    }
-
-    pub async fn get_unixfs_v1<T: RepoTypes>(
-        dag: &IpldDag<T>,
-        path: IpfsPath,
-    ) -> Result<Self, Error> {
-        let ipld = dag.get(path).await?;
-        let pb_node: PbNode = (&ipld).try_into()?;
-        Ok(File { data: pb_node.data })
-    }
-
-    pub async fn put_unixfs_v1<T: RepoTypes>(&self, dag: &IpldDag<T>) -> Result<Cid, Error> {
-        let links: Vec<Ipld> = vec![];
-        let mut pb_node = BTreeMap::<String, Ipld>::new();
-        pb_node.insert("Data".to_string(), self.data.clone().into());
-        pb_node.insert("Links".to_string(), links.into());
-        dag.put(pb_node.into(), Codec::DagProtobuf).await
-    }
-}
-
-impl From<Vec<u8>> for File {
-    fn from(data: Vec<u8>) -> Self {
-        File { data }
-    }
-}
-
-impl From<&str> for File {
-    fn from(string: &str) -> Self {
-        File {
-            data: string.as_bytes().to_vec(),
-        }
-    }
-}
-
-impl Into<String> for File {
-    fn into(self) -> String {
-        String::from_utf8_lossy(&self.data).to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::Node;
-    use core::convert::TryFrom;
+    #[test]
+    fn test_file_cid() {
+        // note: old versions of `ipfs::unixfs::File` was an interface where user would provide the
+        // unixfs encoded data. this test case has been migrated to put the "content" as the the
+        // file data instead of the unixfs encoding. the previous way used to produce
+        // QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW.
+        let content = "\u{8}\u{2}\u{12}\u{12}Here is some data\n\u{18}\u{12}";
 
-    #[async_std::test]
-    async fn test_file_cid() {
-        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
-        let dag = IpldDag::new(ipfs);
-        let file = File::from("\u{8}\u{2}\u{12}\u{12}Here is some data\n\u{18}\u{12}");
-        let cid = Cid::try_from("QmSy5pnHk1EnvE5dmJSyFKG5unXLGjPpBuJJCBQkBTvBaW").unwrap();
+        let mut adder = ipfs_unixfs::file::adder::FileAdder::default();
+        let (mut blocks, consumed) = adder.push(content.as_bytes());
+        assert_eq!(consumed, content.len(), "should had consumed all content");
+        assert_eq!(
+            blocks.next(),
+            None,
+            "should not had produced any blocks yet"
+        );
 
-        let cid2 = file.put_unixfs_v1(&dag).await.unwrap();
-        assert_eq!(cid.to_string(), cid2.to_string());
+        let mut blocks = adder.finish();
+
+        let (cid, _block) = blocks.next().unwrap();
+        assert_eq!(blocks.next(), None, "should had been the last");
+
+        assert_eq!(
+            "QmQZE72h2Vdm3F5gWr9RLuzSw3rUJEkKedWEa8t8XVygT5",
+            cid.to_string(),
+            "matches cid from go-ipfs 0.6.0"
+        );
     }
 }
