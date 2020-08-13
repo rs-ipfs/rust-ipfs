@@ -52,7 +52,6 @@ pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
 use self::subscription::SubscriptionFuture;
-use self::unixfs::File;
 
 /// All types can be changed at compile time by implementing
 /// `IpfsTypes`.
@@ -405,24 +404,6 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Gets an ipld dag node from the ipfs repo.
     pub async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
         self.dag().get(path).instrument(self.span.clone()).await
-    }
-
-    /// Adds a file into the ipfs repo.
-    pub async fn add(&self, path: PathBuf) -> Result<Cid, Error> {
-        let dag = self.dag();
-        let file = File::new(path).await?;
-        let path = file
-            .put_unixfs_v1(&dag)
-            .instrument(self.span.clone())
-            .await?;
-        Ok(path)
-    }
-
-    /// Gets a file from the ipfs repo.
-    pub async fn get(&self, path: IpfsPath) -> Result<File, Error> {
-        File::get_unixfs_v1(&self.dag(), path)
-            .instrument(self.span.clone())
-            .await
     }
 
     /// Creates a stream which will yield the bytes of an UnixFS file from the root Cid, with the
