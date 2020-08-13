@@ -8,7 +8,6 @@ extern crate tracing;
 
 pub use crate::ipld::Ipld;
 use anyhow::{anyhow, format_err};
-use std::path::PathBuf;
 pub use bitswap::{BitswapEvent, Block, Stats};
 pub use cid::Cid;
 use cid::Codec;
@@ -18,6 +17,7 @@ use futures::sink::SinkExt;
 use futures::stream::{Fuse, Stream};
 pub use libp2p::core::{connection::ListenerId, ConnectedPoint, Multiaddr, PeerId, PublicKey};
 pub use libp2p::identity::Keypair;
+use std::path::PathBuf;
 use tracing::Span;
 use tracing_futures::Instrument;
 

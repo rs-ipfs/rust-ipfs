@@ -1,6 +1,6 @@
-use tokio::time::timeout;
 use ipfs::{ConnectionTarget, Node};
 use std::time::Duration;
+use tokio::time::timeout;
 
 // Make sure two instances of ipfs can be connected by `Multiaddr`.
 #[tokio::test]

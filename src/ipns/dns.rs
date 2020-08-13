@@ -88,6 +88,9 @@ mod tests {
     #[tokio::test]
     async fn test_resolve2() {
         let res = resolve("website.ipfs.io").await.unwrap().to_string();
-        assert_eq!(res, "/ipfs/bafybeiayvrj27f65vbecspbnuavehcb3znvnt2strop2rfbczupudoizya");
+        assert_eq!(
+            res,
+            "/ipfs/bafybeiayvrj27f65vbecspbnuavehcb3znvnt2strop2rfbczupudoizya"
+        );
     }
 }

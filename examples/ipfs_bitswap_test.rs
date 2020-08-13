@@ -1,9 +1,12 @@
 #![recursion_limit = "512"]
 
-use tokio::{io::{AsyncBufReadExt, BufReader, stdin}, task};
 use cid::{Cid, Codec};
 use ipfs::{Block, Ipfs, TestTypes, UninitializedIpfs};
 use multihash::Sha2_256;
+use tokio::{
+    io::{stdin, AsyncBufReadExt, BufReader},
+    task,
+};
 
 #[tokio::main]
 async fn main() {

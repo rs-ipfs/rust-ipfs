@@ -1,5 +1,5 @@
-use tokio::time;
 use ipfs::Node;
+use tokio::time;
 
 async fn wait(millis: u64) {
     time::delay_for(std::time::Duration::from_millis(millis)).await;

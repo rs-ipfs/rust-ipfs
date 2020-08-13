@@ -1,11 +1,11 @@
 //! Volatile memory backed repo
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore, Column, DataStore};
-use std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
 use futures::lock::Mutex;
+use std::path::PathBuf;
 
 use super::{BlockRm, BlockRmError, RepoCid};
 

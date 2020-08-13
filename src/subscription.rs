@@ -4,13 +4,12 @@
 //! sharing the same unique numeric identifier, the `SubscriptionId`.
 
 use crate::{p2p::ConnectionTarget, RepoEvent};
-use futures::future::Future;
-use std::task::{Context, Poll, Waker};
 use cid::Cid;
 use core::fmt::Debug;
 use core::hash::Hash;
 use core::pin::Pin;
 use futures::channel::mpsc::Sender;
+use futures::future::Future;
 use libp2p::{kad::QueryId, Multiaddr, PeerId};
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -20,6 +19,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
+use std::task::{Context, Poll, Waker};
 
 // a counter used to assign unique identifiers to `Subscription`s and `SubscriptionFuture`s
 // (which obtain the same number as their counterpart `Subscription`)
@@ -481,8 +481,8 @@ mod tests {
 
     #[tokio::test]
     async fn dropping_subscription_future_after_registering() {
-        use tokio::time::timeout;
         use std::time::Duration;
+        use tokio::time::timeout;
 
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = timeout(

@@ -4,10 +4,10 @@ use cid::Cid;
 use futures::pin_mut;
 use futures::stream::StreamExt; // needed for StreamExt::next
 use ipfs::{Ipfs, TestTypes, UninitializedIpfs};
-use tokio::io::AsyncWriteExt;
 use std::convert::TryFrom;
 use std::env;
 use std::process::exit;
+use tokio::io::AsyncWriteExt;
 
 #[tokio::main]
 async fn main() {

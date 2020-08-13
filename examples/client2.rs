@@ -1,7 +1,7 @@
-use tokio::task;
 use futures::join;
 use ipfs::{Ipfs, IpfsPath, TestTypes, UninitializedIpfs};
 use std::str::FromStr;
+use tokio::task;
 
 #[tokio::main]
 async fn main() {

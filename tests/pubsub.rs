@@ -1,8 +1,8 @@
 use futures::future::pending;
 use futures::stream::StreamExt;
 use ipfs::{Node, PeerId};
-use tokio::time::timeout;
 use std::time::Duration;
+use tokio::time::timeout;
 
 #[tokio::test]
 async fn subscribe_only_once() {

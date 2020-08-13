@@ -1,8 +1,8 @@
-use tokio::time::timeout;
 use cid::Cid;
 use ipfs::{IpfsOptions, Node};
 use libp2p::{Multiaddr, PeerId};
 use std::time::Duration;
+use tokio::time::timeout;
 
 #[tokio::test]
 async fn kademlia_local_peer_discovery() {

@@ -1,8 +1,6 @@
 //! Persistent fs backed repo
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore};
-use tokio::{fs, io::{AsyncReadExt, AsyncWriteExt}};
-use std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
@@ -11,6 +9,11 @@ use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use std::collections::HashSet;
 use std::ffi::OsStr;
+use std::path::PathBuf;
+use tokio::{
+    fs,
+    io::{AsyncReadExt, AsyncWriteExt},
+};
 
 use super::{BlockRm, BlockRmError, RepoCid};
 

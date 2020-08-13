@@ -3,7 +3,6 @@ use crate::error::Error;
 use crate::path::IpfsPath;
 use crate::subscription::{RequestKind, SubscriptionFuture, SubscriptionRegistry};
 use crate::IpfsOptions;
-use std::path::PathBuf;
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::{self, Cid};
@@ -16,6 +15,7 @@ use futures::channel::{
 use futures::sink::SinkExt;
 use libp2p::core::PeerId;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 
 pub mod fs;
 pub mod mem;

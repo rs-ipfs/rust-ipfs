@@ -1,8 +1,8 @@
-use tokio::time::timeout;
 use cid::{Cid, Codec};
 use ipfs::{Block, Node};
 use multihash::Sha2_256;
 use std::time::Duration;
+use tokio::time::timeout;
 
 #[tokio::test]
 async fn exchange_block() {

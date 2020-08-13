@@ -1,6 +1,6 @@
-use tokio::task;
 use ipfs::{Ipfs, IpfsPath, PeerId, TestTypes, UninitializedIpfs};
 use std::str::FromStr;
+use tokio::task;
 
 #[tokio::main]
 async fn main() {

@@ -1,8 +1,8 @@
-use tokio::{task, time::timeout};
 use cid::Cid;
 use futures::future::{pending, select, Either, FutureExt};
 use futures::future::{AbortHandle, Abortable};
 use ipfs::Node;
+use tokio::{task, time::timeout};
 
 use std::{
     convert::TryFrom,
