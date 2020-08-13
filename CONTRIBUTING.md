@@ -14,6 +14,8 @@ Welcome, and thank you for your interest in contributing to Rust IPFS. Issues an
 
 By keeping the patch size minimal we hope to avoid difficult to review situations where there are lot of lines changed with only a few necessary changes. If you wish to submit a pull request for reorganizing something, please keep all unnecessary changes out.
 
+For example, if you wanted to change the wording of this CONTRIBUTING.md file and dislike the fact that there is no static word wrap used, please push two separate pull requests to first change the wording, and finally to reformat the file.
+
 ## Target Build
 
 Rust IPFS will always target the current _stable_ version of Rust that is released. Our CI/CD tests will reflect this. See [instructions here on how to install the rust toolchain](https://doc.rust-lang.org/book/ch01-01-installation.html).
