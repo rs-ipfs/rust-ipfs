@@ -184,8 +184,11 @@ impl NetworkBehaviour for SwarmApi {
         connections.push(addr.clone());
 
         self.connections.insert(addr.clone(), peer_id.clone());
-        self.connect_registry
-            .finish_subscription(addr.clone().into(), Ok(()));
+
+        if let ConnectedPoint::Dialer { .. } = cp {
+            self.connect_registry
+                .finish_subscription(addr.into(), Ok(()));
+        }
     }
 
     fn inject_connected(&mut self, _peer_id: &PeerId) {
@@ -214,10 +217,13 @@ impl NetworkBehaviour for SwarmApi {
             self.connected_peers.remove(peer_id);
         }
         self.connections.remove(&closed_addr);
-        self.connect_registry.finish_subscription(
-            closed_addr.clone().into(),
-            Err("Connection reset by peer".to_owned()),
-        );
+
+        if let ConnectedPoint::Dialer { .. } = cp {
+            self.connect_registry.finish_subscription(
+                closed_addr.into(),
+                Err("Connection reset by peer".to_owned()),
+            );
+        }
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
@@ -289,7 +295,7 @@ mod tests {
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
         for l in Swarm::listeners(&swarm1) {
-            if let Some(fut) = swarm2.connect(l.to_owned().into()) {
+            if let Some(fut) = swarm2.connect(l.to_owned()) {
                 fut.await.unwrap();
             }
         }
