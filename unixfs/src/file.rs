@@ -1,7 +1,7 @@
 ///! UnixFS file support.
 ///!
-///! Most usable for walking UnixFS file trees provided by the `visit::IdleFileVisit` and
-///! `visit::FileVisit` types.
+///! Module provides low-level File tree visitor support and file importing support. Note: The
+///! [`ipfs_unixfs::walk::Walker`] should be used for accessing file content typically.
 use crate::pb::ParsingFailed;
 use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
 use std::borrow::Cow;
@@ -10,10 +10,10 @@ use std::fmt;
 /// Low level UnixFS file descriptor reader support.
 mod reader;
 
-/// Higher level API for visiting the file tree.
+/// Mid level API for visiting the file tree.
 pub mod visit;
 
-/// Initial version of file adder capable of constructing UnixFs v1 trees
+/// File adder capable of constructing UnixFs v1 trees
 pub mod adder;
 
 /// Describes the errors which can happen during a visit or lower level block-by-block walking of
