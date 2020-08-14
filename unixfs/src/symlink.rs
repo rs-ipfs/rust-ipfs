@@ -140,11 +140,11 @@ mod tests {
             assert_eq!(*expected, fake.insert_v0(bytes).to_string());
         }
 
-        let mut walk = Some(Walker::new(
+        let mut walker = Walker::new(
             // note: this matches the `symlinks_in_trees` root cid (the last cid produced)
             Cid::try_from(tree_blocks[0].0).unwrap(),
             String::default(),
-        ));
+        );
 
         #[derive(Debug, PartialEq, Eq)]
         enum Entry {
@@ -155,25 +155,24 @@ mod tests {
 
         let mut actual = Vec::new();
 
-        while let Some(walker) = walk {
+        while walker.should_continue() {
             let (next, _) = walker.pending_links();
             let next = fake.get_by_cid(next);
 
-            walk = match walker.continue_walk(next, &mut None).unwrap() {
-                ContinuedWalk::File(_, it) => {
-                    actual.push(Entry::File(it.as_entry().path().into()));
-                    it.into_inner()
+            match walker.next(next, &mut None).unwrap() {
+                ContinuedWalk::File(_fs, _cid, path, _metadata, _total_size) => {
+                    actual.push(Entry::File(path.into()));
                 }
-                ContinuedWalk::Directory(it) => {
-                    actual.push(Entry::Dir(it.as_entry().path().into()));
-                    it.into_inner()
+                ContinuedWalk::RootDirectory(_cid, path, _metadata)
+                | ContinuedWalk::Directory(_cid, path, _metadata) => {
+                    actual.push(Entry::Dir(path.into()));
                 }
-                ContinuedWalk::Symlink(link_name, it) => {
+                ContinuedWalk::Bucket(..) => { /* ignore */ }
+                ContinuedWalk::Symlink(link_name, _cid, path, _metadata) => {
                     actual.push(Entry::Symlink(
-                        it.as_entry().path().into(),
+                        path.into(),
                         std::str::from_utf8(link_name).unwrap().to_owned(),
                     ));
-                    it.into_inner()
                 }
             };
         }
