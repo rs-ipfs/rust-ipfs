@@ -311,7 +311,7 @@ impl Walker {
 
 /// Represents what the `Walker` is currently looking at. Converted to `Entry` for public API.
 #[derive(Debug)]
-pub(crate) struct InnerEntry {
+struct InnerEntry {
     cid: Cid,
     kind: InnerKind,
     path: PathBuf,
