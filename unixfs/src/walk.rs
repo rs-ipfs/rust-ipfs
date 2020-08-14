@@ -28,6 +28,48 @@ pub struct Walker {
     should_continue: bool,
 }
 
+/// Converts a link of specifically a Directory (and not a link of a HAMTShard).
+fn convert_link(
+    nested_depth: usize,
+    nth: usize,
+    link: PBLink<'_>,
+) -> Result<(Cid, String, usize), InvalidCidInLink> {
+    let hash = link.Hash.as_deref().unwrap_or_default();
+    let cid = match Cid::try_from(hash) {
+        Ok(cid) => cid,
+        Err(e) => return Err(InvalidCidInLink::from((nth, link, e))),
+    };
+    let name = match link.Name {
+        Some(Cow::Borrowed(s)) if !s.is_empty() => s.to_owned(),
+        None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
+        Some(Cow::Owned(_s)) => unreachable!("FlatUnixFs is never transformed to owned"),
+    };
+    assert!(!name.contains('/'));
+    Ok((cid, name, nested_depth))
+}
+
+/// Converts a link of specifically a HAMTShard (and not a link of a Directory).
+fn convert_sharded_link(
+    nested_depth: usize,
+    sibling_depth: usize,
+    nth: usize,
+    link: PBLink<'_>,
+) -> Result<(Cid, String, usize), InvalidCidInLink> {
+    let hash = link.Hash.as_deref().unwrap_or_default();
+    let cid = match Cid::try_from(hash) {
+        Ok(cid) => cid,
+        Err(e) => return Err(InvalidCidInLink::from((nth, link, e))),
+    };
+    let (depth, name) = match link.Name {
+        Some(Cow::Borrowed(s)) if s.len() > 2 => (nested_depth, s[2..].to_owned()),
+        Some(Cow::Borrowed(s)) if s.len() == 2 => (sibling_depth, String::from("")),
+        None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
+        Some(Cow::Owned(_s)) => unreachable!("FlatUnixFs is never transformed to owned"),
+    };
+    assert!(!name.contains('/'));
+    Ok((cid, name, depth))
+}
+
 impl Walker {
     /// Returns a new instance of a walker, ready to start from the given `Cid`.
     pub fn new(cid: Cid, root_name: String) -> Walker {
@@ -488,48 +530,6 @@ enum InnerKind {
     File(Option<FileVisit>, u64),
     /// Symlink optionally on the root level
     Symlink,
-}
-
-/// Converts a link of specifically a Directory (and not a link of a HAMTShard).
-fn convert_link(
-    nested_depth: usize,
-    nth: usize,
-    link: PBLink<'_>,
-) -> Result<(Cid, String, usize), InvalidCidInLink> {
-    let hash = link.Hash.as_deref().unwrap_or_default();
-    let cid = match Cid::try_from(hash) {
-        Ok(cid) => cid,
-        Err(e) => return Err(InvalidCidInLink::from((nth, link, e))),
-    };
-    let name = match link.Name {
-        Some(Cow::Borrowed(s)) if !s.is_empty() => s.to_owned(),
-        None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
-        Some(Cow::Owned(_s)) => unreachable!("FlatUnixFs is never transformed to owned"),
-    };
-    assert!(!name.contains('/'));
-    Ok((cid, name, nested_depth))
-}
-
-/// Converts a link of specifically a HAMTShard (and not a link of a Directory).
-fn convert_sharded_link(
-    nested_depth: usize,
-    sibling_depth: usize,
-    nth: usize,
-    link: PBLink<'_>,
-) -> Result<(Cid, String, usize), InvalidCidInLink> {
-    let hash = link.Hash.as_deref().unwrap_or_default();
-    let cid = match Cid::try_from(hash) {
-        Ok(cid) => cid,
-        Err(e) => return Err(InvalidCidInLink::from((nth, link, e))),
-    };
-    let (depth, name) = match link.Name {
-        Some(Cow::Borrowed(s)) if s.len() > 2 => (nested_depth, s[2..].to_owned()),
-        Some(Cow::Borrowed(s)) if s.len() == 2 => (sibling_depth, String::from("")),
-        None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
-        Some(Cow::Owned(_s)) => unreachable!("FlatUnixFs is never transformed to owned"),
-    };
-    assert!(!name.contains('/'));
-    Ok((cid, name, depth))
 }
 
 /// Representation of the walk progress. The common `Item` can be used to continue the walk.
