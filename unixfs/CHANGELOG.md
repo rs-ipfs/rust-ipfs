@@ -1,6 +1,6 @@
 # 0.1.0
 
-Minor version bump for so many new features and broken API.
+Minor version bump due to many new features and broken API.
 
 * Initial facilities for building File trees [#220]
 * Hide `ipfs_unixfs::file::reader` to hide non-exported type on pub fn [#203]
