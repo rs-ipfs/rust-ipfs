@@ -10,8 +10,8 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// `Walker` helps with walking a UnixFS tree, including all of the content and files. It is created with
-/// `Walker::new` and walked over each block with `Walker::continue_block`. Use
+/// `Walker` helps with walking a UnixFS tree, including all of the content and files. It is
+/// created with `Walker::new` and walked over each block with `Walker::continue_block`. Use
 /// `Walker::pending_links` to obtain the next [`Cid`] to be loaded and the prefetchable links.
 #[derive(Debug)]
 pub struct Walker {
@@ -310,7 +310,7 @@ impl Walker {
     // re-creating one? How to do the same for directories?
 }
 
-/// Represents what the `Walker` is currently looking at. Converted to `Entry` for public API.
+/// Represents what the `Walker` is currently looking at.
 #[derive(Debug)]
 struct InnerEntry {
     cid: Cid,
@@ -535,7 +535,7 @@ impl InnerEntry {
     }
 }
 
-/// Representation of the walk progress. The common `Item` can be used to continue the walk.
+/// Representation of the walk progress.
 #[derive(Debug)]
 pub enum ContinuedWalk<'a> {
     /// Currently looking at a bucket.
