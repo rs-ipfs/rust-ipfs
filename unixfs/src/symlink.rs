@@ -8,7 +8,8 @@ use quick_protobuf::{MessageWrite, Writer};
 use std::borrow::Cow;
 
 /// Appends a dag-pb block for for a symlink to the given target_path. It is expected that the
-/// target_path is valid relative unix path but targets validity cannot really be judged.
+/// `target_path` is valid relative unix path relative to the place in which this is used but
+/// targets validity cannot really be judged.
 pub fn serialize_symlink_block(target_path: &str, block_buffer: &mut Vec<u8>) {
     // should this fail or not? protobuf encoding cannot fail here, however we might create a too
     // large block but what's the limit?
