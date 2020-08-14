@@ -548,7 +548,7 @@ impl fmt::Debug for InnerEntry {
 /// Representation of the walk progress.
 #[derive(Debug)]
 pub enum ContinuedWalk<'a> {
-    /// Currently looking at a bucket.
+    /// Currently looking at a continuation of a HAMT sharded directory. Usually safe to ignore.
     Bucket(&'a Cid, &'a Path),
     /// Currently looking at a directory.
     Directory(&'a Cid, &'a Path, &'a Metadata),
