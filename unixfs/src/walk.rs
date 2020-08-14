@@ -327,7 +327,6 @@ impl From<InnerEntry> for Metadata {
 }
 
 #[derive(Debug)]
-// FIXME: could simplify roots to optinal cid variants?
 enum InnerKind {
     /// This is necessarily at the root of the walk
     RootDirectory,
