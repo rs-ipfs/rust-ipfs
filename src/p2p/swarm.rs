@@ -1,7 +1,9 @@
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use anyhow::anyhow;
 use core::task::{Context, Poll};
-use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
+use libp2p::core::{
+    connection::ConnectionId, multiaddr::Protocol, ConnectedPoint, Multiaddr, PeerId,
+};
 use libp2p::swarm::protocols_handler::{
     DummyProtocolsHandler, IntoProtocolsHandler, ProtocolsHandler,
 };
@@ -25,7 +27,6 @@ pub struct Connection {
 pub enum ConnectionTarget {
     Addr(Multiaddr),
     PeerId(PeerId),
-    PeerIdWithAddr(PeerId, Multiaddr),
 }
 
 impl From<Multiaddr> for ConnectionTarget {
@@ -47,7 +48,7 @@ impl FromStr for ConnectionTarget {
         if s.contains("/p2p/") {
             let mut iter = s.split("/p2p/");
 
-            let addr = iter
+            let mut addr = iter
                 .next()
                 .ok_or_else(|| anyhow!("missing Multiaddr part of the address"))?
                 .parse::<Multiaddr>()?;
@@ -56,7 +57,9 @@ impl FromStr for ConnectionTarget {
                 .ok_or_else(|| anyhow!("missing PeerId part of the address"))?
                 .parse::<PeerId>()?;
 
-            Ok(ConnectionTarget::PeerIdWithAddr(peer_id, addr))
+            addr.push(Protocol::P2p(peer_id.into()));
+
+            Ok(ConnectionTarget::Addr(addr))
         } else if s.contains('/') {
             let addr = s.parse::<Multiaddr>()?;
             Ok(ConnectionTarget::Addr(addr))
@@ -135,9 +138,6 @@ impl SwarmApi {
         let will_attempt_connection = match target {
             ConnectionTarget::PeerId(ref id) => self.connected_peers.get(id).is_none(),
             ConnectionTarget::Addr(ref addr) => !self.connections.contains_key(addr),
-            ConnectionTarget::PeerIdWithAddr(ref id, ref addr) => {
-                self.connected_peers.get(id).is_none() || !self.connections.contains_key(addr)
-            }
         };
 
         if !will_attempt_connection {
@@ -145,14 +145,6 @@ impl SwarmApi {
         }
 
         trace!("Connecting to {:?}", target);
-
-        // convert the ConnectionTarget to the actual dial method so that it's easier
-        // to handle the subscription we'll be creating.
-        let target = if let ConnectionTarget::PeerIdWithAddr(_id, addr) = target {
-            ConnectionTarget::Addr(addr)
-        } else {
-            target
-        };
 
         let subscription = self
             .connect_registry
@@ -164,7 +156,6 @@ impl SwarmApi {
                 peer_id,
                 condition: DialPeerCondition::Disconnected,
             },
-            _ => unreachable!(),
         });
 
         Some(subscription)
@@ -333,10 +324,7 @@ mod tests {
             multiaddr.parse().unwrap(),
             ConnectionTarget::Addr(_)
         ));
-        assert!(matches!(
-            both.parse().unwrap(),
-            ConnectionTarget::PeerIdWithAddr(..)
-        ));
+        assert!(both.parse::<Multiaddr>().is_ok());
     }
 
     #[tokio::test(max_threads = 1)]
