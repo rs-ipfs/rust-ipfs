@@ -24,7 +24,7 @@ hex-literal = { default-features = false, version = "0.3" }
 libc = { default-features = false, version = "0.2.71" }
 multibase = { default-features = false, version = "0.8.0" }
 tar = { default-features = false, version = "0.4" }
-criterion = "0.3"
+criterion = { default-features = false, version = "0.3" }
 
 [[bench]]
 name = "ingest-tar"
