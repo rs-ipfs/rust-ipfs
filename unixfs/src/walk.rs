@@ -319,6 +319,31 @@ struct InnerEntry {
     depth: usize,
 }
 
+impl From<InnerEntry> for Metadata {
+    fn from(e: InnerEntry) -> Self {
+        e.metadata
+    }
+}
+
+#[derive(Debug)]
+// FIXME: could simplify roots to optinal cid variants?
+enum InnerKind {
+    /// This is necessarily at the root of the walk
+    RootDirectory,
+    /// This is necessarily at the root of the walk
+    BucketAtRoot,
+    /// This is the metadata containing bucket, for which we have a name
+    RootBucket,
+    /// This is a sibling to a previous named metadata containing bucket
+    Bucket,
+    /// Directory on any level except root
+    Directory,
+    /// File optionally on the root level
+    File(Option<FileVisit>, u64),
+    /// Symlink optionally on the root level
+    Symlink,
+}
+
 impl InnerEntry {
     fn new_root_dir(cid: Cid, metadata: Metadata, name: &str, depth: usize) -> Self {
         let mut path = PathBuf::new();
@@ -505,31 +530,6 @@ impl InnerEntry {
             ref x => unreachable!("symlink ({}, {}, {}) following {:?}", cid, name, depth, x),
         }
     }
-}
-
-impl From<InnerEntry> for Metadata {
-    fn from(e: InnerEntry) -> Self {
-        e.metadata
-    }
-}
-
-#[derive(Debug)]
-// FIXME: could simplify roots to optinal cid variants?
-enum InnerKind {
-    /// This is necessarily at the root of the walk
-    RootDirectory,
-    /// This is necessarily at the root of the walk
-    BucketAtRoot,
-    /// This is the metadata containing bucket, for which we have a name
-    RootBucket,
-    /// This is a sibling to a previous named metadata containing bucket
-    Bucket,
-    /// Directory on any level except root
-    Directory,
-    /// File optionally on the root level
-    File(Option<FileVisit>, u64),
-    /// Symlink optionally on the root level
-    Symlink,
 }
 
 /// Representation of the walk progress. The common `Item` can be used to continue the walk.
