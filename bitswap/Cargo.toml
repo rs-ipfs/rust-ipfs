@@ -8,7 +8,6 @@ version = "0.1.0"
 prost-build = { default-features = false, version = "0.6" }
 
 [dependencies]
-async-trait = { default-features = false, version = "0.1" }
 cid = { default-features = false, version = "0.5" }
 fnv = { default-features = false, version = "1.0" }
 futures = { default-features = false, version = "0.3" }
