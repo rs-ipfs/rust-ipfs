@@ -464,10 +464,6 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         &mut self.bitswap
     }
 
-    pub fn ipfs(&self) -> &Ipfs<Types> {
-        &self.ipfs
-    }
-
     pub fn bootstrap(&mut self) -> Result<SubscriptionFuture<(), String>, anyhow::Error> {
         match self.kademlia.bootstrap() {
             Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),

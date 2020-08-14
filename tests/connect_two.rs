@@ -1,5 +1,5 @@
 use ipfs::Node;
-use libp2p::Multiaddr;
+use libp2p::{multiaddr::Protocol, Multiaddr};
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -16,6 +16,23 @@ async fn connect_two_nodes_by_addr() {
         .await
         .expect("timeout")
         .expect("should've connected");
+}
+
+// Make sure only a `Multiaddr` with `/p2p/` can be used to connect.
+#[tokio::test(max_threads = 1)]
+async fn dont_connect_without_p2p() {
+    let node_a = Node::new("a").await;
+    let node_b = Node::new("b").await;
+
+    let (_, mut b_addrs) = node_b.identity().await.unwrap();
+    let mut b_addr = b_addrs.pop().unwrap();
+    // drop the /p2p/peer_id part
+    b_addr.pop();
+
+    timeout(Duration::from_secs(10), node_a.connect(b_addr))
+        .await
+        .expect("timeout")
+        .expect_err("should not have connected");
 }
 
 // Make sure two instances of ipfs can be connected by `PeerId`.
@@ -78,8 +95,11 @@ async fn connect_two_nodes_with_two_connections_doesnt_panic() {
         "there should have been two local addresses, found {:?}",
         addresses
     );
+    let node_a_id = node_a.identity().await.unwrap().0.into_peer_id();
 
-    for addr in addresses {
+    for mut addr in addresses.into_iter() {
+        addr.push(Protocol::P2p(node_a_id.clone().into()));
+
         timeout(Duration::from_secs(10), node_b.connect(addr))
             .await
             .expect("timeout")

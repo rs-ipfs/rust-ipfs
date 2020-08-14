@@ -346,10 +346,6 @@ impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
-    pub fn peer_id(&self) -> PeerId {
-        self.keys.get_ref().public().into_peer_id()
-    }
-
     fn dag(&self) -> IpldDag<Types> {
         IpldDag::new(self.clone())
     }
@@ -528,8 +524,15 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                     .clone()
                     .send(IpfsEvent::GetAddresses(tx))
                     .await?;
-                let addresses = rx.await?;
-                Ok((self.keys.get_ref().public(), addresses))
+                let mut addresses = rx.await?;
+                let public_key = self.keys.get_ref().public();
+                let peer_id = public_key.clone().into_peer_id();
+
+                for addr in &mut addresses {
+                    addr.push(Protocol::P2p(peer_id.clone().into()))
+                }
+
+                Ok((public_key, addresses))
             })
             .await
     }
@@ -889,12 +892,9 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         ret.send(Ok(addrs)).ok();
                     }
                     IpfsEvent::Listeners(ret) => {
-                        let mut listeners = Swarm::listeners(&self.swarm)
+                        let listeners = Swarm::listeners(&self.swarm)
                             .cloned()
                             .collect::<Vec<Multiaddr>>();
-                        for addr in &mut listeners {
-                            addr.push(Protocol::P2p(self.swarm.ipfs().peer_id().into()));
-                        }
                         ret.send(Ok(listeners)).ok();
                     }
                     IpfsEvent::Connections(ret) => {
@@ -912,9 +912,6 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         let mut addresses = Vec::new();
                         addresses.extend(Swarm::listeners(&self.swarm).cloned());
                         addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
-                        for addr in &mut addresses {
-                            addr.push(Protocol::P2p(self.swarm.ipfs().peer_id().into()));
-                        }
                         // ignore error, perhaps caller went away already
                         let _ = ret.send(addresses);
                     }
