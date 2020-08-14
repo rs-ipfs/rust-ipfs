@@ -14,9 +14,11 @@ use std::fmt;
 /// UnixFS file support.
 pub mod file;
 
+/// UnixFS symlink creation support
+pub mod symlink;
+
 /// UnixFS directory support, currently only the resolving re-exported at root level.
 pub mod dir;
-
 pub use dir::{resolve, LookupError, MaybeResolved, ResolveError};
 
 mod pb;

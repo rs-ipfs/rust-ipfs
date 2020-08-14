@@ -25,6 +25,7 @@ fn ingest_tar(bytes: &[u8], buffer: &mut Vec<u8>, path: &mut String) {
     use cid::Cid;
     use ipfs_unixfs::dir::builder::{BufferingTreeBuilder, TreeOptions};
     use ipfs_unixfs::file::adder::FileAdder;
+    use sha2::{Digest, Sha256};
     use std::io::Read;
 
     let mut archive = tar::Archive::new(std::io::Cursor::new(bytes));
@@ -37,17 +38,32 @@ fn ingest_tar(bytes: &[u8], buffer: &mut Vec<u8>, path: &mut String) {
     for entry in entries {
         let mut entry = entry.expect("assuming good tar");
 
-        if let Some(_link_name) = entry.link_name_bytes() {
-            // TODO: symlinks
-            continue;
-        }
-
         let path_bytes = entry.path_bytes();
         let tmp_path = std::str::from_utf8(&*path_bytes).unwrap();
         path.clear();
         path.push_str(tmp_path);
 
+        if let Some(link_name) = entry.link_name_bytes() {
+            let link_name =
+                std::str::from_utf8(&*link_name).expect("symlink targets should be utf8");
+
+            buffer.clear();
+            ipfs_unixfs::symlink::serialize_symlink_block(link_name, buffer);
+
+            let len = buffer.len();
+
+            let mh = multihash::wrap(multihash::Code::Sha2_256, &Sha256::digest(&buffer));
+            let cid = Cid::new_v0(mh).expect("sha2_256 is the correct multihash for cidv0");
+
+            tree.put_link(&path, cid, len as u64).unwrap();
+
+            // save the &buffer[..]
+
+            continue;
+        }
+
         if !path.ends_with('/') {
+            // TODO: reusing of adder
             let mut adder = FileAdder::default();
 
             // with the std::io::Read it'd be good to read into the fileadder, or read into ...
