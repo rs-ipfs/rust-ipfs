@@ -7,7 +7,7 @@ use std::fmt;
 
 use sha2::{Digest, Sha256};
 
-/// File tree builder. Implements `Default` which tracks the recent defaults.
+/// File tree builder. Implements [`std::default::Default`] which tracks the recent defaults.
 ///
 /// Custom file tree builder can be created with [`FileAdder::builder()`] and configuring the
 /// chunker and collector.
@@ -21,7 +21,10 @@ pub struct FileAdder {
     collector: Collector,
     block_buffer: Vec<u8>,
     // all unflushed links as a flat vec; this is compacted as we grow and need to create a link
-    // block for the last N blocks, as decided by the collector
+    // block for the last N blocks, as decided by the collector.
+    // FIXME: this is a cause of likely "accidentially quadratic" behaviour visible when adding a
+    // large file and using a minimal chunk size. Could be that this must be moved to Collector to
+    // help collector (or layout) to decide how this should be persisted.
     unflushed_links: Vec<Link>,
 }
 
@@ -106,7 +109,7 @@ impl fmt::Debug for Link {
     }
 }
 
-/// Convinience type to facilitate configuring FileAdders
+/// Convinience type to facilitate configuring [`FileAdder`]s.
 #[derive(Default)]
 pub struct FileAdderBuilder {
     chunker: Chunker,

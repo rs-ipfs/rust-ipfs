@@ -11,23 +11,23 @@
 use std::borrow::Cow;
 use std::fmt;
 
-/// UnixFS file support.
+/// File support.
 pub mod file;
 
-/// UnixFS symlink creation support
+/// Symlink creation support
 pub mod symlink;
 
-/// UnixFS directory support, currently only the resolving re-exported at root level.
+/// Directory and directory tree support
 pub mod dir;
 pub use dir::{resolve, LookupError, MaybeResolved, ResolveError};
 
 mod pb;
 use pb::{UnixFs, UnixFsType};
 
-/// Support operations for the dag-pb, the outer shell of UnixFS.
+/// Support operations for the dag-pb, the outer shell of UnixFS
 pub mod dagpb;
 
-/// Support for walking over all UnixFs trees.
+/// Support for walking over all UnixFs trees
 pub mod walk;
 
 #[cfg(test)]

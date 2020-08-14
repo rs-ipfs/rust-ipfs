@@ -1,10 +1,22 @@
-# Next
+# 0.1.0
+
+Minor version bump due to many new features and broken API.
 
 * Initial facilities for building File trees [#220]
 * Hide `ipfs_unixfs::file::reader` to hide non-exported type on pub fn [#203]
+* More ergonomic `ipfs_unixfs::walk::Walker` [#269], [#272], [#294]
+* Update `filetime` dependency [#278]
+* Directory tree building [#284]
+* Symlink block serialization [#302]
 
 [#203]: https://github.com/rs-ipfs/rust-ipfs/pull/203
 [#220]: https://github.com/rs-ipfs/rust-ipfs/pull/220
+[#269]: https://github.com/rs-ipfs/rust-ipfs/pull/269
+[#272]: https://github.com/rs-ipfs/rust-ipfs/pull/272
+[#278]: https://github.com/rs-ipfs/rust-ipfs/pull/278
+[#284]: https://github.com/rs-ipfs/rust-ipfs/pull/284
+[#294]: https://github.com/rs-ipfs/rust-ipfs/pull/294
+[#302]: https://github.com/rs-ipfs/rust-ipfs/pull/302
 
 # 0.0.1
 
