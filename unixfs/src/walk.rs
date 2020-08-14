@@ -311,7 +311,6 @@ impl Walker {
 }
 
 /// Represents what the `Walker` is currently looking at.
-#[derive(Debug)]
 struct InnerEntry {
     cid: Cid,
     kind: InnerKind,
@@ -531,6 +530,18 @@ impl InnerEntry {
             }
             ref x => unreachable!("symlink ({}, {}, {}) following {:?}", cid, name, depth, x),
         }
+    }
+}
+
+impl fmt::Debug for InnerEntry {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("InnerEntry")
+            .field("depth", &self.depth)
+            .field("kind", &self.kind)
+            .field("cid", &format_args!("{}", self.cid))
+            .field("path", &self.path)
+            .field("metadata", &self.metadata)
+            .finish()
     }
 }
 
