@@ -15,7 +15,9 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use futures::sink::SinkExt;
 use futures::stream::{Fuse, Stream};
-pub use libp2p::core::{connection::ListenerId, ConnectedPoint, Multiaddr, PeerId, PublicKey};
+pub use libp2p::core::{
+    connection::ListenerId, multiaddr::Protocol, ConnectedPoint, Multiaddr, PeerId, PublicKey,
+};
 pub use libp2p::identity::Keypair;
 use std::path::PathBuf;
 use tracing::Span;
@@ -46,8 +48,8 @@ use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
 pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
+pub use self::p2p::Connection;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
-pub use self::p2p::{Connection, ConnectionTarget};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
@@ -233,7 +235,7 @@ type Channel<T> = OneshotSender<Result<T, Error>>;
 enum IpfsEvent {
     /// Connect
     Connect(
-        ConnectionTarget,
+        Multiaddr,
         OneshotSender<Option<SubscriptionFuture<(), String>>>,
     ),
     /// Addresses
@@ -344,6 +346,10 @@ impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
+    pub fn peer_id(&self) -> PeerId {
+        self.keys.get_ref().public().into_peer_id()
+    }
+
     fn dag(&self) -> IpldDag<Types> {
         IpldDag::new(self.clone())
     }
@@ -445,13 +451,13 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         self.ipns().cancel(key).instrument(self.span.clone()).await
     }
 
-    pub async fn connect<T: Into<ConnectionTarget>>(&self, target: T) -> Result<(), Error> {
+    pub async fn connect(&self, target: Multiaddr) -> Result<(), Error> {
         self.span
             .in_scope(|| async {
                 let (tx, rx) = oneshot_channel();
                 self.to_task
                     .clone()
-                    .send(IpfsEvent::Connect(target.into(), tx))
+                    .send(IpfsEvent::Connect(target, tx))
                     .await?;
                 let subscription = rx.await?;
 
@@ -883,7 +889,12 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         ret.send(Ok(addrs)).ok();
                     }
                     IpfsEvent::Listeners(ret) => {
-                        let listeners = Swarm::listeners(&self.swarm).cloned().collect();
+                        let mut listeners = Swarm::listeners(&self.swarm)
+                            .cloned()
+                            .collect::<Vec<Multiaddr>>();
+                        for addr in &mut listeners {
+                            addr.push(Protocol::P2p(self.swarm.ipfs().peer_id().into()));
+                        }
                         ret.send(Ok(listeners)).ok();
                     }
                     IpfsEvent::Connections(ret) => {
@@ -901,6 +912,9 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         let mut addresses = Vec::new();
                         addresses.extend(Swarm::listeners(&self.swarm).cloned());
                         addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
+                        for addr in &mut addresses {
+                            addr.push(Protocol::P2p(self.swarm.ipfs().peer_id().into()));
+                        }
                         // ignore error, perhaps caller went away already
                         let _ = ret.send(addresses);
                     }
@@ -1145,8 +1159,6 @@ mod node {
 
 // Checks if the multiaddr starts with ip4 or ip6 unspecified address, like 0.0.0.0
 fn starts_unspecified(addr: &Multiaddr) -> bool {
-    use libp2p::core::multiaddr::Protocol;
-
     match addr.iter().next() {
         Some(Protocol::Ip4(ip4)) if ip4.is_unspecified() => true,
         Some(Protocol::Ip6(ip6)) if ip6.is_unspecified() => true,
@@ -1159,8 +1171,6 @@ fn could_be_bound_from_ephemeral(
     bound: &Multiaddr,
     may_have_ephemeral: &Multiaddr,
 ) -> bool {
-    use libp2p::core::multiaddr::Protocol;
-
     if bound.len() != may_have_ephemeral.len() {
         // no zip_longest in std
         false

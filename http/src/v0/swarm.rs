@@ -1,5 +1,5 @@
 use super::support::{with_ipfs, StringError};
-use ipfs::{p2p::ConnectionTarget, Ipfs, IpfsTypes, Multiaddr};
+use ipfs::{Ipfs, IpfsTypes, Multiaddr};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -16,7 +16,7 @@ async fn connect_query<T: IpfsTypes>(
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let target = query
         .arg
-        .parse::<ConnectionTarget>()
+        .parse::<Multiaddr>()
         .map_err(|e| warp::reject::custom(StringError::from(e)))?;
     ipfs.connect(target)
         .await
