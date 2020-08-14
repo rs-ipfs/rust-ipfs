@@ -420,12 +420,13 @@ impl InnerEntry {
     fn as_directory(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
         use InnerKind::*;
         match self.kind {
-            InnerKind::BucketAtRoot
-            | InnerKind::Directory
-            | InnerKind::File(None, ..)
-            | InnerKind::RootBucket
-            | InnerKind::RootDirectory
-            | InnerKind::Symlink => {
+            RootDirectory
+            | BucketAtRoot
+            | Bucket
+            | RootBucket
+            | Directory
+            | File(None, _)
+            | Symlink => {
                 self.cid = cid;
                 self.kind = Directory;
                 self.set_path(name, depth);
@@ -436,16 +437,17 @@ impl InnerEntry {
     }
 
     fn as_bucket_root(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
+        use InnerKind::*;
         match self.kind {
-            InnerKind::Bucket
-            | InnerKind::BucketAtRoot
-            | InnerKind::Directory
-            | InnerKind::File(None, ..)
-            | InnerKind::RootBucket
-            | InnerKind::RootDirectory
-            | InnerKind::Symlink => {
+            RootDirectory
+            | BucketAtRoot
+            | Bucket
+            | RootBucket
+            | Directory
+            | File(None, _)
+            | Symlink => {
                 self.cid = cid;
-                self.kind = InnerKind::RootBucket;
+                self.kind = RootBucket;
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
@@ -457,16 +459,14 @@ impl InnerEntry {
     }
 
     fn as_bucket(&mut self, cid: Cid, name: &str, depth: usize) {
+        use InnerKind::*;
         match self.kind {
-            InnerKind::BucketAtRoot => {
+            BucketAtRoot => {
                 assert_eq!(self.depth, depth, "{:?}", self.path);
             }
-            InnerKind::RootBucket
-            | InnerKind::Bucket
-            | InnerKind::File(None, ..)
-            | InnerKind::Symlink => {
+            RootBucket | Bucket | File(None, _) | Symlink => {
                 self.cid = cid;
-                self.kind = InnerKind::Bucket;
+                self.kind = Bucket;
 
                 assert!(name.is_empty());
                 // continuation bucket going bucket -> bucket
@@ -493,16 +493,17 @@ impl InnerEntry {
         step: Option<FileVisit>,
         file_size: u64,
     ) {
+        use InnerKind::*;
         match self.kind {
-            InnerKind::Bucket
-            | InnerKind::BucketAtRoot
-            | InnerKind::Directory
-            | InnerKind::File(None, ..)
-            | InnerKind::RootBucket
-            | InnerKind::RootDirectory
-            | InnerKind::Symlink => {
+            RootDirectory
+            | BucketAtRoot
+            | RootBucket
+            | Bucket
+            | Directory
+            | File(None, _)
+            | Symlink => {
                 self.cid = cid;
-                self.kind = InnerKind::File(step, file_size);
+                self.kind = File(step, file_size);
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
@@ -514,16 +515,17 @@ impl InnerEntry {
     }
 
     fn as_symlink(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
+        use InnerKind::*;
         match self.kind {
-            InnerKind::Bucket
-            | InnerKind::BucketAtRoot
-            | InnerKind::Directory
-            | InnerKind::File(None, ..)
-            | InnerKind::RootBucket
-            | InnerKind::RootDirectory
-            | InnerKind::Symlink => {
+            Bucket
+            | BucketAtRoot
+            | Directory
+            | File(None, _)
+            | RootBucket
+            | RootDirectory
+            | Symlink => {
                 self.cid = cid;
-                self.kind = InnerKind::Symlink;
+                self.kind = Symlink;
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
