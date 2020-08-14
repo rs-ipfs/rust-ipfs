@@ -10,183 +10,6 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Representation of the walk progress. The common `Item` can be used to continue the walk.
-#[derive(Debug)]
-pub enum ContinuedWalk<'a> {
-    /// Currently looking at a bucket.
-    Bucket(&'a Cid, &'a Path),
-    /// Currently looking at a directory.
-    Directory(&'a Cid, &'a Path, &'a Metadata),
-    /// Currently looking at a file. The first tuple value contains the file bytes accessible
-    /// from the block, which can also be an empty slice.
-    File(FileSegment<'a>, &'a Cid, &'a Path, &'a Metadata, u64),
-    /// Currently looking at a root directory.
-    RootDirectory(&'a Cid, &'a Path, &'a Metadata),
-    /// Currently looking at a symlink. The first tuple value contains the symlink target path. It
-    /// might be convertible to UTF-8, but this is not specified in the spec.
-    Symlink(&'a [u8], &'a Cid, &'a Path, &'a Metadata),
-}
-
-impl ContinuedWalk<'_> {
-    #[cfg(test)]
-    fn path(&self) -> &Path {
-        match self {
-            Self::Bucket(_, p)
-            | Self::Directory(_, p, ..)
-            | Self::File(_, _, p, ..)
-            | Self::RootDirectory(_, p, ..)
-            | Self::Symlink(_, _, p, ..) => p,
-        }
-    }
-}
-
-/// Errors which can occur while walking a tree.
-#[derive(Debug)]
-pub enum Error {
-    /// An unsupported type of UnixFS node was encountered. There should be a way to skip these. Of the
-    /// defined types only `Metadata` is unsupported, all undefined types as of 2020-06 are also
-    /// unsupported.
-    UnsupportedType(UnexpectedNodeType),
-
-    /// This error is returned when a file e.g. links to a non-Raw or non-File subtree.
-    UnexpectedType(UnexpectedNodeType),
-
-    /// dag-pb node parsing failed, perhaps the block is not a dag-pb node?
-    DagPbParsingFailed(quick_protobuf::Error),
-
-    /// Failed to parse the unixfs node inside the dag-pb node.
-    UnixFsParsingFailed(quick_protobuf::Error),
-
-    /// dag-pb node contained no data.
-    EmptyDagPbNode,
-
-    /// dag-pb link could not be converted to a Cid
-    InvalidCid(InvalidCidInLink),
-
-    /// A File has an invalid structure
-    File(FileError),
-
-    /// A Directory has an unsupported structure
-    UnsupportedDirectory(UnexpectedDirectoryProperties),
-
-    /// HAMTSharded directory has unsupported properties
-    UnsupportedHAMTShard(ShardError),
-}
-
-impl From<ParsingFailed<'_>> for Error {
-    fn from(e: ParsingFailed<'_>) -> Self {
-        use ParsingFailed::*;
-        match e {
-            InvalidDagPb(e) => Error::DagPbParsingFailed(e),
-            InvalidUnixFs(e, _) => Error::UnixFsParsingFailed(e),
-            NoData(_) => Error::EmptyDagPbNode,
-        }
-    }
-}
-
-impl From<InvalidCidInLink> for Error {
-    fn from(e: InvalidCidInLink) -> Self {
-        Error::InvalidCid(e)
-    }
-}
-
-impl From<FileReadFailed> for Error {
-    fn from(e: FileReadFailed) -> Self {
-        use FileReadFailed::*;
-        match e {
-            File(e) => Error::File(e),
-            UnexpectedType(ut) => Error::UnexpectedType(ut),
-            Read(_) => unreachable!("FileVisit does not parse any blocks"),
-            InvalidCid(l) => Error::InvalidCid(l),
-        }
-    }
-}
-
-impl From<UnexpectedDirectoryProperties> for Error {
-    fn from(e: UnexpectedDirectoryProperties) -> Self {
-        Error::UnsupportedDirectory(e)
-    }
-}
-
-impl From<ShardError> for Error {
-    fn from(e: ShardError) -> Self {
-        Error::UnsupportedHAMTShard(e)
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Error::*;
-
-        match self {
-            UnsupportedType(ut) => write!(fmt, "unsupported UnixFs type: {:?}", ut),
-            UnexpectedType(ut) => write!(fmt, "link to unexpected UnixFs type from File: {:?}", ut),
-            DagPbParsingFailed(e) => write!(fmt, "failed to parse the outer dag-pb: {}", e),
-            UnixFsParsingFailed(e) => write!(fmt, "failed to parse the inner UnixFs: {}", e),
-            EmptyDagPbNode => write!(fmt, "failed to parse the inner UnixFs: no data"),
-            InvalidCid(e) => write!(fmt, "link contained an invalid Cid: {}", e),
-            File(e) => write!(fmt, "invalid file: {}", e),
-            UnsupportedDirectory(udp) => write!(fmt, "unsupported directory: {}", udp),
-            UnsupportedHAMTShard(se) => write!(fmt, "unsupported hamtshard: {}", se),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
-/// A slice of bytes of a possibly multi-block file. The slice can be accessed via `as_bytes()` or
-/// `AsRef<[u8]>::as_ref()`.
-#[derive(Debug)]
-pub struct FileSegment<'a> {
-    bytes: &'a [u8],
-    first_block: bool,
-    last_block: bool,
-}
-
-impl<'a> FileSegment<'a> {
-    fn first(bytes: &'a [u8], last_block: bool) -> Self {
-        FileSegment {
-            bytes,
-            first_block: true,
-            last_block,
-        }
-    }
-
-    fn later(bytes: &'a [u8], last_block: bool) -> Self {
-        FileSegment {
-            bytes,
-            first_block: false,
-            last_block,
-        }
-    }
-
-    /// Returns `true` if this is the first block in the file, `false` otherwise.
-    ///
-    /// Note: the first block can also be the last one.
-    pub fn is_first(&self) -> bool {
-        self.first_block
-    }
-
-    /// Returns `true` if this is the last block in the file, `false` otherwise.
-    ///
-    /// Note: the last block can also be the first one.
-    pub fn is_last(&self) -> bool {
-        self.last_block
-    }
-
-    /// Returns a slice into the file's bytes, which can be empty, as is the case for any
-    /// intermediate blocks which only contain links to further blocks.
-    pub fn as_bytes(&self) -> &'a [u8] {
-        self.bytes
-    }
-}
-
-impl AsRef<[u8]> for FileSegment<'_> {
-    fn as_ref(&self) -> &[u8] {
-        &self.bytes
-    }
-}
-
 /// `Walker` helps with walking a UnixFS tree, including all of the content and files. It is created with
 /// `Walker::new` and walked over each block with `Walker::continue_block`. Use
 /// `Walker::pending_links` to obtain the next [`Cid`] to be loaded and the prefetchable links.
@@ -708,6 +531,183 @@ fn convert_sharded_link(
     assert!(!name.contains('/'));
     Ok((cid, name, depth))
 }
+
+/// Representation of the walk progress. The common `Item` can be used to continue the walk.
+#[derive(Debug)]
+pub enum ContinuedWalk<'a> {
+    /// Currently looking at a bucket.
+    Bucket(&'a Cid, &'a Path),
+    /// Currently looking at a directory.
+    Directory(&'a Cid, &'a Path, &'a Metadata),
+    /// Currently looking at a file. The first tuple value contains the file bytes accessible
+    /// from the block, which can also be an empty slice.
+    File(FileSegment<'a>, &'a Cid, &'a Path, &'a Metadata, u64),
+    /// Currently looking at a root directory.
+    RootDirectory(&'a Cid, &'a Path, &'a Metadata),
+    /// Currently looking at a symlink. The first tuple value contains the symlink target path. It
+    /// might be convertible to UTF-8, but this is not specified in the spec.
+    Symlink(&'a [u8], &'a Cid, &'a Path, &'a Metadata),
+}
+
+impl ContinuedWalk<'_> {
+    #[cfg(test)]
+    fn path(&self) -> &Path {
+        match self {
+            Self::Bucket(_, p)
+            | Self::Directory(_, p, ..)
+            | Self::File(_, _, p, ..)
+            | Self::RootDirectory(_, p, ..)
+            | Self::Symlink(_, _, p, ..) => p,
+        }
+    }
+}
+
+/// A slice of bytes of a possibly multi-block file. The slice can be accessed via `as_bytes()` or
+/// `AsRef<[u8]>::as_ref()`.
+#[derive(Debug)]
+pub struct FileSegment<'a> {
+    bytes: &'a [u8],
+    first_block: bool,
+    last_block: bool,
+}
+
+impl<'a> FileSegment<'a> {
+    fn first(bytes: &'a [u8], last_block: bool) -> Self {
+        FileSegment {
+            bytes,
+            first_block: true,
+            last_block,
+        }
+    }
+
+    fn later(bytes: &'a [u8], last_block: bool) -> Self {
+        FileSegment {
+            bytes,
+            first_block: false,
+            last_block,
+        }
+    }
+
+    /// Returns `true` if this is the first block in the file, `false` otherwise.
+    ///
+    /// Note: the first block can also be the last one.
+    pub fn is_first(&self) -> bool {
+        self.first_block
+    }
+
+    /// Returns `true` if this is the last block in the file, `false` otherwise.
+    ///
+    /// Note: the last block can also be the first one.
+    pub fn is_last(&self) -> bool {
+        self.last_block
+    }
+
+    /// Returns a slice into the file's bytes, which can be empty, as is the case for any
+    /// intermediate blocks which only contain links to further blocks.
+    pub fn as_bytes(&self) -> &'a [u8] {
+        self.bytes
+    }
+}
+
+impl AsRef<[u8]> for FileSegment<'_> {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// Errors which can occur while walking a tree.
+#[derive(Debug)]
+pub enum Error {
+    /// An unsupported type of UnixFS node was encountered. There should be a way to skip these. Of the
+    /// defined types only `Metadata` is unsupported, all undefined types as of 2020-06 are also
+    /// unsupported.
+    UnsupportedType(UnexpectedNodeType),
+
+    /// This error is returned when a file e.g. links to a non-Raw or non-File subtree.
+    UnexpectedType(UnexpectedNodeType),
+
+    /// dag-pb node parsing failed, perhaps the block is not a dag-pb node?
+    DagPbParsingFailed(quick_protobuf::Error),
+
+    /// Failed to parse the unixfs node inside the dag-pb node.
+    UnixFsParsingFailed(quick_protobuf::Error),
+
+    /// dag-pb node contained no data.
+    EmptyDagPbNode,
+
+    /// dag-pb link could not be converted to a Cid
+    InvalidCid(InvalidCidInLink),
+
+    /// A File has an invalid structure
+    File(FileError),
+
+    /// A Directory has an unsupported structure
+    UnsupportedDirectory(UnexpectedDirectoryProperties),
+
+    /// HAMTSharded directory has unsupported properties
+    UnsupportedHAMTShard(ShardError),
+}
+
+impl From<ParsingFailed<'_>> for Error {
+    fn from(e: ParsingFailed<'_>) -> Self {
+        use ParsingFailed::*;
+        match e {
+            InvalidDagPb(e) => Error::DagPbParsingFailed(e),
+            InvalidUnixFs(e, _) => Error::UnixFsParsingFailed(e),
+            NoData(_) => Error::EmptyDagPbNode,
+        }
+    }
+}
+
+impl From<InvalidCidInLink> for Error {
+    fn from(e: InvalidCidInLink) -> Self {
+        Error::InvalidCid(e)
+    }
+}
+
+impl From<FileReadFailed> for Error {
+    fn from(e: FileReadFailed) -> Self {
+        use FileReadFailed::*;
+        match e {
+            File(e) => Error::File(e),
+            UnexpectedType(ut) => Error::UnexpectedType(ut),
+            Read(_) => unreachable!("FileVisit does not parse any blocks"),
+            InvalidCid(l) => Error::InvalidCid(l),
+        }
+    }
+}
+
+impl From<UnexpectedDirectoryProperties> for Error {
+    fn from(e: UnexpectedDirectoryProperties) -> Self {
+        Error::UnsupportedDirectory(e)
+    }
+}
+
+impl From<ShardError> for Error {
+    fn from(e: ShardError) -> Self {
+        Error::UnsupportedHAMTShard(e)
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Error::*;
+
+        match self {
+            UnsupportedType(ut) => write!(fmt, "unsupported UnixFs type: {:?}", ut),
+            UnexpectedType(ut) => write!(fmt, "link to unexpected UnixFs type from File: {:?}", ut),
+            DagPbParsingFailed(e) => write!(fmt, "failed to parse the outer dag-pb: {}", e),
+            UnixFsParsingFailed(e) => write!(fmt, "failed to parse the inner UnixFs: {}", e),
+            EmptyDagPbNode => write!(fmt, "failed to parse the inner UnixFs: no data"),
+            InvalidCid(e) => write!(fmt, "link contained an invalid Cid: {}", e),
+            File(e) => write!(fmt, "invalid file: {}", e),
+            UnsupportedDirectory(udp) => write!(fmt, "unsupported directory: {}", udp),
+            UnsupportedHAMTShard(se) => write!(fmt, "unsupported hamtshard: {}", se),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod tests {
