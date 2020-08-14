@@ -67,8 +67,9 @@ fn walk(blocks: ShardedBlockStore, start: &Cid) -> Result<(), Error> {
         blocks.as_file(&next.to_bytes())?.read_to_end(&mut buf)?;
 
         match walker.next(&buf, &mut cache)? {
-            // Continuation of a HAMT shard directory that is usually ignored
-            ContinuedWalk::Bucket(..) => {}
+            ContinuedWalk::Bucket(..) => {
+                // Continuation of a HAMT shard directory that is usually ignored
+            }
             ContinuedWalk::File(segment, _, path, metadata, size) => {
                 if segment.is_first() {
                     // this is set on the root block, no actual bytes are present for multiblock

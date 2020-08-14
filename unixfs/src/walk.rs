@@ -10,185 +10,8 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Representation of the walk progress. The common `Item` can be used to continue the walk.
-#[derive(Debug)]
-pub enum ContinuedWalk<'a> {
-    /// Currently looking at a bucket.
-    Bucket(&'a Cid, &'a Path),
-    /// Currently looking at a directory.
-    Directory(&'a Cid, &'a Path, &'a Metadata),
-    /// Currently looking at a file. The first tuple value contains the file bytes accessible
-    /// from the block, which can also be an empty slice.
-    File(FileSegment<'a>, &'a Cid, &'a Path, &'a Metadata, u64),
-    /// Currently looking at a root directory.
-    RootDirectory(&'a Cid, &'a Path, &'a Metadata),
-    /// Currently looking at a symlink. The first tuple value contains the symlink target path. It
-    /// might be convertible to UTF-8, but this is not specified in the spec.
-    Symlink(&'a [u8], &'a Cid, &'a Path, &'a Metadata),
-}
-
-impl ContinuedWalk<'_> {
-    #[cfg(test)]
-    fn path(&self) -> &Path {
-        match self {
-            Self::Bucket(_, p)
-            | Self::Directory(_, p, ..)
-            | Self::File(_, _, p, ..)
-            | Self::RootDirectory(_, p, ..)
-            | Self::Symlink(_, _, p, ..) => p,
-        }
-    }
-}
-
-/// Errors which can occur while walking a tree.
-#[derive(Debug)]
-pub enum Error {
-    /// An unsupported type of UnixFS node was encountered. There should be a way to skip these. Of the
-    /// defined types only `Metadata` is unsupported, all undefined types as of 2020-06 are also
-    /// unsupported.
-    UnsupportedType(UnexpectedNodeType),
-
-    /// This error is returned when a file e.g. links to a non-Raw or non-File subtree.
-    UnexpectedType(UnexpectedNodeType),
-
-    /// dag-pb node parsing failed, perhaps the block is not a dag-pb node?
-    DagPbParsingFailed(quick_protobuf::Error),
-
-    /// Failed to parse the unixfs node inside the dag-pb node.
-    UnixFsParsingFailed(quick_protobuf::Error),
-
-    /// dag-pb node contained no data.
-    EmptyDagPbNode,
-
-    /// dag-pb link could not be converted to a Cid
-    InvalidCid(InvalidCidInLink),
-
-    /// A File has an invalid structure
-    File(FileError),
-
-    /// A Directory has an unsupported structure
-    UnsupportedDirectory(UnexpectedDirectoryProperties),
-
-    /// HAMTSharded directory has unsupported properties
-    UnsupportedHAMTShard(ShardError),
-}
-
-impl From<ParsingFailed<'_>> for Error {
-    fn from(e: ParsingFailed<'_>) -> Self {
-        use ParsingFailed::*;
-        match e {
-            InvalidDagPb(e) => Error::DagPbParsingFailed(e),
-            InvalidUnixFs(e, _) => Error::UnixFsParsingFailed(e),
-            NoData(_) => Error::EmptyDagPbNode,
-        }
-    }
-}
-
-impl From<InvalidCidInLink> for Error {
-    fn from(e: InvalidCidInLink) -> Self {
-        Error::InvalidCid(e)
-    }
-}
-
-impl From<FileReadFailed> for Error {
-    fn from(e: FileReadFailed) -> Self {
-        use FileReadFailed::*;
-        match e {
-            File(e) => Error::File(e),
-            UnexpectedType(ut) => Error::UnexpectedType(ut),
-            Read(_) => unreachable!("FileVisit does not parse any blocks"),
-            InvalidCid(l) => Error::InvalidCid(l),
-        }
-    }
-}
-
-impl From<UnexpectedDirectoryProperties> for Error {
-    fn from(e: UnexpectedDirectoryProperties) -> Self {
-        Error::UnsupportedDirectory(e)
-    }
-}
-
-impl From<ShardError> for Error {
-    fn from(e: ShardError) -> Self {
-        Error::UnsupportedHAMTShard(e)
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Error::*;
-
-        match self {
-            UnsupportedType(ut) => write!(fmt, "unsupported UnixFs type: {:?}", ut),
-            UnexpectedType(ut) => write!(fmt, "link to unexpected UnixFs type from File: {:?}", ut),
-            DagPbParsingFailed(e) => write!(fmt, "failed to parse the outer dag-pb: {}", e),
-            UnixFsParsingFailed(e) => write!(fmt, "failed to parse the inner UnixFs: {}", e),
-            EmptyDagPbNode => write!(fmt, "failed to parse the inner UnixFs: no data"),
-            InvalidCid(e) => write!(fmt, "link contained an invalid Cid: {}", e),
-            File(e) => write!(fmt, "invalid file: {}", e),
-            UnsupportedDirectory(udp) => write!(fmt, "unsupported directory: {}", udp),
-            UnsupportedHAMTShard(se) => write!(fmt, "unsupported hamtshard: {}", se),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
-/// A slice of bytes of a possibly multi-block file. The slice can be accessed via `as_bytes()` or
-/// `AsRef<[u8]>::as_ref()`.
-#[derive(Debug)]
-pub struct FileSegment<'a> {
-    bytes: &'a [u8],
-    first_block: bool,
-    last_block: bool,
-}
-
-impl<'a> FileSegment<'a> {
-    fn first(bytes: &'a [u8], last_block: bool) -> Self {
-        FileSegment {
-            bytes,
-            first_block: true,
-            last_block,
-        }
-    }
-
-    fn later(bytes: &'a [u8], last_block: bool) -> Self {
-        FileSegment {
-            bytes,
-            first_block: false,
-            last_block,
-        }
-    }
-
-    /// Returns `true` if this is the first block in the file, `false` otherwise.
-    ///
-    /// Note: the first block can also be the last one.
-    pub fn is_first(&self) -> bool {
-        self.first_block
-    }
-
-    /// Returns `true` if this is the last block in the file, `false` otherwise.
-    ///
-    /// Note: the last block can also be the first one.
-    pub fn is_last(&self) -> bool {
-        self.last_block
-    }
-
-    /// Returns a slice into the file's bytes, which can be empty, as is the case for any
-    /// intermediate blocks which only contain links to further blocks.
-    pub fn as_bytes(&self) -> &'a [u8] {
-        self.bytes
-    }
-}
-
-impl AsRef<[u8]> for FileSegment<'_> {
-    fn as_ref(&self) -> &[u8] {
-        &self.bytes
-    }
-}
-
-/// `Walker` helps with walking a UnixFS tree, including all of the content and files. It is created with
-/// `Walker::new` and walked over each block with `Walker::continue_block`. Use
+/// `Walker` helps with walking a UnixFS tree, including all of the content and files. It is
+/// created with `Walker::new` and walked over each block with `Walker::continue_block`. Use
 /// `Walker::pending_links` to obtain the next [`Cid`] to be loaded and the prefetchable links.
 #[derive(Debug)]
 pub struct Walker {
@@ -203,6 +26,48 @@ pub struct Walker {
     // tried to recycle the names but that was consistently as fast and used more memory than just
     // cloning the strings
     should_continue: bool,
+}
+
+/// Converts a link of specifically a Directory (and not a link of a HAMTShard).
+fn convert_link(
+    nested_depth: usize,
+    nth: usize,
+    link: PBLink<'_>,
+) -> Result<(Cid, String, usize), InvalidCidInLink> {
+    let hash = link.Hash.as_deref().unwrap_or_default();
+    let cid = match Cid::try_from(hash) {
+        Ok(cid) => cid,
+        Err(e) => return Err(InvalidCidInLink::from((nth, link, e))),
+    };
+    let name = match link.Name {
+        Some(Cow::Borrowed(s)) if !s.is_empty() => s.to_owned(),
+        None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
+        Some(Cow::Owned(_s)) => unreachable!("FlatUnixFs is never transformed to owned"),
+    };
+    assert!(!name.contains('/'));
+    Ok((cid, name, nested_depth))
+}
+
+/// Converts a link of specifically a HAMTShard (and not a link of a Directory).
+fn convert_sharded_link(
+    nested_depth: usize,
+    sibling_depth: usize,
+    nth: usize,
+    link: PBLink<'_>,
+) -> Result<(Cid, String, usize), InvalidCidInLink> {
+    let hash = link.Hash.as_deref().unwrap_or_default();
+    let cid = match Cid::try_from(hash) {
+        Ok(cid) => cid,
+        Err(e) => return Err(InvalidCidInLink::from((nth, link, e))),
+    };
+    let (depth, name) = match link.Name {
+        Some(Cow::Borrowed(s)) if s.len() > 2 => (nested_depth, s[2..].to_owned()),
+        Some(Cow::Borrowed(s)) if s.len() == 2 => (sibling_depth, String::from("")),
+        None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
+        Some(Cow::Owned(_s)) => unreachable!("FlatUnixFs is never transformed to owned"),
+    };
+    assert!(!name.contains('/'));
+    Ok((cid, name, depth))
 }
 
 impl Walker {
@@ -222,11 +87,12 @@ impl Walker {
 
     /// Returns the next `Cid` to load and pass its associated content to `continue_walk`.
     pub fn pending_links<'a>(&'a self) -> (&'a Cid, impl Iterator<Item = &'a Cid> + 'a) {
+        use InnerKind::*;
         // rev: because we'll pop any of the pending
         let cids = self.pending.iter().map(|(cid, ..)| cid).rev();
 
         match self.current.as_ref().map(|c| &c.kind) {
-            Some(InnerKind::File(Some(ref visit), _)) => {
+            Some(File(Some(ref visit), _)) => {
                 let (first, rest) = visit.pending_links();
                 let next = self.next.iter().map(|(cid, _, _)| cid);
                 (first, Either::Left(rest.chain(next.chain(cids))))
@@ -444,14 +310,37 @@ impl Walker {
     // re-creating one? How to do the same for directories?
 }
 
-/// Represents what the `Walker` is currently looking at. Converted to `Entry` for public API.
-#[derive(Debug)]
-pub(crate) struct InnerEntry {
+/// Represents what the `Walker` is currently looking at.
+struct InnerEntry {
     cid: Cid,
     kind: InnerKind,
     path: PathBuf,
     metadata: Metadata,
     depth: usize,
+}
+
+impl From<InnerEntry> for Metadata {
+    fn from(e: InnerEntry) -> Self {
+        e.metadata
+    }
+}
+
+#[derive(Debug)]
+enum InnerKind {
+    /// This is necessarily at the root of the walk
+    RootDirectory,
+    /// This is necessarily at the root of the walk
+    BucketAtRoot,
+    /// This is the metadata containing bucket, for which we have a name
+    RootBucket,
+    /// This is a sibling to a previous named metadata containing bucket
+    Bucket,
+    /// Directory on any level except root
+    Directory,
+    /// File optionally on the root level
+    File(Option<FileVisit>, u64),
+    /// Symlink optionally on the root level
+    Symlink,
 }
 
 impl InnerEntry {
@@ -530,12 +419,13 @@ impl InnerEntry {
     fn as_directory(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
         use InnerKind::*;
         match self.kind {
-            InnerKind::BucketAtRoot
-            | InnerKind::Directory
-            | InnerKind::File(None, ..)
-            | InnerKind::RootBucket
-            | InnerKind::RootDirectory
-            | InnerKind::Symlink => {
+            RootDirectory
+            | BucketAtRoot
+            | Bucket
+            | RootBucket
+            | Directory
+            | File(None, _)
+            | Symlink => {
                 self.cid = cid;
                 self.kind = Directory;
                 self.set_path(name, depth);
@@ -546,16 +436,17 @@ impl InnerEntry {
     }
 
     fn as_bucket_root(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
+        use InnerKind::*;
         match self.kind {
-            InnerKind::Bucket
-            | InnerKind::BucketAtRoot
-            | InnerKind::Directory
-            | InnerKind::File(None, ..)
-            | InnerKind::RootBucket
-            | InnerKind::RootDirectory
-            | InnerKind::Symlink => {
+            RootDirectory
+            | BucketAtRoot
+            | Bucket
+            | RootBucket
+            | Directory
+            | File(None, _)
+            | Symlink => {
                 self.cid = cid;
-                self.kind = InnerKind::RootBucket;
+                self.kind = RootBucket;
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
@@ -567,16 +458,14 @@ impl InnerEntry {
     }
 
     fn as_bucket(&mut self, cid: Cid, name: &str, depth: usize) {
+        use InnerKind::*;
         match self.kind {
-            InnerKind::BucketAtRoot => {
+            BucketAtRoot => {
                 assert_eq!(self.depth, depth, "{:?}", self.path);
             }
-            InnerKind::RootBucket
-            | InnerKind::Bucket
-            | InnerKind::File(None, ..)
-            | InnerKind::Symlink => {
+            RootBucket | Bucket | File(None, _) | Symlink => {
                 self.cid = cid;
-                self.kind = InnerKind::Bucket;
+                self.kind = Bucket;
 
                 assert!(name.is_empty());
                 // continuation bucket going bucket -> bucket
@@ -603,16 +492,17 @@ impl InnerEntry {
         step: Option<FileVisit>,
         file_size: u64,
     ) {
+        use InnerKind::*;
         match self.kind {
-            InnerKind::Bucket
-            | InnerKind::BucketAtRoot
-            | InnerKind::Directory
-            | InnerKind::File(None, ..)
-            | InnerKind::RootBucket
-            | InnerKind::RootDirectory
-            | InnerKind::Symlink => {
+            RootDirectory
+            | BucketAtRoot
+            | RootBucket
+            | Bucket
+            | Directory
+            | File(None, _)
+            | Symlink => {
                 self.cid = cid;
-                self.kind = InnerKind::File(step, file_size);
+                self.kind = File(step, file_size);
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
@@ -624,16 +514,17 @@ impl InnerEntry {
     }
 
     fn as_symlink(&mut self, cid: Cid, name: &str, depth: usize, metadata: Metadata) {
+        use InnerKind::*;
         match self.kind {
-            InnerKind::Bucket
-            | InnerKind::BucketAtRoot
-            | InnerKind::Directory
-            | InnerKind::File(None, ..)
-            | InnerKind::RootBucket
-            | InnerKind::RootDirectory
-            | InnerKind::Symlink => {
+            Bucket
+            | BucketAtRoot
+            | Directory
+            | File(None, _)
+            | RootBucket
+            | RootDirectory
+            | Symlink => {
                 self.cid = cid;
-                self.kind = InnerKind::Symlink;
+                self.kind = Symlink;
                 self.set_path(name, depth);
                 self.metadata = metadata;
             }
@@ -642,72 +533,194 @@ impl InnerEntry {
     }
 }
 
-impl From<InnerEntry> for Metadata {
-    fn from(e: InnerEntry) -> Self {
-        e.metadata
+impl fmt::Debug for InnerEntry {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("InnerEntry")
+            .field("depth", &self.depth)
+            .field("kind", &self.kind)
+            .field("cid", &format_args!("{}", self.cid))
+            .field("path", &self.path)
+            .field("metadata", &self.metadata)
+            .finish()
     }
 }
 
+/// Representation of the walk progress.
 #[derive(Debug)]
-// FIXME: could simplify roots to optinal cid variants?
-enum InnerKind {
-    /// This is necessarily at the root of the walk
-    RootDirectory,
-    /// This is necessarily at the root of the walk
-    BucketAtRoot,
-    /// This is the metadata containing bucket, for which we have a name
-    RootBucket,
-    /// This is a sibling to a previous named metadata containing bucket
-    Bucket,
-    /// Directory on any level except root
-    Directory,
-    /// File optionally on the root level
-    File(Option<FileVisit>, u64),
-    /// Symlink optionally on the root level
-    Symlink,
+pub enum ContinuedWalk<'a> {
+    /// Currently looking at a continuation of a HAMT sharded directory. Usually safe to ignore.
+    Bucket(&'a Cid, &'a Path),
+    /// Currently looking at a directory.
+    Directory(&'a Cid, &'a Path, &'a Metadata),
+    /// Currently looking at a file. The first tuple value contains the file bytes accessible
+    /// from the block, which can also be an empty slice.
+    File(FileSegment<'a>, &'a Cid, &'a Path, &'a Metadata, u64),
+    /// Currently looking at a root directory.
+    RootDirectory(&'a Cid, &'a Path, &'a Metadata),
+    /// Currently looking at a symlink. The first tuple value contains the symlink target path. It
+    /// might be convertible to UTF-8, but this is not specified in the spec.
+    Symlink(&'a [u8], &'a Cid, &'a Path, &'a Metadata),
 }
 
-/// Converts a link of specifically a Directory (and not a link of a HAMTShard).
-fn convert_link(
-    nested_depth: usize,
-    nth: usize,
-    link: PBLink<'_>,
-) -> Result<(Cid, String, usize), InvalidCidInLink> {
-    let hash = link.Hash.as_deref().unwrap_or_default();
-    let cid = match Cid::try_from(hash) {
-        Ok(cid) => cid,
-        Err(e) => return Err(InvalidCidInLink::from((nth, link, e))),
-    };
-    let name = match link.Name {
-        Some(Cow::Borrowed(s)) if !s.is_empty() => s.to_owned(),
-        None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
-        Some(Cow::Owned(_s)) => unreachable!("FlatUnixFs is never transformed to owned"),
-    };
-    assert!(!name.contains('/'));
-    Ok((cid, name, nested_depth))
+impl ContinuedWalk<'_> {
+    #[cfg(test)]
+    fn path(&self) -> &Path {
+        match self {
+            Self::Bucket(_, p)
+            | Self::Directory(_, p, ..)
+            | Self::File(_, _, p, ..)
+            | Self::RootDirectory(_, p, ..)
+            | Self::Symlink(_, _, p, ..) => p,
+        }
+    }
 }
 
-/// Converts a link of specifically a HAMTShard (and not a link of a Directory).
-fn convert_sharded_link(
-    nested_depth: usize,
-    sibling_depth: usize,
-    nth: usize,
-    link: PBLink<'_>,
-) -> Result<(Cid, String, usize), InvalidCidInLink> {
-    let hash = link.Hash.as_deref().unwrap_or_default();
-    let cid = match Cid::try_from(hash) {
-        Ok(cid) => cid,
-        Err(e) => return Err(InvalidCidInLink::from((nth, link, e))),
-    };
-    let (depth, name) = match link.Name {
-        Some(Cow::Borrowed(s)) if s.len() > 2 => (nested_depth, s[2..].to_owned()),
-        Some(Cow::Borrowed(s)) if s.len() == 2 => (sibling_depth, String::from("")),
-        None | Some(Cow::Borrowed(_)) => todo!("link cannot be empty"),
-        Some(Cow::Owned(_s)) => unreachable!("FlatUnixFs is never transformed to owned"),
-    };
-    assert!(!name.contains('/'));
-    Ok((cid, name, depth))
+/// A slice of bytes of a possibly multi-block file. The slice can be accessed via `as_bytes()` or
+/// `AsRef<[u8]>::as_ref()`.
+#[derive(Debug)]
+pub struct FileSegment<'a> {
+    bytes: &'a [u8],
+    first_block: bool,
+    last_block: bool,
 }
+
+impl<'a> FileSegment<'a> {
+    fn first(bytes: &'a [u8], last_block: bool) -> Self {
+        FileSegment {
+            bytes,
+            first_block: true,
+            last_block,
+        }
+    }
+
+    fn later(bytes: &'a [u8], last_block: bool) -> Self {
+        FileSegment {
+            bytes,
+            first_block: false,
+            last_block,
+        }
+    }
+
+    /// Returns `true` if this is the first block in the file, `false` otherwise.
+    ///
+    /// Note: the first block can also be the last one.
+    pub fn is_first(&self) -> bool {
+        self.first_block
+    }
+
+    /// Returns `true` if this is the last block in the file, `false` otherwise.
+    ///
+    /// Note: the last block can also be the first one.
+    pub fn is_last(&self) -> bool {
+        self.last_block
+    }
+
+    /// Returns a slice into the file's bytes, which can be empty, as is the case for any
+    /// intermediate blocks which only contain links to further blocks.
+    pub fn as_bytes(&self) -> &'a [u8] {
+        self.bytes
+    }
+}
+
+impl AsRef<[u8]> for FileSegment<'_> {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// Errors which can occur while walking a tree.
+#[derive(Debug)]
+pub enum Error {
+    /// An unsupported type of UnixFS node was encountered. There should be a way to skip these. Of the
+    /// defined types only `Metadata` is unsupported, all undefined types as of 2020-06 are also
+    /// unsupported.
+    UnsupportedType(UnexpectedNodeType),
+
+    /// This error is returned when a file e.g. links to a non-Raw or non-File subtree.
+    UnexpectedType(UnexpectedNodeType),
+
+    /// dag-pb node parsing failed, perhaps the block is not a dag-pb node?
+    DagPbParsingFailed(quick_protobuf::Error),
+
+    /// Failed to parse the unixfs node inside the dag-pb node.
+    UnixFsParsingFailed(quick_protobuf::Error),
+
+    /// dag-pb node contained no data.
+    EmptyDagPbNode,
+
+    /// dag-pb link could not be converted to a Cid
+    InvalidCid(InvalidCidInLink),
+
+    /// A File has an invalid structure
+    File(FileError),
+
+    /// A Directory has an unsupported structure
+    UnsupportedDirectory(UnexpectedDirectoryProperties),
+
+    /// HAMTSharded directory has unsupported properties
+    UnsupportedHAMTShard(ShardError),
+}
+
+impl From<ParsingFailed<'_>> for Error {
+    fn from(e: ParsingFailed<'_>) -> Self {
+        use ParsingFailed::*;
+        match e {
+            InvalidDagPb(e) => Error::DagPbParsingFailed(e),
+            InvalidUnixFs(e, _) => Error::UnixFsParsingFailed(e),
+            NoData(_) => Error::EmptyDagPbNode,
+        }
+    }
+}
+
+impl From<InvalidCidInLink> for Error {
+    fn from(e: InvalidCidInLink) -> Self {
+        Error::InvalidCid(e)
+    }
+}
+
+impl From<FileReadFailed> for Error {
+    fn from(e: FileReadFailed) -> Self {
+        use FileReadFailed::*;
+        match e {
+            File(e) => Error::File(e),
+            UnexpectedType(ut) => Error::UnexpectedType(ut),
+            Read(_) => unreachable!("FileVisit does not parse any blocks"),
+            InvalidCid(l) => Error::InvalidCid(l),
+        }
+    }
+}
+
+impl From<UnexpectedDirectoryProperties> for Error {
+    fn from(e: UnexpectedDirectoryProperties) -> Self {
+        Error::UnsupportedDirectory(e)
+    }
+}
+
+impl From<ShardError> for Error {
+    fn from(e: ShardError) -> Self {
+        Error::UnsupportedHAMTShard(e)
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Error::*;
+
+        match self {
+            UnsupportedType(ut) => write!(fmt, "unsupported UnixFs type: {:?}", ut),
+            UnexpectedType(ut) => write!(fmt, "link to unexpected UnixFs type from File: {:?}", ut),
+            DagPbParsingFailed(e) => write!(fmt, "failed to parse the outer dag-pb: {}", e),
+            UnixFsParsingFailed(e) => write!(fmt, "failed to parse the inner UnixFs: {}", e),
+            EmptyDagPbNode => write!(fmt, "failed to parse the inner UnixFs: no data"),
+            InvalidCid(e) => write!(fmt, "link contained an invalid Cid: {}", e),
+            File(e) => write!(fmt, "invalid file: {}", e),
+            UnsupportedDirectory(udp) => write!(fmt, "unsupported directory: {}", udp),
+            UnsupportedHAMTShard(se) => write!(fmt, "unsupported hamtshard: {}", se),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod tests {
