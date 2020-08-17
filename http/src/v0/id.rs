@@ -43,10 +43,7 @@ async fn identity_query<T: IpfsTypes>(
             let id = peer_id.to_string();
             let public_key = Base64Pad.encode(public_key.into_protobuf_encoding());
 
-            let addresses = addresses
-                .into_iter()
-                .map(|addr| addr.to_string())
-                .collect();
+            let addresses = addresses.into_iter().map(|addr| addr.to_string()).collect();
 
             let response = Response {
                 id,

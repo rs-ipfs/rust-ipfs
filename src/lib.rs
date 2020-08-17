@@ -513,6 +513,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Returns the local node public key and the listened and externally visible addresses.
+    /// The addresses are suffixed with the P2p protocol containing the node's PeerId.
     ///
     /// Public key can be converted to [`PeerId`].
     pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), Error> {
