@@ -20,6 +20,9 @@ async fn connect_two_nodes_by_addr() {
 
 // Make sure only a `Multiaddr` with `/p2p/` can be used to connect.
 #[tokio::test(max_threads = 1)]
+#[should_panic(
+    expected = "called `Result::unwrap()` on an `Err` value: Missing Protocol::P2p in the Multiaddr"
+)]
 async fn dont_connect_without_p2p() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
@@ -120,7 +123,7 @@ async fn connect_two_nodes_with_two_connections_doesnt_panic() {
     // peer..
 
     node_a
-        .disconnect(peers.remove(0).address)
+        .disconnect(peers.remove(0).addr)
         .await
         .expect("failed to disconnect peer_b at peer_a");
 
