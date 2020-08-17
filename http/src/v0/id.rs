@@ -39,19 +39,20 @@ async fn identity_query<T: IpfsTypes>(
 
     match ipfs.identity().await {
         Ok((public_key, addresses)) => {
-            let id = public_key.clone().into_peer_id().to_string();
+            let peer_id = public_key.clone().into_peer_id();
+            let id = peer_id.to_string();
             let public_key = Base64Pad.encode(public_key.into_protobuf_encoding());
+
+            let addresses = addresses.into_iter().map(|addr| addr.to_string()).collect();
 
             let response = Response {
                 id,
                 public_key,
-                addresses: addresses.into_iter().map(|addr| addr.to_string()).collect(),
+                addresses,
                 agent_version: "rust-ipfs/0.1.0",
                 protocol_version: "ipfs/0.1.0",
             };
 
-            // TODO: investigate how this could be avoided, perhaps by making the ipfs::Error a
-            // Reject
             Ok(warp::reply::json(&response))
         }
         Err(e) => Err(warp::reject::custom(StringError::from(e))),

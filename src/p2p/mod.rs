@@ -10,7 +10,7 @@ pub(crate) mod pubsub;
 mod swarm;
 mod transport;
 
-pub use swarm::{Connection, ConnectionTarget};
+pub use swarm::Connection;
 
 pub type TSwarm<T> = Swarm<behaviour::Behaviour<T>>;
 

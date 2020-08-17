@@ -1,4 +1,5 @@
-use ipfs::{ConnectionTarget, Node};
+use ipfs::Node;
+use libp2p::{multiaddr::Protocol, Multiaddr};
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -17,6 +18,23 @@ async fn connect_two_nodes_by_addr() {
         .expect("should've connected");
 }
 
+// Make sure only a `Multiaddr` with `/p2p/` can be used to connect.
+#[tokio::test(max_threads = 1)]
+async fn dont_connect_without_p2p() {
+    let node_a = Node::new("a").await;
+    let node_b = Node::new("b").await;
+
+    let (_, mut b_addrs) = node_b.identity().await.unwrap();
+    let mut b_addr = b_addrs.pop().unwrap();
+    // drop the /p2p/peer_id part
+    b_addr.pop();
+
+    timeout(Duration::from_secs(10), node_a.connect(b_addr))
+        .await
+        .expect("timeout")
+        .expect_err("should not have connected");
+}
+
 // Make sure two instances of ipfs can be connected by `PeerId`.
 // Currently ignored, as Ipfs::add_peer (that is necessary in
 // order to connect by PeerId) already performs a dial to the
@@ -29,30 +47,12 @@ async fn connect_two_nodes_by_peer_id() {
 
     let (b_key, mut b_addrs) = node_b.identity().await.unwrap();
     let b_id = b_key.into_peer_id();
+    let b_id_multiaddr: Multiaddr = format!("/p2p/{}", b_id).parse().unwrap();
 
     while let Some(addr) = b_addrs.pop() {
         node_a.add_peer(b_id.clone(), addr).await.unwrap();
     }
-    timeout(Duration::from_secs(10), node_a.connect(b_id))
-        .await
-        .expect("timeout")
-        .expect("should've connected");
-}
-
-// Make sure two instances of ipfs can be connected with a multiaddr+peer combo.
-#[tokio::test(max_threads = 1)]
-async fn connect_two_nodes_by_addr_and_peer() {
-    let node_a = Node::new("a").await;
-    let node_b = Node::new("b").await;
-
-    let (b_key, mut b_addrs) = node_b.identity().await.unwrap();
-
-    let b_id = b_key.into_peer_id();
-    let b_addr = b_addrs.pop().unwrap();
-    let b_addr_long = format!("{}/p2p/{}", b_addr, b_id);
-    let b_conn_target = b_addr_long.parse::<ConnectionTarget>().unwrap();
-
-    timeout(Duration::from_secs(1), node_a.connect(b_conn_target))
+    timeout(Duration::from_secs(10), node_a.connect(b_id_multiaddr))
         .await
         .expect("timeout")
         .expect("should've connected");
@@ -76,26 +76,6 @@ async fn connect_duplicate_multiaddr() {
     }
 }
 
-// Ensure that duplicate connection attempts don't cause hangs.
-#[tokio::test(max_threads = 1)]
-async fn connect_duplicate_peer_id() {
-    let node_a = Node::new("a").await;
-    let node_b = Node::new("b").await;
-
-    let (b_key, mut b_addrs) = node_b.identity().await.unwrap();
-    let b_id = b_key.into_peer_id();
-    let b_addr = b_addrs.pop().unwrap();
-
-    // test duplicate connections by peer id
-    node_a.add_peer(b_id.clone(), b_addr).await.unwrap();
-    for _ in 0..3 {
-        // final success or failure doesn't matter, there should be no timeout
-        let _ = timeout(Duration::from_secs(1), node_a.connect(b_id.clone()))
-            .await
-            .unwrap();
-    }
-}
-
 // More complicated one to the above; first node will have two listening addresses and the second
 // one should dial both of the addresses, resulting in two connections.
 #[tokio::test(max_threads = 1)]
@@ -112,11 +92,14 @@ async fn connect_two_nodes_with_two_connections_doesnt_panic() {
     assert_eq!(
         addresses.len(),
         2,
-        "there should had been two local addresses, found {:?}",
+        "there should have been two local addresses, found {:?}",
         addresses
     );
+    let node_a_id = node_a.identity().await.unwrap().0.into_peer_id();
 
-    for addr in addresses {
+    for mut addr in addresses.into_iter() {
+        addr.push(Protocol::P2p(node_a_id.clone().into()));
+
         timeout(Duration::from_secs(10), node_b.connect(addr))
             .await
             .expect("timeout")
@@ -129,7 +112,7 @@ async fn connect_two_nodes_with_two_connections_doesnt_panic() {
     assert_eq!(
         peers.len(),
         1,
-        "there should had been one peer, found {:?}",
+        "there should have been one peer, found {:?}",
         peers
     );
 

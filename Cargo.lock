@@ -1360,6 +1360,7 @@ dependencies = [
  "multibase",
  "multihash",
  "openssl",
+ "parity-multiaddr",
  "percent-encoding",
  "prost",
  "prost-build",
