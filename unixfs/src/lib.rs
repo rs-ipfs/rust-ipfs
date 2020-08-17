@@ -114,18 +114,15 @@ impl From<UnixFsType> for UnexpectedNodeType {
 impl UnexpectedNodeType {
     /// Returns `true` if the type represents some directory
     pub fn is_directory(&self) -> bool {
-        match UnixFsType::from(self.0) {
-            UnixFsType::Directory | UnixFsType::HAMTShard => true,
-            _ => false,
-        }
+        matches!(
+            UnixFsType::from(self.0),
+            UnixFsType::Directory | UnixFsType::HAMTShard
+        )
     }
 
     /// Returns `true` if the type represents a `File`
     pub fn is_file(&self) -> bool {
-        match UnixFsType::from(self.0) {
-            UnixFsType::File => true,
-            _ => false,
-        }
+        matches!(UnixFsType::from(self.0), UnixFsType::File)
     }
 }
 
