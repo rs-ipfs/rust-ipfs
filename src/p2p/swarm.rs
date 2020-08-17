@@ -259,19 +259,6 @@ mod tests {
     use libp2p::{multiaddr::Protocol, multihash::Multihash, swarm::Swarm};
     use std::convert::TryInto;
 
-    #[test]
-    fn connection_targets() {
-        let peer_id = "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ";
-        let multiaddr_wo_peer = "/ip4/104.131.131.82/tcp/4001";
-        let multiaddr_with_peer = format!("{}/p2p/{}", multiaddr_wo_peer, peer_id);
-        let p2p_peer = format!("/p2p/{}", peer_id);
-        // note: /ipfs/peer_id doesn't properly parse as a Multiaddr
-
-        assert!(multiaddr_wo_peer.parse::<MultiaddrWithoutPeerId>().is_ok());
-        assert!(multiaddr_with_peer.parse::<MultiaddrWithPeerId>().is_ok());
-        assert!(p2p_peer.parse::<Multiaddr>().is_ok());
-    }
-
     #[tokio::test(max_threads = 1)]
     async fn swarm_api() {
         let (peer1_id, trans) = mk_transport();
