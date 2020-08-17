@@ -448,6 +448,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     pub async fn connect(&self, target: Multiaddr) -> Result<(), Error> {
+        if !target.iter().any(|p| matches!(p, Protocol::P2p(_))) {
+            return Err(anyhow!("The target address is missing the P2p protocol"));
+        }
+
         self.span
             .in_scope(|| async {
                 let (tx, rx) = oneshot_channel();
