@@ -256,7 +256,8 @@ mod tests {
     use super::*;
     use crate::p2p::transport::{build_transport, TTransport};
     use libp2p::identity::Keypair;
-    use libp2p::{multihash::Multihash, swarm::Swarm};
+    use libp2p::{multiaddr::Protocol, multihash::Multihash, swarm::Swarm};
+    use std::convert::TryInto;
 
     #[test]
     fn connection_targets() {
@@ -286,7 +287,7 @@ mod tests {
             addr.push(Protocol::P2p(
                 Multihash::from_bytes(peer1_id.clone().into_bytes()).unwrap(),
             ));
-            if let Some(fut) = swarm2.connect(MultiaddrWithPeerId::try_from(addr).unwrap()) {
+            if let Some(fut) = swarm2.connect(addr.try_into().unwrap()) {
                 fut.await.unwrap();
             }
         }
