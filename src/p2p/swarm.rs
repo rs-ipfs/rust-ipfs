@@ -1,4 +1,5 @@
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
+use anyhow::anyhow;
 use core::task::{Context, Poll};
 use libp2p::core::{
     connection::ConnectionId, multiaddr::Protocol, ConnectedPoint, Multiaddr, PeerId,
@@ -8,7 +9,76 @@ use libp2p::swarm::protocols_handler::{
 };
 use libp2p::swarm::{self, DialPeerCondition, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::convert::TryFrom;
 use std::time::Duration;
+use std::{fmt, str::FromStr};
+
+/// A wrapper for `Multiaddr` that does **not** contain `Protocol::P2p`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MultiaddrWoPeerId(Multiaddr);
+
+impl From<Multiaddr> for MultiaddrWoPeerId {
+    fn from(addr: Multiaddr) -> Self {
+        Self(
+            addr.into_iter()
+                .filter(|p| !matches!(p, Protocol::P2p(_)))
+                .collect(),
+        )
+    }
+}
+
+impl FromStr for MultiaddrWoPeerId {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let multiaddr = s.parse::<Multiaddr>()?;
+        Ok(multiaddr.into())
+    }
+}
+
+/// A `Multiaddr` paired with a discrete `PeerId`. The `Multiaddr` can contain a
+/// `Protocol::P2p`, but it's not as easy to work with, and some functionalities
+/// don't support it being contained within the `Multiaddr`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MultiaddrWithPeerId {
+    multiaddr: Multiaddr,
+    peer_id: PeerId,
+}
+
+impl From<(Multiaddr, PeerId)> for MultiaddrWithPeerId {
+    fn from((multiaddr, peer_id): (Multiaddr, PeerId)) -> Self {
+        Self { multiaddr, peer_id }
+    }
+}
+
+impl TryFrom<Multiaddr> for MultiaddrWithPeerId {
+    type Error = anyhow::Error;
+
+    fn try_from(mut multiaddr: Multiaddr) -> Result<Self, Self::Error> {
+        if let Some(Protocol::P2p(hash)) = multiaddr.pop() {
+            let peer_id = PeerId::from_multihash(hash)
+                .map_err(|_| anyhow!("Invalid Multihash in Protocol::P2p"))?;
+            Ok(Self { multiaddr, peer_id })
+        } else {
+            Err(anyhow!("Missing Protocol::P2p in the Multiaddr"))
+        }
+    }
+}
+
+impl FromStr for MultiaddrWithPeerId {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let multiaddr = s.parse::<Multiaddr>()?;
+        Self::try_from(multiaddr)
+    }
+}
+
+impl fmt::Display for MultiaddrWithPeerId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/p2p/{}", self.multiaddr, self.peer_id)
+    }
+}
 
 /// A description of currently active connection.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -275,12 +345,13 @@ mod tests {
     #[test]
     fn connection_targets() {
         let peer_id = "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ";
-        let multiaddr = "/ip4/104.131.131.82/tcp/4001";
-        let multiaddr_with_peer = format!("{}/p2p/{}", multiaddr, peer_id);
+        let multiaddr_wo_peer = "/ip4/104.131.131.82/tcp/4001";
+        let multiaddr_with_peer = format!("{}/p2p/{}", multiaddr_wo_peer, peer_id);
         let p2p_peer = format!("/p2p/{}", peer_id);
         // note: /ipfs/peer_id doesn't properly parse as a Multiaddr
 
-        assert!(multiaddr_with_peer.parse::<Multiaddr>().is_ok());
+        assert!(multiaddr_wo_peer.parse::<MultiaddrWoPeerId>().is_ok());
+        assert!(multiaddr_with_peer.parse::<MultiaddrWithPeerId>().is_ok());
         assert!(p2p_peer.parse::<Multiaddr>().is_ok());
     }
 
