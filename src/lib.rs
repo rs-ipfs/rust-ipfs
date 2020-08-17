@@ -452,68 +452,68 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             return Err(anyhow!("The target address is missing the P2p protocol"));
         }
 
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::Connect(target, tx))
-                    .await?;
-                let subscription = rx.await?;
+        async move {
+            let (tx, rx) = oneshot_channel();
+            self.to_task
+                .clone()
+                .send(IpfsEvent::Connect(target, tx))
+                .await?;
+            let subscription = rx.await?;
 
-                if let Some(future) = subscription {
-                    future.await.map_err(|e| anyhow!(e))
-                } else {
-                    futures::future::ready(Err(anyhow!("Duplicate connection attempt"))).await
-                }
-            })
-            .await
+            if let Some(future) = subscription {
+                future.await.map_err(|e| anyhow!(e))
+            } else {
+                futures::future::ready(Err(anyhow!("Duplicate connection attempt"))).await
+            }
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     pub async fn addrs(&self) -> Result<Vec<(PeerId, Vec<Multiaddr>)>, Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
-                self.to_task.clone().send(IpfsEvent::Addresses(tx)).await?;
-                rx.await?
-            })
-            .await
+        async move {
+            let (tx, rx) = oneshot_channel();
+            self.to_task.clone().send(IpfsEvent::Addresses(tx)).await?;
+            rx.await?
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     pub async fn addrs_local(&self) -> Result<Vec<Multiaddr>, Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
-                self.to_task.clone().send(IpfsEvent::Listeners(tx)).await?;
-                rx.await?
-            })
-            .await
+        async move {
+            let (tx, rx) = oneshot_channel();
+            self.to_task.clone().send(IpfsEvent::Listeners(tx)).await?;
+            rx.await?
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     pub async fn peers(&self) -> Result<Vec<Connection>, Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::Connections(tx))
-                    .await?;
-                rx.await?
-            })
-            .await
+        async move {
+            let (tx, rx) = oneshot_channel();
+            self.to_task
+                .clone()
+                .send(IpfsEvent::Connections(tx))
+                .await?;
+            rx.await?
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     pub async fn disconnect(&self, addr: Multiaddr) -> Result<(), Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::Disconnect(addr, tx))
-                    .await?;
-                rx.await?
-            })
-            .await
+        async move {
+            let (tx, rx) = oneshot_channel();
+            self.to_task
+                .clone()
+                .send(IpfsEvent::Disconnect(addr, tx))
+                .await?;
+            rx.await?
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     /// Returns the local node public key and the listened and externally visible addresses.
@@ -521,126 +521,126 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     ///
     /// Public key can be converted to [`PeerId`].
     pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
+        async move {
+            let (tx, rx) = oneshot_channel();
 
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::GetAddresses(tx))
-                    .await?;
-                let mut addresses = rx.await?;
-                let public_key = self.keys.get_ref().public();
-                let peer_id = public_key.clone().into_peer_id();
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GetAddresses(tx))
+                .await?;
+            let mut addresses = rx.await?;
+            let public_key = self.keys.get_ref().public();
+            let peer_id = public_key.clone().into_peer_id();
 
-                for addr in &mut addresses {
-                    addr.push(Protocol::P2p(peer_id.clone().into()))
-                }
+            for addr in &mut addresses {
+                addr.push(Protocol::P2p(peer_id.clone().into()))
+            }
 
-                Ok((public_key, addresses))
-            })
-            .await
+            Ok((public_key, addresses))
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
     /// The subscription can be unsubscribed by dropping the stream or calling
     /// [`pubsub_unsubscribe`].
     pub async fn pubsub_subscribe(&self, topic: String) -> Result<SubscriptionStream, Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
+        async move {
+            let (tx, rx) = oneshot_channel();
 
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::PubsubSubscribe(topic.clone(), tx))
-                    .await?;
+            self.to_task
+                .clone()
+                .send(IpfsEvent::PubsubSubscribe(topic.clone(), tx))
+                .await?;
 
-                rx.await?
-                    .ok_or_else(|| format_err!("already subscribed to {:?}", topic))
-            })
-            .await
+            rx.await?
+                .ok_or_else(|| format_err!("already subscribed to {:?}", topic))
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     /// Publishes to the topic which may have been subscribed to earlier
     pub async fn pubsub_publish(&self, topic: String, data: Vec<u8>) -> Result<(), Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
+        async move {
+            let (tx, rx) = oneshot_channel();
 
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::PubsubPublish(topic, data, tx))
-                    .await?;
+            self.to_task
+                .clone()
+                .send(IpfsEvent::PubsubPublish(topic, data, tx))
+                .await?;
 
-                Ok(rx.await?)
-            })
-            .await
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     /// Returns true if unsubscription was successful
     pub async fn pubsub_unsubscribe(&self, topic: &str) -> Result<bool, Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
+        async move {
+            let (tx, rx) = oneshot_channel();
 
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::PubsubUnsubscribe(topic.into(), tx))
-                    .await?;
+            self.to_task
+                .clone()
+                .send(IpfsEvent::PubsubUnsubscribe(topic.into(), tx))
+                .await?;
 
-                Ok(rx.await?)
-            })
-            .await
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     /// Returns all known pubsub peers with the optional topic filter
     pub async fn pubsub_peers(&self, topic: Option<String>) -> Result<Vec<PeerId>, Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
+        async move {
+            let (tx, rx) = oneshot_channel();
 
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::PubsubPeers(topic, tx))
-                    .await?;
+            self.to_task
+                .clone()
+                .send(IpfsEvent::PubsubPeers(topic, tx))
+                .await?;
 
-                Ok(rx.await?)
-            })
-            .await
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     /// Returns all currently subscribed topics
     pub async fn pubsub_subscribed(&self) -> Result<Vec<String>, Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
+        async move {
+            let (tx, rx) = oneshot_channel();
 
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::PubsubSubscribed(tx))
-                    .await?;
+            self.to_task
+                .clone()
+                .send(IpfsEvent::PubsubSubscribed(tx))
+                .await?;
 
-                Ok(rx.await?)
-            })
-            .await
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     pub async fn bitswap_wantlist(
         &self,
         peer: Option<PeerId>,
     ) -> Result<Vec<(Cid, bitswap::Priority)>, Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
+        async move {
+            let (tx, rx) = oneshot_channel();
 
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::WantList(peer, tx))
-                    .await?;
+            self.to_task
+                .clone()
+                .send(IpfsEvent::WantList(peer, tx))
+                .await?;
 
-                Ok(rx.await?)
-            })
-            .await
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     pub async fn refs_local(&self) -> Result<Vec<Cid>, Error> {
@@ -648,18 +648,18 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     pub async fn bitswap_stats(&self) -> Result<BitswapStats, Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
+        async move {
+            let (tx, rx) = oneshot_channel();
 
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::BitswapStats(tx))
-                    .await?;
+            self.to_task
+                .clone()
+                .send(IpfsEvent::BitswapStats(tx))
+                .await?;
 
-                Ok(rx.await?)
-            })
-            .await
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     /// Add a given multiaddr as a listening address. Will fail if the address is unsupported, or
@@ -676,18 +676,18 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Returns the bound multiaddress, which in the case of original containing an ephemeral port
     /// has now been changed.
     pub async fn add_listening_address(&self, addr: Multiaddr) -> Result<Multiaddr, Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
+        async move {
+            let (tx, rx) = oneshot_channel();
 
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::AddListeningAddress(addr, tx))
-                    .await?;
+            self.to_task
+                .clone()
+                .send(IpfsEvent::AddListeningAddress(addr, tx))
+                .await?;
 
-                rx.await?
-            })
-            .await
+            rx.await?
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     /// Stop listening on a previously added listening address. Fails if the address is not being
@@ -695,18 +695,18 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     ///
     /// The removal of all listening addresses added through unspecified addresses is not supported.
     pub async fn remove_listening_address(&self, addr: Multiaddr) -> Result<(), Error> {
-        self.span
-            .in_scope(|| async {
-                let (tx, rx) = oneshot_channel();
+        async move {
+            let (tx, rx) = oneshot_channel();
 
-                self.to_task
-                    .clone()
-                    .send(IpfsEvent::RemoveListeningAddress(addr, tx))
-                    .await?;
+            self.to_task
+                .clone()
+                .send(IpfsEvent::RemoveListeningAddress(addr, tx))
+                .await?;
 
-                rx.await?
-            })
-            .await
+            rx.await?
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     /// Exit daemon.
