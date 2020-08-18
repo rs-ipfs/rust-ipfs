@@ -19,6 +19,10 @@ pub struct Response {
     // repo is here for go-ipfs and js-ipfs but we do not have full repo at the moment
     // empty string is accepted by the tests
     repo: &'static str,
+    #[serde(rename = "ipfs-http-client")]
+    ipfs_http_client: &'static str,
+    #[serde(rename = "interface-ipfs-core")]
+    interface_ipfs_core: &'static str,
 }
 
 // https://docs-beta.ipfs.io/reference/http/api/#api-v0-version
@@ -31,6 +35,8 @@ pub fn version(
         version: env!("CARGO_PKG_VERSION"), // TODO: move over to rust-ipfs not to worry about syncing version numbers?
         commit: env!("VERGEN_SHA_SHORT"),
         repo: "",
+        ipfs_http_client: "",
+        interface_ipfs_core: "",
     };
 
     futures::future::ready(Ok((warp::reply::json(&response),)))
