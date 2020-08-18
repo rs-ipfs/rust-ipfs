@@ -1,16 +1,25 @@
-use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
-use std::{convert::TryFrom, fmt, str::FromStr};
+use libp2p::{
+    multiaddr::{self, Protocol},
+    Multiaddr, PeerId,
+};
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt,
+    str::FromStr,
+};
 
 /// An error that can be thrown when converting to `MultiaddrWithPeerId` and
 /// `MultiaddrWithoutPeerId`.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum MultiaddrWrapperError {
+    /// The source `Multiaddr` unexpectedly contains `Protocol::P2p`.
+    ContainsProtocolP2p,
     /// The provided `Multiaddr` is invalid.
-    InvalidMultiaddr,
-    /// The `Protocol::P2p` is missing from the source `Multiaddr`.
-    MissingProtocolP2p,
+    InvalidMultiaddr(multiaddr::Error),
     /// The `PeerId` created based on the `Protocol::P2p` is invalid.
     InvalidPeerId,
+    /// The `Protocol::P2p` is unexpectedly missing from the source `Multiaddr`.
+    MissingProtocolP2p,
 }
 
 impl fmt::Display for MultiaddrWrapperError {
@@ -25,13 +34,15 @@ impl std::error::Error for MultiaddrWrapperError {}
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MultiaddrWithoutPeerId(Multiaddr);
 
-impl From<Multiaddr> for MultiaddrWithoutPeerId {
-    fn from(addr: Multiaddr) -> Self {
-        Self(
-            addr.into_iter()
-                .filter(|p| !matches!(p, Protocol::P2p(_)))
-                .collect(),
-        )
+impl TryFrom<Multiaddr> for MultiaddrWithoutPeerId {
+    type Error = MultiaddrWrapperError;
+
+    fn try_from(addr: Multiaddr) -> Result<Self, Self::Error> {
+        if addr.iter().any(|p| matches!(p, Protocol::P2p(_))) {
+            Err(MultiaddrWrapperError::ContainsProtocolP2p)
+        } else {
+            Ok(Self(addr))
+        }
     }
 }
 
@@ -54,8 +65,8 @@ impl FromStr for MultiaddrWithoutPeerId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let multiaddr = s
             .parse::<Multiaddr>()
-            .map_err(|_| MultiaddrWrapperError::InvalidMultiaddr)?;
-        Ok(multiaddr.into())
+            .map_err(MultiaddrWrapperError::InvalidMultiaddr)?;
+        multiaddr.try_into()
     }
 }
 
@@ -95,7 +106,7 @@ impl FromStr for MultiaddrWithPeerId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let multiaddr = s
             .parse::<Multiaddr>()
-            .map_err(|_| MultiaddrWrapperError::InvalidMultiaddr)?;
+            .map_err(MultiaddrWrapperError::InvalidMultiaddr)?;
         Self::try_from(multiaddr)
     }
 }

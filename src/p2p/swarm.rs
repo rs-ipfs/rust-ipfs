@@ -7,6 +7,7 @@ use libp2p::swarm::protocols_handler::{
 };
 use libp2p::swarm::{self, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::convert::TryInto;
 use std::time::Duration;
 
 /// A description of currently active connection.
@@ -154,18 +155,17 @@ impl NetworkBehaviour for SwarmApi {
     ) {
         // TODO: could be that the connection is not yet fully established at this point
         trace!("inject_connected {} {:?}", peer_id, cp);
-        let addr = connection_point_addr(cp).to_owned();
+        let addr: MultiaddrWithoutPeerId = connection_point_addr(cp).to_owned().try_into().unwrap();
 
         self.peers.insert(peer_id.clone());
         let connections = self.connected_peers.entry(peer_id.clone()).or_default();
-        connections.push(addr.clone().into());
+        connections.push(addr.clone());
 
-        self.connections
-            .insert(addr.clone().into(), peer_id.clone());
+        self.connections.insert(addr.clone(), peer_id.clone());
 
         if let ConnectedPoint::Dialer { .. } = cp {
             let addr = MultiaddrWithPeerId {
-                multiaddr: addr.into(),
+                multiaddr: addr,
                 peer_id: peer_id.clone(),
             };
 
@@ -185,7 +185,7 @@ impl NetworkBehaviour for SwarmApi {
         cp: &ConnectedPoint,
     ) {
         trace!("inject_connection_closed {} {:?}", peer_id, cp);
-        let closed_addr = connection_point_addr(cp).to_owned().into();
+        let closed_addr = connection_point_addr(cp).to_owned().try_into().unwrap();
 
         let became_empty = if let Some(connections) = self.connected_peers.get_mut(peer_id) {
             if let Some(index) = connections.iter().position(|addr| *addr == closed_addr) {
@@ -223,9 +223,8 @@ impl NetworkBehaviour for SwarmApi {
         error: &dyn std::error::Error,
     ) {
         trace!("inject_addr_reach_failure {} {}", addr, error);
-        if let Some(peer_id) = peer_id {
-            let ma: MultiaddrWithoutPeerId = addr.clone().into();
-            let addr = MultiaddrWithPeerId::from((ma, peer_id.to_owned()));
+        if peer_id.is_some() {
+            let addr: MultiaddrWithPeerId = addr.clone().try_into().unwrap();
             self.connect_registry
                 .finish_subscription(addr.into(), Err(error.to_string()));
         }
