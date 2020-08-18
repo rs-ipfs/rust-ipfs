@@ -183,7 +183,7 @@ jobs:
       run: cargo fmt --all -- --check
 
     - name: cargo clippy
-      run: cargo clippy --workspace --examples --tests -- -D warnings
+      run: cargo clippy --all-targets --workspace -- -D warnings
 
   readme-doctest:
     runs-on: ubuntu-latest

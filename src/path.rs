@@ -146,17 +146,11 @@ pub enum PathRoot {
 
 impl PathRoot {
     pub fn is_ipld(&self) -> bool {
-        match self {
-            PathRoot::Ipld(_) => true,
-            _ => false,
-        }
+        matches!(self, PathRoot::Ipld(_))
     }
 
     pub fn is_ipns(&self) -> bool {
-        match self {
-            PathRoot::Ipns(_) => true,
-            _ => false,
-        }
+        matches!(self, PathRoot::Ipns(_))
     }
 
     pub fn cid(&self) -> Option<&Cid> {
@@ -259,10 +253,7 @@ impl From<usize> for SubPath {
 
 impl SubPath {
     pub fn is_key(&self) -> bool {
-        match *self {
-            SubPath::Key(_) => true,
-            _ => false,
-        }
+        matches!(*self, SubPath::Key(_))
     }
 
     pub fn to_key(&self) -> Option<&String> {
@@ -273,10 +264,7 @@ impl SubPath {
     }
 
     pub fn is_index(&self) -> bool {
-        match self {
-            SubPath::Index(_) => true,
-            _ => false,
-        }
+        matches!(self, SubPath::Index(_))
     }
 
     pub fn to_index(&self) -> Option<usize> {
