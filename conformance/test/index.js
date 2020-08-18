@@ -39,7 +39,7 @@ tests.miscellaneous(factory, { skip: [
   'should respect timeout option when getting the node id',
   'should respect timeout option when getting the node version',
   // this hangs on windows, see #251
-  'stop'
+  'stop',
 ] })
 
 // Phase 1.1
@@ -98,7 +98,7 @@ tests.root.add(factory, {
     "should add from a URL with wrap-with-directory=true and URL-escaped file name",
     // this might hang on windows at least; seems that there is a DNSCHANNEL open
     // see https://github.com/rs-ipfs/rust-ipfs/pull/251/checks?check_run_id=889139927#step:17:934
-    "should not add from an invalid url"
+    "should not add from an invalid url",
   ]
 });
 // tests.repo(factory)
