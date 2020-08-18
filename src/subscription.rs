@@ -3,14 +3,14 @@
 //! that contains them. `SubscriptionFuture` is the `Future` bound to pending `Subscription`s and
 //! sharing the same unique numeric identifier, the `SubscriptionId`.
 
-use crate::RepoEvent;
+use crate::{p2p::MultiaddrWithPeerId, RepoEvent};
 use cid::Cid;
 use core::fmt::Debug;
 use core::hash::Hash;
 use core::pin::Pin;
 use futures::channel::mpsc::Sender;
 use futures::future::Future;
-use libp2p::{kad::QueryId, Multiaddr};
+use libp2p::kad::QueryId;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
@@ -28,8 +28,8 @@ static GLOBAL_REQ_COUNT: AtomicU64 = AtomicU64::new(0);
 /// The type of a request for subscription.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum RequestKind {
-    /// A request to connect to the given `Multiaddr` or `PeerId`.
-    Connect(Multiaddr),
+    /// A request to connect to the given `Multiaddr`+`PeerId` pair.
+    Connect(MultiaddrWithPeerId),
     /// A request to obtain a `Block` with a specific `Cid`.
     GetBlock(Cid),
     /// A DHT request to Kademlia.
@@ -38,8 +38,8 @@ pub enum RequestKind {
     Num(u32),
 }
 
-impl From<Multiaddr> for RequestKind {
-    fn from(addr: Multiaddr) -> Self {
+impl From<MultiaddrWithPeerId> for RequestKind {
+    fn from(addr: MultiaddrWithPeerId) -> Self {
         Self::Connect(addr)
     }
 }

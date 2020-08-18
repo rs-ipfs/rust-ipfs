@@ -5,11 +5,13 @@ use libp2p::Swarm;
 use libp2p::{Multiaddr, PeerId};
 use tracing::Span;
 
+mod addr;
 mod behaviour;
 pub(crate) mod pubsub;
 mod swarm;
 mod transport;
 
+pub use addr::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 pub use swarm::Connection;
 
 pub type TSwarm<T> = Swarm<behaviour::Behaviour<T>>;

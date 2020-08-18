@@ -48,8 +48,8 @@ use self::dag::IpldDag;
 pub use self::error::Error;
 use self::ipns::Ipns;
 pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
-pub use self::p2p::Connection;
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
+pub use self::p2p::{Connection, MultiaddrWithPeerId};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
@@ -235,7 +235,7 @@ type Channel<T> = OneshotSender<Result<T, Error>>;
 enum IpfsEvent {
     /// Connect
     Connect(
-        Multiaddr,
+        MultiaddrWithPeerId,
         OneshotSender<Option<SubscriptionFuture<(), String>>>,
     ),
     /// Addresses
@@ -245,7 +245,7 @@ enum IpfsEvent {
     /// Connections
     Connections(Channel<Vec<Connection>>),
     /// Disconnect
-    Disconnect(Multiaddr, Channel<()>),
+    Disconnect(MultiaddrWithPeerId, Channel<()>),
     /// Request background task to return the listened and external addresses
     GetAddresses(OneshotSender<Vec<Multiaddr>>),
     PubsubSubscribe(String, OneshotSender<Option<SubscriptionStream>>),
@@ -447,11 +447,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         self.ipns().cancel(key).instrument(self.span.clone()).await
     }
 
-    pub async fn connect(&self, target: Multiaddr) -> Result<(), Error> {
-        if !target.iter().any(|p| matches!(p, Protocol::P2p(_))) {
-            return Err(anyhow!("The target address is missing the P2p protocol"));
-        }
-
+    pub async fn connect(&self, target: MultiaddrWithPeerId) -> Result<(), Error> {
         async move {
             let (tx, rx) = oneshot_channel();
             self.to_task
@@ -503,12 +499,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
-    pub async fn disconnect(&self, addr: Multiaddr) -> Result<(), Error> {
+    pub async fn disconnect(&self, target: MultiaddrWithPeerId) -> Result<(), Error> {
         async move {
             let (tx, rx) = oneshot_channel();
             self.to_task
                 .clone()
-                .send(IpfsEvent::Disconnect(addr, tx))
+                .send(IpfsEvent::Disconnect(target, tx))
                 .await?;
             rx.await?
         }
@@ -1058,6 +1054,7 @@ pub use node::Node;
 
 mod node {
     use super::*;
+    use std::convert::TryFrom;
 
     /// Node encapsulates everything to setup a testing instance so that multi-node tests become
     /// easier.
@@ -1072,6 +1069,11 @@ mod node {
             Node::with_options(opts)
                 .instrument(tracing::trace_span!("ipfs", node = name.as_ref()))
                 .await
+        }
+
+        pub async fn connect(&self, addr: Multiaddr) -> Result<(), Error> {
+            let addr = MultiaddrWithPeerId::try_from(addr).unwrap();
+            self.ipfs.connect(addr).await
         }
 
         pub async fn with_options(opts: IpfsOptions) -> Self {
