@@ -46,6 +46,13 @@ impl TryFrom<Multiaddr> for MultiaddrWithoutPeerId {
     }
 }
 
+impl From<MultiaddrWithPeerId> for MultiaddrWithoutPeerId {
+    fn from(addr: MultiaddrWithPeerId) -> Self {
+        let MultiaddrWithPeerId { multiaddr, .. } = addr;
+        MultiaddrWithoutPeerId(multiaddr.into())
+    }
+}
+
 impl From<MultiaddrWithoutPeerId> for Multiaddr {
     fn from(addr: MultiaddrWithoutPeerId) -> Self {
         let MultiaddrWithoutPeerId(multiaddr) = addr;

@@ -19,6 +19,7 @@ pub use libp2p::core::{
     connection::ListenerId, multiaddr::Protocol, ConnectedPoint, Multiaddr, PeerId, PublicKey,
 };
 pub use libp2p::identity::Keypair;
+use libp2p::swarm::NetworkBehaviour;
 use std::path::PathBuf;
 use tracing::Span;
 use tracing_futures::Instrument;
@@ -49,7 +50,7 @@ pub use self::error::Error;
 use self::ipns::Ipns;
 pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
-pub use self::p2p::{Connection, KadResult, MultiaddrWithPeerId};
+pub use self::p2p::{Connection, KadResult, MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
@@ -261,6 +262,7 @@ enum IpfsEvent {
     AddPeer(PeerId, Multiaddr),
     GetClosestPeers(PeerId, OneshotSender<SubscriptionFuture<KadResult, String>>),
     GetBitswapPeers(OneshotSender<Vec<PeerId>>),
+    FindPeer(PeerId, OneshotSender<Vec<Multiaddr>>),
     Exit,
 }
 
@@ -705,6 +707,23 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Obtain the addresses associated with the given `PeerId`; they are first searched for locally
+    /// and the DHT is used as a fallback.
+    pub async fn find_peer(&self, peer_id: PeerId) -> Result<Vec<Multiaddr>, Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::FindPeer(peer_id, tx))
+                .await?;
+
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
     /// Exit daemon.
     pub async fn exit_daemon(self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
@@ -991,6 +1010,15 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                             .cloned()
                             .collect();
                         let _ = ret.send(peers);
+                    }
+                    IpfsEvent::FindPeer(peer_id, ret) => {
+                        let known_addrs = self.swarm.swarm.addresses_of_peer(&peer_id);
+                        let addrs = if !known_addrs.is_empty() {
+                            known_addrs
+                        } else {
+                            self.swarm.kademlia().addresses_of_peer(&peer_id)
+                        };
+                        let _ = ret.send(addrs);
                     }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
