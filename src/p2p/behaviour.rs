@@ -78,8 +78,10 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
 
         match event {
             QueryResult { result, id, .. } => {
-                self.kad_subscriptions
-                    .finish_subscription(id.into(), Ok(KadResult::Complete));
+                if self.kademlia.query(&id).is_none() {
+                    self.kad_subscriptions
+                        .finish_subscription(id.into(), Ok(KadResult::Complete));
+                }
 
                 match result {
                     Bootstrap(Ok(BootstrapOk { .. })) => {
