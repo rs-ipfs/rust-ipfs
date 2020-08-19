@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::ipld::{decode_ipld, encode_ipld, Ipld};
-use crate::path::{IpfsPath, IpfsPathError, SubPath};
+use crate::path::{IpfsPath, IpfsPathError};
 use crate::repo::RepoTypes;
 use crate::Ipfs;
 use bitswap::Block;
@@ -51,7 +51,10 @@ impl<Types: RepoTypes> IpldDag<Types> {
     }
 }
 
-fn can_resolve(ipld: &Ipld, sub_path: &SubPath) -> bool {
+fn can_resolve(ipld: &Ipld, sub_path: &String) -> bool {
+    todo!("need to copy this over from ipfs-http or ... not do anything?")
+
+    /*
     match sub_path {
         SubPath::Key(key) => {
             if let Ipld::Map(ref map) = ipld {
@@ -69,10 +72,12 @@ fn can_resolve(ipld: &Ipld, sub_path: &SubPath) -> bool {
         }
     }
     false
+        */
 }
 
-fn resolve(ipld: Ipld, sub_path: &SubPath) -> Ipld {
-    match sub_path {
+fn resolve(ipld: Ipld, sub_path: &String) -> Ipld {
+    todo!("this would be 1:1 copyable")
+    /*match sub_path {
         SubPath::Key(key) => {
             if let Ipld::Map(mut map) = ipld {
                 return map.remove(key).unwrap();
@@ -87,7 +92,7 @@ fn resolve(ipld: Ipld, sub_path: &SubPath) -> Ipld {
     panic!(
         "Failed to resolved ipld: {:?} sub_path: {:?}",
         ipld, sub_path
-    );
+    );*/
 }
 
 #[cfg(test)]

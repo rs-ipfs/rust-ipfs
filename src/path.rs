@@ -10,7 +10,7 @@ use thiserror::Error;
 #[derive(Clone, Debug, PartialEq)]
 pub struct IpfsPath {
     root: PathRoot,
-    path: Vec<SubPath>,
+    path: Vec<String>,
 }
 
 impl FromStr for IpfsPath {
@@ -53,7 +53,7 @@ impl IpfsPath {
         self.root = root;
     }
 
-    pub fn push<T: Into<SubPath>>(&mut self, sub_path: T) {
+    pub fn push<T: Into<String>>(&mut self, sub_path: T) {
         self.path.push(sub_path.into());
     }
 
@@ -65,12 +65,7 @@ impl IpfsPath {
             if sub_path == "" {
                 return Err(IpfsPathError::InvalidPath(string.to_owned()).into());
             }
-            let index = sub_path.parse::<usize>();
-            if let Ok(index) = index {
-                self.push(index);
-            } else {
-                self.push(sub_path);
-            }
+            self.push(sub_path);
         }
         Ok(())
     }
@@ -86,7 +81,7 @@ impl IpfsPath {
         Ok(self)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &SubPath> {
+    pub fn iter(&self) -> impl Iterator<Item = &String> {
         self.path.iter()
     }
 }
@@ -227,69 +222,12 @@ impl TryInto<PeerId> for PathRoot {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum SubPath {
-    Key(String),
-    Index(usize),
-}
-
-impl From<String> for SubPath {
-    fn from(key: String) -> Self {
-        SubPath::Key(key)
-    }
-}
-
-impl From<&str> for SubPath {
-    fn from(key: &str) -> Self {
-        SubPath::from(key.to_string())
-    }
-}
-
-impl From<usize> for SubPath {
-    fn from(index: usize) -> Self {
-        SubPath::Index(index)
-    }
-}
-
-impl SubPath {
-    pub fn is_key(&self) -> bool {
-        matches!(*self, SubPath::Key(_))
-    }
-
-    pub fn to_key(&self) -> Option<&String> {
-        match self {
-            SubPath::Key(ref key) => Some(key),
-            _ => None,
-        }
-    }
-
-    pub fn is_index(&self) -> bool {
-        matches!(self, SubPath::Index(_))
-    }
-
-    pub fn to_index(&self) -> Option<usize> {
-        match self {
-            SubPath::Index(index) => Some(*index),
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Display for SubPath {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            SubPath::Key(ref key) => write!(fmt, "{}", key),
-            SubPath::Index(index) => write!(fmt, "{}", index),
-        }
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum IpfsPathError {
     #[error("Invalid path {0:?}")]
     InvalidPath(String),
     #[error("Can't resolve {path:?}")]
-    ResolveError { ipld: Ipld, path: SubPath },
+    ResolveError { ipld: Ipld, path: String },
     #[error("Expected ipld path but found ipns path.")]
     ExpectedIpldPath,
 }
