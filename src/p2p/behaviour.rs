@@ -11,7 +11,7 @@ use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent};
-use libp2p::mdns::{Mdns, MdnsEvent};
+use libp2p::mdns::{MdnsEvent, TokioMdns};
 use libp2p::ping::{Ping, PingEvent};
 use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
@@ -25,7 +25,7 @@ use tokio::task;
 pub struct Behaviour<Types: IpfsTypes> {
     #[behaviour(ignore)]
     ipfs: Ipfs<Types>,
-    mdns: Toggle<Mdns>,
+    mdns: Toggle<TokioMdns>,
     kademlia: Kademlia<MemoryStore>,
     #[behaviour(ignore)]
     kad_subscriptions: SubscriptionRegistry<(), String>,
@@ -340,7 +340,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         info!("net: starting with peer id {}", options.peer_id);
 
         let mdns = if options.mdns {
-            Some(Mdns::new().expect("Failed to create mDNS service"))
+            Some(TokioMdns::new().expect("Failed to create mDNS service"))
         } else {
             None
         }
