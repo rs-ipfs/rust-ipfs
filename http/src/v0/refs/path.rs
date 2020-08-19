@@ -120,16 +120,6 @@ impl IpfsPath {
         self.follow_dagpb_data
     }
 
-    /*
-    pub fn resolve(&mut self, ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
-        let key = match self.next() {
-            Some(key) => key,
-            None => return Ok(WalkSuccess::EmptyPath(ipld)),
-        };
-
-        Self::resolve_segment(key, ipld)
-    }*/
-
     pub fn resolve_segment(key: &str, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
         ipld = match ipld {
             Ipld::Link(cid) if key == "." => {
@@ -164,33 +154,6 @@ impl IpfsPath {
             Ok(WalkSuccess::AtDestination(ipld))
         }
     }
-
-    /*
-    /// Walks the path depicted by self until either the path runs out or a new link needs to be
-    /// traversed to continue the walk. With !dag-pb documents this can result in subtree of an
-    /// Ipld be represented.
-    ///
-    /// # Panics
-    ///
-    /// If the current Ipld is from a dag-pb and the libipld has changed it's dag-pb tree structure.
-    // FIXME: this needs to be removed and ... we should have some generic Ipld::walk
-    pub fn walk(&mut self, current: &Cid, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
-        if self.len() == 0 {
-            return Ok(WalkSuccess::EmptyPath(ipld));
-        }
-        if current.codec() == cid::Codec::DagProtobuf {
-            return Err(WalkFailed::UnsupportedWalkOnDagPbIpld);
-        }
-
-        loop {
-            ipld = match self.resolve(ipld)? {
-                WalkSuccess::AtDestination(ipld) => ipld,
-                WalkSuccess::EmptyPath(ipld) => return Ok(WalkSuccess::AtDestination(ipld)),
-                ret @ WalkSuccess::Link(_, _) => return Ok(ret),
-            };
-        }
-    }
-    */
 
     pub fn remaining_path(&self) -> &[String] {
         self.path.as_slice()
