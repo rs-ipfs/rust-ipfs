@@ -72,6 +72,9 @@ async fn refs_inner<T: IpfsTypes>(
     // FIXME: there should be a total timeout arching over path walking to the stream completion.
     // hyper can't do trailer errors on chunked bodies so ... we can't do much.
 
+    // FIXME: the test case 'should print nothing for non-existent hashes' is problematic as it
+    // expects the headers to be blocked before the timeout expires.
+
     let st = st.map(move |res| {
         let res = match res {
             Ok((source, dest, link_name)) => {
