@@ -18,21 +18,32 @@ impl FromStr for IpfsPath {
 
     fn from_str(string: &str) -> Result<Self, Error> {
         let mut subpath = string.split('/');
-        let empty = subpath.next();
-        let root_type = subpath.next();
-        let key = subpath.next();
+        let empty = subpath.next().expect("there's always the first split");
 
-        let root = match (empty, root_type, key) {
-            (Some(""), Some("ipfs"), Some(key)) => PathRoot::Ipld(Cid::try_from(key)?),
-            (Some(""), Some("ipld"), Some(key)) => PathRoot::Ipld(Cid::try_from(key)?),
-            (Some(""), Some("ipns"), Some(key)) => match PeerId::from_str(key).ok() {
-                Some(peer_id) => PathRoot::Ipns(peer_id),
-                None => PathRoot::Dns(key.to_string()),
-            },
-            _ => return Err(IpfsPathError::InvalidPath(string.to_owned()).into()),
+        let root = if !empty.is_empty() {
+            // by default if there is no prefix it's an ipfs or ipld path
+            PathRoot::Ipld(Cid::try_from(empty)?)
+        } else {
+            let root_type = subpath.next();
+            let key = subpath.next();
+
+            match (empty, root_type, key) {
+                ("", Some("ipfs"), Some(key)) => PathRoot::Ipld(Cid::try_from(key)?),
+                ("", Some("ipld"), Some(key)) => PathRoot::Ipld(Cid::try_from(key)?),
+                ("", Some("ipns"), Some(key)) => match PeerId::from_str(key).ok() {
+                    Some(peer_id) => PathRoot::Ipns(peer_id),
+                    None => PathRoot::Dns(key.to_string()),
+                },
+                _ => {
+                    //todo!("empty: {:?}, root: {:?}, key: {:?}", empty, root_type, key);
+                    return Err(IpfsPathError::InvalidPath(string.to_owned()).into());
+                }
+            }
         };
+
         let mut path = IpfsPath::new(root);
-        path.push_str(&subpath.collect::<Vec<&str>>().join("/"))?;
+        path.push_split(subpath)
+            .map_err(|_| IpfsPathError::InvalidPath(string.to_owned()))?;
         Ok(path)
     }
 }
@@ -53,6 +64,8 @@ impl IpfsPath {
         self.root = root;
     }
 
+    // FIXME: would be great to get rid of this
+    #[doc(hidden)]
     pub fn push<T: Into<String>>(&mut self, sub_path: T) {
         self.path.push(sub_path.into());
     }
@@ -61,9 +74,22 @@ impl IpfsPath {
         if string.is_empty() {
             return Ok(());
         }
-        for sub_path in string.split('/') {
+
+        self.push_split(string.split('/'))
+            .map_err(|_| IpfsPathError::InvalidPath(string.to_owned()).into())
+    }
+
+    fn push_split<'a>(&mut self, split: impl Iterator<Item = &'a str>) -> Result<(), ()> {
+        let mut split = split.peekable();
+        while let Some(sub_path) = split.next() {
             if sub_path == "" {
-                return Err(IpfsPathError::InvalidPath(string.to_owned()).into());
+                return if split.peek().is_none() {
+                    // trim trailing
+                    Ok(())
+                } else {
+                    // no empty segments in the middle
+                    Err(())
+                };
             }
             self.push(sub_path);
         }
@@ -136,11 +162,23 @@ impl TryInto<PeerId> for IpfsPath {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum PathRoot {
     Ipld(Cid),
     Ipns(PeerId),
     Dns(String),
+}
+
+impl fmt::Debug for PathRoot {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use PathRoot::*;
+
+        match self {
+            Ipld(cid) => write!(fmt, "{}", cid),
+            Ipns(pid) => write!(fmt, "{}", pid),
+            Dns(name) => write!(fmt, "{:?}", name),
+        }
+    }
 }
 
 impl PathRoot {
@@ -238,6 +276,8 @@ pub enum IpfsPathError {
 
 #[cfg(test)]
 mod tests {
+    use super::IpfsPath;
+    use std::convert::TryFrom;
     /*use super::*;
     use bitswap::Block;
 
@@ -289,4 +329,75 @@ mod tests {
         let res = "/ipfs/QmRN6wdp1S2A5EtjW9A3M1vKSBuQQGcgvuhoMUoEz4iiT5/key/3";
         assert_eq!(path.to_string(), res);
     }*/
+
+    #[test]
+    fn good_paths() {
+        let good = [
+            ("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n", 0),
+            ("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a", 1),
+            (
+                "/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a/b/c/d/e/f",
+                6,
+            ),
+            (
+                "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a/b/c/d/e/f",
+                6,
+            ),
+            ("QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n", 0),
+            ("/ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n", 0),
+            ("/ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a", 1),
+            (
+                "/ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a/b/c/d/e/f",
+                6,
+            ),
+            ("/ipns/QmSrPmbaUKA3ZodhzPWZnpFgcPMFWF4QsxXbkWfEptTBJd", 0),
+            (
+                "/ipns/QmSrPmbaUKA3ZodhzPWZnpFgcPMFWF4QsxXbkWfEptTBJd/a/b/c/d/e/f",
+                6,
+            ),
+        ];
+
+        for &(good, len) in &good {
+            let p = IpfsPath::try_from(good).unwrap();
+            assert_eq!(p.path().len(), len);
+        }
+    }
+
+    #[test]
+    fn bad_paths() {
+        let bad = [
+            "/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+            "/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a",
+            "/ipfs/foo",
+            "/ipfs/",
+            "ipfs/",
+            "ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+            "/ipld/foo",
+            "/ipld/",
+            "ipld/",
+            "ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+        ];
+
+        for &bad in &bad {
+            IpfsPath::try_from(bad).unwrap_err();
+        }
+    }
+
+    #[test]
+    fn trailing_slash_is_ignored() {
+        let paths = [
+            "/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/",
+            "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/",
+        ];
+        for &path in &paths {
+            let p = IpfsPath::try_from(path).unwrap();
+            assert_eq!(p.path().len(), 0, "{:?} from {:?}", p, path);
+        }
+    }
+
+    #[test]
+    fn multiple_slashes_are_not_deduplicated() {
+        // this used to be the behaviour in ipfs-http
+        IpfsPath::try_from("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n///a").unwrap_err();
+    }
 }
