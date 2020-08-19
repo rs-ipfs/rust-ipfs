@@ -64,12 +64,6 @@ impl IpfsPath {
         self.root = root;
     }
 
-    // FIXME: would be great to get rid of this
-    #[doc(hidden)]
-    pub fn push<T: Into<String>>(&mut self, sub_path: T) {
-        self.path.push(sub_path.into());
-    }
-
     pub fn push_str(&mut self, string: &str) -> Result<(), Error> {
         if string.is_empty() {
             return Ok(());
@@ -91,7 +85,7 @@ impl IpfsPath {
                     Err(())
                 };
             }
-            self.push(sub_path);
+            self.path.push(sub_path.to_owned());
         }
         Ok(())
     }
