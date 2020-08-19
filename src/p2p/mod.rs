@@ -12,7 +12,7 @@ mod swarm;
 mod transport;
 
 pub use addr::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
-pub use swarm::Connection;
+pub use {behaviour::KadResult, swarm::Connection};
 
 pub type TSwarm<T> = Swarm<behaviour::Behaviour<T>>;
 

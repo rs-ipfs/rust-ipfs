@@ -1,5 +1,6 @@
 //! IPFS repo
 use crate::error::Error;
+use crate::p2p::KadResult;
 use crate::path::IpfsPath;
 use crate::subscription::{RequestKind, SubscriptionFuture, SubscriptionRegistry};
 use crate::IpfsOptions;
@@ -130,7 +131,7 @@ pub enum RepoEvent {
     UnwantBlock(Cid),
     ProvideBlock(
         Cid,
-        oneshot::Sender<Result<SubscriptionFuture<(), String>, anyhow::Error>>,
+        oneshot::Sender<Result<SubscriptionFuture<KadResult, String>, anyhow::Error>>,
     ),
     UnprovideBlock(Cid),
 }

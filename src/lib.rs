@@ -49,7 +49,7 @@ pub use self::error::Error;
 use self::ipns::Ipns;
 pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
-pub use self::p2p::{Connection, MultiaddrWithPeerId};
+pub use self::p2p::{Connection, KadResult, MultiaddrWithPeerId};
 pub use self::path::IpfsPath;
 pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
@@ -257,9 +257,9 @@ enum IpfsEvent {
     BitswapStats(OneshotSender<BitswapStats>),
     AddListeningAddress(Multiaddr, Channel<Multiaddr>),
     RemoveListeningAddress(Multiaddr, Channel<()>),
-    Bootstrap(OneshotSender<Result<SubscriptionFuture<(), String>, Error>>),
+    Bootstrap(OneshotSender<Result<SubscriptionFuture<KadResult, String>, Error>>),
     AddPeer(PeerId, Multiaddr),
-    GetClosestPeers(PeerId, OneshotSender<SubscriptionFuture<(), String>>),
+    GetClosestPeers(PeerId, OneshotSender<SubscriptionFuture<KadResult, String>>),
     GetBitswapPeers(OneshotSender<Vec<PeerId>>),
     Exit,
 }
@@ -1098,7 +1098,7 @@ mod node {
             &self.ipfs.repo.subscriptions.subscriptions
         }
 
-        pub async fn get_closest_peers(&self) -> Result<(), Error> {
+        pub async fn get_closest_peers(&self) -> Result<KadResult, Error> {
             let self_peer = PeerId::from_public_key(self.identity().await?.0);
             let (tx, rx) = oneshot_channel();
 
@@ -1111,7 +1111,7 @@ mod node {
         }
 
         /// Initiate a query for random key to discover peers.
-        pub async fn bootstrap(&self) -> Result<(), Error> {
+        pub async fn bootstrap(&self) -> Result<KadResult, Error> {
             let (tx, rx) = oneshot_channel();
 
             self.to_task.clone().send(IpfsEvent::Bootstrap(tx)).await?;
