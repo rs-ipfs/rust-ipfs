@@ -19,7 +19,9 @@ mod format;
 use format::EdgeFormatter;
 
 pub(crate) mod path;
-pub use path::{IpfsPath, WalkSuccess};
+pub use ipfs::path::IpfsPath;
+use path::resolve_segment;
+pub use path::WalkSuccess;
 
 use crate::v0::support::{HandledErr, StreamResponse};
 
@@ -253,11 +255,15 @@ pub struct WalkOptions {
 pub async fn walk_path<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
     opts: &WalkOptions,
-    mut path: IpfsPath,
+    path: IpfsPath,
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
     use ipfs::unixfs::ll::{MaybeResolved, ResolveError};
 
-    let mut current = path.take_root().unwrap();
+    let mut current = path
+        .root()
+        .cid()
+        .expect("unsupported: need to add an error variant for this! or design around it")
+        .to_owned();
 
     let mut iter = path.path().iter();
 
@@ -360,7 +366,7 @@ pub async fn walk_path<T: IpfsTypes>(
                 // this needs to be stored at least temporarily to recover the path_inside_last or
                 // the "remaining path"
                 let tmp = needle.clone();
-                ipld = match IpfsPath::resolve_segment(&needle, ipld) {
+                ipld = match resolve_segment(&needle, ipld) {
                     Ok(WalkSuccess::AtDestination(ipld)) => {
                         path_inside_last.push(tmp);
                         ipld

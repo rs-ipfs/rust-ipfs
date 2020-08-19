@@ -102,41 +102,6 @@ impl IpfsPath {
         &self.path
     }
 
-    pub fn resolve_segment(key: &str, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
-        ipld = match ipld {
-            Ipld::Link(cid) if key == "." => {
-                // go-ipfs: allows this to be skipped. let's require the dot for now.
-                // FIXME: this would require the iterator to be peekable in addition.
-                return Ok(WalkSuccess::Link(key.to_owned(), cid));
-            }
-            Ipld::Map(mut m) => {
-                if let Some(ipld) = m.remove(key) {
-                    ipld
-                } else {
-                    return Err(WalkFailed::UnmatchedMapProperty(m, key.to_owned()));
-                }
-            }
-            Ipld::List(mut l) => {
-                if let Ok(index) = key.parse::<usize>() {
-                    if index < l.len() {
-                        l.swap_remove(index)
-                    } else {
-                        return Err(WalkFailed::ListIndexOutOfRange(l, index));
-                    }
-                } else {
-                    return Err(WalkFailed::UnparseableListIndex(l, key.to_owned()));
-                }
-            }
-            x => return Err(WalkFailed::UnmatchableSegment(x, key.to_owned())),
-        };
-
-        if let Ipld::Link(next_cid) = ipld {
-            Ok(WalkSuccess::Link(key.to_owned(), next_cid))
-        } else {
-            Ok(WalkSuccess::AtDestination(ipld))
-        }
-    }
-
     // Currently unused by commited code, but might become handy or easily removed later on.
     #[allow(dead_code)]
     pub fn debug<'a>(&'a self, current: &'a Cid) -> impl fmt::Debug + 'a {
@@ -163,6 +128,41 @@ impl IpfsPath {
             current,
             segments: self.path.as_slice(),
         }
+    }
+}
+
+pub fn resolve_segment(key: &str, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
+    ipld = match ipld {
+        Ipld::Link(cid) if key == "." => {
+            // go-ipfs: allows this to be skipped. let's require the dot for now.
+            // FIXME: this would require the iterator to be peekable in addition.
+            return Ok(WalkSuccess::Link(key.to_owned(), cid));
+        }
+        Ipld::Map(mut m) => {
+            if let Some(ipld) = m.remove(key) {
+                ipld
+            } else {
+                return Err(WalkFailed::UnmatchedMapProperty(m, key.to_owned()));
+            }
+        }
+        Ipld::List(mut l) => {
+            if let Ok(index) = key.parse::<usize>() {
+                if index < l.len() {
+                    l.swap_remove(index)
+                } else {
+                    return Err(WalkFailed::ListIndexOutOfRange(l, index));
+                }
+            } else {
+                return Err(WalkFailed::UnparseableListIndex(l, key.to_owned()));
+            }
+        }
+        x => return Err(WalkFailed::UnmatchableSegment(x, key.to_owned())),
+    };
+
+    if let Ipld::Link(next_cid) = ipld {
+        Ok(WalkSuccess::Link(key.to_owned(), next_cid))
+    } else {
+        Ok(WalkSuccess::AtDestination(ipld))
     }
 }
 
@@ -228,7 +228,7 @@ impl std::error::Error for WalkFailed {}
 #[cfg(test)]
 mod tests {
     use super::WalkFailed;
-    use super::{IpfsPath, WalkSuccess};
+    use super::{resolve_segment, IpfsPath, WalkSuccess};
     use cid::Cid;
     use ipfs::{ipld::Ipld, make_ipld};
     use std::convert::TryFrom;
@@ -461,7 +461,7 @@ mod tests {
             } else {
                 return Ok((WalkSuccess::AtDestination(doc), iter));
             };
-            doc = match IpfsPath::resolve_segment(needle, doc)? {
+            doc = match resolve_segment(needle, doc)? {
                 WalkSuccess::AtDestination(ipld) => ipld,
                 ret @ WalkSuccess::Link(_, _) => return Ok((ret, iter)),
             };
