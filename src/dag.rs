@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::ipld::{decode_ipld, encode_ipld, Ipld};
-use crate::path::{IpfsPath, IpfsPathError};
+use crate::path::IpfsPath;
 use crate::repo::RepoTypes;
 use crate::Ipfs;
 use bitswap::Block;
