@@ -343,7 +343,6 @@ pub async fn walk_path<T: IpfsTypes>(
                 // the "remaining path"
                 let tmp = needle.clone();
                 ipld = match IpfsPath::resolve_segment(&needle, ipld) {
-                    Ok(WalkSuccess::EmptyPath(_)) => unreachable!(),
                     Ok(WalkSuccess::AtDestination(ipld)) => {
                         path_inside_last.push(tmp);
                         ipld

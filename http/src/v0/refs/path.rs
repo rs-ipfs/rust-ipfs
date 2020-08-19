@@ -187,9 +187,6 @@ impl IpfsPath {
 /// The success values walking an `IpfsPath` can result to.
 #[derive(Debug, PartialEq)]
 pub enum WalkSuccess {
-    /// IpfsPath was already empty, or became empty during previous walk
-    // FIXME: remove this when migrating away from IpfsPath::walk
-    EmptyPath(Ipld),
     /// IpfsPath arrived at destination, following walk attempts will return EmptyPath
     AtDestination(Ipld),
     /// Path segment lead to a link which needs to be loaded to continue the walk
@@ -467,7 +464,7 @@ mod tests {
         WalkFailed,
     > {
         if path.path().is_empty() {
-            return Ok((WalkSuccess::EmptyPath(doc), path.path().iter()));
+            unreachable!("empty path");
         }
 
         if current.codec() == cid::Codec::DagProtobuf {
@@ -484,9 +481,6 @@ mod tests {
             };
             doc = match IpfsPath::resolve_segment(needle, doc)? {
                 WalkSuccess::AtDestination(ipld) => ipld,
-                WalkSuccess::EmptyPath(ipld) => {
-                    return Ok((WalkSuccess::AtDestination(ipld), iter))
-                }
                 ret @ WalkSuccess::Link(_, _) => return Ok((ret, iter)),
             };
         }
