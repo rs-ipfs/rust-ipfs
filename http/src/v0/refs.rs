@@ -138,6 +138,7 @@ async fn refs_paths<T: IpfsTypes>(
         follow_dagpb_data: true,
     };
 
+    // added braces to spell it out for borrowck that opts does not outlive this fn
     let iplds = {
         // the assumption is that futuresordered will poll the first N items until the first completes,
         // buffering the others. it might not be 100% parallel but it's probably enough.
