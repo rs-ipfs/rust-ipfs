@@ -84,6 +84,10 @@ impl IpfsPath {
     pub fn iter(&self) -> impl Iterator<Item = &String> {
         self.path.iter()
     }
+
+    pub fn path(&self) -> &[String] {
+        &self.path
+    }
 }
 
 impl fmt::Display for IpfsPath {
