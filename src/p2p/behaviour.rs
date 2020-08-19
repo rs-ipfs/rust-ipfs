@@ -28,12 +28,18 @@ pub struct Behaviour<Types: IpfsTypes> {
     mdns: Toggle<TokioMdns>,
     kademlia: Kademlia<MemoryStore>,
     #[behaviour(ignore)]
-    kad_subscriptions: SubscriptionRegistry<(), String>,
+    kad_subscriptions: SubscriptionRegistry<KadResult, String>,
     bitswap: Bitswap,
     ping: Ping,
     identify: Identify,
     pubsub: Pubsub,
     swarm: SwarmApi,
+}
+
+/// Represents the result of a Kademlia query.
+#[derive(Debug, Clone, PartialEq)]
+pub enum KadResult {
+    Complete,
 }
 
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<()> for Behaviour<Types> {
@@ -72,12 +78,20 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
 
         match event {
             QueryResult { result, id, .. } => {
-                self.kad_subscriptions
-                    .finish_subscription(id.into(), Ok(()));
+                if self.kademlia.query(&id).is_none() {
+                    self.kad_subscriptions
+                        .finish_subscription(id.into(), Ok(KadResult::Complete));
+                }
 
                 match result {
-                    Bootstrap(Ok(BootstrapOk { .. })) => {
-                        debug!("kad: finished bootstrapping");
+                    Bootstrap(Ok(BootstrapOk {
+                        peer,
+                        num_remaining,
+                    })) => {
+                        debug!(
+                            "kad: bootstrapped with {}, {} peers remain",
+                            peer, num_remaining
+                        );
                     }
                     Bootstrap(Err(BootstrapError::Timeout { .. })) => {
                         warn!("kad: failed to bootstrap");
@@ -433,7 +447,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     pub fn provide_block(
         &mut self,
         cid: Cid,
-    ) -> Result<SubscriptionFuture<(), String>, anyhow::Error> {
+    ) -> Result<SubscriptionFuture<KadResult, String>, anyhow::Error> {
         // currently disabled; see https://github.com/rs-ipfs/rust-ipfs/pull/281#discussion_r465583345
         // for details regarding the concerns about enabling this functionality as-is
         if false {
@@ -464,7 +478,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         &mut self.bitswap
     }
 
-    pub fn bootstrap(&mut self) -> Result<SubscriptionFuture<(), String>, anyhow::Error> {
+    pub fn bootstrap(&mut self) -> Result<SubscriptionFuture<KadResult, String>, anyhow::Error> {
         match self.kademlia.bootstrap() {
             Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
             Err(e) => {
@@ -474,7 +488,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         }
     }
 
-    pub fn get_closest_peers(&mut self, id: PeerId) -> SubscriptionFuture<(), String> {
+    pub fn get_closest_peers(&mut self, id: PeerId) -> SubscriptionFuture<KadResult, String> {
         let id = id.to_base58();
 
         self.kad_subscriptions

@@ -1,6 +1,6 @@
 use cid::Cid;
 use ipfs::{IpfsOptions, Node};
-use libp2p::{Multiaddr, PeerId};
+use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -15,10 +15,15 @@ async fn kademlia_local_peer_discovery() {
     }
 
     // register the bootstrappers' ids and addresses
-    let mut bootstrapper_ids = Vec::with_capacity(BOOTSTRAPPER_COUNT);
+    let mut bootstrapper_ids: Vec<(PeerId, Vec<Multiaddr>)> =
+        Vec::with_capacity(BOOTSTRAPPER_COUNT);
     for bootstrapper in &bootstrappers {
-        let (id, addrs) = bootstrapper.identity().await.unwrap();
+        let (id, mut addrs) = bootstrapper.identity().await.unwrap();
         let id = PeerId::from_public_key(id);
+        // remove Protocol::P2p from the addrs
+        for addr in &mut addrs {
+            assert!(matches!(addr.pop(), Some(Protocol::P2p(_))));
+        }
 
         bootstrapper_ids.push((id, addrs));
     }

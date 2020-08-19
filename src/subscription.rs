@@ -144,16 +144,12 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
 
             // ensure that the subscriptions are being handled correctly: normally
             // finish_subscriptions should result in some related futures being awoken
-            // FIXME: it appears that Kademlia sometimes reports a duplicate QueryResult
-            // and breaks this check; therefore exclude KadQuery, at least for now
-            if !matches!(req_kind, RequestKind::KadQuery(_)) {
-                debug_assert!(
-                    awoken != 0,
-                    "no subscriptions to be awoken! subs: {:?}; req_kind: {:?}",
-                    subscriptions,
-                    req_kind
-                );
-            }
+            debug_assert!(
+                awoken != 0,
+                "no subscriptions to be awoken! subs: {:?}; req_kind: {:?}",
+                subscriptions,
+                req_kind
+            );
 
             trace!("Woke {} related subscription(s)", awoken);
         }
@@ -165,7 +161,7 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
             return;
         }
 
-        debug!("Shutting down {:?}", self);
+        trace!("Shutting down {:?}", self);
 
         let mut cancelled = 0;
         let mut subscriptions = mem::take(&mut *self.subscriptions.lock().unwrap());
@@ -177,7 +173,7 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
             }
         }
 
-        debug!("Cancelled {} subscriptions", cancelled);
+        trace!("Cancelled {} subscriptions", cancelled);
     }
 }
 
