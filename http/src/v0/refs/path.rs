@@ -34,9 +34,6 @@ pub struct IpfsPath {
     /// Option to support moving the cid
     root: Option<Cid>,
     path: Vec<String>,
-    /// True by default, to allow "finding" `Data` under dag-pb node
-    /// TODO: document why this matters
-    follow_dagpb_data: bool,
 }
 
 impl From<Cid> for IpfsPath {
@@ -46,7 +43,6 @@ impl From<Cid> for IpfsPath {
         IpfsPath {
             root: Some(root),
             path: Vec::new(),
-            follow_dagpb_data: true,
         }
     }
 }
@@ -93,13 +89,7 @@ impl TryFrom<&str> for IpfsPath {
 
         let root = Some(Cid::try_from(root).map_err(PathError::InvalidCid)?);
 
-        let follow_dagpb_data = true;
-
-        Ok(IpfsPath {
-            root,
-            path,
-            follow_dagpb_data,
-        })
+        Ok(IpfsPath { root, path })
     }
 }
 
@@ -110,14 +100,6 @@ impl IpfsPath {
 
     pub fn path(&self) -> &[String] {
         &self.path
-    }
-
-    pub fn set_follow_dagpb_data(&mut self, follow: bool) {
-        self.follow_dagpb_data = follow;
-    }
-
-    pub fn follow_dagpb_data(&self) -> bool {
-        self.follow_dagpb_data
     }
 
     pub fn resolve_segment(key: &str, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {

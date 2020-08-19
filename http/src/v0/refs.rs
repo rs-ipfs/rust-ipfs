@@ -47,17 +47,11 @@ async fn refs_inner<T: IpfsTypes>(
         formatter
     );
 
-    let mut paths = opts
+    let paths = opts
         .arg
         .iter()
         .map(|s| IpfsPath::try_from(s.as_str()).map_err(StringError::from))
         .collect::<Result<Vec<_>, _>>()?;
-
-    for path in paths.iter_mut() {
-        // this is needed because the paths should not error on matching on the final Data segment,
-        // it just becomes projected as `Loaded::Raw(_)`, however such items can have no links.
-        path.set_follow_dagpb_data(true);
-    }
 
     let st = refs_paths(ipfs, paths, max_depth, opts.unique)
         .maybe_timeout(opts.timeout)
@@ -138,19 +132,25 @@ async fn refs_paths<T: IpfsTypes>(
     use futures::stream::FuturesOrdered;
     use futures::stream::TryStreamExt;
 
-    // the assumption is that futuresordered will poll the first N items until the first completes,
-    // buffering the others. it might not be 100% parallel but it's probably enough.
-    let mut walks = FuturesOrdered::new();
+    let opts = WalkOptions {
+        follow_dagpb_data: true,
+    };
 
-    for path in paths {
-        walks.push(walk_path(&ipfs, path));
-    }
+    let iplds = {
+        // the assumption is that futuresordered will poll the first N items until the first completes,
+        // buffering the others. it might not be 100% parallel but it's probably enough.
+        let mut walks = FuturesOrdered::new();
 
-    // strip out the path inside last document, we don't need it
-    let iplds = walks
-        .map_ok(|(cid, maybe_ipld, _)| (cid, maybe_ipld))
-        .try_collect()
-        .await?;
+        for path in paths {
+            walks.push(walk_path(&ipfs, &opts, path));
+        }
+
+        // strip out the path inside last document, we don't need it
+        walks
+            .map_ok(|(cid, maybe_ipld, _)| (cid, maybe_ipld))
+            .try_collect()
+            .await?
+    };
 
     Ok(iplds_refs(ipfs, iplds, max_depth, unique))
 }
@@ -241,12 +241,18 @@ pub enum Loaded {
     Ipld(Ipld),
 }
 
+#[derive(Default, Debug)]
+pub struct WalkOptions {
+    pub follow_dagpb_data: bool,
+}
+
 /// Walks the `path` while loading the links.
 ///
 /// Returns the Cid where we ended up, and an optional Ipld structure if one was projected, and the
 /// path inside the last document we walked.
 pub async fn walk_path<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
+    opts: &WalkOptions,
     mut path: IpfsPath,
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
     use ipfs::unixfs::ll::{MaybeResolved, ResolveError};
@@ -288,7 +294,13 @@ pub async fn walk_path<T: IpfsTypes>(
                     continue;
                 }
                 Ok(MaybeResolved::NotFound) => {
-                    return handle_dagpb_not_found(current, &data, needle.to_owned(), &path)
+                    return handle_dagpb_not_found(
+                        current,
+                        &data,
+                        needle.to_owned(),
+                        iter.next().is_none(),
+                        opts,
+                    )
                 }
                 Err(ResolveError::UnexpectedType(_)) => {
                     // the conformance tests use a path which would end up going through a file
@@ -320,7 +332,13 @@ pub async fn walk_path<T: IpfsTypes>(
                         break;
                     }
                     Ok(MaybeResolved::NotFound) => {
-                        return handle_dagpb_not_found(next, &data, needle.to_owned(), &path)
+                        return handle_dagpb_not_found(
+                            next,
+                            &data,
+                            needle.to_owned(),
+                            iter.next().is_none(),
+                            opts,
+                        )
                     }
                     Err(e) => {
                         return Err(WalkError::from((
@@ -375,11 +393,12 @@ fn handle_dagpb_not_found(
     at: Cid,
     data: &[u8],
     needle: String,
-    path: &IpfsPath,
+    last_segment: bool,
+    opts: &WalkOptions,
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
     use ipfs::unixfs::ll::dagpb::node_data;
 
-    if needle == "Data" && path.path().len() == 0 && path.follow_dagpb_data() {
+    if needle == "Data" && last_segment && opts.follow_dagpb_data {
         // /dag/resolve needs to "resolve through" a dag-pb node down to the "just data" even
         // though we do not need to extract it ... however this might be good to just filter with
         // refs, as no refs of such path can exist as the links are in the outer structure.
@@ -396,7 +415,7 @@ fn handle_dagpb_not_found(
             .unwrap_or_default();
         Ok((at, Loaded::Ipld(Ipld::Bytes(data.to_vec())), vec![needle]))
     } else {
-        let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle.to_owned()));
+        let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
         Err(WalkError::from((e, at)))
     }
 }
