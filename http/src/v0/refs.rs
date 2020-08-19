@@ -253,6 +253,8 @@ pub async fn walk_path<T: IpfsTypes>(
 
     let mut current = path.take_root().unwrap();
 
+    let mut iter = path.path().iter();
+
     // cache for any datastructure used in repeated hamt lookups
     let mut cache = None;
 
@@ -272,7 +274,7 @@ pub async fn walk_path<T: IpfsTypes>(
 
         // needs to be mutable because the Ipld walk will overwrite it to project down in the
         // document
-        let mut needle = if let Some(needle) = path.next() {
+        let mut needle = if let Some(needle) = iter.next() {
             needle
         } else {
             return Ok((current, Loaded::Raw(data), Vec::new()));
@@ -286,13 +288,14 @@ pub async fn walk_path<T: IpfsTypes>(
                     continue;
                 }
                 Ok(MaybeResolved::NotFound) => {
-                    return handle_dagpb_not_found(current, &data, needle, &path)
+                    return handle_dagpb_not_found(current, &data, needle.to_owned(), &path)
                 }
                 Err(ResolveError::UnexpectedType(_)) => {
                     // the conformance tests use a path which would end up going through a file
                     // and the returned error string is tested against listed alternatives.
                     // unexpected type is not one of them.
-                    let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
+                    let e =
+                        WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle.to_owned()));
                     return Err(WalkError::from((e, current)));
                 }
                 Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
@@ -317,7 +320,7 @@ pub async fn walk_path<T: IpfsTypes>(
                         break;
                     }
                     Ok(MaybeResolved::NotFound) => {
-                        return handle_dagpb_not_found(next, &data, needle, &path)
+                        return handle_dagpb_not_found(next, &data, needle.to_owned(), &path)
                     }
                     Err(e) => {
                         return Err(WalkError::from((
@@ -339,7 +342,7 @@ pub async fn walk_path<T: IpfsTypes>(
                 // this needs to be stored at least temporarily to recover the path_inside_last or
                 // the "remaining path"
                 let tmp = needle.clone();
-                ipld = match IpfsPath::resolve_segment(needle, ipld) {
+                ipld = match IpfsPath::resolve_segment(&needle, ipld) {
                     Ok(WalkSuccess::EmptyPath(_)) => unreachable!(),
                     Ok(WalkSuccess::AtDestination(ipld)) => {
                         path_inside_last.push(tmp);
@@ -353,13 +356,13 @@ pub async fn walk_path<T: IpfsTypes>(
                 };
 
                 // we might resolve multiple segments inside a single document
-                needle = match path.next() {
+                needle = match iter.next() {
                     Some(needle) => needle,
                     None => break,
                 };
             }
 
-            if path.len() == 0 {
+            if iter.len() == 0 {
                 // when done with the remaining IpfsPath we should be set with the projected Ipld
                 // document
                 path_inside_last.shrink_to_fit();
@@ -377,7 +380,7 @@ fn handle_dagpb_not_found(
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
     use ipfs::unixfs::ll::dagpb::node_data;
 
-    if needle == "Data" && path.len() == 0 && path.follow_dagpb_data() {
+    if needle == "Data" && path.path().len() == 0 && path.follow_dagpb_data() {
         // /dag/resolve needs to "resolve through" a dag-pb node down to the "just data" even
         // though we do not need to extract it ... however this might be good to just filter with
         // refs, as no refs of such path can exist as the links are in the outer structure.
@@ -394,7 +397,7 @@ fn handle_dagpb_not_found(
             .unwrap_or_default();
         Ok((at, Loaded::Ipld(Ipld::Bytes(data.to_vec())), vec![needle]))
     } else {
-        let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
+        let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle.to_owned()));
         Err(WalkError::from((e, at)))
     }
 }

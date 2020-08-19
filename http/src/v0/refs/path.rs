@@ -33,7 +33,7 @@ impl std::error::Error for PathError {}
 pub struct IpfsPath {
     /// Option to support moving the cid
     root: Option<Cid>,
-    path: std::vec::IntoIter<String>,
+    path: Vec<String>,
     /// True by default, to allow "finding" `Data` under dag-pb node
     /// TODO: document why this matters
     follow_dagpb_data: bool,
@@ -45,7 +45,7 @@ impl From<Cid> for IpfsPath {
     fn from(root: Cid) -> IpfsPath {
         IpfsPath {
             root: Some(root),
-            path: Vec::new().into_iter(),
+            path: Vec::new(),
             follow_dagpb_data: true,
         }
     }
@@ -89,8 +89,7 @@ impl TryFrom<&str> for IpfsPath {
             .next()
             .iter()
             .flat_map(|s| s.split('/').filter(|s| !s.is_empty()).map(String::from))
-            .collect::<Vec<_>>()
-            .into_iter();
+            .collect::<Vec<_>>();
 
         let root = Some(Cid::try_from(root).map_err(PathError::InvalidCid)?);
 
@@ -109,6 +108,10 @@ impl IpfsPath {
         self.root.take()
     }
 
+    pub fn path(&self) -> &[String] {
+        &self.path
+    }
+
     pub fn set_follow_dagpb_data(&mut self, follow: bool) {
         self.follow_dagpb_data = follow;
     }
@@ -117,6 +120,7 @@ impl IpfsPath {
         self.follow_dagpb_data
     }
 
+    /*
     pub fn resolve(&mut self, ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
         let key = match self.next() {
             Some(key) => key,
@@ -124,20 +128,20 @@ impl IpfsPath {
         };
 
         Self::resolve_segment(key, ipld)
-    }
+    }*/
 
-    pub fn resolve_segment(key: String, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
+    pub fn resolve_segment(key: &str, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
         ipld = match ipld {
             Ipld::Link(cid) if key == "." => {
                 // go-ipfs: allows this to be skipped. let's require the dot for now.
                 // FIXME: this would require the iterator to be peekable in addition.
-                return Ok(WalkSuccess::Link(key, cid));
+                return Ok(WalkSuccess::Link(key.to_owned(), cid));
             }
             Ipld::Map(mut m) => {
-                if let Some(ipld) = m.remove(&key) {
+                if let Some(ipld) = m.remove(key) {
                     ipld
                 } else {
-                    return Err(WalkFailed::UnmatchedMapProperty(m, key));
+                    return Err(WalkFailed::UnmatchedMapProperty(m, key.to_owned()));
                 }
             }
             Ipld::List(mut l) => {
@@ -148,19 +152,20 @@ impl IpfsPath {
                         return Err(WalkFailed::ListIndexOutOfRange(l, index));
                     }
                 } else {
-                    return Err(WalkFailed::UnparseableListIndex(l, key));
+                    return Err(WalkFailed::UnparseableListIndex(l, key.to_owned()));
                 }
             }
-            x => return Err(WalkFailed::UnmatchableSegment(x, key)),
+            x => return Err(WalkFailed::UnmatchableSegment(x, key.to_owned())),
         };
 
         if let Ipld::Link(next_cid) = ipld {
-            Ok(WalkSuccess::Link(key, next_cid))
+            Ok(WalkSuccess::Link(key.to_owned(), next_cid))
         } else {
             Ok(WalkSuccess::AtDestination(ipld))
         }
     }
 
+    /*
     /// Walks the path depicted by self until either the path runs out or a new link needs to be
     /// traversed to continue the walk. With !dag-pb documents this can result in subtree of an
     /// Ipld be represented.
@@ -185,6 +190,7 @@ impl IpfsPath {
             };
         }
     }
+    */
 
     pub fn remaining_path(&self) -> &[String] {
         self.path.as_slice()
@@ -281,26 +287,9 @@ impl fmt::Display for WalkFailed {
 
 impl std::error::Error for WalkFailed {}
 
-impl Iterator for IpfsPath {
-    type Item = String;
-
-    fn next(&mut self) -> Option<String> {
-        self.path.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.path.size_hint()
-    }
-}
-
-impl ExactSizeIterator for IpfsPath {
-    fn len(&self) -> usize {
-        self.path.len()
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use super::WalkFailed;
     use super::{IpfsPath, WalkSuccess};
     use cid::Cid;
     use ipfs::{ipld::Ipld, make_ipld};
@@ -326,7 +315,7 @@ mod tests {
 
         for &(good, len) in &good {
             let p = IpfsPath::try_from(good).unwrap();
-            assert_eq!(p.len(), len);
+            assert_eq!(p.path().len(), len);
         }
     }
 
@@ -374,7 +363,7 @@ mod tests {
         ];
         for &path in &paths {
             let p = IpfsPath::try_from(path).unwrap();
-            assert_eq!(p.len(), 0);
+            assert_eq!(p.path().len(), 0);
         }
     }
 
@@ -384,7 +373,7 @@ mod tests {
         // https://github.com/ipfs-rust/rust-ipfs/pull/147/files#r408939850
         let p =
             IpfsPath::try_from("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n///a").unwrap();
-        assert_eq!(p.len(), 1);
+        assert_eq!(p.path().len(), 1);
     }
 
     fn example_doc_and_a_cid() -> (Ipld, Cid) {
@@ -437,15 +426,8 @@ mod tests {
 
             // projection
             assert_eq!(
-                p.walk(&doc_cid, example_doc.clone()),
+                walk(&doc_cid, example_doc.clone(), &p).map(|r| r.0),
                 Ok(WalkSuccess::AtDestination(expected.clone()))
-            );
-
-            // after walk the iterator has been exhausted and the path is always empty and returns
-            // the given value
-            assert_eq!(
-                p.walk(&doc_cid, example_doc.clone()),
-                Ok(WalkSuccess::EmptyPath(example_doc.clone()))
             );
         }
     }
@@ -460,7 +442,7 @@ mod tests {
         let doc_cid = p.take_root().unwrap();
 
         assert_eq!(
-            p.walk(&doc_cid, doc),
+            walk(&doc_cid, doc, &p).map(|r| r.0),
             Ok(WalkSuccess::Link(".".into(), cid))
         );
     }
@@ -476,7 +458,7 @@ mod tests {
 
         // go-ipfs would walk over the link even without a dot, this will probably come up with
         // dag/get
-        p.walk(&doc_cid, doc).unwrap_err();
+        walk(&doc_cid, doc, &p).unwrap_err();
     }
 
     #[test]
@@ -487,11 +469,13 @@ mod tests {
         let mut p = IpfsPath::try_from(path).unwrap();
         let doc_cid = p.take_root().unwrap();
 
+        let (success, mut remaining) = walk(&doc_cid, example_doc, &p).unwrap();
+
+        assert_eq!(success, WalkSuccess::Link("or".into(), cid));
         assert_eq!(
-            p.walk(&doc_cid, example_doc),
-            Ok(WalkSuccess::Link("or".into(), cid))
+            remaining.next().map(|s| s.as_str()),
+            Some("something_on_the_next_block")
         );
-        assert_eq!(p.next(), Some("something_on_the_next_block".into()));
     }
 
     #[test]
@@ -508,7 +492,44 @@ mod tests {
             let mut p = IpfsPath::try_from(*path).unwrap();
             let doc_cid = p.take_root().unwrap();
             // using just unwrap_err as the context would be quite troublesome to write
-            p.walk(&doc_cid, example_doc.clone()).unwrap_err();
+            walk(&doc_cid, example_doc.clone(), &p).unwrap_err();
+        }
+    }
+
+    fn walk<'a>(
+        current: &Cid,
+        mut doc: Ipld,
+        path: &'a IpfsPath,
+    ) -> Result<
+        (
+            WalkSuccess,
+            impl Iterator<Item = &'a String> + std::fmt::Debug,
+        ),
+        WalkFailed,
+    > {
+        if path.path().is_empty() {
+            return Ok((WalkSuccess::EmptyPath(doc), path.path().iter()));
+        }
+
+        if current.codec() == cid::Codec::DagProtobuf {
+            return Err(WalkFailed::UnsupportedWalkOnDagPbIpld);
+        }
+
+        let mut iter = path.path().iter();
+
+        loop {
+            let needle = if let Some(needle) = iter.next() {
+                needle
+            } else {
+                return Ok((WalkSuccess::AtDestination(doc), iter));
+            };
+            doc = match IpfsPath::resolve_segment(needle, doc)? {
+                WalkSuccess::AtDestination(ipld) => ipld,
+                WalkSuccess::EmptyPath(ipld) => {
+                    return Ok((WalkSuccess::AtDestination(ipld), iter))
+                }
+                ret @ WalkSuccess::Link(_, _) => return Ok((ret, iter)),
+            };
         }
     }
 }
