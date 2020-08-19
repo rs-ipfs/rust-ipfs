@@ -231,13 +231,13 @@ mod tests {
         }
     }
 
-    fn walk<'a>(
+    fn walk(
         mut doc: Ipld,
-        path: &'a IpfsPath,
+        path: &'_ IpfsPath,
     ) -> Result<
         (
             WalkSuccess,
-            impl Iterator<Item = &'a String> + std::fmt::Debug,
+            impl Iterator<Item = &'_ String> + std::fmt::Debug,
         ),
         WalkFailed,
     > {
