@@ -429,6 +429,7 @@ fn iplds_refs<T: IpfsTypes>(
             return;
         }
 
+        // FIXME: this should be queued_or_visited
         let mut visited = HashSet::new();
         let mut work = VecDeque::new();
 
