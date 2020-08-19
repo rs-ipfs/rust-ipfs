@@ -84,8 +84,14 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                 }
 
                 match result {
-                    Bootstrap(Ok(BootstrapOk { .. })) => {
-                        debug!("kad: finished bootstrapping");
+                    Bootstrap(Ok(BootstrapOk {
+                        peer,
+                        num_remaining,
+                    })) => {
+                        debug!(
+                            "kad: bootstrapped with {}, {} peers remain",
+                            peer, num_remaining
+                        );
                     }
                     Bootstrap(Err(BootstrapError::Timeout { .. })) => {
                         warn!("kad: failed to bootstrap");
