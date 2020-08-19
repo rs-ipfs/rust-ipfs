@@ -155,10 +155,6 @@ impl IpfsPath {
         }
     }
 
-    pub fn remaining_path(&self) -> &[String] {
-        self.path.as_slice()
-    }
-
     // Currently unused by commited code, but might become handy or easily removed later on.
     #[allow(dead_code)]
     pub fn debug<'a>(&'a self, current: &'a Cid) -> impl fmt::Debug + 'a {
