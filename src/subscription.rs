@@ -161,7 +161,7 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
             return;
         }
 
-        debug!("Shutting down {:?}", self);
+        trace!("Shutting down {:?}", self);
 
         let mut cancelled = 0;
         let mut subscriptions = mem::take(&mut *self.subscriptions.lock().unwrap());
@@ -173,7 +173,7 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
             }
         }
 
-        debug!("Cancelled {} subscriptions", cancelled);
+        trace!("Cancelled {} subscriptions", cancelled);
     }
 }
 
