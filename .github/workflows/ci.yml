@@ -94,7 +94,7 @@ jobs:
       run: brew install llvm openssl
 
     - name: Install dependencies windows (openssl)
-      uses: lukka/run-vcpkg@v3
+      uses: lukka/run-vcpkg@v3.3
       id: windows-runvcpkg
       if: matrix.platform.host == 'windows-latest'
       with:
