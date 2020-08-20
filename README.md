@@ -7,27 +7,6 @@
 
 [![Financial Contributors on Open Collective](https://opencollective.com/rs-ipfs/all/badge.svg?label=financial+contributors)](https://opencollective.com/rs-ipfs) [![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme) [![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/rs-ipfs) [![Matrix](https://img.shields.io/badge/matrix-%23rust_ipfs%3Amatrix.org-blue.svg)](https://riot.im/app/#/room/#rust-ipfs:matrix.org) [![Discord](https://img.shields.io/discord/475789330380488707?color=blueviolet&label=discord)](https://discord.gg/9E5SFvW)
 
-
-## Description
-
-This repository contains the crates for the IPFS core implementation which includes a blockstore, libp2p integration, and HTTP API bindings. Our goal is to leverage both the unique properties of Rust to create powerful, performant software that works even in resource-constrained environments while maximizing interoperability with the other "flavors" of IPFS, namely JavaScript and Go.
-
-### Project Status - `Pre-Alpha`
-
-There's a lot of great work in here, and a lot more coming that isn't implemented yet. Recently, this project was awarded a [dev grant from Protocol Labs](https://github.com/ipfs/devgrants/tree/master/open-grants/rs-ipfs), empowering us to raise our level of conformance. After the grant work is complete the project will achieve alpha stage.
-
-### You can help.
-
-PRs and Issues accepted for any of the following. See [the contributing docs](./CONTRIBUTING.md) for more info.
-* Implement endpoints not covered by the devgrant proposal. See the [roadmap section](#roadmap) below
-* Back the project financially by reaching out or by becoming a backer on [OpenCollective](https://opencollective.com/rs-ipfs)
-
-### What is IPFS?
-
-IPFS is a global, versioned, peer-to-peer filesystem. It combines good ideas from previous systems such Git, BitTorrent, Kademlia, SFS, and the Web. It is like a single bittorrent swarm, exchanging git objects. IPFS provides an interface as simple as the HTTP web, but with permanence built in. You can also mount the world at /ipfs.
-
-For more info see: https://docs.ipfs.io/introduction/overview/
-
 ## Table of Contents
 
 - [Description](#description)
@@ -38,9 +17,20 @@ For more info see: https://docs.ipfs.io/introduction/overview/
 - [Getting Started](#getting-started)
 - [Roadmap](#roadmap)
 - [Maintainers](#maintainers)
+- [Alternatives](#alternatives-and-other-cool-related-projects)
+- [Contributing](#contributing)
 - [License](#license)
 - [Trademarks](#trademarks)
 
+## Description
+
+This repository contains the crates for the IPFS core implementation which includes a blockstore, a libp2p integration which includes DHT content discovery and pubsub support, and HTTP API bindings. Our goal is to leverage both the unique properties of Rust to create powerful, performant software that works even in resource-constrained environments, while also maximizing interoperability with the other "flavors" of IPFS, namely JavaScript and Go.
+
+### Project Status - `Alpha`
+
+You can see details about what's implemented, what's not, and also learn about other ecosystem projects, at [Are We IPFS Yet?](https://areweipfsyet.rs)
+
+For more information about IPFS see: https://docs.ipfs.io/introduction/overview/
 
 ## Install
 
@@ -115,9 +105,9 @@ More usage examples coming soon :+1:
 
 ## Roadmap
 
-A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs](https://github.com/ipfs/devgrants/tree/master/open-grants/ipfs-rust). In the proposal, we discussed using implemented HTTP API endpoints as a metric to determine progress. _There are always opportunities for community members to contribute by helping out with endpoints not covered in the grant._
+Special thanks to the Web3 Foundation and Protocol Labs for their devgrant support.
 
-### Devgrant Phases 1 and 2 - `Complete`
+### Completed Work
 
 * Project Setup
 * Testing Setup
@@ -136,13 +126,13 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
 * `/cat`
 * `/get`
 
-### Substrate Grant Milestone 2 - `Pending`
+### Work in Progress
 * `/add`
+- `/pin`
 * DHT + Swarming
 
 ### Work still required
 - Interop testing
-- [/pin](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/2)
 - [/bootstrap](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/3)
 - [/dht](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/4)
 - [/name](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/5)
@@ -155,7 +145,7 @@ A large portion of this work is covered by an [IPFS Devgrant from Protocol Labs]
 
 ## Maintainers
 
-Rust IPFS is actively maintained by @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol), [Equilibrium](https://github.com/eqlabs), and [MRH.io](https://mrh.io).
+Rust IPFS was originally authored by @dvc94ch and now actively maintained by @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol), [Equilibrium](https://github.com/eqlabs), and [MRH.io](https://mrh.io).
 
 ## Alternatives and other cool, related projects
 
@@ -168,6 +158,19 @@ It’s been noted that the Rust-IPFS name and popularity may serve its organizat
 - Parity's [`rust-libp2p`](https://github.com/libp2p/rust-libp2p), which does a lot the of heavy lifting here
 
 If you know of another implementation or another cool project adjacent to these efforts, let us know!
+
+### Contributing
+
+We welcome and accept any of the following:
+
+* Bug reports and feature requests in the form of issues
+* PRs for issues marked as [help wanted](https://github.com/rs-ipfs/rust-ipfs/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) or [good first issue](https://github.com/rs-ipfs/rust-ipfs/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22)
+* PRs that implement more HTTP endpoints or pass more conformance tests
+* PRs that move our crates toward being more `no_std` friendly
+* The introduction of benchmarking
+* Issues not marked as Help Wanted or Good First Issue ;)
+
+See [the contributing docs](./CONTRIBUTING.md) for more info. You can also back the project financially by reaching out or by becoming a backer on [OpenCollective](https://opencollective.com/rs-ipfs)
 
 ## Contributors
 
