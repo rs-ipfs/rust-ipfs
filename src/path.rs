@@ -10,7 +10,7 @@ use thiserror::Error;
 #[derive(Clone, Debug, PartialEq)]
 pub struct IpfsPath {
     root: PathRoot,
-    path: Vec<String>,
+    path: SlashedPath,
 }
 
 impl FromStr for IpfsPath {
@@ -42,7 +42,8 @@ impl FromStr for IpfsPath {
         };
 
         let mut path = IpfsPath::new(root);
-        path.push_split(subpath)
+        path.path
+            .push_split(subpath)
             .map_err(|_| IpfsPathError::InvalidPath(string.to_owned()))?;
         Ok(path)
     }
@@ -52,7 +53,7 @@ impl IpfsPath {
     pub fn new(root: PathRoot) -> Self {
         IpfsPath {
             root,
-            path: Vec::new(),
+            path: Default::default(),
         }
     }
 
@@ -65,12 +66,95 @@ impl IpfsPath {
     }
 
     pub fn push_str(&mut self, string: &str) -> Result<(), Error> {
-        if string.is_empty() {
-            return Ok(());
-        }
+        self.path.push_path(string)?;
+        Ok(())
+    }
 
-        self.push_split(string.split('/'))
-            .map_err(|_| IpfsPathError::InvalidPath(string.to_owned()).into())
+    pub fn sub_path(&self, string: &str) -> Result<Self, Error> {
+        let mut path = self.to_owned();
+        path.push_str(string)?;
+        Ok(path)
+    }
+
+    pub fn into_sub_path(mut self, string: &str) -> Result<Self, Error> {
+        self.push_str(string)?;
+        Ok(self)
+    }
+
+    // FIXME: this should be &str not to lock us into Vec<String>
+    pub fn iter(&self) -> impl Iterator<Item = &String> {
+        self.path.iter()
+    }
+
+    // FIXME: want to get rid of this, not to lock us into Vec<String>
+    pub fn path(&self) -> &[String] {
+        self.path.path()
+    }
+}
+
+impl fmt::Display for IpfsPath {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "{}{}", self.root, self.path)
+    }
+}
+
+impl TryFrom<&str> for IpfsPath {
+    type Error = Error;
+
+    fn try_from(string: &str) -> Result<Self, Self::Error> {
+        IpfsPath::from_str(string)
+    }
+}
+
+impl<T: Into<PathRoot>> From<T> for IpfsPath {
+    fn from(root: T) -> Self {
+        IpfsPath::new(root.into())
+    }
+}
+
+// FIXME: get rid of this; it would mean that there must be a clone to retain the rest of the path.
+impl TryInto<Cid> for IpfsPath {
+    type Error = Error;
+
+    fn try_into(self) -> Result<Cid, Self::Error> {
+        match self.root().cid() {
+            Some(cid) => Ok(cid.to_owned()),
+            None => Err(anyhow::anyhow!("expected cid")),
+        }
+    }
+}
+
+// FIXME: get rid of this; it would mean that there must be a clone to retain the rest of the path.
+impl TryInto<PeerId> for IpfsPath {
+    type Error = Error;
+
+    fn try_into(self) -> Result<PeerId, Self::Error> {
+        match self.root().peer_id() {
+            Some(peer_id) => Ok(peer_id.to_owned()),
+            None => Err(anyhow::anyhow!("expected peer id")),
+        }
+    }
+}
+
+/// SlashedPath is internal to IpfsPath variants, and basically holds an unixfs compatible path
+/// where segments do not contain slashes but can pretty much contain all other valid UTF-8.
+///
+/// UTF-8 originates likely from UnixFS related protobuf descriptions, where dag-pb links have
+/// UTF-8 names, which equal to SlashedPath segments.
+#[doc(hidden)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
+struct SlashedPath {
+    path: Vec<String>,
+}
+
+impl SlashedPath {
+    fn push_path(&mut self, path: &str) -> Result<(), IpfsPathError> {
+        if path.is_empty() {
+            Ok(())
+        } else {
+            self.push_split(path.split('/'))
+                .map_err(|_| IpfsPathError::InvalidPath(path.to_owned()))
+        }
     }
 
     fn push_split<'a>(&mut self, split: impl Iterator<Item = &'a str>) -> Result<(), ()> {
@@ -90,17 +174,6 @@ impl IpfsPath {
         Ok(())
     }
 
-    pub fn sub_path(&self, string: &str) -> Result<Self, Error> {
-        let mut path = self.to_owned();
-        path.push_str(string)?;
-        Ok(path)
-    }
-
-    pub fn into_sub_path(mut self, string: &str) -> Result<Self, Error> {
-        self.push_str(string)?;
-        Ok(self)
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = &String> {
         self.path.iter()
     }
@@ -110,49 +183,9 @@ impl IpfsPath {
     }
 }
 
-impl fmt::Display for IpfsPath {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "{}", self.root)?;
-        for sub_path in &self.path {
-            write!(fmt, "/{}", sub_path)?;
-        }
-        Ok(())
-    }
-}
-
-impl TryFrom<&str> for IpfsPath {
-    type Error = Error;
-
-    fn try_from(string: &str) -> Result<Self, Self::Error> {
-        IpfsPath::from_str(string)
-    }
-}
-
-impl<T: Into<PathRoot>> From<T> for IpfsPath {
-    fn from(root: T) -> Self {
-        IpfsPath::new(root.into())
-    }
-}
-
-impl TryInto<Cid> for IpfsPath {
-    type Error = Error;
-
-    fn try_into(self) -> Result<Cid, Self::Error> {
-        match self.root().cid() {
-            Some(cid) => Ok(cid.to_owned()),
-            None => Err(anyhow::anyhow!("expected cid")),
-        }
-    }
-}
-
-impl TryInto<PeerId> for IpfsPath {
-    type Error = Error;
-
-    fn try_into(self) -> Result<PeerId, Self::Error> {
-        match self.root().peer_id() {
-            Some(peer_id) => Ok(peer_id.to_owned()),
-            None => Err(anyhow::anyhow!("expected peer id")),
-        }
+impl fmt::Display for SlashedPath {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.path.iter().try_for_each(|s| write!(fmt, "/{}", s))
     }
 }
 
