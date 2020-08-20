@@ -37,8 +37,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
         };
         let mut ipld = decode_ipld(&cid, self.ipfs.repo.get_block(&cid).await?.data())?;
         for sub_path in path.iter() {
-            ipld = try_resolve(ipld, sub_path)?;
-            ipld = match ipld {
+            ipld = match try_resolve(ipld, sub_path)? {
                 Ipld::Link(cid) => decode_ipld(&cid, self.ipfs.repo.get_block(&cid).await?.data())?,
                 ipld => ipld,
             };
