@@ -405,7 +405,7 @@ fn handle_dagpb_not_found(
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
     use ipfs::unixfs::ll::dagpb::node_data;
 
-    if needle == "Data" && last_segment && opts.follow_dagpb_data {
+    if opts.follow_dagpb_data && last_segment && needle == "Data" {
         // /dag/resolve needs to "resolve through" a dag-pb node down to the "just data" even
         // though we do not need to extract it ... however this might be good to just filter with
         // refs, as no refs of such path can exist as the links are in the outer structure.
