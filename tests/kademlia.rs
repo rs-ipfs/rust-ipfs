@@ -35,51 +35,53 @@ async fn find_peer_local() {
 /// Check if `Ipfs::find_peer` works using DHT.
 #[tokio::test(max_threads = 1)]
 async fn find_peer_dht() {
-    let node_a = Node::new("a").await;
-    let node_b = Node::new("b").await;
-    let node_c = Node::new("c").await;
+    // the length of the chain the nodes will be connected in;
+    // works for numbers >=2, though 2 would essentially just
+    // be the same as find_peer_local, so it should be higher
+    const CHAIN_LEN: usize = 10;
 
-    let (b_id, b_addrs) = node_b.identity().await.unwrap();
-    let b_id = b_id.into_peer_id();
-    let (c_id, mut c_addrs) = node_c.identity().await.unwrap();
-    let c_id = c_id.into_peer_id();
+    // fire up CHAIN_LEN nodes and register their PeerIds and
+    // Multiaddrs (without the PeerId) for add_peer purposes
+    let mut nodes = Vec::with_capacity(CHAIN_LEN);
+    let mut ids_and_addrs = Vec::with_capacity(CHAIN_LEN);
+    for i in 0..CHAIN_LEN {
+        let node = Node::new(i.to_string()).await;
 
-    // register the nodes' addresses so they can bootstrap against
-    // one another; at this point node_a is not aware of node_c's
-    // existence
-    node_a
-        .add_peer(b_id.clone(), strip_peer_id(b_addrs[0].clone()))
-        .await
-        .unwrap();
-    node_b
-        .add_peer(c_id.clone(), strip_peer_id(c_addrs[0].clone()))
-        .await
-        .unwrap();
-    node_c
-        .add_peer(b_id, strip_peer_id(b_addrs[0].clone()))
-        .await
-        .unwrap();
+        let (key, mut addrs) = node.identity().await.unwrap();
+        let id = key.into_peer_id();
+        let addr = strip_peer_id(addrs.pop().unwrap());
 
-    node_a.bootstrap().await.unwrap();
-    node_b.bootstrap().await.unwrap();
-    node_c.bootstrap().await.unwrap();
-
-    // after the Kademlia bootstrap node_a is auto-connected to node_c, so
-    // disconnect it in order to remove its addresses from the ones known
-    // outside of the DHT.
-    node_a
-        .disconnect(c_addrs[0].clone().try_into().unwrap())
-        .await
-        .unwrap();
-
-    let found_addrs = node_a.find_peer(c_id).await.unwrap();
-
-    // remove Protocol::P2p from c_addrs
-    for addr in &mut c_addrs {
-        assert!(matches!(addr.pop(), Some(Protocol::P2p(_))));
+        nodes.push(node);
+        ids_and_addrs.push((id, addr));
     }
 
-    assert_eq!(found_addrs, c_addrs);
+    // register the nodes' addresses so they can bootstrap against
+    // one another in a chain; node 0 is only aware of the existence
+    // of node 1 and so on; bootstrap them eagerly/quickly, so that
+    // they don't have a chance to form the full picture in the DHT
+    for i in 0..CHAIN_LEN {
+        let (next_id, next_addr) = if i < CHAIN_LEN - 1 {
+            ids_and_addrs[i + 1].clone()
+        } else {
+            // the last node in the chain also needs to know some address
+            // in order to bootstrap, so give it its neighbour's information
+            // and then bootstrap it as well
+            ids_and_addrs[CHAIN_LEN - 2].clone()
+        };
+
+        nodes[i].add_peer(next_id, next_addr).await.unwrap();
+        nodes[i].bootstrap().await.unwrap();
+    }
+
+    // node 0 now tries to find the address of the very last node in the
+    // chain; the chain should be long enough for it not to automatically
+    // be connected to it after the bootstrap
+    let found_addrs = nodes[0]
+        .find_peer(ids_and_addrs[CHAIN_LEN - 1].0.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(found_addrs, vec![ids_and_addrs[CHAIN_LEN - 1].1.clone()]);
 }
 
 // TODO: split into separate, more advanced bootstrap and closest_peers
