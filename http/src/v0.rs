@@ -106,7 +106,7 @@ pub fn routes<T: IpfsTypes>(
             and_boxed!(warp::path!("put"), dag::put(ipfs)),
             and_boxed!(warp::path!("resolve"), dag::resolve(ipfs)),
         )),
-        and_boxed!(warp::path!("dht" / "findpeer"), dht::find_peer(ipfs)),
+        warp::path("dht").and(and_boxed!(warp::path!("findpeer"), dht::find_peer(ipfs))),
         warp::path("pubsub").and(combine!(
             and_boxed!(warp::path!("peers"), pubsub::peers(ipfs)),
             and_boxed!(warp::path!("ls"), pubsub::list_subscriptions(ipfs)),
