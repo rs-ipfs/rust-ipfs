@@ -33,7 +33,7 @@ pub struct Behaviour<Types: IpfsTypes> {
     ping: Ping,
     identify: Identify,
     pubsub: Pubsub,
-    swarm: SwarmApi,
+    pub swarm: SwarmApi,
 }
 
 /// Represents the result of a Kademlia query.
@@ -486,6 +486,10 @@ impl<Types: IpfsTypes> Behaviour<Types> {
                 Err(anyhow!("kad: can't bootstrap the node: {:?}", e))
             }
         }
+    }
+
+    pub fn kademlia(&mut self) -> &mut Kademlia<MemoryStore> {
+        &mut self.kademlia
     }
 
     pub fn get_closest_peers(&mut self, id: PeerId) -> SubscriptionFuture<KadResult, String> {

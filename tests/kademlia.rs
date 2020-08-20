@@ -1,9 +1,88 @@
 use cid::Cid;
-use ipfs::{IpfsOptions, Node};
+use ipfs::{p2p::MultiaddrWithPeerId, IpfsOptions, Node};
 use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
-use std::time::Duration;
+use std::{convert::TryInto, time::Duration};
 use tokio::time::timeout;
 
+fn strip_peer_id(addr: Multiaddr) -> Multiaddr {
+    let MultiaddrWithPeerId { multiaddr, .. } = addr.try_into().unwrap();
+    multiaddr.into()
+}
+
+/// Check if `Ipfs::find_peer` works without DHT involvement.
+#[tokio::test(max_threads = 1)]
+async fn find_peer_local() {
+    let node_a = Node::new("a").await;
+    let node_b = Node::new("b").await;
+
+    let (b_id, mut b_addrs) = node_b.identity().await.unwrap();
+    let b_id = b_id.into_peer_id();
+
+    node_a.connect(b_addrs[0].clone()).await.unwrap();
+
+    // while node_a is connected to node_b, they know each other's
+    // addresses and can find them without using the DHT
+    let found_addrs = node_a.find_peer(b_id).await.unwrap();
+
+    // remove Protocol::P2p from b_addrs
+    for addr in &mut b_addrs {
+        assert!(matches!(addr.pop(), Some(Protocol::P2p(_))));
+    }
+
+    assert_eq!(found_addrs, b_addrs);
+}
+
+/// Check if `Ipfs::find_peer` works using DHT.
+#[tokio::test(max_threads = 1)]
+async fn find_peer_dht() {
+    let node_a = Node::new("a").await;
+    let node_b = Node::new("b").await;
+    let node_c = Node::new("c").await;
+
+    let (b_id, b_addrs) = node_b.identity().await.unwrap();
+    let b_id = b_id.into_peer_id();
+    let (c_id, mut c_addrs) = node_c.identity().await.unwrap();
+    let c_id = c_id.into_peer_id();
+
+    // register the nodes' addresses so they can bootstrap against
+    // one another; at this point node_a is not aware of node_c's
+    // existence
+    node_a
+        .add_peer(b_id.clone(), strip_peer_id(b_addrs[0].clone()))
+        .await
+        .unwrap();
+    node_b
+        .add_peer(c_id.clone(), strip_peer_id(c_addrs[0].clone()))
+        .await
+        .unwrap();
+    node_c
+        .add_peer(b_id, strip_peer_id(b_addrs[0].clone()))
+        .await
+        .unwrap();
+
+    node_a.bootstrap().await.unwrap();
+    node_b.bootstrap().await.unwrap();
+    node_c.bootstrap().await.unwrap();
+
+    // after the Kademlia bootstrap node_a is auto-connected to node_c, so
+    // disconnect it in order to remove its addresses from the ones known
+    // outside of the DHT.
+    node_a
+        .disconnect(c_addrs[0].clone().try_into().unwrap())
+        .await
+        .unwrap();
+
+    let found_addrs = node_a.find_peer(c_id).await.unwrap();
+
+    // remove Protocol::P2p from c_addrs
+    for addr in &mut c_addrs {
+        assert!(matches!(addr.pop(), Some(Protocol::P2p(_))));
+    }
+
+    assert_eq!(found_addrs, c_addrs);
+}
+
+// TODO: split into separate, more advanced bootstrap and closest_peers
 #[tokio::test(max_threads = 1)]
 async fn kademlia_local_peer_discovery() {
     const BOOTSTRAPPER_COUNT: usize = 20;
