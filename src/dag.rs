@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::ipld::{decode_ipld, encode_ipld, Ipld};
-use crate::path::{IpfsPath, IpfsPathError, SubPath};
+use crate::path::IpfsPath;
 use crate::repo::RepoTypes;
 use crate::Ipfs;
 use bitswap::Block;
@@ -37,11 +37,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
         };
         let mut ipld = decode_ipld(&cid, self.ipfs.repo.get_block(&cid).await?.data())?;
         for sub_path in path.iter() {
-            if !can_resolve(&ipld, sub_path) {
-                let path = sub_path.to_owned();
-                return Err(IpfsPathError::ResolveError { ipld, path }.into());
-            }
-            ipld = resolve(ipld, sub_path);
+            ipld = try_resolve(ipld, sub_path)?;
             ipld = match ipld {
                 Ipld::Link(cid) => decode_ipld(&cid, self.ipfs.repo.get_block(&cid).await?.data())?,
                 ipld => ipld,
@@ -51,43 +47,27 @@ impl<Types: RepoTypes> IpldDag<Types> {
     }
 }
 
-fn can_resolve(ipld: &Ipld, sub_path: &SubPath) -> bool {
-    match sub_path {
-        SubPath::Key(key) => {
-            if let Ipld::Map(ref map) = ipld {
-                if map.contains_key(key) {
-                    return true;
-                }
-            }
-        }
-        SubPath::Index(index) => {
-            if let Ipld::List(ref vec) = ipld {
-                if *index < vec.len() {
-                    return true;
-                }
-            }
-        }
+fn try_resolve(ipld: Ipld, segment: &str) -> Result<Ipld, Error> {
+    match ipld {
+        Ipld::Map(mut map) => map
+            .remove(segment)
+            .ok_or_else(|| anyhow::anyhow!("no such segment: {:?}", segment)),
+        Ipld::List(mut vec) => match segment.parse::<usize>() {
+            Ok(index) if index < vec.len() => Ok(vec.swap_remove(index)),
+            Ok(_) => Err(anyhow::anyhow!(
+                "index out of range 0..{}: {:?}",
+                vec.len(),
+                segment
+            )),
+            Err(_) => Err(anyhow::anyhow!("invalid list index: {:?}", segment)),
+        },
+        link @ Ipld::Link(_) if segment == "." => Ok(link),
+        other => Err(anyhow::anyhow!(
+            "cannot resolve {:?} through: {:?}",
+            segment,
+            other
+        )),
     }
-    false
-}
-
-fn resolve(ipld: Ipld, sub_path: &SubPath) -> Ipld {
-    match sub_path {
-        SubPath::Key(key) => {
-            if let Ipld::Map(mut map) = ipld {
-                return map.remove(key).unwrap();
-            }
-        }
-        SubPath::Index(index) => {
-            if let Ipld::List(mut vec) = ipld {
-                return vec.swap_remove(*index);
-            }
-        }
-    }
-    panic!(
-        "Failed to resolved ipld: {:?} sub_path: {:?}",
-        ipld, sub_path
-    );
 }
 
 #[cfg(test)]

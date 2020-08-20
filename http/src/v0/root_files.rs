@@ -60,8 +60,7 @@ pub fn cat<T: IpfsTypes>(
 }
 
 async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Reply, Rejection> {
-    let mut path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
-    path.set_follow_dagpb_data(false);
+    let path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
 
     let range = match (args.offset, args.length) {
         (Some(start), Some(len)) => Some(start..(start + len)),
@@ -73,7 +72,7 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
     // FIXME: this is here until we have IpfsPath back at ipfs
     // FIXME: this timeout here is ... not great; the end user could be waiting for 2*timeout
 
-    let (cid, _, _) = walk_path(&ipfs, path)
+    let (cid, _, _) = walk_path(&ipfs, &Default::default(), path)
         .maybe_timeout(args.timeout.clone().map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?
@@ -118,12 +117,11 @@ pub fn get<T: IpfsTypes>(
 async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Reply, Rejection> {
     use futures::stream::TryStreamExt;
 
-    let mut path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
-    path.set_follow_dagpb_data(false);
+    let path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
 
     // FIXME: this is here until we have IpfsPath back at ipfs
     // FIXME: this timeout is only for the first step, should be for the whole walk!
-    let (cid, _, _) = walk_path(&ipfs, path)
+    let (cid, _, _) = walk_path(&ipfs, &Default::default(), path)
         .maybe_timeout(args.timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?

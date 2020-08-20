@@ -121,12 +121,16 @@ async fn inner_resolve<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     opts: ResolveOptions,
 ) -> Result<impl Reply, Rejection> {
-    use crate::v0::refs::{walk_path, IpfsPath};
+    use crate::v0::refs::{walk_path, IpfsPath, WalkOptions};
     use std::convert::TryFrom;
 
     let path = IpfsPath::try_from(opts.arg.as_str()).map_err(StringError::from)?;
 
-    let (current, _, remaining) = walk_path(&ipfs, path)
+    let walk_opts = WalkOptions {
+        follow_dagpb_data: true,
+    };
+
+    let (current, _, remaining) = walk_path(&ipfs, &walk_opts, path)
         .maybe_timeout(opts.timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?

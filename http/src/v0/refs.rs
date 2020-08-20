@@ -19,7 +19,9 @@ mod format;
 use format::EdgeFormatter;
 
 pub(crate) mod path;
-pub use path::{IpfsPath, WalkSuccess};
+pub use ipfs::path::IpfsPath;
+use path::resolve_segment;
+pub use path::WalkSuccess;
 
 use crate::v0::support::{HandledErr, StreamResponse};
 
@@ -47,17 +49,11 @@ async fn refs_inner<T: IpfsTypes>(
         formatter
     );
 
-    let mut paths = opts
+    let paths = opts
         .arg
         .iter()
         .map(|s| IpfsPath::try_from(s.as_str()).map_err(StringError::from))
         .collect::<Result<Vec<_>, _>>()?;
-
-    for path in paths.iter_mut() {
-        // this is needed because the paths should not error on matching on the final Data segment,
-        // it just becomes projected as `Loaded::Raw(_)`, however such items can have no links.
-        path.set_follow_dagpb_data(true);
-    }
 
     let st = refs_paths(ipfs, paths, max_depth, opts.unique)
         .maybe_timeout(opts.timeout)
@@ -71,6 +67,9 @@ async fn refs_inner<T: IpfsTypes>(
 
     // FIXME: there should be a total timeout arching over path walking to the stream completion.
     // hyper can't do trailer errors on chunked bodies so ... we can't do much.
+
+    // FIXME: the test case 'should print nothing for non-existent hashes' is problematic as it
+    // expects the headers to be blocked before the timeout expires.
 
     let st = st.map(move |res| {
         let res = match res {
@@ -135,19 +134,26 @@ async fn refs_paths<T: IpfsTypes>(
     use futures::stream::FuturesOrdered;
     use futures::stream::TryStreamExt;
 
-    // the assumption is that futuresordered will poll the first N items until the first completes,
-    // buffering the others. it might not be 100% parallel but it's probably enough.
-    let mut walks = FuturesOrdered::new();
+    let opts = WalkOptions {
+        follow_dagpb_data: true,
+    };
 
-    for path in paths {
-        walks.push(walk_path(&ipfs, path));
-    }
+    // added braces to spell it out for borrowck that opts does not outlive this fn
+    let iplds = {
+        // the assumption is that futuresordered will poll the first N items until the first completes,
+        // buffering the others. it might not be 100% parallel but it's probably enough.
+        let mut walks = FuturesOrdered::new();
 
-    // strip out the path inside last document, we don't need it
-    let iplds = walks
-        .map_ok(|(cid, maybe_ipld, _)| (cid, maybe_ipld))
-        .try_collect()
-        .await?;
+        for path in paths {
+            walks.push(walk_path(&ipfs, &opts, path));
+        }
+
+        // strip out the path inside last document, we don't need it
+        walks
+            .map_ok(|(cid, maybe_ipld, _)| (cid, maybe_ipld))
+            .try_collect()
+            .await?
+    };
 
     Ok(iplds_refs(ipfs, iplds, max_depth, unique))
 }
@@ -238,17 +244,29 @@ pub enum Loaded {
     Ipld(Ipld),
 }
 
+#[derive(Default, Debug)]
+pub struct WalkOptions {
+    pub follow_dagpb_data: bool,
+}
+
 /// Walks the `path` while loading the links.
 ///
 /// Returns the Cid where we ended up, and an optional Ipld structure if one was projected, and the
 /// path inside the last document we walked.
 pub async fn walk_path<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
-    mut path: IpfsPath,
+    opts: &WalkOptions,
+    path: IpfsPath,
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
     use ipfs::unixfs::ll::{MaybeResolved, ResolveError};
 
-    let mut current = path.take_root().unwrap();
+    let mut current = path
+        .root()
+        .cid()
+        .expect("unsupported: need to add an error variant for this! or design around it")
+        .to_owned();
+
+    let mut iter = path.path().iter();
 
     // cache for any datastructure used in repeated hamt lookups
     let mut cache = None;
@@ -269,7 +287,7 @@ pub async fn walk_path<T: IpfsTypes>(
 
         // needs to be mutable because the Ipld walk will overwrite it to project down in the
         // document
-        let mut needle = if let Some(needle) = path.next() {
+        let mut needle = if let Some(needle) = iter.next() {
             needle
         } else {
             return Ok((current, Loaded::Raw(data), Vec::new()));
@@ -283,13 +301,20 @@ pub async fn walk_path<T: IpfsTypes>(
                     continue;
                 }
                 Ok(MaybeResolved::NotFound) => {
-                    return handle_dagpb_not_found(current, &data, needle, &path)
+                    return handle_dagpb_not_found(
+                        current,
+                        &data,
+                        needle.to_owned(),
+                        iter.next().is_none(),
+                        opts,
+                    )
                 }
                 Err(ResolveError::UnexpectedType(_)) => {
                     // the conformance tests use a path which would end up going through a file
                     // and the returned error string is tested against listed alternatives.
                     // unexpected type is not one of them.
-                    let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
+                    let e =
+                        WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle.to_owned()));
                     return Err(WalkError::from((e, current)));
                 }
                 Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
@@ -314,7 +339,13 @@ pub async fn walk_path<T: IpfsTypes>(
                         break;
                     }
                     Ok(MaybeResolved::NotFound) => {
-                        return handle_dagpb_not_found(next, &data, needle, &path)
+                        return handle_dagpb_not_found(
+                            next,
+                            &data,
+                            needle.to_owned(),
+                            iter.next().is_none(),
+                            opts,
+                        )
                     }
                     Err(e) => {
                         return Err(WalkError::from((
@@ -336,8 +367,7 @@ pub async fn walk_path<T: IpfsTypes>(
                 // this needs to be stored at least temporarily to recover the path_inside_last or
                 // the "remaining path"
                 let tmp = needle.clone();
-                ipld = match IpfsPath::resolve_segment(needle, ipld) {
-                    Ok(WalkSuccess::EmptyPath(_)) => unreachable!(),
+                ipld = match resolve_segment(&needle, ipld) {
                     Ok(WalkSuccess::AtDestination(ipld)) => {
                         path_inside_last.push(tmp);
                         ipld
@@ -350,13 +380,13 @@ pub async fn walk_path<T: IpfsTypes>(
                 };
 
                 // we might resolve multiple segments inside a single document
-                needle = match path.next() {
+                needle = match iter.next() {
                     Some(needle) => needle,
                     None => break,
                 };
             }
 
-            if path.len() == 0 {
+            if iter.len() == 0 {
                 // when done with the remaining IpfsPath we should be set with the projected Ipld
                 // document
                 path_inside_last.shrink_to_fit();
@@ -370,11 +400,12 @@ fn handle_dagpb_not_found(
     at: Cid,
     data: &[u8],
     needle: String,
-    path: &IpfsPath,
+    last_segment: bool,
+    opts: &WalkOptions,
 ) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
     use ipfs::unixfs::ll::dagpb::node_data;
 
-    if needle == "Data" && path.len() == 0 && path.follow_dagpb_data() {
+    if opts.follow_dagpb_data && last_segment && needle == "Data" {
         // /dag/resolve needs to "resolve through" a dag-pb node down to the "just data" even
         // though we do not need to extract it ... however this might be good to just filter with
         // refs, as no refs of such path can exist as the links are in the outer structure.
@@ -424,6 +455,7 @@ fn iplds_refs<T: IpfsTypes>(
             return;
         }
 
+        // FIXME: this should be queued_or_visited
         let mut visited = HashSet::new();
         let mut work = VecDeque::new();
 
@@ -463,8 +495,8 @@ fn iplds_refs<T: IpfsTypes>(
                     warn!("failed to load {}, linked from {}: {}", cid, source, e);
                     // TODO: yield error msg
                     // unsure in which cases this happens, because we'll start to search the content
-                    // and stop only when request has been cancelled (FIXME: not yet, because dropping
-                    // all subscriptions doesn't "stop the operation.")
+                    // and stop only when request has been cancelled (FIXME: no way to stop this
+                    // operation)
                     continue;
                 }
             };
