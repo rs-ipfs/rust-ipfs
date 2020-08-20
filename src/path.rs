@@ -81,14 +81,13 @@ impl IpfsPath {
         Ok(self)
     }
 
-    // FIXME: this should be &str not to lock us into Vec<String>
-    pub fn iter(&self) -> impl Iterator<Item = &String> {
-        self.path.iter()
+    /// Returns an iterator over the path segments following the root
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.path.iter().map(|s| s.as_str())
     }
 
-    // FIXME: want to get rid of this, not to lock us into Vec<String>
-    pub fn path(&self) -> &[String] {
-        self.path.path()
+    pub fn is_path_empty(&self) -> bool {
+        self.iter().next().is_none()
     }
 }
 
@@ -419,7 +418,7 @@ mod tests {
 
         for &(good, len) in &good {
             let p = IpfsPath::try_from(good).unwrap();
-            assert_eq!(p.path().len(), len);
+            assert_eq!(p.iter().count(), len);
         }
     }
 
@@ -451,7 +450,7 @@ mod tests {
         ];
         for &path in &paths {
             let p = IpfsPath::try_from(path).unwrap();
-            assert_eq!(p.path().len(), 0, "{:?} from {:?}", p, path);
+            assert_eq!(p.iter().count(), 0, "{:?} from {:?}", p, path);
         }
     }
 

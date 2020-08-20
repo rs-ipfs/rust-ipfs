@@ -204,13 +204,10 @@ mod tests {
         let path = "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/2/or/something_on_the_next_block";
         let p = IpfsPath::try_from(path).unwrap();
 
-        let (success, mut remaining) = walk(example_doc, &p).unwrap();
+        let (success, remaining) = walk(example_doc, &p).unwrap();
 
         assert_eq!(success, WalkSuccess::Link("or".into(), cid));
-        assert_eq!(
-            remaining.next().map(|s| s.as_str()),
-            Some("something_on_the_next_block")
-        );
+        assert_eq!(remaining, vec!["something_on_the_next_block"]);
     }
 
     #[test]
@@ -231,18 +228,9 @@ mod tests {
         }
     }
 
-    fn walk(
-        mut doc: Ipld,
-        path: &'_ IpfsPath,
-    ) -> Result<
-        (
-            WalkSuccess,
-            impl Iterator<Item = &'_ String> + std::fmt::Debug,
-        ),
-        WalkFailed,
-    > {
-        if path.path().is_empty() {
-            unreachable!("empty path");
+    fn walk(mut doc: Ipld, path: &'_ IpfsPath) -> Result<(WalkSuccess, Vec<&'_ str>), WalkFailed> {
+        if path.iter().next().is_none() {
+            return Ok((WalkSuccess::AtDestination(doc), path.iter().collect()));
         }
 
         let current = path.root().cid().unwrap();
@@ -251,17 +239,17 @@ mod tests {
             return Err(WalkFailed::UnsupportedWalkOnDagPbIpld);
         }
 
-        let mut iter = path.path().iter();
+        let mut iter = path.iter();
 
         loop {
             let needle = if let Some(needle) = iter.next() {
                 needle
             } else {
-                return Ok((WalkSuccess::AtDestination(doc), iter));
+                return Ok((WalkSuccess::AtDestination(doc), Vec::new()));
             };
             doc = match resolve_segment(needle, doc)? {
                 WalkSuccess::AtDestination(ipld) => ipld,
-                ret @ WalkSuccess::Link(_, _) => return Ok((ret, iter)),
+                ret @ WalkSuccess::Link(_, _) => return Ok((ret, iter.collect())),
             };
         }
     }

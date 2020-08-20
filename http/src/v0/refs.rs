@@ -266,7 +266,7 @@ pub async fn walk_path<T: IpfsTypes>(
         .expect("unsupported: need to add an error variant for this! or design around it")
         .to_owned();
 
-    let mut iter = path.path().iter();
+    let mut iter = path.iter();
 
     // cache for any datastructure used in repeated hamt lookups
     let mut cache = None;
@@ -287,7 +287,7 @@ pub async fn walk_path<T: IpfsTypes>(
 
         // needs to be mutable because the Ipld walk will overwrite it to project down in the
         // document
-        let mut needle = if let Some(needle) = iter.next() {
+        let mut needle: &str = if let Some(needle) = iter.next() {
             needle
         } else {
             return Ok((current, Loaded::Raw(data), Vec::new()));
@@ -369,7 +369,7 @@ pub async fn walk_path<T: IpfsTypes>(
                 let tmp = needle.clone();
                 ipld = match resolve_segment(&needle, ipld) {
                     Ok(WalkSuccess::AtDestination(ipld)) => {
-                        path_inside_last.push(tmp);
+                        path_inside_last.push(tmp.to_owned());
                         ipld
                     }
                     Ok(WalkSuccess::Link(_, next_cid)) => {
@@ -382,15 +382,13 @@ pub async fn walk_path<T: IpfsTypes>(
                 // we might resolve multiple segments inside a single document
                 needle = match iter.next() {
                     Some(needle) => needle,
-                    None => break,
+                    None => {
+                        // when done with the remaining IpfsPath we should be set with the projected Ipld
+                        // document
+                        path_inside_last.shrink_to_fit();
+                        return Ok((current, Loaded::Ipld(ipld), path_inside_last));
+                    }
                 };
-            }
-
-            if iter.len() == 0 {
-                // when done with the remaining IpfsPath we should be set with the projected Ipld
-                // document
-                path_inside_last.shrink_to_fit();
-                return Ok((current, Loaded::Ipld(ipld), path_inside_last));
             }
         }
     }
