@@ -73,3 +73,55 @@ pub fn find_peer<T: IpfsTypes>(
         .and(query::<FindPeerQuery>())
         .and_then(find_peer_query)
 }
+
+#[derive(Debug, Deserialize)]
+pub struct FindProvidersQuery {
+    arg: String,
+    // FIXME: doesn't seem to be used at the moment
+    verbose: Option<bool>,
+    #[serde(rename = "num-providers")]
+    num_providers: Option<usize>,
+    timeout: Option<StringSerialized<humantime::Duration>>,
+}
+
+async fn find_providers_query<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    query: FindProvidersQuery,
+) -> Result<impl Reply, Rejection> {
+    let FindProvidersQuery {
+        arg,
+        verbose: _,
+        num_providers,
+        timeout,
+    } = query;
+    let providers = ipfs
+        .get_providers(arg.into_bytes())
+        .maybe_timeout(timeout.map(StringSerialized::into_inner))
+        .await
+        .map_err(StringError::from)?
+        .map_err(StringError::from)?
+        .into_iter()
+        .take(if let Some(n) = num_providers { n } else { 20 })
+        .map(|peer_id| ResponsesMember {
+            addrs: vec![],
+            id: peer_id.to_string(),
+        })
+        .collect();
+
+    let response = Response {
+        extra: Default::default(),
+        id: Default::default(),
+        responses: providers,
+        r#type: 2,
+    };
+
+    Ok(warp::reply::json(&response))
+}
+
+pub fn find_providers<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs)
+        .and(query::<FindProvidersQuery>())
+        .and_then(find_providers_query)
+}

@@ -106,7 +106,10 @@ pub fn routes<T: IpfsTypes>(
             and_boxed!(warp::path!("put"), dag::put(ipfs)),
             and_boxed!(warp::path!("resolve"), dag::resolve(ipfs)),
         )),
-        warp::path("dht").and(and_boxed!(warp::path!("findpeer"), dht::find_peer(ipfs))),
+        warp::path("dht").and(combine!(
+            and_boxed!(warp::path!("findpeer"), dht::find_peer(ipfs)),
+            and_boxed!(warp::path!("findprovs"), dht::find_providers(ipfs)),
+        )),
         warp::path("pubsub").and(combine!(
             and_boxed!(warp::path!("peers"), pubsub::peers(ipfs)),
             and_boxed!(warp::path!("ls"), pubsub::list_subscriptions(ipfs)),
@@ -127,7 +130,6 @@ pub fn routes<T: IpfsTypes>(
             warp::path!("bootstrap" / ..),
             warp::path!("config" / ..),
             warp::path!("dht" / "get"),
-            warp::path!("dht" / "findprovs"),
             warp::path!("dht" / "provide"),
             warp::path!("dht" / "put"),
             warp::path!("dht" / "query"),

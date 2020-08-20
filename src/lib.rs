@@ -20,6 +20,7 @@ pub use libp2p::core::{
     connection::ListenerId, multiaddr::Protocol, ConnectedPoint, Multiaddr, PeerId, PublicKey,
 };
 pub use libp2p::identity::Keypair;
+use libp2p::kad::record::Key;
 use libp2p::swarm::NetworkBehaviour;
 use std::path::PathBuf;
 use tracing::Span;
@@ -268,6 +269,7 @@ enum IpfsEvent {
         bool,
         OneshotSender<Either<Vec<Multiaddr>, SubscriptionFuture<KadResult, String>>>,
     ),
+    GetProviders(Key, OneshotSender<SubscriptionFuture<KadResult, String>>),
     Exit,
 }
 
@@ -746,6 +748,29 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Performs a DHT lookup for providers of a value to the given key.
+    pub async fn get_providers<T: Into<Key>>(&self, key: T) -> Result<Vec<PeerId>, Error> {
+        let kad_result = async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GetProviders(key.into(), tx))
+                .await?;
+
+            Ok(rx.await?).map_err(|e: String| anyhow!(e))
+        }
+        .instrument(self.span.clone())
+        .await?
+        .await;
+
+        match kad_result {
+            Ok(KadResult::Providers(providers)) => Ok(providers),
+            Ok(_) => unreachable!(),
+            Err(e) => Err(anyhow!(e)),
+        }
+    }
+
     /// Exit daemon.
     pub async fn exit_daemon(self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
@@ -1046,6 +1071,10 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                             Either::Right(self.swarm.get_closest_peers(peer_id))
                         };
                         let _ = ret.send(addrs);
+                    }
+                    IpfsEvent::GetProviders(key, ret) => {
+                        let future = self.swarm.get_providers(key);
+                        let _ = ret.send(future);
                     }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
