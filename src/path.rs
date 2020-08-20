@@ -325,6 +325,39 @@ mod tests {
     }*/
 
     #[test]
+    fn display() {
+        let input = [
+            (
+                "/ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+                Some("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"),
+            ),
+            ("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n", None),
+            (
+                "/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a",
+                None,
+            ),
+            (
+                "/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a/",
+                Some("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a"),
+            ),
+            (
+                "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+                Some("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"),
+            ),
+            ("/ipns/foobar.com", None),
+            ("/ipns/foobar.com/a", None),
+            ("/ipns/foobar.com/a/", Some("/ipns/foobar.com/a")),
+        ];
+
+        for (input, maybe_actual) in &input {
+            assert_eq!(
+                IpfsPath::try_from(*input).unwrap().to_string(),
+                maybe_actual.unwrap_or(input)
+            );
+        }
+    }
+
+    #[test]
     fn good_paths() {
         let good = [
             ("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n", 0),
