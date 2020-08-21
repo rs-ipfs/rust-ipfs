@@ -737,7 +737,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 .await?;
 
             match rx.await? {
-                Either::Left(addrs) => return Ok(addrs),
+                Either::Left(addrs) if !addrs.is_empty() => return Ok(addrs),
+                Either::Left(_) => unreachable!(),
                 Either::Right(future) => {
                     future.await?;
 
@@ -745,12 +746,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
                     self.to_task
                         .clone()
-                        .send(IpfsEvent::FindPeer(peer_id, true, tx))
+                        .send(IpfsEvent::FindPeer(peer_id.clone(), true, tx))
                         .await?;
 
                     match rx.await? {
-                        Either::Left(addrs) => return Ok(addrs),
-                        _ => unreachable!(),
+                        Either::Left(addrs) if !addrs.is_empty() => return Ok(addrs),
+                        _ => return Err(anyhow!("couldn't find peer {}", peer_id)),
                     }
                 }
             }
