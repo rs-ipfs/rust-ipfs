@@ -1,10 +1,6 @@
-<!-- Fill in the blank: -->
+[Description i.e. This PR ______, so that ____]
 
-This PR ______, so that ____.
-
-### Checklist
-
-<!-- Additionally, updates should conform closely as possible to the [Definition of Done](https://github.com/ipfs/devgrants/tree/master/open-grants/ipfs-rust#definition-of-done) defined in the devgrant proposal. This includes: -->
+### Checklist (can be deleted from PR description once items are checked)
 
 - [ ] **New** code is “linted” i.e. code formatting via rustfmt and language idioms via clippy
 - [ ] There are no extraneous changes like formatting, line reordering, etc. Keep the patch sizes small!
