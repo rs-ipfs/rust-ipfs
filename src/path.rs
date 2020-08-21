@@ -89,6 +89,10 @@ impl IpfsPath {
     pub fn is_path_empty(&self) -> bool {
         self.iter().next().is_none()
     }
+
+    pub fn len(&self) -> usize {
+        self.path.len()
+    }
 }
 
 impl fmt::Display for IpfsPath {
@@ -180,6 +184,12 @@ impl SlashedPath {
         self.path.iter()
     }
 
+    pub fn len(&self) -> usize {
+        // intentionally try to hide the fact that this is based on Vec<String> right now
+        self.path.len()
+    }
+
+    // FIXME: remove this
     pub fn path(&self) -> &[String] {
         &self.path
     }
@@ -188,6 +198,14 @@ impl SlashedPath {
 impl fmt::Display for SlashedPath {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.path.iter().try_for_each(|s| write!(fmt, "/{}", s))
+    }
+}
+
+impl<'a> PartialEq<[&'a str]> for SlashedPath {
+    fn eq(&self, other: &[&'a str]) -> bool {
+        // FIXME: failed at writing a blanket partialeq over anything which would PartialEq<str> or
+        // String
+        self.path.iter().zip(other.iter()).all(|(a, b)| a == b)
     }
 }
 
