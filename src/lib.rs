@@ -770,7 +770,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await;
 
         match kad_result {
-            Ok(KadResult::Providers(providers)) => Ok(providers),
+            Ok(KadResult::Peers(providers)) => Ok(providers),
             Ok(_) => unreachable!(),
             Err(e) => Err(anyhow!(e)),
         }
@@ -805,6 +805,29 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
         match kad_result {
             Ok(KadResult::Complete) => Ok(()),
+            Ok(_) => unreachable!(),
+            Err(e) => Err(anyhow!(e)),
+        }
+    }
+
+    // Returns a list of peers closest to the given `PeerId`, as suggested by the DHT.
+    pub async fn get_closest_peers(&self, peer_id: PeerId) -> Result<Vec<PeerId>, Error> {
+        let kad_result = async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GetClosestPeers(peer_id, tx))
+                .await?;
+
+            Ok(rx.await?).map_err(|e: String| anyhow!(e))
+        }
+        .instrument(self.span.clone())
+        .await?
+        .await;
+
+        match kad_result {
+            Ok(KadResult::Peers(closest)) => Ok(closest),
             Ok(_) => unreachable!(),
             Err(e) => Err(anyhow!(e)),
         }
@@ -1083,8 +1106,8 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     IpfsEvent::AddPeer(peer_id, addr) => {
                         self.swarm.add_peer(peer_id, addr);
                     }
-                    IpfsEvent::GetClosestPeers(own_id, ret) => {
-                        let future = self.swarm.get_closest_peers(own_id);
+                    IpfsEvent::GetClosestPeers(peer_id, ret) => {
+                        let future = self.swarm.get_closest_peers(peer_id);
                         let _ = ret.send(future);
                     }
                     IpfsEvent::GetBitswapPeers(ret) => {
@@ -1229,18 +1252,6 @@ mod node {
             &self,
         ) -> &std::sync::Mutex<subscription::Subscriptions<Block, String>> {
             &self.ipfs.repo.subscriptions.subscriptions
-        }
-
-        pub async fn get_closest_peers(&self) -> Result<KadResult, Error> {
-            let (tx, rx) = oneshot_channel();
-            let own_id = self.ipfs.keys.get_ref().public().into_peer_id();
-
-            self.to_task
-                .clone()
-                .send(IpfsEvent::GetClosestPeers(own_id, tx))
-                .await?;
-
-            rx.await?.await.map_err(|e| anyhow!(e))
         }
 
         /// Initiate a query for random key to discover peers.
