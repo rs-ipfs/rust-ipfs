@@ -1,6 +1,7 @@
-use cid::Cid;
-use ipfs::{p2p::MultiaddrWithPeerId, IpfsOptions, Node};
+use cid::{Cid, Codec};
+use ipfs::{p2p::MultiaddrWithPeerId, Block, IpfsOptions, Node};
 use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
+use multihash::Sha2_256;
 use std::{convert::TryInto, time::Duration};
 use tokio::time::timeout;
 
@@ -169,4 +170,54 @@ async fn kademlia_popular_content_discovery() {
     assert!(timeout(Duration::from_secs(10), peer.get_block(&cid))
         .await
         .is_ok());
+}
+
+/// Check if Ipfs::{get_providers, provide} does its job.
+#[tokio::test(max_threads = 1)]
+async fn dht_providing() {
+    let node_a = Node::new("a").await;
+    let node_b = Node::new("b").await;
+
+    let (a_id, mut a_addrs) = node_a.identity().await.unwrap();
+    let a_id = a_id.into_peer_id();
+    let a_addr = a_addrs.pop().unwrap();
+
+    let (b_id, mut b_addrs) = node_b.identity().await.unwrap();
+    let b_id = b_id.into_peer_id();
+    let b_addr = b_addrs.pop().unwrap();
+
+    // the nodes need to learn about each other...
+    node_a
+        .add_peer(b_id, strip_peer_id(b_addr.clone()))
+        .await
+        .unwrap();
+    node_b
+        .add_peer(a_id.clone(), strip_peer_id(a_addr.clone()))
+        .await
+        .unwrap();
+
+    // ...and both join the DHT
+    node_a.bootstrap().await.unwrap();
+    node_b.bootstrap().await.unwrap();
+
+    // disconnect the nodes just to be extra sure only the DHT is
+    // involved in the providing process
+    node_a.disconnect(b_addr.try_into().unwrap()).await.unwrap();
+
+    // node_a puts a block in order to have something to provide
+    let data = b"hello block\n".to_vec().into_boxed_slice();
+    let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
+    node_a
+        .put_block(Block {
+            cid: cid.clone(),
+            data,
+        })
+        .await
+        .unwrap();
+
+    // node_a provides the block, node_b searches for it in the DHT
+    node_a.provide(cid.to_bytes()).await.unwrap();
+    let providers = node_b.get_providers(cid.to_bytes()).await.unwrap();
+
+    assert_eq!(providers, vec![a_id]);
 }

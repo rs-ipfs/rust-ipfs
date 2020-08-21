@@ -9,7 +9,7 @@ use bitswap::{Bitswap, BitswapEvent};
 use cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{Identify, IdentifyEvent};
-use libp2p::kad::record::store::MemoryStore;
+use libp2p::kad::record::{store::MemoryStore, Key};
 use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent};
 use libp2p::mdns::{MdnsEvent, TokioMdns};
 use libp2p::ping::{Ping, PingEvent};
@@ -40,6 +40,7 @@ pub struct Behaviour<Types: IpfsTypes> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum KadResult {
     Complete,
+    Providers(Vec<PeerId>),
 }
 
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<()> for Behaviour<Types> {
@@ -78,7 +79,8 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
 
         match event {
             QueryResult { result, id, .. } => {
-                if self.kademlia.query(&id).is_none() {
+                // only some subscriptions return actual values
+                if !matches!(result, GetProviders(_)) && self.kademlia.query(&id).is_none() {
                     self.kad_subscriptions
                         .finish_subscription(id.into(), Ok(KadResult::Complete));
                 }
@@ -112,23 +114,30 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         }
                     }
                     GetProviders(Ok(GetProvidersOk {
-                        key,
+                        key: _,
                         providers,
-                        closest_peers,
+                        closest_peers: _,
                     })) => {
-                        let key = multibase::encode(Base::Base32Lower, key);
-                        if providers.is_empty() && closest_peers.is_empty() {
-                            warn!("kad: could not find a provider for {}", key);
-                        } else {
-                            for peer in closest_peers.into_iter().chain(providers.into_iter()) {
-                                debug!("kad: {} is provided by {}", key, peer);
-                                self.bitswap.connect(peer);
-                            }
+                        if self.kademlia.query(&id).is_none() {
+                            let providers = providers.into_iter().collect::<Vec<_>>();
+
+                            self.kad_subscriptions.finish_subscription(
+                                id.into(),
+                                Ok(KadResult::Providers(providers)),
+                            );
                         }
                     }
                     GetProviders(Err(GetProvidersError::Timeout { key, .. })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
                         warn!("kad: timed out trying to get providers for {}", key);
+
+                        if self.kademlia.query(&id).is_none() {
+                            self.kad_subscriptions.finish_subscription(
+                                id.into(),
+                                Err("timed out trying to obtain providers for the given key"
+                                    .to_string()),
+                            );
+                        }
                     }
                     StartProviding(Ok(AddProviderOk { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
@@ -444,26 +453,6 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.bitswap.want_block(cid, 1);
     }
 
-    pub fn provide_block(
-        &mut self,
-        cid: Cid,
-    ) -> Result<SubscriptionFuture<KadResult, String>, anyhow::Error> {
-        // currently disabled; see https://github.com/rs-ipfs/rust-ipfs/pull/281#discussion_r465583345
-        // for details regarding the concerns about enabling this functionality as-is
-        if false {
-            let key = cid.to_bytes();
-            match self.kademlia.start_providing(key.into()) {
-                // Kademlia queries are marked with QueryIds, which are most fitting to
-                // be used as kad Subscription keys - they are small and require no
-                // conversion for the applicable finish_subscription calls
-                Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
-                Err(e) => Err(anyhow!("kad: can't provide block {}: {:?}", cid, e)),
-            }
-        } else {
-            Err(anyhow!("providing blocks is currently unsupported"))
-        }
-    }
-
     pub fn stop_providing_block(&mut self, cid: &Cid) {
         info!("Finished providing block {}", cid.to_string());
         //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
@@ -497,6 +486,24 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
         self.kad_subscriptions
             .create_subscription(self.kademlia.get_closest_peers(id.as_bytes()).into(), None)
+    }
+
+    pub fn get_providers(&mut self, key: Key) -> SubscriptionFuture<KadResult, String> {
+        self.kad_subscriptions
+            .create_subscription(self.kademlia.get_providers(key).into(), None)
+    }
+
+    pub fn start_providing(
+        &mut self,
+        key: Key,
+    ) -> Result<SubscriptionFuture<KadResult, String>, anyhow::Error> {
+        match self.kademlia.start_providing(key) {
+            Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
+            Err(e) => {
+                error!("kad: can't provide a key: {:?}", e);
+                Err(anyhow!("kad: can't provide the key: {:?}", e))
+            }
+        }
     }
 }
 
