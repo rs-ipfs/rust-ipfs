@@ -10,7 +10,7 @@ use thiserror::Error;
 #[derive(Clone, Debug, PartialEq)]
 pub struct IpfsPath {
     root: PathRoot,
-    path: SlashedPath,
+    pub(crate) path: SlashedPath,
 }
 
 impl FromStr for IpfsPath {
@@ -142,7 +142,7 @@ impl TryInto<PeerId> for IpfsPath {
 /// UTF-8 names, which equal to SlashedPath segments.
 #[doc(hidden)]
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
-struct SlashedPath {
+pub struct SlashedPath {
     path: Vec<String>,
 }
 
@@ -156,7 +156,10 @@ impl SlashedPath {
         }
     }
 
-    fn push_split<'a>(&mut self, split: impl Iterator<Item = &'a str>) -> Result<(), ()> {
+    pub(crate) fn push_split<'a>(
+        &mut self,
+        split: impl Iterator<Item = &'a str>,
+    ) -> Result<(), ()> {
         let mut split = split.peekable();
         while let Some(sub_path) = split.next() {
             if sub_path == "" {
