@@ -453,26 +453,6 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.bitswap.want_block(cid, 1);
     }
 
-    pub fn provide_block(
-        &mut self,
-        cid: Cid,
-    ) -> Result<SubscriptionFuture<KadResult, String>, anyhow::Error> {
-        // currently disabled; see https://github.com/rs-ipfs/rust-ipfs/pull/281#discussion_r465583345
-        // for details regarding the concerns about enabling this functionality as-is
-        if false {
-            let key = cid.to_bytes();
-            match self.kademlia.start_providing(key.into()) {
-                // Kademlia queries are marked with QueryIds, which are most fitting to
-                // be used as kad Subscription keys - they are small and require no
-                // conversion for the applicable finish_subscription calls
-                Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
-                Err(e) => Err(anyhow!("kad: can't provide block {}: {:?}", cid, e)),
-            }
-        } else {
-            Err(anyhow!("providing blocks is currently unsupported"))
-        }
-    }
-
     pub fn stop_providing_block(&mut self, cid: &Cid) {
         info!("Finished providing block {}", cid.to_string());
         //let hash = Multihash::from_bytes(cid.to_bytes()).unwrap();
@@ -511,6 +491,19 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     pub fn get_providers(&mut self, key: Key) -> SubscriptionFuture<KadResult, String> {
         self.kad_subscriptions
             .create_subscription(self.kademlia.get_providers(key).into(), None)
+    }
+
+    pub fn start_providing(
+        &mut self,
+        key: Key,
+    ) -> Result<SubscriptionFuture<KadResult, String>, anyhow::Error> {
+        match self.kademlia.start_providing(key) {
+            Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
+            Err(e) => {
+                error!("kad: can't provide a key: {:?}", e);
+                Err(anyhow!("kad: can't provide the key: {:?}", e))
+            }
+        }
     }
 }
 

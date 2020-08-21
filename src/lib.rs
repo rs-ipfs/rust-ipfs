@@ -28,6 +28,7 @@ use tracing_futures::Instrument;
 
 use std::borrow::Borrow;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::fmt;
 use std::future::Future;
 use std::ops::Range;
@@ -270,6 +271,10 @@ enum IpfsEvent {
         OneshotSender<Either<Vec<Multiaddr>, SubscriptionFuture<KadResult, String>>>,
     ),
     GetProviders(Key, OneshotSender<SubscriptionFuture<KadResult, String>>),
+    Provide(
+        Key,
+        OneshotSender<Result<SubscriptionFuture<KadResult, String>, Error>>,
+    ),
     Exit,
 }
 
@@ -771,6 +776,40 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         }
     }
 
+    /// Establishes the local node as a provider of a value for the given key.
+    pub async fn provide<T: Into<Key>>(&self, key: T) -> Result<(), Error> {
+        let key = key.into();
+
+        // don't provide things we don't actually have
+        let cid = Cid::try_from(key.as_ref())?;
+        if self.repo.get_block_now(&cid).await?.is_none() {
+            return Err(anyhow!(
+                "Error: block {} not found locally, cannot provide",
+                cid
+            ));
+        }
+
+        let kad_result = async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::Provide(key, tx))
+                .await?;
+
+            rx.await?
+        }
+        .instrument(self.span.clone())
+        .await?
+        .await;
+
+        match kad_result {
+            Ok(KadResult::Complete) => Ok(()),
+            Ok(_) => unreachable!(),
+            Err(e) => Err(anyhow!(e)),
+        }
+    }
+
     /// Exit daemon.
     pub async fn exit_daemon(self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
@@ -1076,6 +1115,9 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         let future = self.swarm.get_providers(key);
                         let _ = ret.send(future);
                     }
+                    IpfsEvent::Provide(key, ret) => {
+                        let _ = ret.send(self.swarm.start_providing(key));
+                    }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
                         return Poll::Ready(());
@@ -1093,7 +1135,14 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         // TODO: consider if cancel is applicable in cases where we provide the
                         // associated Block ourselves
                         self.swarm.bitswap().cancel_block(&cid);
-                        let _ = ret.send(self.swarm.provide_block(cid));
+                        // currently disabled; see https://github.com/rs-ipfs/rust-ipfs/pull/281#discussion_r465583345
+                        // for details regarding the concerns about enabling this functionality as-is
+                        if false {
+                            let key = cid.to_bytes().into();
+                            let _ = ret.send(self.swarm.start_providing(key));
+                        } else {
+                            let _ = ret.send(Err(anyhow!("not actively providing blocks yet")));
+                        }
                     }
                     RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
                 }

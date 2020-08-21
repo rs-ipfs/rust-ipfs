@@ -125,3 +125,45 @@ pub fn find_providers<T: IpfsTypes>(
         .and(query::<FindProvidersQuery>())
         .and_then(find_providers_query)
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ProvideQuery {
+    arg: String,
+    // FIXME: doesn't seem to be used at the moment
+    verbose: Option<bool>,
+    timeout: Option<StringSerialized<humantime::Duration>>,
+}
+
+async fn provide_query<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    query: ProvideQuery,
+) -> Result<impl Reply, Rejection> {
+    let ProvideQuery {
+        arg,
+        verbose: _,
+        timeout,
+    } = query;
+    let key = arg.into_bytes();
+    ipfs.provide(key)
+        .maybe_timeout(timeout.map(StringSerialized::into_inner))
+        .await
+        .map_err(StringError::from)?
+        .map_err(StringError::from)?;
+
+    let response = Response {
+        extra: Default::default(),
+        id: Default::default(),
+        responses: vec![],
+        r#type: 2,
+    };
+
+    Ok(warp::reply::json(&response))
+}
+
+pub fn provide<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs)
+        .and(query::<ProvideQuery>())
+        .and_then(provide_query)
+}
