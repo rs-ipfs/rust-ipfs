@@ -110,6 +110,7 @@ pub fn routes<T: IpfsTypes>(
             and_boxed!(warp::path!("findpeer"), dht::find_peer(ipfs)),
             and_boxed!(warp::path!("findprovs"), dht::find_providers(ipfs)),
             and_boxed!(warp::path!("provide"), dht::provide(ipfs)),
+            and_boxed!(warp::path!("query"), dht::get_closest_peers(ipfs)),
         )),
         warp::path("pubsub").and(combine!(
             and_boxed!(warp::path!("peers"), pubsub::peers(ipfs)),
@@ -132,7 +133,6 @@ pub fn routes<T: IpfsTypes>(
             warp::path!("config" / ..),
             warp::path!("dht" / "get"),
             warp::path!("dht" / "put"),
-            warp::path!("dht" / "query"),
             warp::path!("key" / ..),
             warp::path!("name" / ..),
             warp::path!("object" / ..),

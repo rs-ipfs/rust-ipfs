@@ -169,3 +169,53 @@ pub fn provide<T: IpfsTypes>(
         .and(query::<ProvideQuery>())
         .and_then(provide_query)
 }
+
+#[derive(Debug, Deserialize)]
+pub struct GetClosestPeersQuery {
+    arg: String,
+    // FIXME: in go-ipfs this returns a lot of logs
+    verbose: Option<bool>,
+    timeout: Option<StringSerialized<humantime::Duration>>,
+}
+
+async fn get_closest_peers_query<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    query: GetClosestPeersQuery,
+) -> Result<impl Reply, Rejection> {
+    let GetClosestPeersQuery {
+        arg,
+        verbose: _,
+        timeout,
+    } = query;
+    let peer_id = arg.parse::<PeerId>().map_err(StringError::from)?;
+    let closest_peers = ipfs
+        .get_closest_peers(peer_id)
+        .maybe_timeout(timeout.map(StringSerialized::into_inner))
+        .await
+        .map_err(StringError::from)?
+        .map_err(StringError::from)?
+        .into_iter()
+        .map(|peer_id| ResponsesMember {
+            addrs: vec![],
+            id: peer_id.to_string(),
+        })
+        .collect();
+
+    // FIXME: go-ipfs returns just a list of PeerIds
+    let response = Response {
+        extra: Default::default(),
+        id: Default::default(),
+        responses: closest_peers,
+        r#type: 2,
+    };
+
+    Ok(warp::reply::json(&response))
+}
+
+pub fn get_closest_peers<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs)
+        .and(query::<GetClosestPeersQuery>())
+        .and_then(get_closest_peers_query)
+}

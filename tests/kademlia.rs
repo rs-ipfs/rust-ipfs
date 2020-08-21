@@ -137,7 +137,8 @@ async fn kademlia_local_peer_discovery() {
     assert!(peer.bootstrap().await.is_ok());
 
     // check that kad::get_closest_peers works
-    assert!(peer.get_closest_peers().await.is_ok());
+    let peer_id = peer.identity().await.unwrap().0.into_peer_id();
+    assert!(peer.get_closest_peers(peer_id).await.is_ok());
 }
 
 #[ignore = "targets an actual bootstrapper, so random failures can happen"]

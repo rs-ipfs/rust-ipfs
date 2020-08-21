@@ -40,7 +40,7 @@ pub struct Behaviour<Types: IpfsTypes> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum KadResult {
     Complete,
-    Providers(Vec<PeerId>),
+    Peers(Vec<PeerId>),
 }
 
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<()> for Behaviour<Types> {
@@ -79,10 +79,17 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
 
         match event {
             QueryResult { result, id, .. } => {
-                // only some subscriptions return actual values
-                if !matches!(result, GetProviders(_)) && self.kademlia.query(&id).is_none() {
-                    self.kad_subscriptions
-                        .finish_subscription(id.into(), Ok(KadResult::Complete));
+                // make sure the query is exhausted
+                if self.kademlia.query(&id).is_none() {
+                    match result {
+                        // these subscriptions return actual values
+                        GetClosestPeers(_) | GetProviders(_) => {}
+                        // and the rest just a general KadResult::Complete
+                        _ => {
+                            self.kad_subscriptions
+                                .finish_subscription(id.into(), Ok(KadResult::Complete));
+                        }
+                    }
                 }
 
                 match result {
@@ -99,18 +106,21 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         warn!("kad: failed to bootstrap");
                     }
                     GetClosestPeers(Ok(GetClosestPeersOk { key: _, peers })) => {
-                        for peer in peers {
-                            // don't mention the key here, as this is just the id of our node
-                            debug!("kad: peer {} is close", peer);
+                        if self.kademlia.query(&id).is_none() {
+                            self.kad_subscriptions
+                                .finish_subscription(id.into(), Ok(KadResult::Peers(peers)));
                         }
                     }
-                    GetClosestPeers(Err(GetClosestPeersError::Timeout { key: _, peers })) => {
+                    GetClosestPeers(Err(GetClosestPeersError::Timeout { key: _, peers: _ })) => {
                         // don't mention the key here, as this is just the id of our node
-                        warn!(
-                            "kad: timed out trying to find all closest peers; got the following:"
-                        );
-                        for peer in peers {
-                            debug!("kad: peer {} is close", peer);
+                        warn!("kad: timed out trying to find all closest peers");
+
+                        if self.kademlia.query(&id).is_none() {
+                            self.kad_subscriptions.finish_subscription(
+                                id.into(),
+                                Err("timed out trying to obtain providers for the given key"
+                                    .to_string()),
+                            );
                         }
                     }
                     GetProviders(Ok(GetProvidersOk {
@@ -121,10 +131,8 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         if self.kademlia.query(&id).is_none() {
                             let providers = providers.into_iter().collect::<Vec<_>>();
 
-                            self.kad_subscriptions.finish_subscription(
-                                id.into(),
-                                Ok(KadResult::Providers(providers)),
-                            );
+                            self.kad_subscriptions
+                                .finish_subscription(id.into(), Ok(KadResult::Peers(providers)));
                         }
                     }
                     GetProviders(Err(GetProvidersError::Timeout { key, .. })) => {
