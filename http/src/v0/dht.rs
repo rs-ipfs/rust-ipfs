@@ -77,7 +77,7 @@ pub fn find_peer<T: IpfsTypes>(
 #[derive(Debug, Deserialize)]
 pub struct FindProvidersQuery {
     arg: String,
-    // FIXME: doesn't seem to be used at the moment
+    // FIXME: in go-ipfs this returns a lot of logs
     verbose: Option<bool>,
     #[serde(rename = "num-providers")]
     num_providers: Option<usize>,
@@ -108,6 +108,7 @@ async fn find_providers_query<T: IpfsTypes>(
         })
         .collect();
 
+    // FIXME: go-ipfs returns just a list of PeerIds
     let response = Response {
         extra: Default::default(),
         id: Default::default(),
@@ -129,7 +130,7 @@ pub fn find_providers<T: IpfsTypes>(
 #[derive(Debug, Deserialize)]
 pub struct ProvideQuery {
     arg: String,
-    // FIXME: doesn't seem to be used at the moment
+    // FIXME: in go-ipfs this returns a lot of logs
     verbose: Option<bool>,
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
@@ -150,6 +151,7 @@ async fn provide_query<T: IpfsTypes>(
         .map_err(StringError::from)?
         .map_err(StringError::from)?;
 
+    // FIXME: go-ipfs returns nothing on success
     let response = Response {
         extra: Default::default(),
         id: Default::default(),
