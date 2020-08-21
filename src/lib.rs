@@ -11,6 +11,7 @@ use anyhow::{anyhow, format_err};
 pub use bitswap::{BitswapEvent, Block, Stats};
 pub use cid::Cid;
 use cid::Codec;
+use either::Either;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use futures::sink::SinkExt;
@@ -262,7 +263,11 @@ enum IpfsEvent {
     AddPeer(PeerId, Multiaddr),
     GetClosestPeers(PeerId, OneshotSender<SubscriptionFuture<KadResult, String>>),
     GetBitswapPeers(OneshotSender<Vec<PeerId>>),
-    FindPeer(PeerId, OneshotSender<Vec<Multiaddr>>),
+    FindPeer(
+        PeerId,
+        bool,
+        OneshotSender<Either<Vec<Multiaddr>, SubscriptionFuture<KadResult, String>>>,
+    ),
     Exit,
 }
 
@@ -715,10 +720,27 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             self.to_task
                 .clone()
-                .send(IpfsEvent::FindPeer(peer_id, tx))
+                .send(IpfsEvent::FindPeer(peer_id.clone(), false, tx))
                 .await?;
 
-            Ok(rx.await?)
+            match rx.await? {
+                Either::Left(addrs) => return Ok(addrs),
+                Either::Right(future) => {
+                    future.await?;
+
+                    let (tx, rx) = oneshot_channel();
+
+                    self.to_task
+                        .clone()
+                        .send(IpfsEvent::FindPeer(peer_id, true, tx))
+                        .await?;
+
+                    match rx.await? {
+                        Either::Left(addrs) => return Ok(addrs),
+                        _ => unreachable!(),
+                    }
+                }
+            }
         }
         .instrument(self.span.clone())
         .await
@@ -997,8 +1019,8 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     IpfsEvent::AddPeer(peer_id, addr) => {
                         self.swarm.add_peer(peer_id, addr);
                     }
-                    IpfsEvent::GetClosestPeers(self_peer, ret) => {
-                        let future = self.swarm.get_closest_peers(self_peer);
+                    IpfsEvent::GetClosestPeers(own_id, ret) => {
+                        let future = self.swarm.get_closest_peers(own_id);
                         let _ = ret.send(future);
                     }
                     IpfsEvent::GetBitswapPeers(ret) => {
@@ -1011,12 +1033,17 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                             .collect();
                         let _ = ret.send(peers);
                     }
-                    IpfsEvent::FindPeer(peer_id, ret) => {
-                        let known_addrs = self.swarm.swarm.addresses_of_peer(&peer_id);
-                        let addrs = if !known_addrs.is_empty() {
-                            known_addrs
+                    IpfsEvent::FindPeer(peer_id, local_only, ret) => {
+                        let swarm_addrs = self.swarm.swarm.addresses_of_peer(&peer_id);
+                        let locally_known_addrs = if !swarm_addrs.is_empty() {
+                            swarm_addrs
                         } else {
                             self.swarm.kademlia().addresses_of_peer(&peer_id)
+                        };
+                        let addrs = if !locally_known_addrs.is_empty() || local_only {
+                            Either::Left(locally_known_addrs)
+                        } else {
+                            Either::Right(self.swarm.get_closest_peers(peer_id))
                         };
                         let _ = ret.send(addrs);
                     }
@@ -1127,12 +1154,12 @@ mod node {
         }
 
         pub async fn get_closest_peers(&self) -> Result<KadResult, Error> {
-            let self_peer = PeerId::from_public_key(self.identity().await?.0);
             let (tx, rx) = oneshot_channel();
+            let own_id = self.ipfs.keys.get_ref().public().into_peer_id();
 
             self.to_task
                 .clone()
-                .send(IpfsEvent::GetClosestPeers(self_peer, tx))
+                .send(IpfsEvent::GetClosestPeers(own_id, tx))
                 .await?;
 
             rx.await?.await.map_err(|e| anyhow!(e))

@@ -21,6 +21,7 @@ cid = { default-features = false, version = "0.5" }
 dirs = { default-features = false, version = "3.0" }
 domain = { default-features = false, version = "0.5" }
 domain-resolv = { default-features = false, version = "0.5" }
+either = { default-features = false, version = "1.5" }
 futures = { default-features = false, version = "0.3.5" }
 ipfs-unixfs = { path = "unixfs" }
 libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-tokio", "mdns-tokio", "mplex", "noise", "ping", "yamux"], version = "0.24" }

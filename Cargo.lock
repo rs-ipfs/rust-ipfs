@@ -1174,6 +1174,7 @@ dependencies = [
  "dirs",
  "domain",
  "domain-resolv",
+ "either",
  "futures",
  "hex-literal",
  "ipfs-unixfs",
