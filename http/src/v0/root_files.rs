@@ -1,14 +1,14 @@
-use crate::v0::refs::{walk_path, IpfsPath};
 use crate::v0::support::{
     with_ipfs, MaybeTimeoutExt, StreamResponse, StringError, StringSerialized,
 };
 use async_stream::try_stream;
 use bytes::Bytes;
-use cid::{Cid, Codec};
+use cid::Codec;
 use futures::stream::TryStream;
 use ipfs::unixfs::ll::walk::{self, ContinuedWalk, Walker};
 use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed};
 use ipfs::Block;
+use ipfs::IpfsPath;
 use ipfs::{Ipfs, IpfsTypes};
 use serde::Deserialize;
 use std::convert::TryFrom;
@@ -72,18 +72,14 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
     // FIXME: this is here until we have IpfsPath back at ipfs
     // FIXME: this timeout here is ... not great; the end user could be waiting for 2*timeout
 
-    let (cid, _, _) = walk_path(&ipfs, &Default::default(), path)
+    let block = resolve_dagpb(&ipfs, path)
         .maybe_timeout(args.timeout.clone().map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?
         .map_err(StringError::from)?;
 
-    if cid.codec() != Codec::DagProtobuf {
-        return Err(StringError::from("unknown node type").into());
-    }
-
     // TODO: timeout for the whole stream!
-    let ret = ipfs::unixfs::cat(ipfs, cid, range)
+    let ret = ipfs::unixfs::cat(ipfs, block, range)
         .maybe_timeout(args.timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?;
@@ -121,22 +117,40 @@ async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Re
 
     // FIXME: this is here until we have IpfsPath back at ipfs
     // FIXME: this timeout is only for the first step, should be for the whole walk!
-    let (cid, _, _) = walk_path(&ipfs, &Default::default(), path)
+    let block = resolve_dagpb(&ipfs, path)
         .maybe_timeout(args.timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?
         .map_err(StringError::from)?;
 
-    if cid.codec() != Codec::DagProtobuf {
-        return Err(StringError::from("unknown node type").into());
-    }
+    Ok(StreamResponse(walk(ipfs, block).into_stream()))
+}
 
-    Ok(StreamResponse(walk(ipfs, cid).into_stream()))
+async fn resolve_dagpb<T: IpfsTypes>(ipfs: &Ipfs<T>, path: IpfsPath) -> Result<Block, StringError> {
+    use ipfs::dag::ResolvedNode;
+
+    let (resolved, _) = ipfs
+        .dag()
+        .resolve(path, true)
+        .await
+        .map_err(StringError::from)?;
+
+    if resolved.cid().codec() != Codec::DagProtobuf {
+        Err(StringError::from("unknown node type"))
+    } else {
+        match resolved {
+            ResolvedNode::Block(b) => Ok(b),
+            _ => return Err(StringError::from("path resolved to non UnixFs file")),
+        }
+    }
 }
 
 fn walk<Types: IpfsTypes>(
     ipfs: Ipfs<Types>,
-    root: Cid,
+    Block {
+        cid: root,
+        data: first_block_data,
+    }: Block,
 ) -> impl TryStream<Ok = Bytes, Error = GetError> + 'static {
     let mut cache = None;
     let mut tar_helper = TarHelper::with_capacity(16 * 1024);
@@ -146,10 +160,18 @@ fn walk<Types: IpfsTypes>(
     let name = root.to_string();
     let mut walker = Walker::new(root, name);
 
+    let mut buffer = Some(first_block_data);
+
     try_stream! {
         while walker.should_continue() {
-            let (next, _) = walker.pending_links();
-            let Block { data, .. } = ipfs.get_block(next).await?;
+            let data = match buffer.take() {
+                Some(first) => first,
+                None => {
+                    let (next, _) = walker.pending_links();
+                    let Block { data, .. } = ipfs.get_block(next).await?;
+                    data
+                }
+            };
 
             match walker.next(&data, &mut cache)? {
                 ContinuedWalk::Bucket(..) => {}
