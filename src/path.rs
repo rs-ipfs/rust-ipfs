@@ -97,7 +97,13 @@ impl IpfsPath {
 
 impl fmt::Display for IpfsPath {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "{}{}", self.root, self.path)
+        write!(fmt, "{}", self.root)?;
+        if !self.path.is_empty() {
+            // slash is not included in the <SlashedPath as fmt::Display>::fmt impl as we need to,
+            // serialize it later in json *without* one
+            write!(fmt, "/{}", self.path)?;
+        }
+        Ok(())
     }
 }
 
@@ -189,6 +195,10 @@ impl SlashedPath {
         self.path.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     // FIXME: remove this
     pub fn path(&self) -> &[String] {
         &self.path
@@ -197,7 +207,16 @@ impl SlashedPath {
 
 impl fmt::Display for SlashedPath {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.path.iter().try_for_each(|s| write!(fmt, "/{}", s))
+        let mut first = true;
+        self.path.iter().try_for_each(move |s| {
+            if first {
+                first = false;
+            } else {
+                write!(fmt, "/")?;
+            }
+
+            write!(fmt, "{}", s)
+        })
     }
 }
 
