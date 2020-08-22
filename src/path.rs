@@ -198,11 +198,6 @@ impl SlashedPath {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-
-    // FIXME: remove this
-    pub fn path(&self) -> &[String] {
-        &self.path
-    }
 }
 
 impl fmt::Display for SlashedPath {
