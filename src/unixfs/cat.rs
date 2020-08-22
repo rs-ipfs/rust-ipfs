@@ -1,5 +1,6 @@
 use crate::{Error, Ipfs, IpfsTypes};
 use async_stream::stream;
+use bitswap::Block;
 use cid::Cid;
 use core::borrow::Borrow;
 use core::fmt;
@@ -15,15 +16,13 @@ use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
 /// Returns a stream of bytes on the file pointed with the Cid.
 pub async fn cat<'a, Types, MaybeOwned>(
     ipfs: MaybeOwned,
-    cid: Cid,
+    starting_point: impl Into<StartingPoint>,
     range: Option<Range<u64>>,
 ) -> Result<impl Stream<Item = Result<Vec<u8>, TraversalFailed>> + Send + 'a, TraversalFailed>
 where
     Types: IpfsTypes,
     MaybeOwned: Borrow<Ipfs<Types>> + Send + 'a,
 {
-    use bitswap::Block;
-
     let mut visit = IdleFileVisit::default();
     if let Some(range) = range {
         visit = visit.with_target_range(range);
@@ -31,12 +30,17 @@ where
 
     // Get the root block to start the traversal. The stream does not expose any of the file
     // metadata. To get to it the user needs to create a Visitor over the first block.
-    let borrow = ipfs.borrow();
-    let Block { cid, data } = match borrow.get_block(&cid).await {
-        Ok(block) => block,
-        Err(e) => {
-            return Err(TraversalFailed::Loading(cid, e));
+    let Block { cid, data } = match starting_point.into() {
+        StartingPoint::Left(cid) => {
+            let borrow = ipfs.borrow();
+            match borrow.get_block(&cid).await {
+                Ok(block) => block,
+                Err(e) => {
+                    return Err(TraversalFailed::Loading(cid, e));
+                }
+            }
         }
+        StartingPoint::Right(block) => block,
     };
 
     let mut cache = None;
@@ -109,6 +113,23 @@ where
             }
         }
     })
+}
+
+pub enum StartingPoint {
+    Left(Cid),
+    Right(Block),
+}
+
+impl From<Cid> for StartingPoint {
+    fn from(a: Cid) -> Self {
+        Self::Left(a)
+    }
+}
+
+impl From<Block> for StartingPoint {
+    fn from(b: Block) -> Self {
+        Self::Right(b)
+    }
 }
 
 /// Types of failures which can occur while walking the UnixFS graph.
