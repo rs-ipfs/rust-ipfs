@@ -61,12 +61,11 @@ impl<Types: RepoTypes> IpldDag<Types> {
 
         let mut iter = path.iter().peekable();
 
-        let (node, matched) = self.resolve0(cid, &mut iter, follow_links).await?;
+        let (node, matched_total) = self.resolve0(cid, &mut iter, follow_links).await?;
 
-        let mut remaining_path = SlashedPath::default();
-        remaining_path
-            .push_split(path.iter().skip(path.len() - matched))
-            .expect("these were already valid segments");
+        drop(iter);
+
+        let remaining_path = path.into_shifted(matched_total);
 
         Ok((node, remaining_path))
     }
@@ -81,24 +80,25 @@ impl<Types: RepoTypes> IpldDag<Types> {
 
         let mut current = cid.to_owned();
 
+        let mut total = 0;
+
         loop {
             let block = self.ipfs.repo.get_block(&current).await?;
 
-            println!("resolving on {}: {:?}", block.cid(), segments.peek());
-
             let ((src, dest), matched) = match resolve_local(block, segments)? {
-                (Complete(ResolvedNode::Link(src, dest)), matched) => ((src, dest), dbg!(matched)),
-                (Complete(other), matched) => return Ok((other, dbg!(matched))),
+                (Complete(ResolvedNode::Link(src, dest)), matched) => ((src, dest), matched),
+                (Complete(other), matched) => return Ok((other, total + matched)),
                 (Incomplete(src, lookup), matched) => {
                     assert_eq!(matched, 0);
                     ((src, self.resolve_hamt(lookup).await?), 1)
                 }
             };
 
+            total += matched;
+
             if !follow_links {
-                return Ok((ResolvedNode::Link(src, dest), matched));
+                return Ok((ResolvedNode::Link(src, dest), total));
             } else {
-                println!("following link {}", dest);
                 current = dest;
             }
         }

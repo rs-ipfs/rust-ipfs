@@ -93,6 +93,14 @@ impl IpfsPath {
     pub fn len(&self) -> usize {
         self.path.len()
     }
+
+    pub(crate) fn into_shifted(self, shifted: usize) -> SlashedPath {
+        assert!(shifted <= self.len());
+
+        let mut p = self.path;
+        p.shift(shifted);
+        p
+    }
 }
 
 impl fmt::Display for IpfsPath {
@@ -197,6 +205,10 @@ impl SlashedPath {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn shift(&mut self, n: usize) {
+        self.path.drain(0..n);
     }
 }
 
@@ -493,5 +505,14 @@ mod tests {
     fn multiple_slashes_are_not_deduplicated() {
         // this used to be the behaviour in ipfs-http
         IpfsPath::try_from("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n///a").unwrap_err();
+    }
+
+    #[test]
+    fn shifting() {
+        let mut p = super::SlashedPath::default();
+        p.push_split(vec!["a", "b", "c"].into_iter()).unwrap();
+        p.shift(2);
+
+        assert_eq!(p.to_string(), "c");
     }
 }
