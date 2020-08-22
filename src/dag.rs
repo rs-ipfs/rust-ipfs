@@ -5,7 +5,11 @@ use crate::repo::RepoTypes;
 use crate::Ipfs;
 use bitswap::Block;
 use cid::{Cid, Codec, Version};
-use ipfs_unixfs::{dagpb::NodeData, dir::ShardedLookup, resolve, MaybeResolved, ResolveError};
+use ipfs_unixfs::{
+    dagpb::NodeData,
+    dir::{Cache, ShardedLookup},
+    resolve, MaybeResolved, ResolveError,
+};
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Peekable;
@@ -79,8 +83,9 @@ impl<Types: RepoTypes> IpldDag<Types> {
         use LocallyResolved::*;
 
         let mut current = cid.to_owned();
-
         let mut total = 0;
+
+        let mut cache = None;
 
         loop {
             let block = self.ipfs.repo.get_block(&current).await?;
@@ -90,7 +95,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
                 (Complete(other), matched) => return Ok((other, total + matched)),
                 (Incomplete(src, lookup), matched) => {
                     assert_eq!(matched, 0);
-                    ((src, self.resolve_hamt(lookup).await?), 1)
+                    ((src, self.resolve_hamt(lookup, &mut cache).await?), 1)
                 }
             };
 
@@ -104,7 +109,11 @@ impl<Types: RepoTypes> IpldDag<Types> {
         }
     }
 
-    async fn resolve_hamt<'a>(&self, mut lookup: ShardedLookup<'a>) -> Result<Cid, Error> {
+    async fn resolve_hamt<'a>(
+        &self,
+        mut lookup: ShardedLookup<'a>,
+        cache: &mut Option<Cache>,
+    ) -> Result<Cid, Error> {
         use MaybeResolved::*;
 
         loop {
@@ -112,8 +121,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
 
             let block = self.ipfs.repo.get_block(next).await?;
 
-            // TODO: cache
-            match lookup.continue_walk(block.data(), &mut None)? {
+            match lookup.continue_walk(block.data(), cache)? {
                 NeedToLoadMore(next) => lookup = next,
                 Found(cid) => return Ok(cid),
                 NotFound => return Err(anyhow::anyhow!("key not found: ???")),
