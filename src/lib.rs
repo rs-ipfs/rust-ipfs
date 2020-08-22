@@ -37,7 +37,7 @@ use std::sync::{atomic::Ordering, Arc};
 use std::task::{Context, Poll};
 
 mod config;
-mod dag;
+pub mod dag;
 pub mod error;
 #[macro_use]
 pub mod ipld;
@@ -360,7 +360,7 @@ impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
-    fn dag(&self) -> IpldDag<Types> {
+    pub fn dag(&self) -> IpldDag<Types> {
         IpldDag::new(self.clone())
     }
 
