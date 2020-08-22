@@ -11,7 +11,6 @@ use ipfs::Block;
 use ipfs::IpfsPath;
 use ipfs::{Ipfs, IpfsTypes};
 use serde::Deserialize;
-use std::convert::TryFrom;
 use std::fmt;
 use std::path::Path;
 use warp::{query, Filter, Rejection, Reply};
@@ -46,8 +45,7 @@ pub fn add<T: IpfsTypes>(
 
 #[derive(Debug, Deserialize)]
 pub struct CatArgs {
-    // this could be an ipfs path
-    arg: String,
+    arg: StringSerialized<IpfsPath>,
     offset: Option<u64>,
     length: Option<u64>,
     timeout: Option<StringSerialized<humantime::Duration>>,
@@ -60,7 +58,7 @@ pub fn cat<T: IpfsTypes>(
 }
 
 async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Reply, Rejection> {
-    let path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
+    let path = args.arg.into_inner();
 
     let range = match (args.offset, args.length) {
         (Some(start), Some(len)) => Some(start..(start + len)),
@@ -99,8 +97,7 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
 
 #[derive(Deserialize)]
 struct GetArgs {
-    // this could be an ipfs path again
-    arg: String,
+    arg: StringSerialized<IpfsPath>,
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
@@ -113,7 +110,7 @@ pub fn get<T: IpfsTypes>(
 async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Reply, Rejection> {
     use futures::stream::TryStreamExt;
 
-    let path = IpfsPath::try_from(args.arg.as_str()).map_err(StringError::from)?;
+    let path = args.arg.into_inner();
 
     // FIXME: this is here until we have IpfsPath back at ipfs
     // FIXME: this timeout is only for the first step, should be for the whole walk!
