@@ -63,11 +63,10 @@ impl<Types: RepoTypes> IpldDag<Types> {
             None => return Err(anyhow::anyhow!("expected cid")),
         };
 
-        let mut iter = path.iter().peekable();
-
-        let (node, matched_total) = self.resolve0(cid, &mut iter, follow_links).await?;
-
-        drop(iter);
+        let (node, matched_total) = {
+            let mut iter = path.iter().peekable();
+            self.resolve0(cid, &mut iter, follow_links).await?
+        };
 
         let remaining_path = path.into_shifted(matched_total);
 
