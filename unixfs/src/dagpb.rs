@@ -31,20 +31,23 @@ where
     })
 }
 
-fn subslice_to_range<T>(full: &[T], sub: &[T]) -> Option<Range<usize>> {
-    use std::mem;
+fn subslice_to_range(full: &[u8], sub: &[u8]) -> Option<Range<usize>> {
+    // note this doesn't work for all types, for example () or similar zst.
 
-    if full.len() < sub.len() {
-        return None;
-    }
     let max = full.len();
     let amt = sub.len();
+
+    if max < amt {
+        // if the latter slice is larger than the first one, surely it isn't a subslice.
+        return None;
+    }
 
     let full = full.as_ptr() as usize;
     let sub = sub.as_ptr() as usize;
 
     sub.checked_sub(full)
-        .map(|diff| diff / mem::size_of::<T>())
+        // not needed as it would divide by one: .map(|diff| diff / mem::size_of::<T>())
+        //
         // if there are two slices of a continious chunk, [A|B] we need to make sure B will not be
         // calculated as subslice of A
         .and_then(|start| if start >= max { None } else { Some(start) })
@@ -94,5 +97,43 @@ impl<T: AsRef<[u8]>> NodeData<T> {
 impl<T: AsRef<[u8]>, B: AsRef<[u8]>> PartialEq<B> for NodeData<T> {
     fn eq(&self, other: &B) -> bool {
         self.node_data() == other.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::subslice_to_range;
+
+    #[test]
+    fn subslice_ranges() {
+        let full = &b"01234"[..];
+
+        for start in 0..(full.len() - 1) {
+            for end in start..(full.len() - 1) {
+                let sub = &full[start..end];
+                assert_eq!(subslice_to_range(full, sub), Some(start..end));
+            }
+        }
+    }
+
+    #[test]
+    fn not_in_following_subslice() {
+        // this could be done with two distinct/disjoint 'static slices but there might not be any
+        // guarantees it working in all rust released and unreleased versions, and with different
+        // linkers.
+
+        let full = &b"0123456789"[..];
+
+        let a = &full[0..4];
+        let b = &full[4..];
+
+        let a_sub = &a[1..3];
+        let b_sub = &b[0..2];
+
+        assert_eq!(subslice_to_range(a, a_sub), Some(1..3));
+        assert_eq!(subslice_to_range(b, b_sub), Some(0..2));
+
+        assert_eq!(subslice_to_range(a, b_sub), None);
+        assert_eq!(subslice_to_range(b, a_sub), None);
     }
 }
