@@ -98,8 +98,7 @@ pub enum MaybeResolved<'needle> {
 /// cases, there can be unexpected directories.
 #[derive(Debug)]
 pub enum ResolveError {
-    /// The target block was not a directory, hamt shard, or was a dag-pb node whose data could not be
-    /// parsed as UnixFS.
+    /// The target block was UnixFs node unsupported for resolving, for example a file.
     UnexpectedType(UnexpectedNodeType),
     /// A directory had unsupported properties. These are not encountered during walking sharded
     /// directories.
