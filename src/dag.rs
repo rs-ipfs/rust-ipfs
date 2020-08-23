@@ -571,8 +571,6 @@ mod tests {
             match dag.resolve(p, true).await.unwrap() {
                 (ResolvedNode::Projection(_, Ipld::Integer(1)), remaining_path) => {
                     assert_eq!(remaining_path, ["0"][..], "{}", cloned);
-                    println!("matched {}", cloned);
-                    println!("----\n");
                 }
                 x => unreachable!("{:?}", x),
             }
