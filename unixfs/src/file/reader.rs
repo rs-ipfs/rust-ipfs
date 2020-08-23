@@ -1,7 +1,7 @@
 use crate::pb::{FlatUnixFs, PBLink, RangeLinks, UnixFsType};
-use std::convert::TryFrom;
-use std::fmt;
-use std::ops::Range;
+use core::convert::TryFrom;
+use core::fmt;
+use core::ops::Range;
 
 use crate::file::{FileError, FileReadFailed, Metadata, UnwrapBorrowedExt};
 

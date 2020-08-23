@@ -1,5 +1,5 @@
 use cid::Cid;
-use std::fmt;
+use core::fmt;
 
 mod dir_builder;
 use dir_builder::DirBuilder;

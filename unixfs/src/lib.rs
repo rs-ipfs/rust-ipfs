@@ -9,7 +9,7 @@
 //! `ipfs_unixfs::resolve` should be used.
 
 use std::borrow::Cow;
-use std::fmt;
+use core::fmt;
 
 /// File support.
 pub mod file;
@@ -148,7 +148,7 @@ impl Metadata {
 
     /// Returns the raw timestamp of last modification time, if specified.
     ///
-    /// The timestamp is `(seconds, nanos)` - similar to `std::time::Duration`, with the exception of
+    /// The timestamp is `(seconds, nanos)` - similar to `core::time::Duration`, with the exception of
     /// allowing seconds to be negative. The seconds are calculated from `1970-01-01 00:00:00` or
     /// the common "unix epoch".
     pub fn mtime(&self) -> Option<(i64, u32)> {

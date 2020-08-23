@@ -34,7 +34,7 @@ mod tests {
     use super::serialize_symlink_block;
     use cid::Cid;
     use sha2::{Digest, Sha256};
-    use std::convert::TryFrom;
+    use core::convert::TryFrom;
 
     #[test]
     fn simple_symlink() {
@@ -172,7 +172,7 @@ mod tests {
                 ContinuedWalk::Symlink(link_name, _cid, path, _metadata) => {
                     actual.push(Entry::Symlink(
                         path.into(),
-                        std::str::from_utf8(link_name).unwrap().to_owned(),
+                        core::str::from_utf8(link_name).unwrap().to_owned(),
                     ));
                 }
             };

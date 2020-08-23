@@ -10,10 +10,11 @@ use super::*;
 use quick_protobuf::sizeofs::*;
 use quick_protobuf::{BytesReader, MessageRead, MessageWrite, Result, Writer, WriterBackend};
 use std::borrow::Cow;
-use std::convert::TryFrom;
+use core::convert::TryFrom;
 use std::io::Write;
-use std::ops::Deref;
-use std::ops::DerefMut;
+use core::ops::Deref;
+use core::ops::DerefMut;
+
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct PBLink<'a> {
     pub Hash: Option<Cow<'a, [u8]>>,

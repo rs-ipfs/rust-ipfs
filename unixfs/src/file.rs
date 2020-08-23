@@ -5,7 +5,7 @@
 use crate::pb::ParsingFailed;
 use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
 use std::borrow::Cow;
-use std::fmt;
+use core::fmt;
 
 /// Low level UnixFS file descriptor reader support.
 mod reader;

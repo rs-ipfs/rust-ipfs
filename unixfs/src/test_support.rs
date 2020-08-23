@@ -1,7 +1,7 @@
 use cid::Cid;
 use hex_literal::hex;
 use std::collections::HashMap;
-use std::convert::TryFrom;
+use core::convert::TryFrom;
 
 #[derive(Default)]
 pub struct FakeBlockstore {

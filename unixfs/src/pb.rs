@@ -1,8 +1,8 @@
 use quick_protobuf::{errors::Result as ProtobufResult, Writer, WriterBackend};
 use std::borrow::Cow;
-use std::convert::TryFrom;
-use std::fmt;
-use std::ops::Range;
+use core::convert::TryFrom;
+use core::fmt;
+use core::ops::Range;
 
 pub(crate) mod merkledag;
 pub(crate) use merkledag::PBLink;
@@ -198,11 +198,10 @@ where
 
 #[cfg(test)]
 mod test {
-
     use super::{FlatUnixFs, PBNode, UnixFs, UnixFsType};
     use hex_literal::hex;
     use std::borrow::Cow;
-    use std::convert::TryFrom;
+    use core::convert::TryFrom;
 
     #[test]
     fn parse_content() {
