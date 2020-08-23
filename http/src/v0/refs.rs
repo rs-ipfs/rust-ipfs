@@ -133,10 +133,9 @@ async fn refs_paths<T: IpfsTypes>(
 {
     use futures::stream::FuturesOrdered;
     use futures::stream::TryStreamExt;
+    use ipfs::dag::ResolvedNode;
 
-    let opts = WalkOptions {
-        follow_dagpb_data: true,
-    };
+    let dag = ipfs.dag();
 
     // added braces to spell it out for borrowck that opts does not outlive this fn
     let iplds = {
@@ -145,12 +144,23 @@ async fn refs_paths<T: IpfsTypes>(
         let mut walks = FuturesOrdered::new();
 
         for path in paths {
-            walks.push(walk_path(&ipfs, &opts, path));
+            walks.push(dag.resolve(path, true));
+            //walks.push(walk_path(&ipfs, &opts, path));
         }
 
         // strip out the path inside last document, we don't need it
         walks
-            .map_ok(|(cid, maybe_ipld, _)| (cid, maybe_ipld))
+            //.map_ok(|(cid, maybe_ipld, _)| (cid, maybe_ipld))
+            .try_filter_map(|(resolved, _)| {
+                futures::future::ready(match resolved {
+                    ResolvedNode::DagPbData(_, _) => Ok(None),
+                    ResolvedNode::Link(..) => unreachable!("followed links"),
+                    ResolvedNode::Block(b) => decode_ipld(b.cid(), b.data())
+                        .map(move |ipld| Some((b.cid, ipld)))
+                        .map_err(|e| Error::from(e)),
+                    ResolvedNode::Projection(cid, ipld) => Ok(Some((cid, ipld))),
+                })
+            })
             .try_collect()
             .await?
     };
@@ -441,7 +451,7 @@ fn handle_dagpb_not_found(
 /// If there are dag-pb nodes and the libipld has changed it's dag-pb tree structure.
 fn iplds_refs<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    iplds: Vec<(Cid, Loaded)>,
+    iplds: Vec<(Cid, Ipld)>,
     max_depth: Option<u64>,
     unique: bool,
 ) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static {
@@ -457,15 +467,7 @@ fn iplds_refs<T: IpfsTypes>(
         let mut visited = HashSet::new();
         let mut work = VecDeque::new();
 
-        for (origin, maybe_ipld) in iplds {
-
-            let ipld = match maybe_ipld {
-                Loaded::Ipld(ipld) => ipld,
-                Loaded::Raw(data) => {
-                    decode_ipld(&origin, &data).map_err(|e| e.to_string())?
-                }
-            };
-
+        for (origin, ipld) in iplds {
             for (link_name, next_cid) in ipld_links(&origin, ipld) {
                 work.push_back((0, next_cid, origin.clone(), link_name));
             }
