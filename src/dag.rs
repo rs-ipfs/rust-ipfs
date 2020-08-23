@@ -259,6 +259,15 @@ fn resolve_local<'a>(
                 Err(anyhow::anyhow!("no such segment: {:?}", segment))
             }
             // FIXME: need to wrap these differently for some fixed error message
+            // it's a ResolveError::UnexpectedType(ut) where ut.is_file(); the test case does an
+            // invalid path check with a path to cid of a file, and a nested (of course)
+            // non-existent path. this is only tested on /cat which is why the error seems like it
+            // does.
+            Err(ipfs_unixfs::ResolveError::UnexpectedType(ut)) if ut.is_file() => {
+                // js-ipfs alternative would be:
+                // 'no link named "does-not-exist" under Qma4hjFTnCasJ8PVp3mZbZK5g2vGDT4LByLJ7m8ciyRFZP'
+                Err(anyhow::anyhow!("file does not exist"))
+            }
             Err(e) => Err(e.into()),
         }
     } else {
