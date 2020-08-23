@@ -67,9 +67,8 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
         (None, None) => None,
     };
 
-    // FIXME: this is here until we have IpfsPath back at ipfs
-    // FIXME: this timeout here is ... not great; the end user could be waiting for 2*timeout
-
+    // FIXME: this timeout here is ... not great; the end user could be waiting for 2*timeout as we
+    // are applying it to both places. not sure if it makes really much sense everywhere.
     let block = resolve_dagpb(&ipfs, path)
         .maybe_timeout(args.timeout.clone().map(StringSerialized::into_inner))
         .await
