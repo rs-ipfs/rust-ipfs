@@ -1,7 +1,7 @@
 use crate::v0::support::{with_ipfs, MaybeTimeoutExt, StringError};
 use cid::{self, Cid};
-use futures::stream;
-use futures::stream::Stream;
+use futures::future::ready;
+use futures::stream::{self, FuturesOrdered, Stream, StreamExt, TryStreamExt};
 use ipfs::ipld::{decode_ipld, Ipld};
 use ipfs::{Block, Error};
 use ipfs::{Ipfs, IpfsTypes};
@@ -18,10 +18,7 @@ use options::RefsOptions;
 mod format;
 use format::EdgeFormatter;
 
-pub(crate) mod path;
 pub use ipfs::path::IpfsPath;
-use path::resolve_segment;
-pub use path::WalkSuccess;
 
 use crate::v0::support::{HandledErr, StreamResponse};
 
@@ -36,8 +33,6 @@ async fn refs_inner<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     opts: RefsOptions,
 ) -> Result<impl Reply, Rejection> {
-    use futures::stream::StreamExt;
-
     let max_depth = opts.max_depth();
     let formatter = EdgeFormatter::from_options(opts.edges, opts.format.as_deref())
         .map_err(StringError::from)?;
@@ -72,6 +67,8 @@ async fn refs_inner<T: IpfsTypes>(
     // expects the headers to be blocked before the timeout expires.
 
     let st = st.map(move |res| {
+        // FIXME: strings are allocated for nothing, could just use a single BytesMut for the
+        // rendering
         let res = match res {
             Ok((source, dest, link_name)) => {
                 let ok = formatter.format(source, dest, link_name);
@@ -116,7 +113,7 @@ fn refs_options() -> impl Filter<Extract = (RefsOptions,), Error = Rejection> + 
             .map_err(StringError::from)
             .map_err(warp::reject::custom);
 
-        futures::future::ready(res)
+        ready(res)
     })
 }
 
@@ -131,13 +128,11 @@ async fn refs_paths<T: IpfsTypes>(
     unique: bool,
 ) -> Result<impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static, Error>
 {
-    use futures::stream::FuturesOrdered;
-    use futures::stream::TryStreamExt;
     use ipfs::dag::ResolvedNode;
 
     let dag = ipfs.dag();
 
-    // added braces to spell it out for borrowck that opts does not outlive this fn
+    // added braces to spell it out for borrowck that dag does not outlive this fn
     let iplds = {
         // the assumption is that futuresordered will poll the first N items until the first completes,
         // buffering the others. it might not be 100% parallel but it's probably enough.
@@ -145,294 +140,34 @@ async fn refs_paths<T: IpfsTypes>(
 
         for path in paths {
             walks.push(dag.resolve(path, true));
-            //walks.push(walk_path(&ipfs, &opts, path));
         }
 
-        // strip out the path inside last document, we don't need it
         walks
-            //.map_ok(|(cid, maybe_ipld, _)| (cid, maybe_ipld))
+            // strip out the path inside last document, we don't need it
             .try_filter_map(|(resolved, _)| {
-                futures::future::ready(match resolved {
+                ready(match resolved {
+                    // filter out anything scoped to /Data on a dag-pb node; those cannot contain
+                    // links as all links for a dag-pb are under /Links
                     ResolvedNode::DagPbData(_, _) => Ok(None),
                     ResolvedNode::Link(..) => unreachable!("followed links"),
+                    // decode and hope for the best; this of course does a lot of wasted effort;
+                    // hopefully one day we can do "projectioned decoding", like here we'd only
+                    // need all of the links of the block
                     ResolvedNode::Block(b) => decode_ipld(b.cid(), b.data())
                         .map(move |ipld| Some((b.cid, ipld)))
                         .map_err(|e| Error::from(e)),
+                    // the most straight-forward variant with pre-projected document
                     ResolvedNode::Projection(cid, ipld) => Ok(Some((cid, ipld))),
                 })
             })
+            // TODO: collecting here is actually a quite unnecessary, if only we could make this into a
+            // stream.. however there may have been the case that all paths need to resolve before
+            // http status code is determined so perhaps this is the only way.
             .try_collect()
             .await?
     };
 
     Ok(iplds_refs(ipfs, iplds, max_depth, unique))
-}
-
-#[derive(Debug)]
-pub struct WalkError {
-    pub(crate) last_cid: Cid,
-    pub(crate) reason: WalkFailed,
-}
-
-#[derive(Debug)]
-pub enum WalkFailed {
-    Loading(Error),
-    Parsing(ipfs::ipld::BlockError),
-    DagPb(ipfs::unixfs::ll::ResolveError),
-    IpldWalking(path::WalkFailed),
-}
-
-use std::fmt;
-
-impl fmt::Display for WalkError {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use WalkFailed::*;
-        match &self.reason {
-            Loading(e) => write!(fmt, "loading of {} failed: {}", self.last_cid, e),
-            Parsing(e) => write!(fmt, "failed to parse {} as IPLD: {}", self.last_cid, e),
-            DagPb(e) => write!(
-                fmt,
-                "failed to resolve {} over dag-pb: {}",
-                self.last_cid, e
-            ),
-            // this is asserted in the conformance tests and I don't really want to change the
-            // tests for this
-            IpldWalking(e) => write!(fmt, "{} under {}", e, self.last_cid),
-        }
-    }
-}
-
-impl std::error::Error for WalkError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        use WalkFailed::*;
-        match &self.reason {
-            Loading(_) => None, // TODO: anyhow
-            Parsing(e) => Some(e),
-            DagPb(e) => Some(e),
-            IpldWalking(e) => Some(e),
-        }
-    }
-}
-
-impl From<Error> for WalkFailed {
-    fn from(e: Error) -> Self {
-        WalkFailed::Loading(e)
-    }
-}
-
-impl From<ipfs::ipld::BlockError> for WalkFailed {
-    fn from(e: ipfs::ipld::BlockError) -> Self {
-        WalkFailed::Parsing(e)
-    }
-}
-
-impl From<ipfs::unixfs::ll::ResolveError> for WalkFailed {
-    fn from(e: ipfs::unixfs::ll::ResolveError) -> Self {
-        WalkFailed::DagPb(e)
-    }
-}
-
-impl From<path::WalkFailed> for WalkFailed {
-    fn from(e: path::WalkFailed) -> Self {
-        WalkFailed::IpldWalking(e)
-    }
-}
-
-impl From<(WalkFailed, Cid)> for WalkError {
-    fn from((reason, last_cid): (WalkFailed, Cid)) -> Self {
-        WalkError { last_cid, reason }
-    }
-}
-
-/// The IpfsPath walk can end in with the target block loaded or parsed and optionally projected as
-/// an Ipld.
-#[derive(Debug)]
-pub enum Loaded {
-    /// The raw block from `ipfs.get_block`
-    Raw(Box<[u8]>),
-    /// Possibly projected IPLD value.
-    Ipld(Ipld),
-}
-
-#[derive(Default, Debug)]
-pub struct WalkOptions {
-    pub follow_dagpb_data: bool,
-}
-
-/// Walks the `path` while loading the links.
-///
-/// Returns the Cid where we ended up, and an optional Ipld structure if one was projected, and the
-/// path inside the last document we walked.
-pub async fn walk_path<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-    opts: &WalkOptions,
-    path: IpfsPath,
-) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
-    use ipfs::unixfs::ll::{MaybeResolved, ResolveError};
-
-    let mut current = path
-        .root()
-        .cid()
-        .expect("unsupported: need to add an error variant for this! or design around it")
-        .to_owned();
-
-    let mut iter = path.iter();
-
-    // cache for any datastructure used in repeated hamt lookups
-    let mut cache = None;
-
-    // the path_inside_last applies only in the IPLD projection case and its main consumer is the
-    // `/dag/resolve` API where the response is the returned cid and the "remaining path".
-    let mut path_inside_last = Vec::new();
-
-    // important: on the `/refs` path we need to fetch the first block to fail deterministically so we
-    // need to load it either way here; if the response gets processed to the stream phase, it'll
-    // always fire up a response and the test 'should print nothing for non-existent hashes' fails.
-    // Not sure how correct that is, but that is the test.
-    'outer: loop {
-        let Block { data, .. } = match ipfs.get_block(&current).await {
-            Ok(block) => block,
-            Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
-        };
-
-        // needs to be mutable because the Ipld walk will overwrite it to project down in the
-        // document
-        let mut needle: &str = if let Some(needle) = iter.next() {
-            needle
-        } else {
-            return Ok((current, Loaded::Raw(data), Vec::new()));
-        };
-
-        if current.codec() == cid::Codec::DagProtobuf {
-            let mut lookup = match ipfs::unixfs::ll::resolve(&data, &needle, &mut cache) {
-                Ok(MaybeResolved::NeedToLoadMore(lookup)) => lookup,
-                Ok(MaybeResolved::Found(cid)) => {
-                    current = cid;
-                    continue;
-                }
-                Ok(MaybeResolved::NotFound) => {
-                    return handle_dagpb_not_found(
-                        current,
-                        &data,
-                        needle.to_owned(),
-                        iter.next().is_none(),
-                        opts,
-                    )
-                }
-                Err(ResolveError::UnexpectedType(_)) => {
-                    // the conformance tests use a path which would end up going through a file
-                    // and the returned error string is tested against listed alternatives.
-                    // unexpected type is not one of them.
-                    let e =
-                        WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle.to_owned()));
-                    return Err(WalkError::from((e, current)));
-                }
-                Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
-            };
-
-            loop {
-                let (next, _) = lookup.pending_links();
-
-                // need to take ownership in order to enrich the error, next is invalidaded on
-                // lookup.continue_walk.
-                let next = next.to_owned();
-
-                let Block { data, .. } = match ipfs.get_block(&next).await {
-                    Ok(block) => block,
-                    Err(e) => return Err(WalkError::from((WalkFailed::from(e), next))),
-                };
-
-                match lookup.continue_walk(&data, &mut cache) {
-                    Ok(MaybeResolved::NeedToLoadMore(next)) => lookup = next,
-                    Ok(MaybeResolved::Found(cid)) => {
-                        current = cid;
-                        break;
-                    }
-                    Ok(MaybeResolved::NotFound) => {
-                        return handle_dagpb_not_found(
-                            next,
-                            &data,
-                            needle.to_owned(),
-                            iter.next().is_none(),
-                            opts,
-                        )
-                    }
-                    Err(e) => {
-                        return Err(WalkError::from((
-                            WalkFailed::from(e.into_resolve_error()),
-                            next,
-                        )))
-                    }
-                }
-            }
-        } else {
-            path_inside_last.clear();
-
-            let mut ipld = match decode_ipld(&current, &data) {
-                Ok(ipld) => ipld,
-                Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
-            };
-
-            loop {
-                // this needs to be stored at least temporarily to recover the path_inside_last or
-                // the "remaining path"
-                let tmp = needle.clone();
-                ipld = match resolve_segment(&needle, ipld) {
-                    Ok(WalkSuccess::AtDestination(ipld)) => {
-                        path_inside_last.push(tmp.to_owned());
-                        ipld
-                    }
-                    Ok(WalkSuccess::Link(_, next_cid)) => {
-                        current = next_cid;
-                        continue 'outer;
-                    }
-                    Err(e) => return Err(WalkError::from((WalkFailed::from(e), current))),
-                };
-
-                // we might resolve multiple segments inside a single document
-                needle = match iter.next() {
-                    Some(needle) => needle,
-                    None => {
-                        // when done with the remaining IpfsPath we should be set with the projected Ipld
-                        // document
-                        path_inside_last.shrink_to_fit();
-                        return Ok((current, Loaded::Ipld(ipld), path_inside_last));
-                    }
-                };
-            }
-        }
-    }
-}
-
-fn handle_dagpb_not_found(
-    at: Cid,
-    data: &[u8],
-    needle: String,
-    last_segment: bool,
-    opts: &WalkOptions,
-) -> Result<(Cid, Loaded, Vec<String>), WalkError> {
-    use ipfs::unixfs::ll::dagpb::node_data;
-
-    if opts.follow_dagpb_data && last_segment && needle == "Data" {
-        // /dag/resolve needs to "resolve through" a dag-pb node down to the "just data" even
-        // though we do not need to extract it ... however this might be good to just filter with
-        // refs, as no refs of such path can exist as the links are in the outer structure.
-        //
-        // testing with go-ipfs 0.5 reveals that dag resolve only follows links
-        // which are actually present in the dag-pb, not numeric links like Links/5
-        // or links/5, even if such are present in the `dag get` output.
-        //
-        // comment on this special casing: there cannot be any other such
-        // special case as the Links do not work like Data so while this is not
-        // pretty, it's not terrible.
-        let data = node_data(&data)
-            .expect("already parsed once, second time cannot fail")
-            .unwrap_or_default();
-        Ok((at, Loaded::Ipld(Ipld::Bytes(data.to_vec())), vec![needle]))
-    } else {
-        let e = WalkFailed::from(path::WalkFailed::UnmatchedNamedLink(needle));
-        Err(WalkError::from((e, at)))
-    }
 }
 
 /// Gather links as edges between two documents from all of the `iplds` which represent the

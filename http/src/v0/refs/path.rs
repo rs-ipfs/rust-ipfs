@@ -5,105 +5,7 @@
 //!
 //! Does not allow the root to be anything else than `/ipfs/` or missing at the moment.
 
-use cid::{self, Cid};
-use ipfs::ipld::Ipld;
-use std::collections::BTreeMap;
-use std::fmt;
-
-pub fn resolve_segment(key: &str, mut ipld: Ipld) -> Result<WalkSuccess, WalkFailed> {
-    ipld = match ipld {
-        Ipld::Link(cid) if key == "." => {
-            // go-ipfs: allows this to be skipped. let's require the dot for now.
-            // FIXME: this would require the iterator to be peekable in addition.
-            return Ok(WalkSuccess::Link(key.to_owned(), cid));
-        }
-        Ipld::Map(mut m) => {
-            if let Some(ipld) = m.remove(key) {
-                ipld
-            } else {
-                return Err(WalkFailed::UnmatchedMapProperty(m, key.to_owned()));
-            }
-        }
-        Ipld::List(mut l) => {
-            if let Ok(index) = key.parse::<usize>() {
-                if index < l.len() {
-                    l.swap_remove(index)
-                } else {
-                    return Err(WalkFailed::ListIndexOutOfRange(l, index));
-                }
-            } else {
-                return Err(WalkFailed::UnparseableListIndex(l, key.to_owned()));
-            }
-        }
-        x => return Err(WalkFailed::UnmatchableSegment(x, key.to_owned())),
-    };
-
-    if let Ipld::Link(next_cid) = ipld {
-        Ok(WalkSuccess::Link(key.to_owned(), next_cid))
-    } else {
-        Ok(WalkSuccess::AtDestination(ipld))
-    }
-}
-
-/// The success values walking an `IpfsPath` can result to.
-#[derive(Debug, PartialEq)]
-pub enum WalkSuccess {
-    /// IpfsPath arrived at destination, following walk attempts will return EmptyPath
-    AtDestination(Ipld),
-    /// Path segment lead to a link which needs to be loaded to continue the walk
-    Link(String, Cid),
-}
-
-/// These errors correspond to ones given out by go-ipfs 0.4.23 if the walk cannot be completed.
-/// go-ipfs reports these as 500 Internal Errors.
-#[derive(Debug, PartialEq)]
-pub enum WalkFailed {
-    /// Map key was not found
-    UnmatchedMapProperty(BTreeMap<String, Ipld>, String),
-    /// Segment could not be parsed as index
-    UnparseableListIndex(Vec<Ipld>, String),
-    /// Segment was out of range for the list
-    ListIndexOutOfRange(Vec<Ipld>, usize),
-    /// Catch-all failure for example when walking a segment on integer
-    UnmatchableSegment(Ipld, String),
-    /// Non-ipld walk failure on dag-pb
-    UnmatchedNamedLink(String),
-    UnsupportedWalkOnDagPbIpld,
-}
-
-impl fmt::Display for WalkFailed {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            // go-ipfs: no such link found or in cat: file does not exist
-            // js-ipfs: no link named "$key" under $cid
-            WalkFailed::UnmatchedMapProperty(_, ref key)
-            | WalkFailed::UnmatchedNamedLink(ref key) => {
-                write!(fmt, "no link named \"{}\"", key)
-            },
-            // go-ipfs: strconv.Atoi: parsing {:?}: invalid syntax
-            WalkFailed::UnparseableListIndex(_, ref segment) => {
-                write!(fmt, "Invalid list index: {:?}", segment)
-            }
-            // go-ipfs: array index out of range
-            WalkFailed::ListIndexOutOfRange(ref list, index) => write!(
-                fmt,
-                "List index out of range: the length is {} but the index is {}",
-                list.len(),
-                index
-            ),
-            // go-ipfs: tried to resolve through object that had no links
-            WalkFailed::UnmatchableSegment(_, _) => {
-                write!(fmt, "Tried to resolve through object that had no links")
-            },
-            WalkFailed::UnsupportedWalkOnDagPbIpld => {
-                write!(fmt, "Tried to walk over dag-pb after converting to IPLD, use ipfs::unixfs::ll or similar directly.")
-            }
-        }
-    }
-}
-
-impl std::error::Error for WalkFailed {}
-
+/*
 #[cfg(test)]
 mod tests {
     use super::WalkFailed;
@@ -254,3 +156,4 @@ mod tests {
         }
     }
 }
+*/
