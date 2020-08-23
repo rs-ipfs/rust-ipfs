@@ -115,6 +115,8 @@ pub fn resolve<T: IpfsTypes>(
 struct ResolveOptions {
     arg: String,
     timeout: Option<StringSerialized<humantime::Duration>>,
+    #[serde(rename = "local-resolve", default)]
+    local_resolve: bool,
 }
 
 async fn inner_resolve<T: IpfsTypes>(
@@ -126,9 +128,13 @@ async fn inner_resolve<T: IpfsTypes>(
 
     let path = IpfsPath::try_from(opts.arg.as_str()).map_err(StringError::from)?;
 
+    // I think the naming of local_resolve is quite confusing. when following links we "resolve
+    // globally" and when not following links we are "resolving locally", or in single document.
+    let follow_links = !opts.local_resolve;
+
     let (resolved, remaining) = ipfs
         .dag()
-        .resolve(path, /* FIXME: query */ true)
+        .resolve(path, follow_links)
         .maybe_timeout(opts.timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?

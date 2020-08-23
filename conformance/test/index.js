@@ -51,9 +51,8 @@ tests.swarm(factory)
 
 // Phase 1.2
 
-// this is ignored because the js ipfs-http-client doesn't expose the
-// localResolve parameter, and the later versions no longer send Content-Length
-// header, which our implementation requires.
+// ignored as the test doesn't pass at all through ipfs-http-client even
+// against jsipfs. we do at least return the same value.
 tests.dag.get(factory, { skip: ['should get only a CID, due to resolving locally only'] })
 tests.dag.put(factory)
 

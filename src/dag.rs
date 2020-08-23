@@ -13,7 +13,6 @@ use ipfs_unixfs::{
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Peekable;
-use std::ops::Range;
 
 #[derive(Clone, Debug)]
 pub struct IpldDag<Types: RepoTypes> {
@@ -64,7 +63,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
             None => return Err(anyhow::anyhow!("expected cid")),
         };
 
-        let (node, last_document_segments) = {
+        let (node, matched_segments) = {
             let mut iter = path.iter().peekable();
             self.resolve0(cid, &mut iter, follow_links).await?
         };
@@ -72,7 +71,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
         // we only care about returning this remaining_path with segments up until the last
         // document but it can and should contain all of the following segments (if any). there
         // could be more segments when `!follow_links`.
-        let remaining_path = path.into_shifted(last_document_segments.start);
+        let remaining_path = path.into_shifted(matched_segments);
 
         Ok((node, remaining_path))
     }
@@ -83,7 +82,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
         cid: &Cid,
         segments: &mut Peekable<impl Iterator<Item = &'a str>>,
         follow_links: bool,
-    ) -> Result<(ResolvedNode, Range<usize>), Error> {
+    ) -> Result<(ResolvedNode, usize), Error> {
         use LocallyResolved::*;
 
         let mut current = cid.to_owned();
@@ -94,9 +93,6 @@ impl<Types: RepoTypes> IpldDag<Types> {
         loop {
             let block = self.ipfs.repo.get_block(&current).await?;
 
-            // start of the range of segments matchable in this document, we are only interested in
-            // returning a range for the last walked document. if not following links, the last
-            // document would be the only or first document.
             let start = total;
 
             let (resolution, matched) = resolve_local(block, segments)?;
@@ -109,12 +105,15 @@ impl<Types: RepoTypes> IpldDag<Types> {
                     (src, dest)
                 }
                 Complete(other) => {
-                    return Ok((other, start..total));
+                    // when following links we return the total of links matched before the
+                    // returned document.
+                    return Ok((other, start));
                 }
             };
 
             if !follow_links {
-                return Ok((ResolvedNode::Link(src, dest), start..total));
+                // when not following links we return the total of links matched
+                return Ok((ResolvedNode::Link(src, dest), total));
             } else {
                 current = dest;
             }
