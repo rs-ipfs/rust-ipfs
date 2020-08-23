@@ -8,11 +8,12 @@ use cid::{Cid, Codec, Version};
 use ipfs_unixfs::{
     dagpb::NodeData,
     dir::{Cache, ShardedLookup},
-    resolve, MaybeResolved, ResolveError,
+    MaybeResolved,
 };
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Peekable;
+use std::ops::Range;
 
 #[derive(Clone, Debug)]
 pub struct IpldDag<Types: RepoTypes> {
@@ -63,22 +64,26 @@ impl<Types: RepoTypes> IpldDag<Types> {
             None => return Err(anyhow::anyhow!("expected cid")),
         };
 
-        let (node, matched_total) = {
+        let (node, last_document_segments) = {
             let mut iter = path.iter().peekable();
             self.resolve0(cid, &mut iter, follow_links).await?
         };
 
-        let remaining_path = path.into_shifted(matched_total);
+        // we only care about returning this remaining_path with segments up until the last
+        // document but it can and should contain all of the following segments (if any). there
+        // could be more segments when `!follow_links`.
+        let remaining_path = path.into_shifted(last_document_segments.start);
 
         Ok((node, remaining_path))
     }
 
+    /// Return values second value should be the number of segments matched in the returned Cid.
     async fn resolve0<'a>(
         &self,
         cid: &Cid,
         segments: &mut Peekable<impl Iterator<Item = &'a str>>,
         follow_links: bool,
-    ) -> Result<(ResolvedNode, usize), Error> {
+    ) -> Result<(ResolvedNode, Range<usize>), Error> {
         use LocallyResolved::*;
 
         let mut current = cid.to_owned();
@@ -89,19 +94,27 @@ impl<Types: RepoTypes> IpldDag<Types> {
         loop {
             let block = self.ipfs.repo.get_block(&current).await?;
 
-            let ((src, dest), matched) = match resolve_local(block, segments)? {
-                (Complete(ResolvedNode::Link(src, dest)), matched) => ((src, dest), matched),
-                (Complete(other), matched) => return Ok((other, total + matched)),
-                (Incomplete(src, lookup), matched) => {
-                    assert_eq!(matched, 0);
-                    ((src, self.resolve_hamt(lookup, &mut cache).await?), 1)
+            // start of the range of segments matchable in this document, we are only interested in
+            // returning a range for the last walked document. if not following links, the last
+            // document would be the only or first document.
+            let start = total;
+
+            let (resolution, matched) = resolve_local(block, segments)?;
+            total += matched;
+
+            let (src, dest) = match resolution {
+                Complete(ResolvedNode::Link(src, dest)) => (src, dest),
+                Incomplete(src, lookup) => {
+                    let dest = self.resolve_hamt(lookup, &mut cache).await?;
+                    (src, dest)
+                }
+                Complete(other) => {
+                    return Ok((other, start..total));
                 }
             };
 
-            total += matched;
-
             if !follow_links {
-                return Ok((ResolvedNode::Link(src, dest), total));
+                return Ok((ResolvedNode::Link(src, dest), start..total));
             } else {
                 current = dest;
             }
