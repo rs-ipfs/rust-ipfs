@@ -536,6 +536,18 @@ mod tests {
         super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap_err();
     }
 
+    #[test]
+    fn resolve_cbor_locally_non_usize_index() {
+        let (example_doc, _) = example_doc_and_cid();
+        let p = IpfsPath::try_from(
+            "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/-1",
+        )
+        .unwrap();
+
+        // FIXME: errors, again the number of matched
+        super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap_err();
+    }
+
     #[tokio::test(max_threads = 1)]
     async fn resolve_through_link() {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;

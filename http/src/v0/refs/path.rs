@@ -72,24 +72,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn walk_mismatches() {
-        let (example_doc, _) = example_doc_and_a_cid();
-
-        let mismatches = [
-            "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/0/more",
-            "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/-1",
-            "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/1000",
-        ];
-
-        for path in &mismatches {
-            let p = IpfsPath::try_from(*path).unwrap();
-            // let doc_cid = p.take_root().unwrap();
-            // using just unwrap_err as the context would be quite troublesome to write
-            walk(example_doc.clone(), &p).unwrap_err();
-        }
-    }
-
     fn walk(mut doc: Ipld, path: &'_ IpfsPath) -> Result<(WalkSuccess, Vec<&'_ str>), WalkFailed> {
         if path.iter().next().is_none() {
             return Ok((WalkSuccess::AtDestination(doc), path.iter().collect()));
