@@ -86,16 +86,8 @@ impl IpfsPath {
         self.path.iter().map(|s| s.as_str())
     }
 
-    pub fn is_path_empty(&self) -> bool {
-        self.iter().next().is_none()
-    }
-
-    pub fn len(&self) -> usize {
-        self.path.len()
-    }
-
     pub(crate) fn into_shifted(self, shifted: usize) -> SlashedPath {
-        assert!(shifted <= self.len());
+        assert!(shifted <= self.path.len());
 
         let mut p = self.path;
         p.shift(shifted);
