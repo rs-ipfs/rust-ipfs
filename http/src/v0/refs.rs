@@ -155,7 +155,7 @@ async fn refs_paths<T: IpfsTypes>(
                     // need all of the links of the block
                     ResolvedNode::Block(b) => decode_ipld(b.cid(), b.data())
                         .map(move |ipld| Some((b.cid, ipld)))
-                        .map_err(|e| Error::from(e)),
+                        .map_err(Error::from),
                     // the most straight-forward variant with pre-projected document
                     ResolvedNode::Projection(cid, ipld) => Ok(Some((cid, ipld))),
                 })

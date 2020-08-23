@@ -1,14 +1,14 @@
 use crate::error::Error;
 use crate::ipld::{decode_ipld, encode_ipld, Ipld};
-use crate::path::IpfsPath;
+use crate::path::{IpfsPath, SlashedPath};
 use crate::repo::RepoTypes;
 use crate::Ipfs;
 use bitswap::Block;
 use cid::{Cid, Codec, Version};
 use ipfs_unixfs::{
-    dagpb::NodeData,
+    dagpb::{wrap_node_data, NodeData},
     dir::{Cache, ShardedLookup},
-    MaybeResolved,
+    resolve, MaybeResolved, ResolveError,
 };
 use std::convert::TryFrom;
 use std::fmt;
@@ -120,9 +120,9 @@ impl<Types: RepoTypes> IpldDag<Types> {
         }
     }
 
-    async fn resolve_hamt<'a>(
+    async fn resolve_hamt(
         &self,
-        mut lookup: ShardedLookup<'a>,
+        mut lookup: ShardedLookup<'_>,
         cache: &mut Option<Cache>,
     ) -> Result<Cid, Error> {
         use MaybeResolved::*;
@@ -140,13 +140,6 @@ impl<Types: RepoTypes> IpldDag<Types> {
         }
     }
 }
-
-use crate::path::SlashedPath;
-
-// Return type of `IpfsDag::resolve`, which can be turned into familiar `/api/v0/dag/resolve`
-// return value of `{ cid, remaining_path }`, or consumed as the result of `IpfsDag::get`.
-//#[derive(Debug, PartialEq)]
-//pub struct Resolution(ResolvedNode, SlashedPath);
 
 /// `IpfsPath`'s cid based variant can be resolved to the three variants.
 #[derive(Debug, PartialEq)]
@@ -238,7 +231,7 @@ fn resolve_local<'a>(
         let segment = segments.next().unwrap();
 
         // TODO: lift the cache as parameter?
-        match ipfs_unixfs::resolve(&data, segment, &mut None) {
+        match resolve(&data, segment, &mut None) {
             Ok(MaybeResolved::NeedToLoadMore(lookup)) => {
                 Ok((LocallyResolved::Incomplete(cid, lookup), 0))
             }
@@ -249,8 +242,7 @@ fn resolve_local<'a>(
             Ok(MaybeResolved::NotFound) => {
                 // TROUBLE: cannot honor the "pop only matched ones" anymore
                 if segment == "Data" && segments.peek().is_none() {
-                    let wrapped = ipfs_unixfs::dagpb::wrap_node_data(data)
-                        .expect("already deserialized once");
+                    let wrapped = wrap_node_data(data).expect("already deserialized once");
                     return Ok((
                         LocallyResolved::Complete(ResolvedNode::DagPbData(cid, wrapped)),
                         1,
@@ -263,7 +255,7 @@ fn resolve_local<'a>(
             // invalid path check with a path to cid of a file, and a nested (of course)
             // non-existent path. this is only tested on /cat which is why the error seems like it
             // does.
-            Err(ipfs_unixfs::ResolveError::UnexpectedType(ut)) if ut.is_file() => {
+            Err(ResolveError::UnexpectedType(ut)) if ut.is_file() => {
                 // js-ipfs alternative would be:
                 // 'no link named "does-not-exist" under Qma4hjFTnCasJ8PVp3mZbZK5g2vGDT4LByLJ7m8ciyRFZP'
                 Err(anyhow::anyhow!("file does not exist"))

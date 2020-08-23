@@ -136,7 +136,7 @@ async fn resolve_dagpb<T: IpfsTypes>(ipfs: &Ipfs<T>, path: IpfsPath) -> Result<B
     } else {
         match resolved {
             ResolvedNode::Block(b) => Ok(b),
-            _ => return Err(StringError::from("path resolved to non UnixFs file")),
+            _ => Err(StringError::from("path resolved to non UnixFs file")),
         }
     }
 }
