@@ -7,6 +7,5 @@
 - [ ] There are functional and/or unit tests written, and they are passing
 - [ ] There is suitable documentation. In our case, this means:
     - [ ] Each command has a usage example and API specification
-    - [ ] Top-level commands with subcommands display usage instructions
     - [ ] Rustdoc tests are passing on all code-level comments
     - [ ] Differences between Rust’s IPFS implementation and the Go or JS implementations are explained
