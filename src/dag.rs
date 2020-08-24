@@ -14,6 +14,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Peekable;
 
+/// `ipfs.dag` interface providing wrapper around Ipfs.
 #[derive(Clone, Debug)]
 pub struct IpldDag<Types: RepoTypes> {
     ipfs: Ipfs<Types>,
@@ -95,7 +96,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
 
             let start = total;
 
-            let (resolution, matched) = resolve_local(block, segments)?;
+            let (resolution, matched) = resolve_local(block, segments, &mut cache)?;
             total += matched;
 
             let (src, dest) = match resolution {
@@ -120,6 +121,8 @@ impl<Types: RepoTypes> IpldDag<Types> {
         }
     }
 
+    /// To resolve a segment through a HAMT sharded directory we need to load more blocks, which is
+    /// why this is a method not a free fn like other resolving activities.
     async fn resolve_hamt(
         &self,
         mut lookup: ShardedLookup<'_>,
@@ -216,6 +219,7 @@ impl From<ResolvedNode> for LocallyResolved<'static> {
 fn resolve_local<'a>(
     block: Block,
     segments: &mut Peekable<impl Iterator<Item = &'a str>>,
+    cache: &mut Option<Cache>,
 ) -> Result<(LocallyResolved<'a>, usize), Error> {
     println!("resolving on {}", block.cid());
     if segments.peek().is_none() {
@@ -225,47 +229,60 @@ fn resolve_local<'a>(
     let Block { cid, data } = block;
 
     if cid.codec() == cid::Codec::DagProtobuf {
-        // converting dag-pb to ipld is quite tedious, not to mention HAMT and other stuff
-        // though, we cannot handle HAMT locally
+        // special case the dagpb since we need to do the HAMT lookup and going through the
+        // BTreeMaps of ipld for this is quite tiresome. if you are looking for that code for
+        // simple directories, you can find one in the history of ipfs-http.
 
+        // advancing is required here in order for us to determine if this was the last element.
+        // This should be ok as the only way we can continue resolving deeper is the case of Link
+        // being matched, and not the error nor the DagPbData case.
         let segment = segments.next().unwrap();
 
         // TODO: lift the cache as parameter?
-        match resolve(&data, segment, &mut None) {
-            Ok(MaybeResolved::NeedToLoadMore(lookup)) => {
-                Ok((LocallyResolved::Incomplete(cid, lookup), 0))
-            }
-            Ok(MaybeResolved::Found(dest)) => {
-                // it's clear that we need to have the segment dropped here.
-                Ok((LocallyResolved::Complete(ResolvedNode::Link(cid, dest)), 1))
-            }
-            Ok(MaybeResolved::NotFound) => {
-                // TROUBLE: cannot honor the "pop only matched ones" anymore
-                if segment == "Data" && segments.peek().is_none() {
-                    let wrapped = wrap_node_data(data).expect("already deserialized once");
-                    return Ok((
-                        LocallyResolved::Complete(ResolvedNode::DagPbData(cid, wrapped)),
-                        1,
-                    ));
-                }
-                Err(anyhow::anyhow!("no such segment: {:?}", segment))
-            }
-            // FIXME: need to wrap these differently for some fixed error message
-            // it's a ResolveError::UnexpectedType(ut) where ut.is_file(); the test case does an
-            // invalid path check with a path to cid of a file, and a nested (of course)
-            // non-existent path. this is only tested on /cat which is why the error seems like it
-            // does.
-            Err(ResolveError::UnexpectedType(ut)) if ut.is_file() => {
-                // js-ipfs alternative would be:
-                // 'no link named "does-not-exist" under Qma4hjFTnCasJ8PVp3mZbZK5g2vGDT4LByLJ7m8ciyRFZP'
-                Err(anyhow::anyhow!("file does not exist"))
-            }
-            Err(e) => Err(e.into()),
-        }
+        resolve_local_dagpb(cid, data, segment, segments.peek().is_none(), cache)
     } else {
         let ipld = decode_ipld(&cid, &data)?;
         let (resolved, matched) = resolve_local_ipld(ipld, segments)?;
         Ok((resolved.with_source(cid).into(), matched))
+    }
+}
+
+fn resolve_local_dagpb<'a>(
+    cid: Cid,
+    data: Box<[u8]>,
+    segment: &'a str,
+    is_last: bool,
+    cache: &mut Option<Cache>,
+) -> Result<(LocallyResolved<'a>, usize), Error> {
+    match resolve(&data, segment, cache) {
+        Ok(MaybeResolved::NeedToLoadMore(lookup)) => {
+            Ok((LocallyResolved::Incomplete(cid, lookup), 0))
+        }
+        Ok(MaybeResolved::Found(dest)) => {
+            // it's clear that we need to have the segment dropped here.
+            Ok((LocallyResolved::Complete(ResolvedNode::Link(cid, dest)), 1))
+        }
+        Ok(MaybeResolved::NotFound) => {
+            if segment == "Data" && is_last {
+                let wrapped = wrap_node_data(data).expect("already deserialized once");
+                return Ok((
+                    LocallyResolved::Complete(ResolvedNode::DagPbData(cid, wrapped)),
+                    1,
+                ));
+            }
+            Err(anyhow::anyhow!("no such segment: {:?}", segment))
+        }
+        // FIXME: need to wrap these differently for some fixed error message
+        // it's a ResolveError::UnexpectedType(ut) where ut.is_file(); the test case does an
+        // invalid path check with a path to cid of a file, and a nested (of course)
+        // non-existent path. this is only tested on /cat which is why the error seems like it
+        // does.
+        Err(ResolveError::UnexpectedType(ut)) if ut.is_file() => {
+            // js-ipfs alternative would be:
+            // 'no link named "does-not-exist" under Qma4hjFTnCasJ8PVp3mZbZK5g2vGDT4LByLJ7m8ciyRFZP'
+            Err(anyhow::anyhow!("file does not exist"))
+        }
+        Err(e) => Err(e.into()),
     }
 }
 
