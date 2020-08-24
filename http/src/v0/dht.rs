@@ -146,16 +146,15 @@ async fn provide_query<T: IpfsTypes>(
         timeout,
     } = query;
     let cid = arg.parse::<Cid>().map_err(StringError::from)?;
-    ipfs.provide(cid)
+    ipfs.provide(cid.clone())
         .maybe_timeout(timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?
         .map_err(StringError::from)?;
 
-    // FIXME: go-ipfs returns nothing on success
     let response = Response {
         extra: Default::default(),
-        id: Default::default(),
+        id: cid.to_string(),
         responses: vec![],
         r#type: 2,
     };

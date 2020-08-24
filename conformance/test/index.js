@@ -105,13 +105,8 @@ tests.dht(factory, {
   skip: [
     // the found address has a much higher port than the expected one
     "should find other peers",
-    // invalid CID encoding
-    "should provide local CID",
-    "should not provide if block not found locally",
-    "should allow multiple CIDs to be passed",
-    "should provide a CIDv1",
-    // object API
-    ".dht.findProvs",
+    // no auto-bootstrapping?
+    "should be able to find providers",
     // invalid PeerId encoding
     "should return the other node in the query",
     // unimplemented endpoints
