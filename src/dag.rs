@@ -396,12 +396,12 @@ fn resolve_local_dagpb<'a>(
                     1,
                 ));
             }
-            Err(RawResolveLocalError::NotFound(cid, 1))
+            Err(RawResolveLocalError::NotFound(cid, 0))
         }
         Err(ipfs_unixfs::ResolveError::UnexpectedType(ut)) if ut.is_file() => {
             // this might even be correct: files we know are not supported, however not sure if
             // symlinks are, let alone custom unxifs types should such exist
-            Err(RawResolveLocalError::NotFound(cid, 1))
+            Err(RawResolveLocalError::NotFound(cid, 0))
         }
         Err(e) => Err(RawResolveLocalError::UnsupportedDocument(cid, e.into())),
     }
@@ -812,5 +812,100 @@ mod tests {
         //let cloned = path.clone();
         let e = dag.resolve(path, true).await.unwrap_err();
         assert_eq!(e.to_string(), format!("no link named \"a\" under {}", cid1));
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn fail_resolving_through_file() {
+        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+
+        let mut adder = ipfs_unixfs::file::adder::FileAdder::default();
+        let (mut blocks, _) = adder.push("foobar\n".as_bytes());
+        assert_eq!(blocks.next(), None);
+
+        let mut blocks = adder.finish();
+
+        let (cid, data) = blocks.next().unwrap();
+        assert_eq!(blocks.next(), None);
+
+        ipfs.put_block(Block {
+            cid: cid.clone(),
+            data: data.into(),
+        })
+        .await
+        .unwrap();
+
+        let path = IpfsPath::from(cid.clone())
+            .sub_path("anything-here")
+            .unwrap();
+
+        let e = ipfs.dag().resolve(path, true).await.unwrap_err();
+
+        assert_eq!(
+            e.to_string(),
+            format!("no link named \"anything-here\" under {}", cid)
+        );
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn fail_resolving_through_dir() {
+        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+
+        let mut adder = ipfs_unixfs::file::adder::FileAdder::default();
+        let (mut blocks, _) = adder.push("foobar\n".as_bytes());
+        assert_eq!(blocks.next(), None);
+
+        let mut blocks = adder.finish();
+
+        let (cid, data) = blocks.next().unwrap();
+        assert_eq!(blocks.next(), None);
+
+        let total_size = data.len();
+
+        ipfs.put_block(Block {
+            cid: cid.clone(),
+            data: data.into(),
+        })
+        .await
+        .unwrap();
+
+        let mut opts = ipfs_unixfs::dir::builder::TreeOptions::default();
+        opts.wrap_with_directory();
+
+        let mut tree = ipfs_unixfs::dir::builder::BufferingTreeBuilder::new(opts);
+        tree.put_link("something/best-file-in-the-world", cid, total_size as u64)
+            .unwrap();
+
+        let mut iter = tree.build();
+        let mut cids = Vec::new();
+
+        loop {
+            let node = if let Some(node) = iter.next_borrowed() {
+                node.unwrap()
+            } else {
+                break;
+            };
+
+            let block = Block {
+                cid: node.cid.to_owned(),
+                data: node.block.into(),
+            };
+
+            ipfs.put_block(block).await.unwrap();
+
+            cids.push(node.cid.to_owned());
+        }
+
+        cids.reverse();
+
+        let path = IpfsPath::from(cids[0].to_owned())
+            .sub_path("something/second-best-file")
+            .unwrap();
+
+        let e = ipfs.dag().resolve(path, true).await.unwrap_err();
+
+        assert_eq!(
+            e.to_string(),
+            format!("no link named \"second-best-file\" under {}", cids[1])
+        );
     }
 }
