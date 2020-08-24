@@ -12,7 +12,6 @@ use ipfs_unixfs::{
 };
 use std::convert::TryFrom;
 use std::error::Error as StdError;
-use std::fmt;
 use std::iter::Peekable;
 use thiserror::Error;
 
@@ -377,6 +376,16 @@ enum LocallyResolved<'a> {
     Incomplete(Cid, ShardedLookup<'a>),
 }
 
+#[cfg(test)]
+impl LocallyResolved<'_> {
+    fn unwrap_complete(self) -> ResolvedNode {
+        match self {
+            LocallyResolved::Complete(rn) => rn,
+            x => unreachable!("{:?}", x),
+        }
+    }
+}
+
 impl From<ResolvedNode> for LocallyResolved<'static> {
     fn from(r: ResolvedNode) -> LocallyResolved<'static> {
         LocallyResolved::Complete(r)
@@ -418,10 +427,7 @@ fn resolve_local<'a>(
             Ok(ipld) => ipld,
             Err(e) => return Err(RawResolveLocalError::UnsupportedDocument(cid, e.into())),
         };
-        match resolve_local_ipld(ipld, segments) {
-            Ok((resolved, matched)) => Ok((resolved.with_source(cid).into(), matched)),
-            Err(e) => Err(e.with_source(cid)),
-        }
+        resolve_local_ipld(cid, ipld, segments)
     }
 }
 
@@ -479,9 +485,10 @@ fn resolve_local_dagpb<'a>(
 ///
 /// Does not support dag-pb as segments are resolved differently on dag-pb than the general Ipld.
 fn resolve_local_ipld<'a>(
+    document: Cid,
     mut ipld: Ipld,
     segments: &mut Peekable<impl Iterator<Item = &'a str>>,
-) -> Result<(ResolvedIpld, usize), IpldResolvingFailed> {
+) -> Result<(LocallyResolved<'a>, usize), RawResolveLocalError> {
     let mut matched_count = 0;
     loop {
         ipld = match ipld {
@@ -489,7 +496,7 @@ fn resolve_local_ipld<'a>(
                 if segments.peek() != Some(&".") {
                     // there is something other than dot next in the path, we should silently match
                     // over it.
-                    return Ok((ResolvedIpld::Link(cid), matched_count));
+                    return Ok((ResolvedNode::Link(document, cid).into(), matched_count));
                 } else {
                     Ipld::Link(cid)
                 }
@@ -499,15 +506,21 @@ fn resolve_local_ipld<'a>(
 
         ipld = match (ipld, segments.next()) {
             (Ipld::Link(cid), Some(".")) => {
-                return Ok((ResolvedIpld::Link(cid), matched_count + 1));
+                return Ok((ResolvedNode::Link(document, cid).into(), matched_count + 1));
             }
             (Ipld::Link(_), Some(_)) => {
                 unreachable!("case already handled above before advancing iterator")
             }
             (Ipld::Map(mut map), Some(segment)) => {
-                let found = map
-                    .remove(segment)
-                    .ok_or_else(move || IpldResolvingFailed::NotFound(matched_count))?;
+                let found = match map.remove(segment) {
+                    Some(f) => f,
+                    None => {
+                        return Err(RawResolveLocalError::NotFound {
+                            document,
+                            segment_index: matched_count,
+                        })
+                    }
+                };
                 matched_count += 1;
                 found
             }
@@ -517,88 +530,34 @@ fn resolve_local_ipld<'a>(
                     vec.swap_remove(index)
                 }
                 Ok(index) => {
-                    return Err(IpldResolvingFailed::ListIndexOutOfRange {
+                    return Err(RawResolveLocalError::ListIndexOutOfRange {
+                        document,
                         segment_index: matched_count,
                         index,
                         elements: vec.len(),
                     });
                 }
-                Err(_) => return Err(IpldResolvingFailed::InvalidIndex(matched_count)),
+                Err(_) => {
+                    return Err(RawResolveLocalError::InvalidIndex {
+                        document,
+                        segment_index: matched_count,
+                    })
+                }
             },
             (_, Some(_)) => {
-                return Err(IpldResolvingFailed::NoLinks(matched_count));
+                return Err(RawResolveLocalError::NoLinks {
+                    document,
+                    segment_index: matched_count,
+                });
             }
             // path has been consumed
-            (anything, None) => return Ok((ResolvedIpld::Projection(anything), matched_count)),
+            (anything, None) => {
+                return Ok((
+                    ResolvedNode::Projection(document, anything).into(),
+                    matched_count,
+                ))
+            }
         };
-    }
-}
-
-/// Used internall only at `resolve_local_ipld` where processing is done without the current Cid of
-/// the document.
-#[derive(Debug, PartialEq)]
-enum IpldResolvingFailed {
-    ListIndexOutOfRange {
-        segment_index: usize,
-        index: usize,
-        elements: usize,
-    },
-    InvalidIndex(usize),
-    NoLinks(usize),
-    NotFound(usize),
-}
-
-impl IpldResolvingFailed {
-    fn with_source(self, document: Cid) -> RawResolveLocalError {
-        use IpldResolvingFailed::*;
-        match self {
-            ListIndexOutOfRange {
-                segment_index,
-                index,
-                elements,
-            } => RawResolveLocalError::ListIndexOutOfRange {
-                document,
-                segment_index,
-                index,
-                elements,
-            },
-            InvalidIndex(segment_index) => RawResolveLocalError::InvalidIndex {
-                document,
-                segment_index,
-            },
-            NoLinks(segment_index) => RawResolveLocalError::NoLinks {
-                document,
-                segment_index,
-            },
-            NotFound(segment_index) => RawResolveLocalError::NotFound {
-                document,
-                segment_index,
-            },
-        }
-    }
-}
-
-#[derive(PartialEq)]
-enum ResolvedIpld {
-    Link(Cid),
-    Projection(Ipld),
-}
-
-impl ResolvedIpld {
-    fn with_source(self, source: Cid) -> ResolvedNode {
-        match self {
-            ResolvedIpld::Link(dest) => ResolvedNode::Link(source, dest),
-            ResolvedIpld::Projection(ipld) => ResolvedNode::Projection(source, ipld),
-        }
-    }
-}
-
-impl fmt::Debug for ResolvedIpld {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ResolvedIpld::Link(cid) => write!(fmt, "Link({})", cid),
-            ResolvedIpld::Projection(ipld) => write!(fmt, "Projection({:?})", ipld),
-        }
     }
 }
 
@@ -675,7 +634,7 @@ mod tests {
 
     /// Returns an example ipld document with strings, ints, maps, lists, and a link. The link target is also
     /// returned.
-    fn example_doc_and_cid() -> (Ipld, Cid) {
+    fn example_doc_and_cid() -> (Cid, Ipld, Cid) {
         let cid = Cid::try_from("QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n").unwrap();
         let doc = make_ipld!({
             "nested": {
@@ -695,12 +654,14 @@ mod tests {
                 ],
             }
         });
-        (doc, cid)
+        let root =
+            Cid::try_from("bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita").unwrap();
+        (root, doc, cid)
     }
 
     #[test]
     fn resolve_cbor_locally_to_end() {
-        let (example_doc, _) = example_doc_and_cid();
+        let (root, example_doc, _) = example_doc_and_cid();
 
         let good_examples = [
             (
@@ -720,13 +681,17 @@ mod tests {
         for (path, expected) in &good_examples {
             let p = IpfsPath::try_from(*path).unwrap();
 
-            let (resolved, matched_segments) =
-                super::resolve_local_ipld(example_doc.clone(), &mut p.iter().peekable()).unwrap();
+            let (resolved, matched_segments) = super::resolve_local_ipld(
+                root.clone(),
+                example_doc.clone(),
+                &mut p.iter().peekable(),
+            )
+            .unwrap();
 
             assert_eq!(matched_segments, 4);
 
-            match resolved {
-                ResolvedIpld::Projection(p) if &p == expected => {}
+            match resolved.unwrap_complete() {
+                ResolvedNode::Projection(_, p) if &p == expected => {}
                 x => unreachable!("unexpected {:?}", x),
             }
 
@@ -737,17 +702,18 @@ mod tests {
 
     #[test]
     fn resolve_cbor_locally_to_link() {
-        let (example_doc, target) = example_doc_and_cid();
+        let (root, example_doc, target) = example_doc_and_cid();
+
         let p = IpfsPath::try_from(
             "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/2/or/foobar/trailer"
             // counts:                                                    1      2   3 4
         ).unwrap();
 
         let (resolved, matched_segments) =
-            super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap();
+            super::resolve_local_ipld(root, example_doc, &mut p.iter().peekable()).unwrap();
 
-        match resolved {
-            ResolvedIpld::Link(cid) if cid == target => {}
+        match resolved.unwrap_complete() {
+            ResolvedNode::Link(_, cid) if cid == target => {}
             x => unreachable!("{:?}", x),
         }
 
@@ -759,7 +725,8 @@ mod tests {
 
     #[test]
     fn resolve_cbor_locally_to_link_with_dot() {
-        let (example_doc, cid) = example_doc_and_cid();
+        let (root, example_doc, cid) = example_doc_and_cid();
+
         let p = IpfsPath::try_from(
             "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/2/or/./foobar/trailer",
             // counts:                                                    1      2   3 4  5
@@ -767,8 +734,8 @@ mod tests {
         .unwrap();
 
         let (resolved, matched_segments) =
-            super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap();
-        assert_eq!(resolved, ResolvedIpld::Link(cid));
+            super::resolve_local_ipld(root.clone(), example_doc, &mut p.iter().peekable()).unwrap();
+        assert_eq!(resolved.unwrap_complete(), ResolvedNode::Link(root, cid));
         assert_eq!(matched_segments, 5);
 
         let remaining_path = p.iter().skip(matched_segments).collect::<Vec<&str>>();
@@ -777,48 +744,71 @@ mod tests {
 
     #[test]
     fn resolve_cbor_locally_not_found_map_key() {
-        let (example_doc, _) = example_doc_and_cid();
+        let (root, example_doc, _) = example_doc_and_cid();
         let p = IpfsPath::try_from(
             "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/foobar/trailer",
         )
         .unwrap();
 
-        // FIXME: errors; could give how much it was matched and so on
-        let e = super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap_err();
-        assert_eq!(e, IpldResolvingFailed::NotFound(0));
+        let e = super::resolve_local_ipld(root, example_doc, &mut p.iter().peekable()).unwrap_err();
+        assert!(
+            matches!(
+                e,
+                RawResolveLocalError::NotFound {
+                    segment_index: 0,
+                    ..
+                }
+            ),
+            "{:?}",
+            e
+        );
     }
 
     #[test]
     fn resolve_cbor_locally_too_large_list_index() {
-        let (example_doc, _) = example_doc_and_cid();
+        let (root, example_doc, _) = example_doc_and_cid();
         let p = IpfsPath::try_from(
             "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/3000",
         )
         .unwrap();
 
-        // FIXME: errors, again the number of matched
-        let e = super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap_err();
-        assert_eq!(
-            e,
-            IpldResolvingFailed::ListIndexOutOfRange {
-                segment_index: 2,
-                index: 3000,
-                elements: 4
-            }
+        let e = super::resolve_local_ipld(root, example_doc, &mut p.iter().peekable()).unwrap_err();
+        assert!(
+            matches!(
+                e,
+                RawResolveLocalError::ListIndexOutOfRange {
+                    segment_index: 2,
+                    index: 3000,
+                    elements: 4,
+                    ..
+                }
+            ),
+            "{:?}",
+            e
         );
     }
 
     #[test]
     fn resolve_cbor_locally_non_usize_index() {
-        let (example_doc, _) = example_doc_and_cid();
+        let (root, example_doc, _) = example_doc_and_cid();
         let p = IpfsPath::try_from(
             "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/-1",
         )
         .unwrap();
 
         // FIXME: errors, again the number of matched
-        let e = super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap_err();
-        assert_eq!(e, IpldResolvingFailed::InvalidIndex(2));
+        let e = super::resolve_local_ipld(root, example_doc, &mut p.iter().peekable()).unwrap_err();
+        assert!(
+            matches!(
+                e,
+                RawResolveLocalError::InvalidIndex {
+                    segment_index: 2,
+                    ..
+                }
+            ),
+            "{:?}",
+            e
+        );
     }
 
     #[tokio::test(max_threads = 1)]
