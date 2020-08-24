@@ -75,6 +75,9 @@ enum RawResolveLocalError {
 }
 
 impl RawResolveLocalError {
+    /// When resolving through multiple documents the local resolving functions `resolve_local_ipld`
+    /// and `resolve_local_dagpb` return document local indices; need to bump the indices with the
+    /// amount of already matched segments in previous documents for the path.
     fn add_starting_point_in_path(&mut self, start: usize) {
         use RawResolveLocalError::*;
         match self {
@@ -102,6 +105,9 @@ impl RawResolveLocalError {
         }
     }
 
+    /// Use the given [`IpfsPath`] to create the truncated [`SlashedPath`] and convert into
+    /// [`ResolveError`]. The path is truncated so that the last segment is the one which failed to
+    /// match. No reason it could also be just signified with an index.
     fn with_path(self, path: IpfsPath) -> ResolveError {
         use RawResolveLocalError::*;
 
@@ -161,6 +167,9 @@ impl<Types: RepoTypes> IpldDag<Types> {
         Ok(cid)
     }
 
+    /// Resolves a Cid rooted path to a document "node."
+    ///
+    /// Returns the resolved node as Ipld.
     pub async fn get(&self, path: IpfsPath) -> Result<Ipld, ResolveError> {
         // FIXME: do ipns resolve first
         let cid = match path.root().cid() {
@@ -181,6 +190,17 @@ impl<Types: RepoTypes> IpldDag<Types> {
         Ipld::try_from(node)
     }
 
+    /// Resolves a Cid rooted path to a document "node."
+    ///
+    /// The return value has two kinds of meanings depending on whether links should be followed or
+    /// not: When following links the second returned value will be the path inside last document.
+    /// When not following links the second returned value will be the unmatched or "remaining"
+    /// path.
+    ///
+    /// Regardless of the `follow_links` option, HAMT sharded directories will be resolved through
+    /// as a "single step" in the given IpfsPath.
+    ///
+    /// Returns the node and remaining path or the path inside the last document.
     pub async fn resolve(
         &self,
         path: IpfsPath,
@@ -211,7 +231,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
         Ok((node, remaining_path))
     }
 
-    /// Return values second value should be the number of segments matched in the returned Cid.
+    /// Return the node where resolving ended, and the **count** of segments matched.
     async fn resolve0<'a>(
         &self,
         cid: &Cid,
@@ -226,12 +246,6 @@ impl<Types: RepoTypes> IpldDag<Types> {
         let mut cache = None;
 
         loop {
-            println!(
-                "looking at {:?} with {}, next: {}",
-                segments.peek(),
-                total,
-                current
-            );
             let block = match self.ipfs.repo.get_block(&current).await {
                 Ok(block) => block,
                 Err(e) => return Err(RawResolveLocalError::Loading(current, e)),
@@ -293,7 +307,10 @@ impl<Types: RepoTypes> IpldDag<Types> {
     }
 }
 
-/// `IpfsPath`'s cid based variant can be resolved to the three variants.
+/// `IpfsPath`'s cid based variant can be resolved to the block, projections represented by this
+/// type.
+///
+/// Values can be converted to Ipld using `Ipld::try_from`.
 #[derive(Debug, PartialEq)]
 pub enum ResolvedNode {
     /// Block which was loaded at the end of the path.
@@ -320,6 +337,7 @@ impl ResolvedNode {
         }
     }
 
+    /// Returns the cid of the linked document when resolved to a link, otherwise `None`.
     pub fn destination(&self) -> Option<&Cid> {
         match self {
             ResolvedNode::Link(_, cid) => Some(cid),
@@ -327,6 +345,7 @@ impl ResolvedNode {
         }
     }
 
+    /// Returns the destination or the source link.
     pub fn cid(&self) -> &Cid {
         self.destination().unwrap_or_else(|| self.source())
     }
@@ -371,7 +390,6 @@ fn resolve_local<'a>(
     segments: &mut Peekable<impl Iterator<Item = &'a str>>,
     cache: &mut Option<Cache>,
 ) -> Result<(LocallyResolved<'a>, usize), RawResolveLocalError> {
-    println!("resolving on {}", block.cid());
     if segments.peek().is_none() {
         return Ok((LocallyResolved::Complete(ResolvedNode::Block(block)), 0));
     }
@@ -402,11 +420,14 @@ fn resolve_local<'a>(
         };
         match resolve_local_ipld(ipld, segments) {
             Ok((resolved, matched)) => Ok((resolved.with_source(cid).into(), matched)),
-            Err(e) => Err(e.with_source(cid).into()),
+            Err(e) => Err(e.with_source(cid)),
         }
     }
 }
 
+/// Resolving through dagpb documents is basically just mapping from [`MaybeResolved`] to the
+/// return value, with the exception that path ending in "Data" is returned as
+/// `ResolvedNode::DagPbData`.
 fn resolve_local_dagpb<'a>(
     cid: Cid,
     data: Box<[u8]>,
@@ -478,7 +499,6 @@ fn resolve_local_ipld<'a>(
 
         ipld = match (ipld, segments.next()) {
             (Ipld::Link(cid), Some(".")) => {
-                println!(">>> return link with dot");
                 return Ok((ResolvedIpld::Link(cid), matched_count + 1));
             }
             (Ipld::Link(_), Some(_)) => {
@@ -720,7 +740,7 @@ mod tests {
         let (example_doc, target) = example_doc_and_cid();
         let p = IpfsPath::try_from(
             "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/2/or/foobar/trailer"
-            //                                                            1      2   3 4
+            // counts:                                                    1      2   3 4
         ).unwrap();
 
         let (resolved, matched_segments) =
@@ -742,7 +762,7 @@ mod tests {
         let (example_doc, cid) = example_doc_and_cid();
         let p = IpfsPath::try_from(
             "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/2/or/./foobar/trailer",
-            //                                                            1      2   3 4  5
+            // counts:                                                    1      2   3 4  5
         )
         .unwrap();
 
@@ -867,7 +887,7 @@ mod tests {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
 
         let mut adder = ipfs_unixfs::file::adder::FileAdder::default();
-        let (mut blocks, _) = adder.push("foobar\n".as_bytes());
+        let (mut blocks, _) = adder.push(b"foobar\n");
         assert_eq!(blocks.next(), None);
 
         let mut blocks = adder.finish();
@@ -899,7 +919,7 @@ mod tests {
         let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
 
         let mut adder = ipfs_unixfs::file::adder::FileAdder::default();
-        let (mut blocks, _) = adder.push("foobar\n".as_bytes());
+        let (mut blocks, _) = adder.push(b"foobar\n");
         assert_eq!(blocks.next(), None);
 
         let mut blocks = adder.finish();
@@ -926,13 +946,8 @@ mod tests {
         let mut iter = tree.build();
         let mut cids = Vec::new();
 
-        loop {
-            let node = if let Some(node) = iter.next_borrowed() {
-                node.unwrap()
-            } else {
-                break;
-            };
-
+        while let Some(node) = iter.next_borrowed() {
+            let node = node.unwrap();
             let block = Block {
                 cid: node.cid.to_owned(),
                 data: node.block.into(),
@@ -943,6 +958,7 @@ mod tests {
             cids.push(node.cid.to_owned());
         }
 
+        // reverse the cids because they now contain the root cid as the last.
         cids.reverse();
 
         let path = IpfsPath::from(cids[0].to_owned())
