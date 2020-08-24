@@ -216,8 +216,8 @@ mod tests {
     use super::{resolve, MaybeResolved};
     use crate::test_support::FakeBlockstore;
     use cid::Cid;
-    use hex_literal::hex;
     use core::convert::TryFrom;
+    use hex_literal::hex;
 
     #[test]
     fn resolve_paths_from_plain_dagpb() {

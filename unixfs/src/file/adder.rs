@@ -1,9 +1,9 @@
 use cid::Cid;
 
 use crate::pb::{FlatUnixFs, PBLink, UnixFs, UnixFsType};
-use quick_protobuf::{MessageWrite, Writer};
 use alloc::borrow::Cow;
 use core::fmt;
+use quick_protobuf::{MessageWrite, Writer};
 
 use sha2::{Digest, Sha256};
 
@@ -646,8 +646,8 @@ mod tests {
     use super::{BalancedCollector, Chunker, FileAdder};
     use crate::test_support::FakeBlockstore;
     use cid::Cid;
-    use hex_literal::hex;
     use core::convert::TryFrom;
+    use hex_literal::hex;
 
     #[test]
     fn test_size_chunker() {

@@ -1,7 +1,7 @@
 use super::{DirBuilder, Entry, Leaf, PostOrderIterator, TreeBuildingFailed, TreeOptions};
 use crate::Metadata;
-use cid::Cid;
 use alloc::collections::btree_map::Entry::*;
+use cid::Cid;
 
 /// UnixFs directory tree builder which buffers entries until `build()` is called.
 #[derive(Debug)]

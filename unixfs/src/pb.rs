@@ -1,8 +1,8 @@
-use quick_protobuf::{errors::Result as ProtobufResult, Writer, WriterBackend};
 use alloc::borrow::Cow;
 use core::convert::TryFrom;
 use core::fmt;
 use core::ops::Range;
+use quick_protobuf::{errors::Result as ProtobufResult, Writer, WriterBackend};
 
 pub(crate) mod merkledag;
 pub(crate) use merkledag::PBLink;
@@ -199,9 +199,9 @@ where
 #[cfg(test)]
 mod test {
     use super::{FlatUnixFs, PBNode, UnixFs, UnixFsType};
-    use hex_literal::hex;
     use alloc::borrow::Cow;
     use core::convert::TryFrom;
+    use hex_literal::hex;
 
     #[test]
     fn parse_content() {

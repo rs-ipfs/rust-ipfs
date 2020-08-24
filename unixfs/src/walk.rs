@@ -3,11 +3,11 @@ use crate::file::visit::{Cache, FileVisit, IdleFileVisit};
 use crate::file::{FileError, FileReadFailed};
 use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
 use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
-use cid::Cid;
-use either::Either;
 use alloc::borrow::Cow;
+use cid::Cid;
 use core::convert::TryFrom;
 use core::fmt;
+use either::Either;
 use std::path::{Path, PathBuf};
 
 /// `Walker` helps with walking a UnixFS tree, including all of the content and files. It is

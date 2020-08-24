@@ -2,8 +2,8 @@ use super::{
     CustomFlatUnixFs, DirBuilder, Entry, Leaf, NamedLeaf, TreeConstructionFailed, TreeOptions,
 };
 use cid::Cid;
-use std::collections::HashMap;
 use core::fmt;
+use std::collections::HashMap;
 
 /// Constructs the directory nodes required for a tree.
 ///

@@ -1,9 +1,9 @@
 use super::{try_convert_cid, MaybeResolved, MultipleMatchingLinks, ResolveError};
 use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
 use crate::{InvalidCidInLink, UnexpectedNodeType};
-use cid::Cid;
 use alloc::borrow::Cow;
 use alloc::collections::VecDeque;
+use cid::Cid;
 use core::convert::TryFrom;
 use core::fmt;
 
@@ -337,8 +337,8 @@ impl std::error::Error for LookupError {
 mod tests {
     use super::{LookupError, MaybeResolved, ShardError, ShardedLookup};
     use crate::pb::FlatUnixFs;
-    use hex_literal::hex;
     use core::convert::TryFrom;
+    use hex_literal::hex;
 
     // a directory from some linux kernel tree import: linux-5.5-rc5/tools/testing/selftests/rcutorture/
     const DIR: &[u8] = &hex!("122e0a2212204baf5104fe53d495223f8e2ba95375a31fda6b18e926cb54edd61f30b5f1de6512053641646f6318b535122c0a221220fd9f545068048e647d5d0b275ed171596e0c1c04b8fed09dc13bee7607e75bc7120242391883c00312330a2212208a4a68f6b88594ce373419586c12d24bde2d519ab636b1d2dcc986eb6265b7a3120a43444d616b6566696c65189601122f0a2212201ededc99d23a7ef43a8f17e6dd8b89934993245ef39e18936a37e412e536ed681205463562696e18c5ad030a280805121f200000000020000200000000000000000004000000000000000000000000002822308002");
