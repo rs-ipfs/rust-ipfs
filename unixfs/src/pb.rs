@@ -1,5 +1,5 @@
 use quick_protobuf::{errors::Result as ProtobufResult, Writer, WriterBackend};
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 use core::convert::TryFrom;
 use core::fmt;
 use core::ops::Range;
@@ -200,7 +200,7 @@ where
 mod test {
     use super::{FlatUnixFs, PBNode, UnixFs, UnixFsType};
     use hex_literal::hex;
-    use std::borrow::Cow;
+    use alloc::borrow::Cow;
     use core::convert::TryFrom;
 
     #[test]

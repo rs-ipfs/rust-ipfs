@@ -5,7 +5,7 @@
 
 use crate::pb::{FlatUnixFs, UnixFs, UnixFsType};
 use quick_protobuf::{MessageWrite, Writer};
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 
 /// Appends a dag-pb block for for a symlink to the given target_path. It is expected that the
 /// `target_path` is valid relative unix path relative to the place in which this is used but

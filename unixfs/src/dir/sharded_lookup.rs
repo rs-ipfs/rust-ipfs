@@ -2,8 +2,8 @@ use super::{try_convert_cid, MaybeResolved, MultipleMatchingLinks, ResolveError}
 use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
 use crate::{InvalidCidInLink, UnexpectedNodeType};
 use cid::Cid;
-use std::borrow::Cow;
-use std::collections::VecDeque;
+use alloc::borrow::Cow;
+use alloc::collections::VecDeque;
 use core::convert::TryFrom;
 use core::fmt;
 
@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn unsupported_hash_type_or_fanout() {
         use crate::pb::{FlatUnixFs, UnixFs, UnixFsType};
-        use std::borrow::Cow;
+        use alloc::borrow::Cow;
 
         let example = FlatUnixFs {
             data: UnixFs {
@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn unexpected_properties() {
         use crate::pb::{FlatUnixFs, UnixFs, UnixFsType};
-        use std::borrow::Cow;
+        use alloc::borrow::Cow;
 
         let example = FlatUnixFs {
             data: UnixFs {

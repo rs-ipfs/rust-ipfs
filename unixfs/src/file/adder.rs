@@ -2,7 +2,7 @@ use cid::Cid;
 
 use crate::pb::{FlatUnixFs, PBLink, UnixFs, UnixFsType};
 use quick_protobuf::{MessageWrite, Writer};
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 use core::fmt;
 
 use sha2::{Digest, Sha256};

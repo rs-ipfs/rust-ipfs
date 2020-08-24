@@ -4,7 +4,7 @@
 ///! [`ipfs_unixfs::walk::Walker`] should typically be used for accessing file content.
 use crate::pb::ParsingFailed;
 use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 use core::fmt;
 
 /// Low level UnixFS file descriptor reader support.

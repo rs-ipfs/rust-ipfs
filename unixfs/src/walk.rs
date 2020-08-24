@@ -5,7 +5,7 @@ use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
 use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
 use cid::Cid;
 use either::Either;
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 use core::convert::TryFrom;
 use core::fmt;
 use std::path::{Path, PathBuf};
