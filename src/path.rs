@@ -93,6 +93,14 @@ impl IpfsPath {
         p.shift(shifted);
         p
     }
+
+    pub(crate) fn into_truncated(self, len: usize) -> SlashedPath {
+        assert!(len <= self.path.len());
+
+        let mut p = self.path;
+        p.truncate(len);
+        p
+    }
 }
 
 impl fmt::Display for IpfsPath {
@@ -150,7 +158,6 @@ impl TryInto<PeerId> for IpfsPath {
 ///
 /// UTF-8 originates likely from UnixFS related protobuf descriptions, where dag-pb links have
 /// UTF-8 names, which equal to SlashedPath segments.
-#[doc(hidden)]
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct SlashedPath {
     path: Vec<String>,
@@ -199,8 +206,12 @@ impl SlashedPath {
         self.len() == 0
     }
 
-    pub fn shift(&mut self, n: usize) {
+    fn shift(&mut self, n: usize) {
         self.path.drain(0..n);
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.path.truncate(len);
     }
 }
 

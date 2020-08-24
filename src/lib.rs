@@ -419,7 +419,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Gets an ipld dag node from the ipfs repo.
     pub async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
-        self.dag().get(path).instrument(self.span.clone()).await
+        self.dag()
+            .get(path)
+            .instrument(self.span.clone())
+            .await
+            .map_err(Error::new)
     }
 
     /// Creates a stream which will yield the bytes of an UnixFS file from the root Cid, with the

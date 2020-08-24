@@ -8,11 +8,100 @@ use cid::{Cid, Codec, Version};
 use ipfs_unixfs::{
     dagpb::{wrap_node_data, NodeData},
     dir::{Cache, ShardedLookup},
-    resolve, MaybeResolved, ResolveError,
+    resolve, MaybeResolved,
 };
 use std::convert::TryFrom;
+use std::error::Error as StdError;
 use std::fmt;
 use std::iter::Peekable;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ResolveError {
+    /// Loading of the block on the path failed
+    #[error("loading failed")]
+    Loading(Cid, #[source] crate::Error),
+
+    /// Document was unsupported; this can be an UnixFs directory structure which has unsupported
+    /// options, or IPLD parsing failed.
+    #[error("unsupported document")]
+    UnsupportedDocument(Cid, #[source] Box<dyn StdError + Send + Sync + 'static>),
+
+    /// Path contained an index which was out of range for the given [`Ipld::List`].
+    #[error("list index out of range 0..{elements}: {index}")]
+    ListIndexOutOfRange {
+        document: Cid,
+        path: SlashedPath,
+        index: usize,
+        elements: usize,
+    },
+
+    /// Path attempted to resolve through for example string or integer.
+    #[error("tried to resolve through object that had no links")]
+    NoLinks(Cid, SlashedPath),
+
+    /// Path attempted to resolve through a property, index or link which did not exist.
+    #[error("no link named {:?} under {0}", .1.iter().last().unwrap())]
+    NotFound(Cid, SlashedPath),
+}
+
+/// Used internally before translating to ResolveError at the top level by using the IpfsPath.
+#[derive(Debug)]
+enum RawResolveLocalError {
+    Loading(Cid, crate::Error),
+    UnsupportedDocument(Cid, Box<dyn StdError + Send + Sync + 'static>),
+    ListIndexOutOfRange {
+        document: Cid,
+        segment: usize,
+        index: usize,
+        elements: usize,
+    },
+    InvalidIndex(Cid, usize),
+    NoLinks(Cid, usize),
+    NotFound(Cid, usize),
+}
+
+impl RawResolveLocalError {
+    fn add_starting_point_in_path(&mut self, start: usize) {
+        use RawResolveLocalError::*;
+        match self {
+            ListIndexOutOfRange {
+                ref mut segment, ..
+            }
+            | InvalidIndex(_, ref mut segment)
+            | NoLinks(_, ref mut segment)
+            | NotFound(_, ref mut segment) => {
+                *segment += start;
+            }
+            _ => {}
+        }
+    }
+
+    fn with_path(self, path: IpfsPath) -> ResolveError {
+        use RawResolveLocalError::*;
+
+        match self {
+            // FIXME: I'd like to use Result<Result<_, ResolveError>, crate::Error> instead
+            Loading(cid, e) => ResolveError::Loading(cid, e),
+            UnsupportedDocument(cid, e) => ResolveError::UnsupportedDocument(cid, e),
+            ListIndexOutOfRange {
+                document,
+                segment,
+                index,
+                elements,
+            } => ResolveError::ListIndexOutOfRange {
+                document,
+                path: path.into_truncated(segment + 1),
+                index,
+                elements,
+            },
+            NoLinks(cid, segment) => ResolveError::NoLinks(cid, path.into_truncated(segment + 1)),
+            InvalidIndex(cid, segment) | NotFound(cid, segment) => {
+                ResolveError::NotFound(cid, path.into_truncated(segment + 1))
+            }
+        }
+    }
+}
 
 /// `ipfs.dag` interface providing wrapper around Ipfs.
 #[derive(Clone, Debug)]
@@ -39,16 +128,22 @@ impl<Types: RepoTypes> IpldDag<Types> {
         Ok(cid)
     }
 
-    pub async fn get(&self, path: IpfsPath) -> Result<Ipld, Error> {
+    pub async fn get(&self, path: IpfsPath) -> Result<Ipld, ResolveError> {
         // FIXME: do ipns resolve first
         let cid = match path.root().cid() {
             Some(cid) => cid,
-            None => return Err(anyhow::anyhow!("expected cid")),
+            None => panic!("not implemented: Ipns resolution, expected Cid based path"),
         };
 
         let mut iter = path.iter().peekable();
 
-        let (node, _) = self.resolve0(cid, &mut iter, true).await?;
+        let (node, _) = match self.resolve0(cid, &mut iter, true).await {
+            Ok(t) => t,
+            Err(e) => {
+                drop(iter);
+                return Err(e.with_path(path));
+            }
+        };
 
         Ipld::try_from(node)
     }
@@ -57,16 +152,22 @@ impl<Types: RepoTypes> IpldDag<Types> {
         &self,
         path: IpfsPath,
         follow_links: bool,
-    ) -> Result<(ResolvedNode, SlashedPath), Error> {
+    ) -> Result<(ResolvedNode, SlashedPath), ResolveError> {
         // FIXME: do ipns resolve first
         let cid = match path.root().cid() {
             Some(cid) => cid,
-            None => return Err(anyhow::anyhow!("expected cid")),
+            None => panic!("not implemented: Ipns resolution, expected Cid based path"),
         };
 
         let (node, matched_segments) = {
             let mut iter = path.iter().peekable();
-            self.resolve0(cid, &mut iter, follow_links).await?
+            match self.resolve0(cid, &mut iter, follow_links).await {
+                Ok(t) => t,
+                Err(e) => {
+                    drop(iter);
+                    return Err(e.with_path(path));
+                }
+            }
         };
 
         // we only care about returning this remaining_path with segments up until the last
@@ -83,7 +184,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
         cid: &Cid,
         segments: &mut Peekable<impl Iterator<Item = &'a str>>,
         follow_links: bool,
-    ) -> Result<(ResolvedNode, usize), Error> {
+    ) -> Result<(ResolvedNode, usize), RawResolveLocalError> {
         use LocallyResolved::*;
 
         let mut current = cid.to_owned();
@@ -92,19 +193,34 @@ impl<Types: RepoTypes> IpldDag<Types> {
         let mut cache = None;
 
         loop {
-            let block = self.ipfs.repo.get_block(&current).await?;
+            println!(
+                "looking at {:?} with {}, next: {}",
+                segments.peek(),
+                total,
+                current
+            );
+            let block = match self.ipfs.repo.get_block(&current).await {
+                Ok(block) => block,
+                Err(e) => return Err(RawResolveLocalError::Loading(current, e)),
+            };
 
             let start = total;
 
-            let (resolution, matched) = resolve_local(block, segments, &mut cache)?;
+            let (resolution, matched) = match resolve_local(block, segments, &mut cache) {
+                Ok(t) => t,
+                Err(mut e) => {
+                    e.add_starting_point_in_path(start);
+                    return Err(e);
+                }
+            };
             total += matched;
 
             let (src, dest) = match resolution {
                 Complete(ResolvedNode::Link(src, dest)) => (src, dest),
-                Incomplete(src, lookup) => {
-                    let dest = self.resolve_hamt(lookup, &mut cache).await?;
-                    (src, dest)
-                }
+                Incomplete(src, lookup) => match self.resolve_hamt(lookup, &mut cache).await {
+                    Ok(dest) => (src, dest),
+                    Err(e) => return Err(RawResolveLocalError::UnsupportedDocument(src, e.into())),
+                },
                 Complete(other) => {
                     // when following links we return the total of links matched before the
                     // returned document.
@@ -184,12 +300,13 @@ impl ResolvedNode {
 }
 
 impl TryFrom<ResolvedNode> for Ipld {
-    type Error = Error;
-    fn try_from(r: ResolvedNode) -> Result<Ipld, Error> {
+    type Error = ResolveError;
+    fn try_from(r: ResolvedNode) -> Result<Ipld, Self::Error> {
         use ResolvedNode::*;
 
         match r {
-            Block(block) => Ok(decode_ipld(block.cid(), block.data())?),
+            Block(block) => Ok(decode_ipld(block.cid(), block.data())
+                .map_err(move |e| ResolveError::UnsupportedDocument(block.cid, e.into()))?),
             DagPbData(_, node_data) => Ok(Ipld::Bytes(node_data.node_data().to_vec())),
             Projection(_, ipld) => Ok(ipld),
             Link(_, cid) => Ok(Ipld::Link(cid)),
@@ -220,7 +337,7 @@ fn resolve_local<'a>(
     block: Block,
     segments: &mut Peekable<impl Iterator<Item = &'a str>>,
     cache: &mut Option<Cache>,
-) -> Result<(LocallyResolved<'a>, usize), Error> {
+) -> Result<(LocallyResolved<'a>, usize), RawResolveLocalError> {
     println!("resolving on {}", block.cid());
     if segments.peek().is_none() {
         return Ok((LocallyResolved::Complete(ResolvedNode::Block(block)), 0));
@@ -238,12 +355,22 @@ fn resolve_local<'a>(
         // being matched, and not the error nor the DagPbData case.
         let segment = segments.next().unwrap();
 
-        // TODO: lift the cache as parameter?
-        resolve_local_dagpb(cid, data, segment, segments.peek().is_none(), cache)
+        Ok(resolve_local_dagpb(
+            cid,
+            data,
+            segment,
+            segments.peek().is_none(),
+            cache,
+        )?)
     } else {
-        let ipld = decode_ipld(&cid, &data)?;
-        let (resolved, matched) = resolve_local_ipld(ipld, segments)?;
-        Ok((resolved.with_source(cid).into(), matched))
+        let ipld = match decode_ipld(&cid, &data) {
+            Ok(ipld) => ipld,
+            Err(e) => return Err(RawResolveLocalError::UnsupportedDocument(cid, e.into())),
+        };
+        match resolve_local_ipld(ipld, segments) {
+            Ok((resolved, matched)) => Ok((resolved.with_source(cid).into(), matched)),
+            Err(e) => Err(e.with_source(cid).into()),
+        }
     }
 }
 
@@ -253,13 +380,12 @@ fn resolve_local_dagpb<'a>(
     segment: &'a str,
     is_last: bool,
     cache: &mut Option<Cache>,
-) -> Result<(LocallyResolved<'a>, usize), Error> {
+) -> Result<(LocallyResolved<'a>, usize), RawResolveLocalError> {
     match resolve(&data, segment, cache) {
         Ok(MaybeResolved::NeedToLoadMore(lookup)) => {
             Ok((LocallyResolved::Incomplete(cid, lookup), 0))
         }
         Ok(MaybeResolved::Found(dest)) => {
-            // it's clear that we need to have the segment dropped here.
             Ok((LocallyResolved::Complete(ResolvedNode::Link(cid, dest)), 1))
         }
         Ok(MaybeResolved::NotFound) => {
@@ -270,19 +396,14 @@ fn resolve_local_dagpb<'a>(
                     1,
                 ));
             }
-            Err(anyhow::anyhow!("no such segment: {:?}", segment))
+            Err(RawResolveLocalError::NotFound(cid, 1))
         }
-        // FIXME: need to wrap these differently for some fixed error message
-        // it's a ResolveError::UnexpectedType(ut) where ut.is_file(); the test case does an
-        // invalid path check with a path to cid of a file, and a nested (of course)
-        // non-existent path. this is only tested on /cat which is why the error seems like it
-        // does.
-        Err(ResolveError::UnexpectedType(ut)) if ut.is_file() => {
-            // js-ipfs alternative would be:
-            // 'no link named "does-not-exist" under Qma4hjFTnCasJ8PVp3mZbZK5g2vGDT4LByLJ7m8ciyRFZP'
-            Err(anyhow::anyhow!("file does not exist"))
+        Err(ipfs_unixfs::ResolveError::UnexpectedType(ut)) if ut.is_file() => {
+            // this might even be correct: files we know are not supported, however not sure if
+            // symlinks are, let alone custom unxifs types should such exist
+            Err(RawResolveLocalError::NotFound(cid, 1))
         }
-        Err(e) => Err(e.into()),
+        Err(e) => Err(RawResolveLocalError::UnsupportedDocument(cid, e.into())),
     }
 }
 
@@ -300,7 +421,7 @@ fn resolve_local_dagpb<'a>(
 fn resolve_local_ipld<'a>(
     mut ipld: Ipld,
     segments: &mut Peekable<impl Iterator<Item = &'a str>>,
-) -> Result<(ResolvedIpld, usize), Error> {
+) -> Result<(ResolvedIpld, usize), IpldResolvingFailed> {
     let mut matched = 0;
     loop {
         ipld = match ipld {
@@ -318,17 +439,16 @@ fn resolve_local_ipld<'a>(
 
         ipld = match (ipld, segments.next()) {
             (Ipld::Link(cid), Some(".")) => {
+                println!(">>> return link with dot");
                 return Ok((ResolvedIpld::Link(cid), matched + 1));
             }
             (Ipld::Link(_), Some(_)) => {
-                // TODO: verify this really matches go-ipfs behaviour
-                // the idea here is to "silently" follow the link.
-                unreachable!()
+                unreachable!("case already handled above before advancing iterator")
             }
             (Ipld::Map(mut map), Some(segment)) => {
                 let found = map
                     .remove(segment)
-                    .ok_or_else(|| anyhow::anyhow!("no such segment: {:?}", segment))?;
+                    .ok_or_else(move || IpldResolvingFailed::NotFound(matched))?;
                 matched += 1;
                 found
             }
@@ -337,21 +457,17 @@ fn resolve_local_ipld<'a>(
                     matched += 1;
                     vec.swap_remove(index)
                 }
-                Ok(_) => {
-                    return Err(anyhow::anyhow!(
-                        "index out of range 0..{}: {:?}",
-                        vec.len(),
-                        segment
-                    ))
+                Ok(index) => {
+                    return Err(IpldResolvingFailed::ListIndexOutOfRange {
+                        segment: matched,
+                        index,
+                        elements: vec.len(),
+                    });
                 }
-                Err(_) => return Err(anyhow::anyhow!("invalid list index: {:?}", segment)),
+                Err(_) => return Err(IpldResolvingFailed::InvalidIndex(matched)),
             },
-            (other, Some(segment)) => {
-                return Err(anyhow::anyhow!(
-                    "cannot resolve {:?} through: {:?}",
-                    segment,
-                    other
-                ))
+            (_, Some(_)) => {
+                return Err(IpldResolvingFailed::NoLinks(matched));
             }
             // path has been consumed
             (anything, None) => return Ok((ResolvedIpld::Projection(anything), matched)),
@@ -359,6 +475,42 @@ fn resolve_local_ipld<'a>(
     }
 }
 
+/// Used internall only at `resolve_local_ipld` where processing is done without the current Cid of
+/// the document.
+#[derive(Debug, PartialEq)]
+enum IpldResolvingFailed {
+    ListIndexOutOfRange {
+        segment: usize,
+        index: usize,
+        elements: usize,
+    },
+    InvalidIndex(usize),
+    NoLinks(usize),
+    NotFound(usize),
+}
+
+impl IpldResolvingFailed {
+    fn with_source(self, source: Cid) -> RawResolveLocalError {
+        use IpldResolvingFailed::*;
+        match self {
+            ListIndexOutOfRange {
+                segment,
+                index,
+                elements,
+            } => RawResolveLocalError::ListIndexOutOfRange {
+                document: source,
+                segment,
+                index,
+                elements,
+            },
+            InvalidIndex(segment) => RawResolveLocalError::InvalidIndex(source, segment),
+            NoLinks(segment) => RawResolveLocalError::NoLinks(source, segment),
+            NotFound(segment) => RawResolveLocalError::NotFound(source, segment),
+        }
+    }
+}
+
+#[derive(PartialEq)]
 enum ResolvedIpld {
     Link(Cid),
     Projection(Ipld),
@@ -500,15 +652,17 @@ mod tests {
         for (path, expected) in &good_examples {
             let p = IpfsPath::try_from(*path).unwrap();
 
-            let (resolved, matched) =
+            let (resolved, matched_segments) =
                 super::resolve_local_ipld(example_doc.clone(), &mut p.iter().peekable()).unwrap();
+
+            assert_eq!(matched_segments, 4);
 
             match resolved {
                 ResolvedIpld::Projection(p) if &p == expected => {}
                 x => unreachable!("unexpected {:?}", x),
             }
 
-            let remaining_path = p.iter().skip(matched).collect::<Vec<&str>>();
+            let remaining_path = p.iter().skip(matched_segments).collect::<Vec<&str>>();
             assert!(remaining_path.is_empty(), "{:?}", remaining_path);
         }
     }
@@ -516,9 +670,12 @@ mod tests {
     #[test]
     fn resolve_cbor_locally_to_link() {
         let (example_doc, target) = example_doc_and_cid();
-        let p = IpfsPath::try_from("bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/2/or/foobar/trailer").unwrap();
+        let p = IpfsPath::try_from(
+            "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/2/or/foobar/trailer"
+            //                                                            1      2   3 4
+        ).unwrap();
 
-        let (resolved, matched) =
+        let (resolved, matched_segments) =
             super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap();
 
         match resolved {
@@ -526,7 +683,27 @@ mod tests {
             x => unreachable!("{:?}", x),
         }
 
-        let remaining_path = p.iter().skip(matched).collect::<Vec<&str>>();
+        assert_eq!(matched_segments, 4);
+
+        let remaining_path = p.iter().skip(matched_segments).collect::<Vec<&str>>();
+        assert_eq!(remaining_path, &["foobar", "trailer"]);
+    }
+
+    #[test]
+    fn resolve_cbor_locally_to_link_with_dot() {
+        let (example_doc, cid) = example_doc_and_cid();
+        let p = IpfsPath::try_from(
+            "bafyreielwgy762ox5ndmhx6kpi6go6il3gzahz3ngagb7xw3bj3aazeita/nested/even/2/or/./foobar/trailer",
+            //                                                            1      2   3 4  5
+        )
+        .unwrap();
+
+        let (resolved, matched_segments) =
+            super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap();
+        assert_eq!(resolved, ResolvedIpld::Link(cid));
+        assert_eq!(matched_segments, 5);
+
+        let remaining_path = p.iter().skip(matched_segments).collect::<Vec<&str>>();
         assert_eq!(remaining_path, &["foobar", "trailer"]);
     }
 
@@ -539,7 +716,8 @@ mod tests {
         .unwrap();
 
         // FIXME: errors; could give how much it was matched and so on
-        super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap_err();
+        let e = super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap_err();
+        assert_eq!(e, IpldResolvingFailed::NotFound(0));
     }
 
     #[test]
@@ -551,7 +729,15 @@ mod tests {
         .unwrap();
 
         // FIXME: errors, again the number of matched
-        super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap_err();
+        let e = super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap_err();
+        assert_eq!(
+            e,
+            IpldResolvingFailed::ListIndexOutOfRange {
+                segment: 2,
+                index: 3000,
+                elements: 4
+            }
+        );
     }
 
     #[test]
@@ -563,7 +749,8 @@ mod tests {
         .unwrap();
 
         // FIXME: errors, again the number of matched
-        super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap_err();
+        let e = super::resolve_local_ipld(example_doc, &mut p.iter().peekable()).unwrap_err();
+        assert_eq!(e, IpldResolvingFailed::InvalidIndex(2));
     }
 
     #[tokio::test(max_threads = 1)]
@@ -593,5 +780,37 @@ mod tests {
                 x => unreachable!("{:?}", x),
             }
         }
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn fail_resolving_first_segment() {
+        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let dag = IpldDag::new(ipfs);
+        let ipld = make_ipld!([1]);
+        let cid1 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
+        let ipld = make_ipld!({ "0": cid1 });
+        let cid2 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
+
+        let path = IpfsPath::from(cid2.clone()).sub_path("1/a").unwrap();
+
+        //let cloned = path.clone();
+        let e = dag.resolve(path, true).await.unwrap_err();
+        assert_eq!(e.to_string(), format!("no link named \"1\" under {}", cid2));
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn fail_resolving_last_segment() {
+        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let dag = IpldDag::new(ipfs);
+        let ipld = make_ipld!([1]);
+        let cid1 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
+        let ipld = make_ipld!([cid1.clone()]);
+        let cid2 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
+
+        let path = IpfsPath::from(cid2).sub_path("0/a").unwrap();
+
+        //let cloned = path.clone();
+        let e = dag.resolve(path, true).await.unwrap_err();
+        assert_eq!(e.to_string(), format!("no link named \"a\" under {}", cid1));
     }
 }
