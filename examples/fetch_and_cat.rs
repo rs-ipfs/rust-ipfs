@@ -1,10 +1,6 @@
-#![recursion_limit = "512"]
-
-use cid::Cid;
 use futures::pin_mut;
 use futures::stream::StreamExt; // needed for StreamExt::next
-use ipfs::{Ipfs, TestTypes, UninitializedIpfs};
-use std::convert::TryFrom;
+use ipfs::{Ipfs, IpfsPath, TestTypes, UninitializedIpfs};
 use std::env;
 use std::process::exit;
 use tokio::io::AsyncWriteExt;
@@ -17,18 +13,18 @@ async fn main() {
     // expected to be used by connecting another ipfs peer to it and providing the blocks from that
     // peer.
 
-    let cid = match env::args().nth(1).map(Cid::try_from) {
+    let path = match env::args().nth(1).map(|s| s.parse::<IpfsPath>()) {
         Some(Ok(cid)) => cid,
         Some(Err(e)) => {
             eprintln!(
-                "Failed to parse {} as Cid: {}",
+                "Failed to parse {} as IpfsPath: {}",
                 env::args().nth(1).unwrap(),
                 e
             );
             exit(1);
         }
         None => {
-            eprintln!("Usage: fetch_and_cat CID");
+            eprintln!("Usage: fetch_and_cat <IPFS_PATH | CID>");
             eprintln!(
                 "Example will accept connections and print all bytes of the unixfs file to \
                 stdout."
@@ -37,25 +33,28 @@ async fn main() {
         }
     };
 
+    if path.root().cid().is_none() {
+        eprintln!("Unsupported path: ipns resolution is incoming: {}", path);
+        exit(1);
+    }
+
     // Start daemon and initialize repo
     let (ipfs, fut): (Ipfs<TestTypes>, _) =
         UninitializedIpfs::default().await.start().await.unwrap();
     tokio::task::spawn(fut);
 
-    let (public_key, addresses) = ipfs.identity().await.unwrap();
+    let (_, addresses) = ipfs.identity().await.unwrap();
     assert!(!addresses.is_empty(), "Zero listening addresses");
 
-    eprintln!("Please connect an ipfs node having {} to:\n", cid);
-
-    let peer_id = public_key.into_peer_id().to_string();
+    eprintln!("Please connect an ipfs node having {} to:\n", path);
 
     for address in addresses {
-        eprintln!(" - {}/p2p/{}", address, peer_id);
+        eprintln!(" - {}", address);
     }
 
     eprintln!();
 
-    let stream = ipfs.cat_unixfs(cid, None).await.unwrap_or_else(|e| {
+    let stream = ipfs.cat_unixfs(path, None).await.unwrap_or_else(|e| {
         eprintln!("Error: {}", e);
         exit(1);
     });

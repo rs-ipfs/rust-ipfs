@@ -18,7 +18,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ResolveError {
     /// Loading of the block on the path failed
-    #[error("loading failed")]
+    #[error("block loading failed")]
     Loading(Cid, #[source] crate::Error),
 
     /// Document was unsupported; this can be an UnixFs directory structure which has unsupported
@@ -46,6 +46,14 @@ pub enum ResolveError {
     /// Path attempted to resolve through a property, index or link which did not exist.
     #[error("no link named {:?} under {0}", .1.iter().last().unwrap())]
     NotFound(Cid, SlashedPath),
+}
+
+#[derive(Debug, Error)]
+pub enum UnexpectedResolved {
+    #[error("path resolved to unexpected type of document: {:?} or {}", .0, .1.cid())]
+    UnexpectedCodec(cid::Codec, ResolvedNode),
+    #[error("path did not resolve to a block on {}", .0.cid())]
+    NonBlock(ResolvedNode),
 }
 
 /// Used internally before translating to ResolveError at the top level by using the IpfsPath.
@@ -347,6 +355,22 @@ impl ResolvedNode {
     /// Returns the destination or the source link.
     pub fn cid(&self) -> &Cid {
         self.destination().unwrap_or_else(|| self.source())
+    }
+
+    /// Unwraps the dagpb block variant and turns others into UnexpectedResolved.
+    /// This is useful wherever unixfs operations are continued after resolving an IpfsPath.
+    pub fn into_unixfs_block(self) -> Result<Block, UnexpectedResolved> {
+        if self.cid().codec() != cid::Codec::DagProtobuf {
+            Err(UnexpectedResolved::UnexpectedCodec(
+                cid::Codec::DagProtobuf,
+                self,
+            ))
+        } else {
+            match self {
+                ResolvedNode::Block(b) => Ok(b),
+                _ => Err(UnexpectedResolved::NonBlock(self)),
+            }
+        }
     }
 }
 

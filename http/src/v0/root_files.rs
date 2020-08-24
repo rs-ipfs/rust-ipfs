@@ -3,7 +3,6 @@ use crate::v0::support::{
 };
 use async_stream::try_stream;
 use bytes::Bytes;
-use cid::Codec;
 use futures::stream::TryStream;
 use ipfs::unixfs::ll::walk::{self, ContinuedWalk, Walker};
 use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed};
@@ -67,16 +66,8 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
         (None, None) => None,
     };
 
-    // FIXME: this timeout here is ... not great; the end user could be waiting for 2*timeout as we
-    // are applying it to both places. not sure if it makes really much sense everywhere.
-    let block = resolve_dagpb(&ipfs, path)
-        .maybe_timeout(args.timeout.clone().map(StringSerialized::into_inner))
-        .await
-        .map_err(StringError::from)?
-        .map_err(StringError::from)?;
-
     // TODO: timeout for the whole stream!
-    let ret = ipfs::unixfs::cat(ipfs, block, range)
+    let ret = ipfs::unixfs::cat(ipfs, path, range)
         .maybe_timeout(args.timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?;
@@ -123,22 +114,13 @@ async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Re
 }
 
 async fn resolve_dagpb<T: IpfsTypes>(ipfs: &Ipfs<T>, path: IpfsPath) -> Result<Block, StringError> {
-    use ipfs::dag::ResolvedNode;
-
     let (resolved, _) = ipfs
         .dag()
         .resolve(path, true)
         .await
         .map_err(StringError::from)?;
 
-    if resolved.cid().codec() != Codec::DagProtobuf {
-        Err(StringError::from("unknown node type"))
-    } else {
-        match resolved {
-            ResolvedNode::Block(b) => Ok(b),
-            _ => Err(StringError::from("path resolved to non UnixFs file")),
-        }
-    }
+    resolved.into_unixfs_block().map_err(StringError::from)
 }
 
 fn walk<Types: IpfsTypes>(

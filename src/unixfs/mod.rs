@@ -1,7 +1,7 @@
 pub use ipfs_unixfs as ll;
 
 mod cat;
-pub use cat::{cat, TraversalFailed};
+pub use cat::{cat, StartingPoint, TraversalFailed};
 
 #[cfg(test)]
 mod tests {

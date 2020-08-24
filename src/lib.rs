@@ -433,13 +433,15 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// To create an owned version of the stream, please use `ipfs::unixfs::cat` directly.
     pub async fn cat_unixfs(
         &self,
-        cid: Cid,
+        starting_point: impl Into<unixfs::StartingPoint>,
         range: Option<Range<u64>>,
     ) -> Result<
         impl Stream<Item = Result<Vec<u8>, unixfs::TraversalFailed>> + Send + '_,
         unixfs::TraversalFailed,
     > {
-        unixfs::cat(self, cid, range)
+        // convert early not to worry about the lifetime of parameter
+        let starting_point = starting_point.into();
+        unixfs::cat(self, starting_point, range)
             .instrument(self.span.clone())
             .await
     }

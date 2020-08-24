@@ -1,12 +1,14 @@
-use crate::{Error, Ipfs, IpfsTypes};
+use crate::{
+    dag::{ResolveError, UnexpectedResolved},
+    Error, Ipfs, IpfsTypes,
+};
 use async_stream::stream;
 use bitswap::Block;
 use cid::Cid;
-use core::borrow::Borrow;
-use core::fmt;
-use core::ops::Range;
 use futures::stream::Stream;
 use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
+use std::borrow::Borrow;
+use std::ops::Range;
 
 /// IPFS cat operation, producing a stream of file bytes. This is generic over the different kinds
 /// of ways to own an `Ipfs` value in order to support both operating with borrowed `Ipfs` value
@@ -31,14 +33,16 @@ where
     // Get the root block to start the traversal. The stream does not expose any of the file
     // metadata. To get to it the user needs to create a Visitor over the first block.
     let Block { cid, data } = match starting_point.into() {
-        StartingPoint::Left(cid) => {
+        StartingPoint::Left(path) => {
             let borrow = ipfs.borrow();
-            match borrow.get_block(&cid).await {
-                Ok(block) => block,
-                Err(e) => {
-                    return Err(TraversalFailed::Loading(cid, e));
-                }
-            }
+            let dag = borrow.dag();
+            let (resolved, _) = dag
+                .resolve(path, true)
+                .await
+                .map_err(TraversalFailed::Resolving)?;
+            resolved
+                .into_unixfs_block()
+                .map_err(TraversalFailed::Path)?
         }
         StartingPoint::Right(block) => block,
     };
@@ -115,14 +119,16 @@ where
     })
 }
 
+/// The starting point for unixfs walks. Can be converted from IpfsPath and Blocks, and Cids can be
+/// converted to IpfsPath.
 pub enum StartingPoint {
-    Left(Cid),
+    Left(crate::IpfsPath),
     Right(Block),
 }
 
-impl From<Cid> for StartingPoint {
-    fn from(a: Cid) -> Self {
-        Self::Left(a)
+impl<T: Into<crate::IpfsPath>> From<T> for StartingPoint {
+    fn from(a: T) -> Self {
+        Self::Left(a.into())
     }
 }
 
@@ -133,34 +139,22 @@ impl From<Block> for StartingPoint {
 }
 
 /// Types of failures which can occur while walking the UnixFS graph.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum TraversalFailed {
-    /// Failure to load the block
-    Loading(Cid, Error),
+    /// Failure to resolve the given path; does not happen when given a block.
+    #[error("path resolving failed")]
+    Resolving(#[source] ResolveError),
+
+    /// The given path was resolved to non dag-pb block, does not happen when starting the walk
+    /// from a block.
+    #[error("path resolved to unexpected")]
+    Path(#[source] UnexpectedResolved),
+
+    /// Loading of a block during walk failed
+    #[error("loading of {} failed", .0)]
+    Loading(Cid, #[source] Error),
+
     /// Processing of the block failed
-    Walking(Cid, FileReadFailed),
-}
-
-impl fmt::Display for TraversalFailed {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use TraversalFailed::*;
-        match self {
-            Loading(cid, e) => write!(fmt, "loading of {} failed: {}", cid, e),
-            Walking(cid, e) => write!(fmt, "failed to walk {}: {}", cid, e),
-        }
-    }
-}
-
-impl std::error::Error for TraversalFailed {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        use TraversalFailed::*;
-
-        match self {
-            Loading(_, _) => {
-                // FIXME: anyhow::Error cannot be given out as source.
-                None
-            }
-            Walking(_, e) => Some(e),
-        }
-    }
+    #[error("walk failed on {}", .0)]
+    Walking(Cid, #[source] FileReadFailed),
 }
