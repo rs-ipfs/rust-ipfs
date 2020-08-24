@@ -109,6 +109,8 @@ tests.dht(factory, {
     "should be able to find providers",
     // invalid PeerId encoding
     "should return the other node in the query",
+    // multiple entries in the param
+    "should allow multiple CIDs to be passed",
     // unimplemented endpoints
     "should respect timeout option when putting a value into the DHT",
     "should put a value to the DHT",
