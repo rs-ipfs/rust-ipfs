@@ -217,8 +217,8 @@ async fn dht_providing() {
         .unwrap();
 
     // node_a provides the block, node_b searches for it in the DHT
-    node_a.provide(cid.to_bytes()).await.unwrap();
-    let providers = node_b.get_providers(cid.to_bytes()).await.unwrap();
+    node_a.provide(cid.clone()).await.unwrap();
+    let providers = node_b.get_providers(cid).await.unwrap();
 
     assert_eq!(providers, vec![a_id]);
 }

@@ -1,5 +1,5 @@
 use crate::v0::support::{with_ipfs, MaybeTimeoutExt, StringError, StringSerialized};
-use ipfs::{Ipfs, IpfsTypes, PeerId};
+use ipfs::{Cid, Ipfs, IpfsTypes, PeerId};
 use serde::{Deserialize, Serialize};
 use warp::{query, Filter, Rejection, Reply};
 
@@ -94,8 +94,9 @@ async fn find_providers_query<T: IpfsTypes>(
         num_providers,
         timeout,
     } = query;
+    let cid = arg.parse::<Cid>().map_err(StringError::from)?;
     let providers = ipfs
-        .get_providers(arg.into_bytes())
+        .get_providers(cid)
         .maybe_timeout(timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?
@@ -144,8 +145,8 @@ async fn provide_query<T: IpfsTypes>(
         verbose: _,
         timeout,
     } = query;
-    let key = arg.into_bytes();
-    ipfs.provide(key)
+    let cid = arg.parse::<Cid>().map_err(StringError::from)?;
+    ipfs.provide(cid)
         .maybe_timeout(timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?
