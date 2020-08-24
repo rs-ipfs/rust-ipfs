@@ -3,8 +3,7 @@ use cid::{self, Cid};
 use futures::future::ready;
 use futures::stream::{self, FuturesOrdered, Stream, StreamExt, TryStreamExt};
 use ipfs::ipld::{decode_ipld, Ipld};
-use ipfs::{Block, Error};
-use ipfs::{Ipfs, IpfsTypes};
+use ipfs::{Block, Ipfs, IpfsTypes};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::VecDeque;
@@ -18,6 +17,7 @@ use options::RefsOptions;
 mod format;
 use format::EdgeFormatter;
 
+use ipfs::dag::ResolveError;
 pub use ipfs::path::IpfsPath;
 
 use crate::v0::support::{HandledErr, StreamResponse};
@@ -126,8 +126,10 @@ async fn refs_paths<T: IpfsTypes>(
     paths: Vec<IpfsPath>,
     max_depth: Option<u64>,
     unique: bool,
-) -> Result<impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static, Error>
-{
+) -> Result<
+    impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static,
+    ResolveError,
+> {
     use ipfs::dag::ResolvedNode;
 
     let dag = ipfs.dag();
@@ -153,9 +155,10 @@ async fn refs_paths<T: IpfsTypes>(
                     // decode and hope for the best; this of course does a lot of wasted effort;
                     // hopefully one day we can do "projectioned decoding", like here we'd only
                     // need all of the links of the block
-                    ResolvedNode::Block(b) => decode_ipld(b.cid(), b.data())
-                        .map(move |ipld| Some((b.cid, ipld)))
-                        .map_err(Error::from),
+                    ResolvedNode::Block(b) => match decode_ipld(b.cid(), b.data()) {
+                        Ok(ipld) => Ok(Some((b.cid, ipld))),
+                        Err(e) => Err(ResolveError::UnsupportedDocument(b.cid, e.into())),
+                    },
                     // the most straight-forward variant with pre-projected document
                     ResolvedNode::Projection(cid, ipld) => Ok(Some((cid, ipld))),
                 })
