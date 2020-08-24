@@ -30,9 +30,13 @@ pub enum ResolveError {
     /// Path contained an index which was out of range for the given [`Ipld::List`].
     #[error("list index out of range 0..{elements}: {index}")]
     ListIndexOutOfRange {
+        /// The document with the mismatched index
         document: Cid,
+        /// The path up until the mismatched index
         path: SlashedPath,
+        /// The index in original path
         index: usize,
+        /// Total number of elements found
         elements: usize,
     },
 
@@ -52,13 +56,22 @@ enum RawResolveLocalError {
     UnsupportedDocument(Cid, Box<dyn StdError + Send + Sync + 'static>),
     ListIndexOutOfRange {
         document: Cid,
-        segment: usize,
+        segment_index: usize,
         index: usize,
         elements: usize,
     },
-    InvalidIndex(Cid, usize),
-    NoLinks(Cid, usize),
-    NotFound(Cid, usize),
+    InvalidIndex {
+        document: Cid,
+        segment_index: usize,
+    },
+    NoLinks {
+        document: Cid,
+        segment_index: usize,
+    },
+    NotFound {
+        document: Cid,
+        segment_index: usize,
+    },
 }
 
 impl RawResolveLocalError {
@@ -66,12 +79,24 @@ impl RawResolveLocalError {
         use RawResolveLocalError::*;
         match self {
             ListIndexOutOfRange {
-                ref mut segment, ..
+                ref mut segment_index,
+                ..
             }
-            | InvalidIndex(_, ref mut segment)
-            | NoLinks(_, ref mut segment)
-            | NotFound(_, ref mut segment) => {
-                *segment += start;
+            | InvalidIndex {
+                ref mut segment_index,
+                ..
+            }
+            | NoLinks {
+                ref mut segment_index,
+                ..
+            }
+            | NotFound {
+                ref mut segment_index,
+                ..
+            } => {
+                // NOTE: this is the **index** compared to the number of segments matched **count**
+                // from `resolve_local` Ok return value.
+                *segment_index += start;
             }
             _ => {}
         }
@@ -86,19 +111,27 @@ impl RawResolveLocalError {
             UnsupportedDocument(cid, e) => ResolveError::UnsupportedDocument(cid, e),
             ListIndexOutOfRange {
                 document,
-                segment,
+                segment_index,
                 index,
                 elements,
             } => ResolveError::ListIndexOutOfRange {
                 document,
-                path: path.into_truncated(segment + 1),
+                path: path.into_truncated(segment_index + 1),
                 index,
                 elements,
             },
-            NoLinks(cid, segment) => ResolveError::NoLinks(cid, path.into_truncated(segment + 1)),
-            InvalidIndex(cid, segment) | NotFound(cid, segment) => {
-                ResolveError::NotFound(cid, path.into_truncated(segment + 1))
+            NoLinks {
+                document,
+                segment_index,
+            } => ResolveError::NoLinks(document, path.into_truncated(segment_index + 1)),
+            InvalidIndex {
+                document,
+                segment_index,
             }
+            | NotFound {
+                document,
+                segment_index,
+            } => ResolveError::NotFound(document, path.into_truncated(segment_index + 1)),
         }
     }
 }
@@ -396,12 +429,18 @@ fn resolve_local_dagpb<'a>(
                     1,
                 ));
             }
-            Err(RawResolveLocalError::NotFound(cid, 0))
+            Err(RawResolveLocalError::NotFound {
+                document: cid,
+                segment_index: 0,
+            })
         }
         Err(ipfs_unixfs::ResolveError::UnexpectedType(ut)) if ut.is_file() => {
             // this might even be correct: files we know are not supported, however not sure if
             // symlinks are, let alone custom unxifs types should such exist
-            Err(RawResolveLocalError::NotFound(cid, 0))
+            Err(RawResolveLocalError::NotFound {
+                document: cid,
+                segment_index: 0,
+            })
         }
         Err(e) => Err(RawResolveLocalError::UnsupportedDocument(cid, e.into())),
     }
@@ -422,14 +461,14 @@ fn resolve_local_ipld<'a>(
     mut ipld: Ipld,
     segments: &mut Peekable<impl Iterator<Item = &'a str>>,
 ) -> Result<(ResolvedIpld, usize), IpldResolvingFailed> {
-    let mut matched = 0;
+    let mut matched_count = 0;
     loop {
         ipld = match ipld {
             Ipld::Link(cid) => {
                 if segments.peek() != Some(&".") {
                     // there is something other than dot next in the path, we should silently match
                     // over it.
-                    return Ok((ResolvedIpld::Link(cid), matched));
+                    return Ok((ResolvedIpld::Link(cid), matched_count));
                 } else {
                     Ipld::Link(cid)
                 }
@@ -440,7 +479,7 @@ fn resolve_local_ipld<'a>(
         ipld = match (ipld, segments.next()) {
             (Ipld::Link(cid), Some(".")) => {
                 println!(">>> return link with dot");
-                return Ok((ResolvedIpld::Link(cid), matched + 1));
+                return Ok((ResolvedIpld::Link(cid), matched_count + 1));
             }
             (Ipld::Link(_), Some(_)) => {
                 unreachable!("case already handled above before advancing iterator")
@@ -448,29 +487,29 @@ fn resolve_local_ipld<'a>(
             (Ipld::Map(mut map), Some(segment)) => {
                 let found = map
                     .remove(segment)
-                    .ok_or_else(move || IpldResolvingFailed::NotFound(matched))?;
-                matched += 1;
+                    .ok_or_else(move || IpldResolvingFailed::NotFound(matched_count))?;
+                matched_count += 1;
                 found
             }
             (Ipld::List(mut vec), Some(segment)) => match segment.parse::<usize>() {
                 Ok(index) if index < vec.len() => {
-                    matched += 1;
+                    matched_count += 1;
                     vec.swap_remove(index)
                 }
                 Ok(index) => {
                     return Err(IpldResolvingFailed::ListIndexOutOfRange {
-                        segment: matched,
+                        segment_index: matched_count,
                         index,
                         elements: vec.len(),
                     });
                 }
-                Err(_) => return Err(IpldResolvingFailed::InvalidIndex(matched)),
+                Err(_) => return Err(IpldResolvingFailed::InvalidIndex(matched_count)),
             },
             (_, Some(_)) => {
-                return Err(IpldResolvingFailed::NoLinks(matched));
+                return Err(IpldResolvingFailed::NoLinks(matched_count));
             }
             // path has been consumed
-            (anything, None) => return Ok((ResolvedIpld::Projection(anything), matched)),
+            (anything, None) => return Ok((ResolvedIpld::Projection(anything), matched_count)),
         };
     }
 }
@@ -480,7 +519,7 @@ fn resolve_local_ipld<'a>(
 #[derive(Debug, PartialEq)]
 enum IpldResolvingFailed {
     ListIndexOutOfRange {
-        segment: usize,
+        segment_index: usize,
         index: usize,
         elements: usize,
     },
@@ -490,22 +529,31 @@ enum IpldResolvingFailed {
 }
 
 impl IpldResolvingFailed {
-    fn with_source(self, source: Cid) -> RawResolveLocalError {
+    fn with_source(self, document: Cid) -> RawResolveLocalError {
         use IpldResolvingFailed::*;
         match self {
             ListIndexOutOfRange {
-                segment,
+                segment_index,
                 index,
                 elements,
             } => RawResolveLocalError::ListIndexOutOfRange {
-                document: source,
-                segment,
+                document,
+                segment_index,
                 index,
                 elements,
             },
-            InvalidIndex(segment) => RawResolveLocalError::InvalidIndex(source, segment),
-            NoLinks(segment) => RawResolveLocalError::NoLinks(source, segment),
-            NotFound(segment) => RawResolveLocalError::NotFound(source, segment),
+            InvalidIndex(segment_index) => RawResolveLocalError::InvalidIndex {
+                document,
+                segment_index,
+            },
+            NoLinks(segment_index) => RawResolveLocalError::NoLinks {
+                document,
+                segment_index,
+            },
+            NotFound(segment_index) => RawResolveLocalError::NotFound {
+                document,
+                segment_index,
+            },
         }
     }
 }
@@ -733,7 +781,7 @@ mod tests {
         assert_eq!(
             e,
             IpldResolvingFailed::ListIndexOutOfRange {
-                segment: 2,
+                segment_index: 2,
                 index: 3000,
                 elements: 4
             }
