@@ -39,6 +39,5 @@ url = { default-features = false, version = "2.1" }
 warp = { default-features = false, version = "0.2" }
 
 [dev-dependencies]
-hex = { default-features = false, version = "0.4" }
 hex-literal = { default-features = false, version = "0.3" }
 tempfile = { default-features = false, version = "3.1" }
