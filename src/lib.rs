@@ -44,6 +44,7 @@ pub mod ipld;
 pub mod ipns;
 pub mod p2p;
 pub mod path;
+pub mod refs;
 pub mod repo;
 mod subscription;
 pub mod unixfs;
@@ -837,6 +838,18 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             Ok(_) => unreachable!(),
             Err(e) => Err(anyhow!(e)),
         }
+    }
+
+    pub fn refs<'a, Iter>(
+        &'a self,
+        iplds: Iter,
+        max_depth: Option<u64>,
+        unique: bool,
+    ) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'a
+    where
+        Iter: IntoIterator<Item = (Cid, Ipld)> + 'a,
+    {
+        refs::iplds_refs(self, iplds, max_depth, unique)
     }
 
     /// Exit daemon.
