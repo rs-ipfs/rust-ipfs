@@ -1,6 +1,6 @@
 use cid::Cid;
-use std::convert::TryFrom;
-use std::ops::Range;
+use core::convert::TryFrom;
+use core::ops::Range;
 
 use crate::file::reader::{FileContent, FileReader, Traversal};
 use crate::file::{FileReadFailed, Metadata};
@@ -225,7 +225,7 @@ fn to_pending(
 /// Returns true if the blocks byte offsets are interesting for our target range, false otherwise.
 /// If there is no target, all blocks are of interest.
 fn block_is_in_target_range(block: &Range<u64>, target: Option<&Range<u64>>) -> bool {
-    use std::cmp::{max, min};
+    use core::cmp::{max, min};
 
     if let Some(target) = target {
         max(block.start, target.start) <= min(block.end, target.end)
@@ -249,7 +249,7 @@ fn maybe_target_slice<'a>(
 }
 
 fn target_slice<'a>(content: &'a [u8], block: &Range<u64>, target: &Range<u64>) -> &'a [u8] {
-    use std::cmp::min;
+    use core::cmp::min;
 
     if !block_is_in_target_range(block, Some(target)) {
         // defaulting to empty slice is good, and similar to the "cat" HTTP API operation.
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     #[allow(clippy::type_complexity)]
     fn slice_for_target() {
-        use std::ops::Range;
+        use core::ops::Range;
 
         // turns out these examples are not easy to determine at all
         // writing out the type here avoids &b""[..] inside the array.

@@ -1,13 +1,13 @@
 use cid::Cid;
 
 use crate::pb::{FlatUnixFs, PBLink, UnixFs, UnixFsType};
+use alloc::borrow::Cow;
+use core::fmt;
 use quick_protobuf::{MessageWrite, Writer};
-use std::borrow::Cow;
-use std::fmt;
 
 use sha2::{Digest, Sha256};
 
-/// File tree builder. Implements [`std::default::Default`] which tracks the recent defaults.
+/// File tree builder. Implements [`core::default::Default`] which tracks the recent defaults.
 ///
 /// Custom file tree builder can be created with [`FileAdder::builder()`] and configuring the
 /// chunker and collector.
@@ -327,7 +327,7 @@ pub enum Chunker {
     Size(usize),
 }
 
-impl std::default::Default for Chunker {
+impl core::default::Default for Chunker {
     /// Returns a default chunker which matches go-ipfs 0.6
     fn default() -> Self {
         Chunker::Size(256 * 1024)
@@ -367,7 +367,7 @@ pub enum Collector {
     Balanced(BalancedCollector),
 }
 
-impl std::default::Default for Collector {
+impl core::default::Default for Collector {
     fn default() -> Self {
         Collector::Balanced(Default::default())
     }
@@ -404,7 +404,7 @@ impl fmt::Debug for BalancedCollector {
     }
 }
 
-impl std::default::Default for BalancedCollector {
+impl core::default::Default for BalancedCollector {
     /// Returns a default collector which matches go-ipfs 0.6
     ///
     /// The origin for 174 is not described in the the [specs], but has likely to do something
@@ -487,8 +487,8 @@ impl BalancedCollector {
 
         let mut ret = Vec::new();
 
-        let mut reused_links = std::mem::take(&mut self.reused_links);
-        let mut reused_blocksizes = std::mem::take(&mut self.reused_blocksizes);
+        let mut reused_links = core::mem::take(&mut self.reused_links);
+        let mut reused_blocksizes = core::mem::take(&mut self.reused_blocksizes);
 
         if let Some(need) = self.branching_factor.checked_sub(reused_links.capacity()) {
             reused_links.reserve(need);
@@ -646,8 +646,8 @@ mod tests {
     use super::{BalancedCollector, Chunker, FileAdder};
     use crate::test_support::FakeBlockstore;
     use cid::Cid;
+    use core::convert::TryFrom;
     use hex_literal::hex;
-    use std::convert::TryFrom;
 
     #[test]
     fn test_size_chunker() {

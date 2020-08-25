@@ -1,8 +1,8 @@
 use crate::pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType};
 use crate::{InvalidCidInLink, UnexpectedNodeType};
 use cid::Cid;
-use std::convert::TryFrom;
-use std::fmt;
+use core::convert::TryFrom;
+use core::fmt;
 
 mod sharded_lookup;
 pub use sharded_lookup::{Cache, LookupError, ShardError, ShardedLookup};
@@ -216,8 +216,8 @@ mod tests {
     use super::{resolve, MaybeResolved};
     use crate::test_support::FakeBlockstore;
     use cid::Cid;
+    use core::convert::TryFrom;
     use hex_literal::hex;
-    use std::convert::TryFrom;
 
     #[test]
     fn resolve_paths_from_plain_dagpb() {

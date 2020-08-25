@@ -1,11 +1,11 @@
 use crate::{Error, Ipfs, IpfsTypes};
 use async_stream::stream;
 use cid::Cid;
+use core::borrow::Borrow;
+use core::fmt;
+use core::ops::Range;
 use futures::stream::Stream;
 use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
-use std::borrow::Borrow;
-use std::fmt;
-use std::ops::Range;
 
 /// IPFS cat operation, producing a stream of file bytes. This is generic over the different kinds
 /// of ways to own an `Ipfs` value in order to support both operating with borrowed `Ipfs` value

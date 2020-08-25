@@ -1,7 +1,7 @@
 use super::{DirBuilder, Entry, Leaf, PostOrderIterator, TreeBuildingFailed, TreeOptions};
 use crate::Metadata;
+use alloc::collections::btree_map::Entry::*;
 use cid::Cid;
-use std::collections::btree_map::Entry::*;
 
 /// UnixFs directory tree builder which buffers entries until `build()` is called.
 #[derive(Debug)]
@@ -189,7 +189,7 @@ mod tests {
         super::OwnedTreeNode, BufferingTreeBuilder, Metadata, TreeBuildingFailed, TreeOptions,
     };
     use cid::Cid;
-    use std::convert::TryFrom;
+    use core::convert::TryFrom;
 
     #[test]
     fn some_directories() {
@@ -398,12 +398,12 @@ mod tests {
 
     fn verify_results(
         mut expected: Vec<(
-            impl AsRef<str> + std::fmt::Debug,
-            impl AsRef<str> + std::fmt::Debug,
+            impl AsRef<str> + core::fmt::Debug,
+            impl AsRef<str> + core::fmt::Debug,
         )>,
         mut actual: Vec<(String, Cid, Box<[u8]>)>,
     ) {
-        use std::fmt;
+        use core::fmt;
 
         struct Hex<'a>(&'a [u8]);
 

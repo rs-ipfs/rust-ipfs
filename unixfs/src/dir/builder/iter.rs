@@ -2,8 +2,8 @@ use super::{
     CustomFlatUnixFs, DirBuilder, Entry, Leaf, NamedLeaf, TreeConstructionFailed, TreeOptions,
 };
 use cid::Cid;
+use core::fmt;
 use std::collections::HashMap;
-use std::fmt;
 
 /// Constructs the directory nodes required for a tree.
 ///
@@ -132,7 +132,7 @@ impl PostOrderIterator {
                 needed_zeroes -= zeroes.len();
             }
 
-            buffer.extend(std::iter::repeat(0).take(needed_zeroes));
+            buffer.extend(core::iter::repeat(0).take(needed_zeroes));
         }
 
         let mut writer = Writer::new(BytesWriter::new(&mut buffer[..]));

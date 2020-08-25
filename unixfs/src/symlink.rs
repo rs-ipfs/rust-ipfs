@@ -4,8 +4,8 @@
 //! this is wrong.
 
 use crate::pb::{FlatUnixFs, UnixFs, UnixFsType};
+use alloc::borrow::Cow;
 use quick_protobuf::{MessageWrite, Writer};
-use std::borrow::Cow;
 
 /// Appends a dag-pb block for for a symlink to the given target_path. It is expected that the
 /// `target_path` is valid relative unix path relative to the place in which this is used but
@@ -33,8 +33,8 @@ pub fn serialize_symlink_block(target_path: &str, block_buffer: &mut Vec<u8>) {
 mod tests {
     use super::serialize_symlink_block;
     use cid::Cid;
+    use core::convert::TryFrom;
     use sha2::{Digest, Sha256};
-    use std::convert::TryFrom;
 
     #[test]
     fn simple_symlink() {
@@ -172,7 +172,7 @@ mod tests {
                 ContinuedWalk::Symlink(link_name, _cid, path, _metadata) => {
                     actual.push(Entry::Symlink(
                         path.into(),
-                        std::str::from_utf8(link_name).unwrap().to_owned(),
+                        core::str::from_utf8(link_name).unwrap().to_owned(),
                     ));
                 }
             };

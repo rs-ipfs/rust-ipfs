@@ -1,7 +1,7 @@
 use super::{Entry, Leaf};
 use crate::Metadata;
-use std::collections::btree_map::Entry::*;
-use std::collections::BTreeMap;
+use alloc::collections::btree_map::Entry::*;
+use alloc::collections::BTreeMap;
 
 pub(super) struct DuplicateName;
 pub(super) struct FoundLeaf;

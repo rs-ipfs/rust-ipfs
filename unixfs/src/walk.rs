@@ -3,11 +3,11 @@ use crate::file::visit::{Cache, FileVisit, IdleFileVisit};
 use crate::file::{FileError, FileReadFailed};
 use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
 use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
+use alloc::borrow::Cow;
 use cid::Cid;
+use core::convert::TryFrom;
+use core::fmt;
 use either::Either;
-use std::borrow::Cow;
-use std::convert::TryFrom;
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// `Walker` helps with walking a UnixFS tree, including all of the content and files. It is
@@ -772,7 +772,7 @@ mod tests {
     }
 
     fn sharded_dir_scenario(root_name: &str) {
-        use std::fmt::Write;
+        use core::fmt::Write;
 
         // the hamt sharded directory is such that the root only has buckets so all of the actual files
         // are at second level buckets, each bucket should have 2 files. the actual files, in fact, constitute a single empty
