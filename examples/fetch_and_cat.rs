@@ -62,11 +62,20 @@ async fn main() {
     pin_mut!(stream);
     let mut stdout = tokio::io::stdout();
 
+    let mut total = 0;
+
     loop {
         // This could be made more performant by polling the stream while writing to stdout.
         match stream.next().await {
             Some(Ok(bytes)) => {
+                total += bytes.len();
                 stdout.write_all(&bytes).await.unwrap();
+
+                eprintln!(
+                    "Received: {:>12} bytes, Total: {:>12} bytes",
+                    bytes.len(),
+                    total
+                );
             }
             Some(Err(e)) => {
                 eprintln!("Error: {}", e);
@@ -75,4 +84,6 @@ async fn main() {
             None => break,
         }
     }
+
+    eprintln!("Total received: {} bytes", total);
 }
