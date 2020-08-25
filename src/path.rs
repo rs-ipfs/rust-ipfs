@@ -7,10 +7,13 @@ use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
 
+// TODO: it might be useful to split this into CidPath and IpnsPath, then have Ipns resolve through
+// latter into CidPath (recursively) and have dag.rs support only CidPath. Keep IpfsPath as a
+// common abstraction which can be either.
 #[derive(Clone, Debug, PartialEq)]
 pub struct IpfsPath {
     root: PathRoot,
-    path: Vec<String>,
+    pub(crate) path: SlashedPath,
 }
 
 impl FromStr for IpfsPath {
@@ -42,7 +45,8 @@ impl FromStr for IpfsPath {
         };
 
         let mut path = IpfsPath::new(root);
-        path.push_split(subpath)
+        path.path
+            .push_split(subpath)
             .map_err(|_| IpfsPathError::InvalidPath(string.to_owned()))?;
         Ok(path)
     }
@@ -52,7 +56,7 @@ impl IpfsPath {
     pub fn new(root: PathRoot) -> Self {
         IpfsPath {
             root,
-            path: Vec::new(),
+            path: Default::default(),
         }
     }
 
@@ -65,28 +69,7 @@ impl IpfsPath {
     }
 
     pub fn push_str(&mut self, string: &str) -> Result<(), Error> {
-        if string.is_empty() {
-            return Ok(());
-        }
-
-        self.push_split(string.split('/'))
-            .map_err(|_| IpfsPathError::InvalidPath(string.to_owned()).into())
-    }
-
-    fn push_split<'a>(&mut self, split: impl Iterator<Item = &'a str>) -> Result<(), ()> {
-        let mut split = split.peekable();
-        while let Some(sub_path) = split.next() {
-            if sub_path == "" {
-                return if split.peek().is_none() {
-                    // trim trailing
-                    Ok(())
-                } else {
-                    // no empty segments in the middle
-                    Err(())
-                };
-            }
-            self.path.push(sub_path.to_owned());
-        }
+        self.path.push_path(string)?;
         Ok(())
     }
 
@@ -101,20 +84,35 @@ impl IpfsPath {
         Ok(self)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &String> {
-        self.path.iter()
+    /// Returns an iterator over the path segments following the root
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.path.iter().map(|s| s.as_str())
     }
 
-    pub fn path(&self) -> &[String] {
-        &self.path
+    pub(crate) fn into_shifted(self, shifted: usize) -> SlashedPath {
+        assert!(shifted <= self.path.len());
+
+        let mut p = self.path;
+        p.shift(shifted);
+        p
+    }
+
+    pub(crate) fn into_truncated(self, len: usize) -> SlashedPath {
+        assert!(len <= self.path.len());
+
+        let mut p = self.path;
+        p.truncate(len);
+        p
     }
 }
 
 impl fmt::Display for IpfsPath {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "{}", self.root)?;
-        for sub_path in &self.path {
-            write!(fmt, "/{}", sub_path)?;
+        if !self.path.is_empty() {
+            // slash is not included in the <SlashedPath as fmt::Display>::fmt impl as we need to,
+            // serialize it later in json *without* one
+            write!(fmt, "/{}", self.path)?;
         }
         Ok(())
     }
@@ -134,6 +132,7 @@ impl<T: Into<PathRoot>> From<T> for IpfsPath {
     }
 }
 
+// FIXME: get rid of this; it would mean that there must be a clone to retain the rest of the path.
 impl TryInto<Cid> for IpfsPath {
     type Error = Error;
 
@@ -145,6 +144,7 @@ impl TryInto<Cid> for IpfsPath {
     }
 }
 
+// FIXME: get rid of this; it would mean that there must be a clone to retain the rest of the path.
 impl TryInto<PeerId> for IpfsPath {
     type Error = Error;
 
@@ -153,6 +153,91 @@ impl TryInto<PeerId> for IpfsPath {
             Some(peer_id) => Ok(peer_id.to_owned()),
             None => Err(anyhow::anyhow!("expected peer id")),
         }
+    }
+}
+
+/// SlashedPath is internal to IpfsPath variants, and basically holds a unixfs-compatible path
+/// where segments do not contain slashes but can pretty much contain all other valid UTF-8.
+///
+/// UTF-8 originates likely from UnixFS related protobuf descriptions, where dag-pb links have
+/// UTF-8 names, which equal to SlashedPath segments.
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
+pub struct SlashedPath {
+    path: Vec<String>,
+}
+
+impl SlashedPath {
+    fn push_path(&mut self, path: &str) -> Result<(), IpfsPathError> {
+        if path.is_empty() {
+            Ok(())
+        } else {
+            self.push_split(path.split('/'))
+                .map_err(|_| IpfsPathError::InvalidPath(path.to_owned()))
+        }
+    }
+
+    pub(crate) fn push_split<'a>(
+        &mut self,
+        split: impl Iterator<Item = &'a str>,
+    ) -> Result<(), ()> {
+        let mut split = split.peekable();
+        while let Some(sub_path) = split.next() {
+            if sub_path == "" {
+                return if split.peek().is_none() {
+                    // trim trailing
+                    Ok(())
+                } else {
+                    // no empty segments in the middle
+                    Err(())
+                };
+            }
+            self.path.push(sub_path.to_owned());
+        }
+        Ok(())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &String> {
+        self.path.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        // intentionally try to hide the fact that this is based on Vec<String> right now
+        self.path.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn shift(&mut self, n: usize) {
+        self.path.drain(0..n);
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.path.truncate(len);
+    }
+}
+
+impl fmt::Display for SlashedPath {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut first = true;
+        self.path.iter().try_for_each(move |s| {
+            if first {
+                first = false;
+            } else {
+                write!(fmt, "/")?;
+            }
+
+            write!(fmt, "{}", s)
+        })
+    }
+}
+
+impl<'a> PartialEq<[&'a str]> for SlashedPath {
+    fn eq(&self, other: &[&'a str]) -> bool {
+        // FIXME: failed at writing a blanket partialeq over anything which would PartialEq<str> or
+        // String
+        self.path.iter().zip(other.iter()).all(|(a, b)| a == b)
     }
 }
 
@@ -325,6 +410,39 @@ mod tests {
     }*/
 
     #[test]
+    fn display() {
+        let input = [
+            (
+                "/ipld/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+                Some("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"),
+            ),
+            ("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n", None),
+            (
+                "/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a",
+                None,
+            ),
+            (
+                "/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a/",
+                Some("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/a"),
+            ),
+            (
+                "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n",
+                Some("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"),
+            ),
+            ("/ipns/foobar.com", None),
+            ("/ipns/foobar.com/a", None),
+            ("/ipns/foobar.com/a/", Some("/ipns/foobar.com/a")),
+        ];
+
+        for (input, maybe_actual) in &input {
+            assert_eq!(
+                IpfsPath::try_from(*input).unwrap().to_string(),
+                maybe_actual.unwrap_or(input)
+            );
+        }
+    }
+
+    #[test]
     fn good_paths() {
         let good = [
             ("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n", 0),
@@ -353,7 +471,7 @@ mod tests {
 
         for &(good, len) in &good {
             let p = IpfsPath::try_from(good).unwrap();
-            assert_eq!(p.path().len(), len);
+            assert_eq!(p.iter().count(), len);
         }
     }
 
@@ -385,7 +503,7 @@ mod tests {
         ];
         for &path in &paths {
             let p = IpfsPath::try_from(path).unwrap();
-            assert_eq!(p.path().len(), 0, "{:?} from {:?}", p, path);
+            assert_eq!(p.iter().count(), 0, "{:?} from {:?}", p, path);
         }
     }
 
@@ -393,5 +511,14 @@ mod tests {
     fn multiple_slashes_are_not_deduplicated() {
         // this used to be the behaviour in ipfs-http
         IpfsPath::try_from("/ipfs/QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n///a").unwrap_err();
+    }
+
+    #[test]
+    fn shifting() {
+        let mut p = super::SlashedPath::default();
+        p.push_split(vec!["a", "b", "c"].into_iter()).unwrap();
+        p.shift(2);
+
+        assert_eq!(p.to_string(), "c");
     }
 }

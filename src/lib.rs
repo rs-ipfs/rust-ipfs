@@ -37,7 +37,7 @@ use std::sync::{atomic::Ordering, Arc};
 use std::task::{Context, Poll};
 
 mod config;
-mod dag;
+pub mod dag;
 pub mod error;
 #[macro_use]
 pub mod ipld;
@@ -360,7 +360,7 @@ impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
-    fn dag(&self) -> IpldDag<Types> {
+    pub fn dag(&self) -> IpldDag<Types> {
         IpldDag::new(self.clone())
     }
 
@@ -419,7 +419,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Gets an ipld dag node from the ipfs repo.
     pub async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
-        self.dag().get(path).instrument(self.span.clone()).await
+        self.dag()
+            .get(path)
+            .instrument(self.span.clone())
+            .await
+            .map_err(Error::new)
     }
 
     /// Creates a stream which will yield the bytes of an UnixFS file from the root Cid, with the
@@ -429,13 +433,15 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// To create an owned version of the stream, please use `ipfs::unixfs::cat` directly.
     pub async fn cat_unixfs(
         &self,
-        cid: Cid,
+        starting_point: impl Into<unixfs::StartingPoint>,
         range: Option<Range<u64>>,
     ) -> Result<
         impl Stream<Item = Result<Vec<u8>, unixfs::TraversalFailed>> + Send + '_,
         unixfs::TraversalFailed,
     > {
-        unixfs::cat(self, cid, range)
+        // convert early not to worry about the lifetime of parameter
+        let starting_point = starting_point.into();
+        unixfs::cat(self, starting_point, range)
             .instrument(self.span.clone())
             .await
     }

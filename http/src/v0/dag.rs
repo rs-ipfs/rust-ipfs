@@ -115,44 +115,35 @@ pub fn resolve<T: IpfsTypes>(
 struct ResolveOptions {
     arg: String,
     timeout: Option<StringSerialized<humantime::Duration>>,
+    #[serde(rename = "local-resolve", default)]
+    local_resolve: bool,
 }
 
 async fn inner_resolve<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     opts: ResolveOptions,
 ) -> Result<impl Reply, Rejection> {
-    use crate::v0::refs::{walk_path, IpfsPath, WalkOptions};
+    use ipfs::IpfsPath;
     use std::convert::TryFrom;
 
     let path = IpfsPath::try_from(opts.arg.as_str()).map_err(StringError::from)?;
 
-    let walk_opts = WalkOptions {
-        follow_dagpb_data: true,
-    };
+    // I think the naming of local_resolve is quite confusing. when following links we "resolve
+    // globally" and when not following links we are "resolving locally", or in single document.
+    let follow_links = !opts.local_resolve;
 
-    let (current, _, remaining) = walk_path(&ipfs, &walk_opts, path)
+    let (resolved, remaining) = ipfs
+        .dag()
+        .resolve(path, follow_links)
         .maybe_timeout(opts.timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?
         .map_err(StringError::from)?;
 
-    let remaining = {
-        let slashes = remaining.len();
-        let mut buf =
-            String::with_capacity(remaining.iter().map(|s| s.len()).sum::<usize>() + slashes);
-
-        for piece in remaining.into_iter().rev() {
-            if !buf.is_empty() {
-                buf.push('/');
-            }
-            buf.push_str(&piece);
-        }
-
-        buf
-    };
+    let current = resolved.source();
 
     Ok(reply::json(&json!({
         "Cid": { "/": current.to_string() },
-        "RemPath": remaining,
+        "RemPath": StringSerialized(remaining),
     })))
 }
