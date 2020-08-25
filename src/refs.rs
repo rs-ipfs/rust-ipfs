@@ -195,3 +195,35 @@ fn dagpb_links(ipld: Ipld) -> Vec<(Option<String>, Cid)> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ipld_links;
+    use crate::ipld::decode_ipld;
+    use cid::Cid;
+    use hex_literal::hex;
+    use std::convert::TryFrom;
+
+    #[test]
+    fn dagpb_links() {
+        // this is the same as in ipfs-http::v0::refs::path::tests::walk_dagpb_links
+        let payload = hex!(
+            "12330a2212206aad27d7e2fc815cd15bf679535062565dc927a831547281
+            fc0af9e5d7e67c74120b6166726963616e2e747874180812340a221220fd
+            36ac5279964db0cba8f7fa45f8c4c44ef5e2ff55da85936a378c96c9c632
+            04120c616d6572696361732e747874180812360a2212207564c20415869d
+            77a8a40ca68a9158e397dd48bdff1325cdb23c5bcd181acd17120e617573
+            7472616c69616e2e7478741808"
+        );
+
+        let cid = Cid::try_from("QmbrFTo4s6H23W6wmoZKQC2vSogGeQ4dYiceSqJddzrKVa").unwrap();
+
+        let decoded = decode_ipld(&cid, &payload).unwrap();
+
+        let links = ipld_links(&cid, decoded)
+            .map(|(name, _)| name.unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(links, ["african.txt", "americas.txt", "australian.txt",]);
+    }
+}
