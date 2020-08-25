@@ -32,7 +32,7 @@ where
 }
 
 fn subslice_to_range(full: &[u8], sub: &[u8]) -> Option<Range<usize>> {
-    // note this doesn't work for all types, for example () or similar zst.
+    // note this doesn't work for all types, for example () or similar ZSTs.
 
     let max = full.len();
     let amt = sub.len();

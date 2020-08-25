@@ -104,7 +104,6 @@ async fn get_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: GetArgs) -> Result<impl Re
 
     let path = args.arg.into_inner();
 
-    // FIXME: this is here until we have IpfsPath back at ipfs
     // FIXME: this timeout is only for the first step, should be for the whole walk!
     let block = resolve_dagpb(&ipfs, path)
         .maybe_timeout(args.timeout.map(StringSerialized::into_inner))

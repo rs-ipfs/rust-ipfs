@@ -21,7 +21,7 @@ pub enum ResolveError {
     #[error("block loading failed")]
     Loading(Cid, #[source] crate::Error),
 
-    /// Document was unsupported; this can be an UnixFs directory structure which has unsupported
+    /// The document is unsupported; this can be a UnixFs directory structure which has unsupported
     /// options, or IPLD parsing failed.
     #[error("unsupported document")]
     UnsupportedDocument(Cid, #[source] Box<dyn StdError + Send + Sync + 'static>),
@@ -39,8 +39,8 @@ pub enum ResolveError {
         elements: usize,
     },
 
-    /// Path attempted to resolve through for example string or integer.
-    #[error("tried to resolve through object that had no links")]
+    /// Path attempted to resolve through e.g. a string or an integer.
+    #[error("tried to resolve through an object that had no links")]
     NoLinks(Cid, SlashedPath),
 
     /// Path attempted to resolve through a property, index or link which did not exist.
@@ -83,8 +83,8 @@ enum RawResolveLocalError {
 
 impl RawResolveLocalError {
     /// When resolving through multiple documents the local resolving functions `resolve_local_ipld`
-    /// and `resolve_local_dagpb` return document local indices; need to bump the indices with the
-    /// amount of already matched segments in previous documents for the path.
+    /// and `resolve_local_dagpb` return local document indices; need to bump the indices with the
+    /// number of the already matched segments in the previous documents for the path.
     fn add_starting_point_in_path(&mut self, start: usize) {
         use RawResolveLocalError::*;
         match self {
@@ -104,8 +104,8 @@ impl RawResolveLocalError {
                 ref mut segment_index,
                 ..
             } => {
-                // NOTE: this is the **index** compared to the number of segments matched **count**
-                // from `resolve_local` Ok return value.
+                // NOTE: this is the **index** compared to the number of segments matched, i.e. **count**
+                // from `resolve_local`'s Ok return value.
                 *segment_index += start;
             }
             _ => {}
@@ -114,7 +114,7 @@ impl RawResolveLocalError {
 
     /// Use the given [`IpfsPath`] to create the truncated [`SlashedPath`] and convert into
     /// [`ResolveError`]. The path is truncated so that the last segment is the one which failed to
-    /// match. No reason it could also be just signified with an index.
+    /// match. No reason it couldn't also be signified with just an index.
     fn with_path(self, path: IpfsPath) -> ResolveError {
         use RawResolveLocalError::*;
 
@@ -174,14 +174,14 @@ impl<Types: RepoTypes> IpldDag<Types> {
         Ok(cid)
     }
 
-    /// Resolves a Cid rooted path to a document "node."
+    /// Resolves a `Cid`-rooted path to a document "node."
     ///
-    /// Returns the resolved node as Ipld.
+    /// Returns the resolved node as `Ipld`.
     pub async fn get(&self, path: IpfsPath) -> Result<Ipld, ResolveError> {
         // FIXME: do ipns resolve first
         let cid = match path.root().cid() {
             Some(cid) => cid,
-            None => panic!("not implemented: Ipns resolution, expected Cid based path"),
+            None => panic!("Ipns resolution not implemented; expected a Cid-based path"),
         };
 
         let mut iter = path.iter().peekable();
@@ -197,17 +197,17 @@ impl<Types: RepoTypes> IpldDag<Types> {
         Ipld::try_from(node)
     }
 
-    /// Resolves a Cid rooted path to a document "node."
+    /// Resolves a `Cid`-rooted path to a document "node."
     ///
     /// The return value has two kinds of meanings depending on whether links should be followed or
-    /// not: When following links the second returned value will be the path inside last document.
-    /// When not following links the second returned value will be the unmatched or "remaining"
+    /// not: when following links, the second returned value will be the path inside the last document;
+    /// when not following links, the second returned value will be the unmatched or "remaining"
     /// path.
     ///
-    /// Regardless of the `follow_links` option, HAMT sharded directories will be resolved through
+    /// Regardless of the `follow_links` option, HAMT-sharded directories will be resolved through
     /// as a "single step" in the given IpfsPath.
     ///
-    /// Returns the node and remaining path or the path inside the last document.
+    /// Returns a node and the remaining path or the path inside the last document.
     pub async fn resolve(
         &self,
         path: IpfsPath,
@@ -216,7 +216,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
         // FIXME: do ipns resolve first
         let cid = match path.root().cid() {
             Some(cid) => cid,
-            None => panic!("not implemented: Ipns resolution, expected Cid based path"),
+            None => panic!("Ipns resolution not implemented; expected a Cid-based path"),
         };
 
         let (node, matched_segments) = {
@@ -238,7 +238,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
         Ok((node, remaining_path))
     }
 
-    /// Return the node where resolving ended, and the **count** of segments matched.
+    /// Return the node where the resolving ended, and the **count** of segments matched.
     async fn resolve0<'a>(
         &self,
         cid: &Cid,
@@ -291,8 +291,8 @@ impl<Types: RepoTypes> IpldDag<Types> {
         }
     }
 
-    /// To resolve a segment through a HAMT sharded directory we need to load more blocks, which is
-    /// why this is a method not a free fn like other resolving activities.
+    /// To resolve a segment through a HAMT-sharded directory we need to load more blocks, which is
+    /// why this is a method and not a free `fn` like the other resolving activities.
     async fn resolve_hamt(
         &self,
         mut lookup: ShardedLookup<'_>,
@@ -314,7 +314,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
     }
 }
 
-/// `IpfsPath`'s cid based variant can be resolved to the block, projections represented by this
+/// `IpfsPath`'s `Cid`-based variant can be resolved to the block, projections represented by this
 /// type.
 ///
 /// Values can be converted to Ipld using `Ipld::try_from`.
@@ -323,17 +323,17 @@ pub enum ResolvedNode {
     /// Block which was loaded at the end of the path.
     Block(Block),
     /// Path ended in `Data` at a dag-pb node. This is usually not interesting and should be
-    /// treated as "Not found" error since dag-pb node did not have a *link* called `Data`. Variant
+    /// treated as a "Not found" error since dag-pb node did not have a *link* called `Data`. The variant
     /// exists as there are interface-ipfs-http tests which require this behaviour.
     DagPbData(Cid, NodeData<Box<[u8]>>),
-    /// Path ended on an !dag-pb document which was projected.
+    /// Path ended on a !dag-pb document which was projected.
     Projection(Cid, Ipld),
-    /// Local resolving ended in at link
+    /// Local resolving ended with a link
     Link(Cid, Cid),
 }
 
 impl ResolvedNode {
-    /// Returns the cid of the **source** document. Source or destination matters only the case of link
+    /// Returns the `Cid` of the **source** document. Source or destination matters only in case of a link
     /// to another document.
     pub fn source(&self) -> &Cid {
         match self {
@@ -389,13 +389,13 @@ impl TryFrom<ResolvedNode> for Ipld {
     }
 }
 
-/// Success variants for resolve_local operation on an Ipld document.
+/// Success variants for the `resolve_local` operation on an `Ipld` document.
 #[derive(Debug)]
 enum LocallyResolved<'a> {
-    /// Resolution completed
+    /// Resolution completed.
     Complete(ResolvedNode),
 
-    /// Resolving was attempted on a block which is a HAMT sharded bucket, and needs to be
+    /// Resolving was attempted on a block which is a HAMT-sharded bucket, and needs to be
     /// continued by loading other buckets.
     Incomplete(Cid, ShardedLookup<'a>),
 }
@@ -430,13 +430,13 @@ fn resolve_local<'a>(
     let Block { cid, data } = block;
 
     if cid.codec() == cid::Codec::DagProtobuf {
-        // special case the dagpb since we need to do the HAMT lookup and going through the
+        // special-case the dagpb since we need to do the HAMT lookup and going through the
         // BTreeMaps of ipld for this is quite tiresome. if you are looking for that code for
         // simple directories, you can find one in the history of ipfs-http.
 
         // advancing is required here in order for us to determine if this was the last element.
         // This should be ok as the only way we can continue resolving deeper is the case of Link
-        // being matched, and not the error nor the DagPbData case.
+        // being matched, and not the error or the DagPbData case.
         let segment = segments.next().unwrap();
 
         Ok(resolve_local_dagpb(
@@ -456,7 +456,7 @@ fn resolve_local<'a>(
 }
 
 /// Resolving through dagpb documents is basically just mapping from [`MaybeResolved`] to the
-/// return value, with the exception that path ending in "Data" is returned as
+/// return value, with the exception that a path ending in "Data" is returned as
 /// `ResolvedNode::DagPbData`.
 fn resolve_local_dagpb<'a>(
     cid: Cid,
@@ -533,7 +533,7 @@ fn resolve_local_ipld<'a>(
                 return Ok((ResolvedNode::Link(document, cid).into(), matched_count + 1));
             }
             (Ipld::Link(_), Some(_)) => {
-                unreachable!("case already handled above before advancing iterator")
+                unreachable!("case already handled above before advancing the iterator")
             }
             (Ipld::Map(mut map), Some(segment)) => {
                 let found = match map.remove(segment) {

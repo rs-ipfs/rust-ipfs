@@ -34,7 +34,10 @@ async fn main() {
     };
 
     if path.root().cid().is_none() {
-        eprintln!("Unsupported path: ipns resolution is incoming: {}", path);
+        eprintln!(
+            "Unsupported path: ipns resolution is not available yet: {}",
+            path
+        );
         exit(1);
     }
 

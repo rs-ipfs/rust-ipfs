@@ -7,6 +7,9 @@ use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
 
+// TODO: it might be useful to split this into CidPath and IpnsPath, then have Ipns resolve through
+// latter into CidPath (recursively) and have dag.rs support only CidPath. Keep IpfsPath as a
+// common abstraction which can be either.
 #[derive(Clone, Debug, PartialEq)]
 pub struct IpfsPath {
     root: PathRoot,
@@ -153,7 +156,7 @@ impl TryInto<PeerId> for IpfsPath {
     }
 }
 
-/// SlashedPath is internal to IpfsPath variants, and basically holds an unixfs compatible path
+/// SlashedPath is internal to IpfsPath variants, and basically holds a unixfs-compatible path
 /// where segments do not contain slashes but can pretty much contain all other valid UTF-8.
 ///
 /// UTF-8 originates likely from UnixFS related protobuf descriptions, where dag-pb links have
