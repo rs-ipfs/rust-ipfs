@@ -840,6 +840,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         }
     }
 
+    /// Walk the given Iplds for links up until `max_depth` (or infinite, when `None`). Will return
+    /// any duplicate trees unless `unique` is `true`.
+    ///
+    /// More information and `'static` lifetime version available at [`refs::iplds_refs`].
     pub fn refs<'a, Iter>(
         &'a self,
         iplds: Iter,
