@@ -6,9 +6,7 @@ use bytes::Bytes;
 use futures::stream::TryStream;
 use ipfs::unixfs::ll::walk::{self, ContinuedWalk, Walker};
 use ipfs::unixfs::{ll::file::FileReadFailed, TraversalFailed};
-use ipfs::Block;
-use ipfs::IpfsPath;
-use ipfs::{Ipfs, IpfsTypes};
+use ipfs::{dag::ResolveError, Block, Ipfs, IpfsPath, IpfsTypes};
 use serde::Deserialize;
 use std::fmt;
 use std::path::Path;
@@ -74,6 +72,10 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
 
     let stream = match ret {
         Ok(stream) => stream,
+        Err(TraversalFailed::Resolving(err @ ResolveError::NotFound(..))) => {
+            // this is checked in the tests
+            return Err(StringError::from(err).into());
+        }
         Err(TraversalFailed::Walking(_, FileReadFailed::UnexpectedType(ut)))
             if ut.is_directory() =>
         {
