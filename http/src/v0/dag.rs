@@ -140,7 +140,7 @@ async fn inner_resolve<T: IpfsTypes>(
         .map_err(StringError::from)?
         .map_err(StringError::from)?;
 
-    let current = resolved.cid();
+    let current = resolved.source();
 
     Ok(reply::json(&json!({
         "Cid": { "/": current.to_string() },

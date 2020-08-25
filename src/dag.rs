@@ -50,9 +50,9 @@ pub enum ResolveError {
 
 #[derive(Debug, Error)]
 pub enum UnexpectedResolved {
-    #[error("path resolved to unexpected type of document: {:?} or {}", .0, .1.cid())]
+    #[error("path resolved to unexpected type of document: {:?} or {}", .0, .1.source())]
     UnexpectedCodec(cid::Codec, ResolvedNode),
-    #[error("path did not resolve to a block on {}", .0.cid())]
+    #[error("path did not resolve to a block on {}", .0.source())]
     NonBlock(ResolvedNode),
 }
 
@@ -333,8 +333,7 @@ pub enum ResolvedNode {
 }
 
 impl ResolvedNode {
-    /// Returns the `Cid` of the **source** document. Source or destination matters only in case of a link
-    /// to another document.
+    /// Returns the `Cid` of the **source** document for the encapsulated document or projection of such.
     pub fn source(&self) -> &Cid {
         match self {
             ResolvedNode::Block(Block { cid, .. })
@@ -344,23 +343,10 @@ impl ResolvedNode {
         }
     }
 
-    /// Returns the cid of the linked document when resolved to a link, otherwise `None`.
-    pub fn destination(&self) -> Option<&Cid> {
-        match self {
-            ResolvedNode::Link(_, cid) => Some(cid),
-            _ => None,
-        }
-    }
-
-    /// Returns the destination or the source link.
-    pub fn cid(&self) -> &Cid {
-        self.destination().unwrap_or_else(|| self.source())
-    }
-
     /// Unwraps the dagpb block variant and turns others into UnexpectedResolved.
     /// This is useful wherever unixfs operations are continued after resolving an IpfsPath.
     pub fn into_unixfs_block(self) -> Result<Block, UnexpectedResolved> {
-        if self.cid().codec() != cid::Codec::DagProtobuf {
+        if self.source().codec() != cid::Codec::DagProtobuf {
             Err(UnexpectedResolved::UnexpectedCodec(
                 cid::Codec::DagProtobuf,
                 self,
