@@ -201,12 +201,15 @@ fn iplds_refs<T: IpfsTypes>(
             return;
         }
 
-        // FIXME: this should be queued_or_visited
-        let mut visited = HashSet::new();
+        let mut queued_or_visited = HashSet::new();
         let mut work = VecDeque::new();
 
         for (origin, ipld) in iplds {
             for (link_name, next_cid) in ipld_links(&origin, ipld) {
+                if unique && !queued_or_visited.insert(next_cid.clone()) {
+                    trace!("skipping already queued {}", next_cid);
+                    continue;
+                }
                 work.push_back((0, next_cid, origin.clone(), link_name));
             }
         }
@@ -221,11 +224,6 @@ fn iplds_refs<T: IpfsTypes>(
                 Some(d) if d + 1 == depth => false,
                 _ => true
             };
-
-            if unique && !visited.insert(cid.clone()) {
-                trace!("skipping already visited {}", cid);
-                continue;
-            }
 
             let data = match ipfs.get_block(&cid).await {
                 Ok(Block { data, .. }) => data,
@@ -243,7 +241,6 @@ fn iplds_refs<T: IpfsTypes>(
                 Ok(ipld) => ipld,
                 Err(e) => {
                     warn!("failed to parse {}, linked from {}: {}", cid, source, e);
-                    // TODO: yield error msg
                     // go-ipfs on raw Qm hash:
                     // > failed to decode Protocol Buffers: incorrectly formatted merkledag node: unmarshal failed. proto: illegal wireType 6
                     yield Err(e.to_string());
@@ -253,11 +250,11 @@ fn iplds_refs<T: IpfsTypes>(
 
             if traverse_links {
                 for (link_name, next_cid) in ipld_links(&cid, ipld) {
-                    if unique && visited.contains(&next_cid) {
-                        // skip adding already yielded documents
+                    if unique && !queued_or_visited.insert(next_cid.clone()) {
+                        trace!("skipping already queued {}", next_cid);
                         continue;
                     }
-                    // TODO: could also have a hashset for queued destinations ...
+
                     work.push_back((depth + 1, next_cid, cid.clone(), link_name));
                 }
             }
