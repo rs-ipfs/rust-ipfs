@@ -845,7 +845,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         iplds: Iter,
         max_depth: Option<u64>,
         unique: bool,
-    ) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'a
+    ) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), ipld::BlockError>> + Send + 'a
     where
         Iter: IntoIterator<Item = (Cid, Ipld)> + 'a,
     {

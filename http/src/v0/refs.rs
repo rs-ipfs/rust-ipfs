@@ -53,10 +53,6 @@ async fn refs_inner<T: IpfsTypes>(
         .maybe_timeout(opts.timeout)
         .await
         .map_err(StringError::from)?
-        .map_err(|e| {
-            warn!("refs path on {:?} failed with {}", &opts.arg, e);
-            e
-        })
         .map_err(StringError::from)?;
 
     // FIXME: there should be a total timeout arching over path walking to the stream completion.
@@ -78,7 +74,7 @@ async fn refs_inner<T: IpfsTypes>(
             }
             Err(e) => serde_json::to_string(&Edge {
                 ok: "".into(),
-                err: e.into(),
+                err: e.to_string().into(),
             }),
         };
 
@@ -126,7 +122,7 @@ async fn refs_paths<T: IpfsTypes>(
     max_depth: Option<u64>,
     unique: bool,
 ) -> Result<
-    impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static,
+    impl Stream<Item = Result<(Cid, Cid, Option<String>), ipfs::ipld::BlockError>> + Send + 'static,
     ResolveError,
 > {
     use ipfs::dag::ResolvedNode;

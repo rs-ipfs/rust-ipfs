@@ -29,7 +29,7 @@ pub fn iplds_refs<'a, Types, MaybeOwned, Iter>(
     iplds: Iter,
     max_depth: Option<u64>,
     unique: bool,
-) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'a
+) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), crate::ipld::BlockError>> + Send + 'a
 where
     Types: IpfsTypes,
     MaybeOwned: Borrow<Ipfs<Types>> + Send + 'a,
@@ -90,7 +90,7 @@ where
                     warn!("failed to parse {}, linked from {}: {}", cid, source, e);
                     // go-ipfs on raw Qm hash:
                     // > failed to decode Protocol Buffers: incorrectly formatted merkledag node: unmarshal failed. proto: illegal wireType 6
-                    yield Err(e.to_string());
+                    yield Err(e);
                     continue;
                 }
             };
