@@ -38,9 +38,13 @@ where
     let mut work = VecDeque::new();
     let mut queued_or_visited = HashSet::new();
 
+    let empty_stream = max_depth.map(|n| n == 0).unwrap_or(false);
+
     // double check the max_depth before filling the work and queued_or_visited up just in case we
     // are going to be returning an empty stream
-    if max_depth.map(|n| n > 0).unwrap_or(true) {
+    if !empty_stream {
+        // not building these before moving the work and hashset into the stream would impose
+        // apparently impossible bounds on `Iter`, in addition to `Send + 'a`.
         for (origin, ipld) in iplds {
             for (link_name, next_cid) in ipld_links(&origin, ipld) {
                 if unique && !queued_or_visited.insert(next_cid.clone()) {
@@ -53,7 +57,7 @@ where
     }
 
     stream! {
-        if let Some(0) = max_depth {
+        if empty_stream {
             return;
         }
 
