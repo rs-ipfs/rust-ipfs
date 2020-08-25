@@ -59,7 +59,7 @@ async fn cat_inner<T: IpfsTypes>(ipfs: Ipfs<T>, args: CatArgs) -> Result<impl Re
 
     let range = match (args.offset, args.length) {
         (Some(start), Some(len)) => Some(start..(start + len)),
-        (Some(_start), None) => todo!("need to abstract over the range"),
+        (Some(_start), None) => return Err(crate::v0::support::NotImplemented.into()),
         (None, Some(len)) => Some(0..len),
         (None, None) => None,
     };
