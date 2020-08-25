@@ -208,7 +208,7 @@ async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejectio
 
 #[cfg(test)]
 mod tests {
-    use super::{/*ipld_links,*/ local, refs_paths, Edge, IpfsPath};
+    use super::{local, refs_paths, Edge, IpfsPath};
     use cid::{self, Cid};
     use futures::stream::TryStreamExt;
     use ipfs::ipld::{decode_ipld, validate};
@@ -259,90 +259,6 @@ mod tests {
         let diff = destinations
             .symmetric_difference(&expected)
             .collect::<Vec<_>>();
-
-        assert!(diff.is_empty(), "{:?}", diff);
-    }
-
-    #[tokio::test(max_threads = 1)]
-    async fn all_refs_from_root() {
-        let Node { ipfs, bg_task: _bt } = preloaded_testing_ipfs().await;
-
-        let (root, dag0, unixfs0, dag1, unixfs1) = (
-            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
-            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
-            // {foo: dag1, bar: unixfs0}
-            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
-            // {foo: unixfs1}
-            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-        );
-
-        let all_edges: Vec<_> =
-            refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, false)
-                .await
-                .unwrap()
-                .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
-                .try_collect()
-                .await
-                .unwrap();
-
-        // not sure why go-ipfs outputs this order, this is more like dfs?
-        let expected = [
-            (root, dag0),
-            (dag0, unixfs0),
-            (dag0, dag1),
-            (dag1, unixfs1),
-            (root, unixfs0),
-            (root, dag1),
-            (dag1, unixfs1),
-            (root, unixfs1),
-        ];
-
-        println!("found edges:\n{:#?}", all_edges);
-
-        assert_edges(&expected, all_edges.as_slice());
-    }
-
-    #[tokio::test(max_threads = 1)]
-    async fn all_unique_refs_from_root() {
-        let Node { ipfs, bg_task: _bt } = preloaded_testing_ipfs().await;
-
-        let (root, dag0, unixfs0, dag1, unixfs1) = (
-            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
-            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
-            // {foo: dag1, bar: unixfs0}
-            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
-            // {foo: unixfs1}
-            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-        );
-
-        let destinations: HashSet<_> =
-            refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, true)
-                .await
-                .unwrap()
-                .map_ok(|(_, dest, _)| dest.to_string())
-                .try_collect()
-                .await
-                .unwrap();
-
-        // go-ipfs output:
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL
-
-        let expected = [dag0, unixfs0, dag1, unixfs1]
-            .iter()
-            .map(|&s| String::from(s))
-            .collect::<HashSet<_>>();
-
-        let diff = destinations
-            .symmetric_difference(&expected)
-            .map(|s| s.as_str())
-            .collect::<Vec<&str>>();
 
         assert!(diff.is_empty(), "{:?}", diff);
     }

@@ -198,10 +198,13 @@ fn dagpb_links(ipld: Ipld) -> Vec<(Option<String>, Cid)> {
 
 #[cfg(test)]
 mod tests {
-    use super::ipld_links;
-    use crate::ipld::decode_ipld;
+    use super::{ipld_links, iplds_refs};
+    use crate::ipld::{decode_ipld, validate};
+    use crate::{Block, Node};
     use cid::Cid;
+    use futures::stream::TryStreamExt;
     use hex_literal::hex;
+    use std::collections::HashSet;
     use std::convert::TryFrom;
 
     #[test]
@@ -225,5 +228,149 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(links, ["african.txt", "americas.txt", "australian.txt",]);
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn all_refs_from_root() {
+        let Node { ipfs, bg_task: _bt } = preloaded_testing_ipfs().await;
+
+        let (root, dag0, unixfs0, dag1, unixfs1) = (
+            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+            // {foo: dag1, bar: unixfs0}
+            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
+            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
+            // {foo: unixfs1}
+            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+        );
+
+        let root_block = ipfs.get_block(&Cid::try_from(root).unwrap()).await.unwrap();
+        let ipld = decode_ipld(root_block.cid(), root_block.data()).unwrap();
+
+        let all_edges: Vec<_> = iplds_refs(ipfs, vec![(root_block.cid, ipld)], None, false)
+            .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
+            .try_collect()
+            .await
+            .unwrap();
+
+        // not sure why go-ipfs outputs this order, this is more like dfs?
+        let expected = [
+            (root, dag0),
+            (dag0, unixfs0),
+            (dag0, dag1),
+            (dag1, unixfs1),
+            (root, unixfs0),
+            (root, dag1),
+            (dag1, unixfs1),
+            (root, unixfs1),
+        ];
+
+        println!("found edges:\n{:#?}", all_edges);
+
+        assert_edges(&expected, all_edges.as_slice());
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn all_unique_refs_from_root() {
+        let Node { ipfs, bg_task: _bt } = preloaded_testing_ipfs().await;
+
+        let (root, dag0, unixfs0, dag1, unixfs1) = (
+            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
+            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+            // {foo: dag1, bar: unixfs0}
+            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
+            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
+            // {foo: unixfs1}
+            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+        );
+
+        let root_block = ipfs.get_block(&Cid::try_from(root).unwrap()).await.unwrap();
+        let ipld = decode_ipld(root_block.cid(), root_block.data()).unwrap();
+
+        let destinations: HashSet<_> = iplds_refs(ipfs, vec![(root_block.cid, ipld)], None, true)
+            .map_ok(|(_, dest, _)| dest.to_string())
+            .try_collect()
+            .await
+            .unwrap();
+
+        // go-ipfs output:
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily
+        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL
+
+        let expected = [dag0, unixfs0, dag1, unixfs1]
+            .iter()
+            .map(|&s| String::from(s))
+            .collect::<HashSet<_>>();
+
+        let diff = destinations
+            .symmetric_difference(&expected)
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>();
+
+        assert!(diff.is_empty(), "{:?}", diff);
+    }
+
+    fn assert_edges(expected: &[(&str, &str)], actual: &[(String, String)]) {
+        let expected: HashSet<_> = expected.iter().map(|&(a, b)| (a, b)).collect();
+
+        let actual: HashSet<_> = actual
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
+
+        let diff: Vec<_> = expected.symmetric_difference(&actual).collect();
+
+        assert!(diff.is_empty(), "{:#?}", diff);
+    }
+
+    async fn preloaded_testing_ipfs() -> Node {
+        let ipfs = Node::new("test_node").await;
+
+        let blocks = [
+            (
+                // echo -n '{ "foo": { "/": "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily" }, "bar": { "/": "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy" } }' | /ipfs dag put
+                "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
+                &hex!("a263626172d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c6537463666f6fd82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885e")[..]
+            ),
+            (
+                // echo barfoo > file2 && ipfs add file2
+                "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
+                &hex!("0a0d08021207626172666f6f0a1807")[..]
+            ),
+            (
+                // echo -n '{ "foo": { "/": "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL" } }' | ipfs dag put
+                "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
+                &hex!("a163666f6fd82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33")[..]
+            ),
+            (
+                // echo foobar > file1 && ipfs add file1
+                "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
+                &hex!("0a0d08021207666f6f6261720a1807")[..]
+            ),
+            (
+                // echo -e '[{"/":"bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44"},{"/":"QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy"},{"/":"bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily"},{"/":"QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL"}]' | ./ipfs dag put
+                "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
+                &hex!("84d82a5825000171122070a20db04672d858427771a4e7cf6ce3c53c52f32404b4499747d38fc19592e7d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c65374d82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885ed82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33")[..]
+            )
+        ];
+
+        for (cid_str, data) in blocks.iter() {
+            let cid = Cid::try_from(*cid_str).unwrap();
+            validate(&cid, &data).unwrap();
+            decode_ipld(&cid, &data).unwrap();
+
+            let block = Block {
+                cid,
+                data: (*data).into(),
+            };
+
+            ipfs.put_block(block).await.unwrap();
+        }
+
+        ipfs
     }
 }
