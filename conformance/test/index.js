@@ -100,11 +100,29 @@ tests.root.add(factory, {
     "should not add from an invalid url",
   ]
 });
+
+tests.dht(factory, {
+  skip: [
+    // the found address has a much higher port than the expected one
+    "should find other peers",
+    // no auto-bootstrapping?
+    "should be able to find providers",
+    // invalid PeerId encoding
+    "should return the other node in the query",
+    // multiple entries in the param
+    "should allow multiple CIDs to be passed",
+    // unimplemented endpoints
+    "should respect timeout option when putting a value into the DHT",
+    "should put a value to the DHT",
+    "should respect timeout option when getting a value from the DHT",
+    "should get a value after it was put on another node",
+  ]
+});
+
 // tests.repo(factory)
 // tests.object(factory)
 // tests.pin(factory)
 // tests.bootstrap(factory)
-// tests.dht(factory)
 // tests.name(factory)
 // tests.namePubsub(factory)
 // tests.ping(factory)

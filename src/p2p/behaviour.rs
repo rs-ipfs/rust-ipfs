@@ -496,15 +496,17 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             .create_subscription(self.kademlia.get_closest_peers(id.as_bytes()).into(), None)
     }
 
-    pub fn get_providers(&mut self, key: Key) -> SubscriptionFuture<KadResult, String> {
+    pub fn get_providers(&mut self, cid: Cid) -> SubscriptionFuture<KadResult, String> {
+        let key = Key::from(cid.hash().as_bytes().to_owned());
         self.kad_subscriptions
             .create_subscription(self.kademlia.get_providers(key).into(), None)
     }
 
     pub fn start_providing(
         &mut self,
-        key: Key,
+        cid: Cid,
     ) -> Result<SubscriptionFuture<KadResult, String>, anyhow::Error> {
+        let key = Key::from(cid.hash().as_bytes().to_owned());
         match self.kademlia.start_providing(key) {
             Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
             Err(e) => {

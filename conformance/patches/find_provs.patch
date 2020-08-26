@@ -1,0 +1,23 @@
+--- node_modules/interface-ipfs-core/src/dht/find-provs.js
++++ node_modules/interface-ipfs-core/src/dht/find-provs.js
+@@ -38,12 +38,13 @@ module.exports = (common, options) => {
+     before('add providers for the same cid', async function () {
+       this.timeout(10 * 1000)
+
+-      const cids = await Promise.all([
+-        nodeB.object.new('unixfs-dir'),
+-        nodeC.object.new('unixfs-dir')
++      const blob = Buffer.from('blorb')
++      const blocks = await Promise.all([
++        nodeB.block.put(blob),
++        nodeC.block.put(blob)
+       ])
+
+-      providedCid = cids[0]
++      providedCid = blocks[0].cid
+
+       await Promise.all([
+         all(nodeB.dht.provide(providedCid)),
+--
+2.27.0
+
