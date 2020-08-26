@@ -24,11 +24,13 @@ async fn main() {
             exit(1);
         }
         None => {
-            eprintln!("Usage: fetch_and_cat <IPFS_PATH | CID>");
+            eprintln!("Usage: fetch_and_cat <IPFS_PATH | CID> [MULTIADDR]");
             eprintln!(
                 "Example will accept connections and print all bytes of the unixfs file to \
                 stdout."
             );
+            eprintln!("If second argument is present, it is expected to be a Multiaddr with \
+                peer_id. The given multiaddr will be connected to instead of waiting an incoming connection.");
             exit(0);
         }
     };
@@ -41,21 +43,29 @@ async fn main() {
         exit(1);
     }
 
+    let target = env::args()
+        .nth(2)
+        .map(|s| s.parse::<MultiaddrWithPeerId>().unwrap());
+
     // Start daemon and initialize repo
     let (ipfs, fut): (Ipfs<TestTypes>, _) =
         UninitializedIpfs::default().await.start().await.unwrap();
     tokio::task::spawn(fut);
 
-    let (_, addresses) = ipfs.identity().await.unwrap();
-    assert!(!addresses.is_empty(), "Zero listening addresses");
+    if let Some(target) = target {
+        ipfs.connect(target).await.unwrap();
+    } else {
+        let (_, addresses) = ipfs.identity().await.unwrap();
+        assert!(!addresses.is_empty(), "Zero listening addresses");
 
-    eprintln!("Please connect an ipfs node having {} to:\n", path);
+        eprintln!("Please connect an ipfs node having {} to:\n", path);
 
-    for address in addresses {
-        eprintln!(" - {}", address);
+        for address in addresses {
+            eprintln!(" - {}", address);
+        }
+
+        eprintln!();
     }
-
-    eprintln!();
 
     let stream = ipfs.cat_unixfs(path, None).await.unwrap_or_else(|e| {
         eprintln!("Error: {}", e);
