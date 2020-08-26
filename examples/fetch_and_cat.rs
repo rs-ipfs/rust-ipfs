@@ -1,6 +1,6 @@
 use futures::pin_mut;
 use futures::stream::StreamExt; // needed for StreamExt::next
-use ipfs::{Ipfs, IpfsPath, TestTypes, UninitializedIpfs};
+use ipfs::{Ipfs, IpfsOptions, IpfsPath, MultiaddrWithPeerId, TestTypes, UninitializedIpfs};
 use std::env;
 use std::process::exit;
 use tokio::io::AsyncWriteExt;
@@ -48,8 +48,13 @@ async fn main() {
         .map(|s| s.parse::<MultiaddrWithPeerId>().unwrap());
 
     // Start daemon and initialize repo
-    let (ipfs, fut): (Ipfs<TestTypes>, _) =
-        UninitializedIpfs::default().await.start().await.unwrap();
+    let mut opts = IpfsOptions::inmemory_with_generated_keys();
+    opts.mdns = false;
+    let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts, None)
+        .await
+        .start()
+        .await
+        .unwrap();
     tokio::task::spawn(fut);
 
     if let Some(target) = target {
