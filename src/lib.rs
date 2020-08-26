@@ -42,6 +42,7 @@ pub mod ipld;
 pub mod ipns;
 pub mod p2p;
 pub mod path;
+pub mod refs;
 pub mod repo;
 mod subscription;
 pub mod unixfs;
@@ -833,6 +834,22 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             Ok(_) => unreachable!(),
             Err(e) => Err(anyhow!(e)),
         }
+    }
+
+    /// Walk the given Iplds' links up to `max_depth` (or indefinitely for `None`). Will return
+    /// any duplicate trees unless `unique` is `true`.
+    ///
+    /// More information and a `'static` lifetime version available at [`refs::iplds_refs`].
+    pub fn refs<'a, Iter>(
+        &'a self,
+        iplds: Iter,
+        max_depth: Option<u64>,
+        unique: bool,
+    ) -> impl Stream<Item = Result<refs::Edge, ipld::BlockError>> + Send + 'a
+    where
+        Iter: IntoIterator<Item = (Cid, Ipld)> + 'a,
+    {
+        refs::iplds_refs(self, iplds, max_depth, unique)
     }
 
     /// Exit daemon.

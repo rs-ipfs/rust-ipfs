@@ -3,10 +3,9 @@ use cid::{self, Cid};
 use futures::future::ready;
 use futures::stream::{self, FuturesOrdered, Stream, StreamExt, TryStreamExt};
 use ipfs::ipld::{decode_ipld, Ipld};
-use ipfs::{Block, Ipfs, IpfsTypes};
+use ipfs::{Ipfs, IpfsTypes};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::collections::VecDeque;
 use std::convert::TryFrom;
 use warp::hyper::Body;
 use warp::{Filter, Rejection, Reply};
@@ -54,10 +53,6 @@ async fn refs_inner<T: IpfsTypes>(
         .maybe_timeout(opts.timeout)
         .await
         .map_err(StringError::from)?
-        .map_err(|e| {
-            warn!("refs path on {:?} failed with {}", &opts.arg, e);
-            e
-        })
         .map_err(StringError::from)?;
 
     // FIXME: there should be a total timeout arching over path walking to the stream completion.
@@ -70,8 +65,12 @@ async fn refs_inner<T: IpfsTypes>(
         // FIXME: strings are allocated for nothing, could just use a single BytesMut for the
         // rendering
         let res = match res {
-            Ok((source, dest, link_name)) => {
-                let ok = formatter.format(source, dest, link_name);
+            Ok(ipfs::refs::Edge {
+                source,
+                destination,
+                name,
+            }) => {
+                let ok = formatter.format(source, destination, name);
                 serde_json::to_string(&Edge {
                     ok: ok.into(),
                     err: "".into(),
@@ -79,7 +78,7 @@ async fn refs_inner<T: IpfsTypes>(
             }
             Err(e) => serde_json::to_string(&Edge {
                 ok: "".into(),
-                err: e.into(),
+                err: e.to_string().into(),
             }),
         };
 
@@ -127,7 +126,7 @@ async fn refs_paths<T: IpfsTypes>(
     max_depth: Option<u64>,
     unique: bool,
 ) -> Result<
-    impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static,
+    impl Stream<Item = Result<ipfs::refs::Edge, ipfs::ipld::BlockError>> + Send + 'static,
     ResolveError,
 > {
     use ipfs::dag::ResolvedNode;
@@ -135,7 +134,7 @@ async fn refs_paths<T: IpfsTypes>(
     let dag = ipfs.dag();
 
     // added braces to spell it out for borrowck that dag does not outlive this fn
-    let iplds = {
+    let iplds: Vec<(Cid, Ipld)> = {
         // the assumption is that futuresordered will poll the first N items until the first completes,
         // buffering the others. it might not be 100% parallel but it's probably enough.
         let mut walks = FuturesOrdered::new();
@@ -170,183 +169,7 @@ async fn refs_paths<T: IpfsTypes>(
             .await?
     };
 
-    Ok(iplds_refs(ipfs, iplds, max_depth, unique))
-}
-
-/// Gather links as edges between two documents from all of the `iplds` which represent the
-/// document and it's original `Cid`, as the `Ipld` can be a subtree of the document.
-///
-/// # Differences from other implementations
-///
-/// `js-ipfs` does seem to do a recursive descent on all links. Looking at the tests it would
-/// appear that `go-ipfs` implements this in similar fashion. This implementation is breadth-first
-/// to be simpler at least.
-///
-/// Related: https://github.com/ipfs/js-ipfs/pull/2982
-///
-/// # Panics
-///
-/// If there are dag-pb nodes and the libipld has changed it's dag-pb tree structure.
-fn iplds_refs<T: IpfsTypes>(
-    ipfs: Ipfs<T>,
-    iplds: Vec<(Cid, Ipld)>,
-    max_depth: Option<u64>,
-    unique: bool,
-) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), String>> + Send + 'static {
-    use async_stream::stream;
-    use std::collections::HashSet;
-
-    stream! {
-        if let Some(0) = max_depth {
-            return;
-        }
-
-        let mut queued_or_visited = HashSet::new();
-        let mut work = VecDeque::new();
-
-        for (origin, ipld) in iplds {
-            for (link_name, next_cid) in ipld_links(&origin, ipld) {
-                if unique && !queued_or_visited.insert(next_cid.clone()) {
-                    trace!("skipping already queued {}", next_cid);
-                    continue;
-                }
-                work.push_back((0, next_cid, origin.clone(), link_name));
-            }
-        }
-
-        while let Some((depth, cid, source, link_name)) = work.pop_front() {
-            let traverse_links = match max_depth {
-                Some(d) if d <= depth => {
-                    // important to continue instead of stopping
-                    continue;
-                },
-                // no need to list links which would be filtered out
-                Some(d) if d + 1 == depth => false,
-                _ => true
-            };
-
-            let data = match ipfs.get_block(&cid).await {
-                Ok(Block { data, .. }) => data,
-                Err(e) => {
-                    warn!("failed to load {}, linked from {}: {}", cid, source, e);
-                    // TODO: yield error msg
-                    // unsure in which cases this happens, because we'll start to search the content
-                    // and stop only when request has been cancelled (FIXME: no way to stop this
-                    // operation)
-                    continue;
-                }
-            };
-
-            let ipld = match decode_ipld(&cid, &data) {
-                Ok(ipld) => ipld,
-                Err(e) => {
-                    warn!("failed to parse {}, linked from {}: {}", cid, source, e);
-                    // go-ipfs on raw Qm hash:
-                    // > failed to decode Protocol Buffers: incorrectly formatted merkledag node: unmarshal failed. proto: illegal wireType 6
-                    yield Err(e.to_string());
-                    continue;
-                }
-            };
-
-            if traverse_links {
-                for (link_name, next_cid) in ipld_links(&cid, ipld) {
-                    if unique && !queued_or_visited.insert(next_cid.clone()) {
-                        trace!("skipping already queued {}", next_cid);
-                        continue;
-                    }
-
-                    work.push_back((depth + 1, next_cid, cid.clone(), link_name));
-                }
-            }
-
-            yield Ok((source, cid, link_name));
-        }
-    }
-}
-
-fn ipld_links(
-    cid: &Cid,
-    ipld: Ipld,
-) -> impl Iterator<Item = (Option<String>, Cid)> + Send + 'static {
-    // a wrapping iterator without there being a libipld_base::IpldIntoIter might not be doable
-    // with safe code
-    let items = if cid.codec() == cid::Codec::DagProtobuf {
-        dagpb_links(ipld)
-    } else {
-        ipld.iter()
-            .filter_map(|val| match val {
-                Ipld::Link(cid) => Some(cid),
-                _ => None,
-            })
-            .cloned()
-            // only dag-pb ever has any link names, probably because in cbor the "name" on the LHS
-            // might have a different meaning from a "link name" in dag-pb ... Doesn't seem
-            // immediatedly obvious why this is done.
-            .map(|cid| (None, cid))
-            .collect::<Vec<(Option<String>, Cid)>>()
-    };
-
-    items.into_iter()
-}
-
-/// Special handling for the structure created while loading dag-pb as ipld.
-///
-/// # Panics
-///
-/// If the dag-pb ipld tree doesn't conform to expectations, as in, we are out of sync with the
-/// libipld crate. This is on purpose.
-fn dagpb_links(ipld: Ipld) -> Vec<(Option<String>, Cid)> {
-    let links = match ipld {
-        Ipld::Map(mut m) => m.remove("Links"),
-        // lets assume this means "no links"
-        _ => return Vec::new(),
-    };
-
-    let links = match links {
-        Some(Ipld::List(v)) => v,
-        x => panic!("Expected dag-pb2ipld \"Links\" to be a list, got: {:?}", x),
-    };
-
-    links
-        .into_iter()
-        .enumerate()
-        .filter_map(|(i, ipld)| {
-            match ipld {
-                Ipld::Map(mut m) => {
-                    let link = match m.remove("Hash") {
-                        Some(Ipld::Link(cid)) => cid,
-                        Some(x) => panic!(
-                            "Expected dag-pb2ipld \"Links[{}]/Hash\" to be a link, got: {:?}",
-                            i, x
-                        ),
-                        None => return None,
-                    };
-                    let name = match m.remove("Name") {
-                        // not sure of this, not covered by tests, though these are only
-                        // present for multi-block files so maybe it's better to panic
-                        Some(Ipld::String(s)) if s == "/" => {
-                            unimplemented!("Slashes as the name of link")
-                        }
-                        Some(Ipld::String(s)) => Some(s),
-                        Some(x) => panic!(
-                            "Expected dag-pb2ipld \"Links[{}]/Name\" to be a string, got: {:?}",
-                            i, x
-                        ),
-                        // not too sure of this, this could be the index as string as well?
-                        None => unimplemented!(
-                            "Default name for dag-pb2ipld links, should it be index?"
-                        ),
-                    };
-
-                    Some((name, link))
-                }
-                x => panic!(
-                    "Expected dag-pb2ipld \"Links[{}]\" to be a map, got: {:?}",
-                    i, x
-                ),
-            }
-        })
-        .collect()
+    Ok(ipfs::refs::iplds_refs(ipfs, iplds, max_depth, unique))
 }
 
 /// Handling of https://docs-beta.ipfs.io/reference/http/api/#api-v0-refs-local
@@ -385,7 +208,7 @@ async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejectio
 
 #[cfg(test)]
 mod tests {
-    use super::{ipld_links, local, refs_paths, Edge, IpfsPath};
+    use super::{local, refs_paths, Edge, IpfsPath};
     use cid::{self, Cid};
     use futures::stream::TryStreamExt;
     use ipfs::ipld::{decode_ipld, validate};
@@ -441,90 +264,6 @@ mod tests {
     }
 
     #[tokio::test(max_threads = 1)]
-    async fn all_refs_from_root() {
-        let Node { ipfs, bg_task: _bt } = preloaded_testing_ipfs().await;
-
-        let (root, dag0, unixfs0, dag1, unixfs1) = (
-            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
-            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
-            // {foo: dag1, bar: unixfs0}
-            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
-            // {foo: unixfs1}
-            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-        );
-
-        let all_edges: Vec<_> =
-            refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, false)
-                .await
-                .unwrap()
-                .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
-                .try_collect()
-                .await
-                .unwrap();
-
-        // not sure why go-ipfs outputs this order, this is more like dfs?
-        let expected = [
-            (root, dag0),
-            (dag0, unixfs0),
-            (dag0, dag1),
-            (dag1, unixfs1),
-            (root, unixfs0),
-            (root, dag1),
-            (dag1, unixfs1),
-            (root, unixfs1),
-        ];
-
-        println!("found edges:\n{:#?}", all_edges);
-
-        assert_edges(&expected, all_edges.as_slice());
-    }
-
-    #[tokio::test(max_threads = 1)]
-    async fn all_unique_refs_from_root() {
-        let Node { ipfs, bg_task: _bt } = preloaded_testing_ipfs().await;
-
-        let (root, dag0, unixfs0, dag1, unixfs1) = (
-            // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
-            "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
-            // {foo: dag1, bar: unixfs0}
-            "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-            "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
-            // {foo: unixfs1}
-            "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-            "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-        );
-
-        let destinations: HashSet<_> =
-            refs_paths(ipfs, vec![IpfsPath::try_from(root).unwrap()], None, true)
-                .await
-                .unwrap()
-                .map_ok(|(_, dest, _)| dest.to_string())
-                .try_collect()
-                .await
-                .unwrap();
-
-        // go-ipfs output:
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily
-        // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL
-
-        let expected = [dag0, unixfs0, dag1, unixfs1]
-            .iter()
-            .map(|&s| String::from(s))
-            .collect::<HashSet<_>>();
-
-        let diff = destinations
-            .symmetric_difference(&expected)
-            .map(|s| s.as_str())
-            .collect::<Vec<&str>>();
-
-        assert!(diff.is_empty(), "{:?}", diff);
-    }
-
-    #[tokio::test(max_threads = 1)]
     async fn refs_with_path() {
         let ipfs = preloaded_testing_ipfs().await;
 
@@ -540,7 +279,13 @@ mod tests {
             let all_edges: Vec<_> = refs_paths(ipfs.clone(), vec![path], None, false)
                 .await
                 .unwrap()
-                .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
+                .map_ok(
+                    |ipfs::refs::Edge {
+                         source,
+                         destination,
+                         ..
+                     }| (source.to_string(), destination.to_string()),
+                )
                 .try_collect()
                 .await
                 .unwrap();
@@ -568,74 +313,50 @@ mod tests {
     }
 
     async fn preloaded_testing_ipfs() -> Node {
+        use hex_literal::hex;
         let ipfs = Node::new("test_node").await;
 
         let blocks = [
             (
                 // echo -n '{ "foo": { "/": "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily" }, "bar": { "/": "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy" } }' | /ipfs dag put
                 "bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44",
-                "a263626172d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c6537463666f6fd82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885e"
+                &hex!("a263626172d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c6537463666f6fd82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885e")[..]
             ),
             (
                 // echo barfoo > file2 && ipfs add file2
                 "QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy",
-                "0a0d08021207626172666f6f0a1807"
+                &hex!("0a0d08021207626172666f6f0a1807")[..]
             ),
             (
                 // echo -n '{ "foo": { "/": "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL" } }' | ipfs dag put
                 "bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily",
-                "a163666f6fd82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33"),
+                &hex!("a163666f6fd82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33")[..]
+            ),
             (
                 // echo foobar > file1 && ipfs add file1
                 "QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL",
-                "0a0d08021207666f6f6261720a1807"
+                &hex!("0a0d08021207666f6f6261720a1807")[..]
             ),
             (
                 // echo -e '[{"/":"bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44"},{"/":"QmPJ4A6Su27ABvvduX78x2qdWMzkdAYxqeH5TVrHeo3xyy"},{"/":"bafyreibvjvcv745gig4mvqs4hctx4zfkono4rjejm2ta6gtyzkqxfjeily"},{"/":"QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL"}]' | ./ipfs dag put
                 "bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64",
-                "84d82a5825000171122070a20db04672d858427771a4e7cf6ce3c53c52f32404b4499747d38fc19592e7d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c65374d82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885ed82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33"
+                &hex!("84d82a5825000171122070a20db04672d858427771a4e7cf6ce3c53c52f32404b4499747d38fc19592e7d82a58230012200e317512b6f9f86e015a154cb97a9ddcdc7e372cccceb3947921634953c65374d82a58250001711220354d455ff3a641b8cac25c38a77e64aa735dc8a48966a60f1a78caa172a4885ed82a582300122031c3d57080d8463a3c63b2923df5a1d40ad7a73eae5a14af584213e5f504ac33")[..]
             )
         ];
 
-        for (cid_str, hex_str) in blocks.iter() {
+        for (cid_str, data) in blocks.iter() {
             let cid = Cid::try_from(*cid_str).unwrap();
-            let data = hex::decode(hex_str).unwrap();
-
             validate(&cid, &data).unwrap();
             decode_ipld(&cid, &data).unwrap();
 
             let block = Block {
                 cid,
-                data: data.into(),
+                data: (*data).into(),
             };
 
             ipfs.put_block(block).await.unwrap();
         }
 
         ipfs
-    }
-
-    #[test]
-    fn dagpb_links() {
-        // this is the same as in v0::refs::path::tests::walk_dagpb_links
-        let payload = hex::decode(
-            "12330a2212206aad27d7e2fc815cd15bf679535062565dc927a831547281\
-            fc0af9e5d7e67c74120b6166726963616e2e747874180812340a221220fd\
-            36ac5279964db0cba8f7fa45f8c4c44ef5e2ff55da85936a378c96c9c632\
-            04120c616d6572696361732e747874180812360a2212207564c20415869d\
-            77a8a40ca68a9158e397dd48bdff1325cdb23c5bcd181acd17120e617573\
-            7472616c69616e2e7478741808",
-        )
-        .unwrap();
-
-        let cid = Cid::try_from("QmbrFTo4s6H23W6wmoZKQC2vSogGeQ4dYiceSqJddzrKVa").unwrap();
-
-        let decoded = decode_ipld(&cid, &payload).unwrap();
-
-        let links = ipld_links(&cid, decoded)
-            .map(|(name, _)| name.unwrap())
-            .collect::<Vec<_>>();
-
-        assert_eq!(links, ["african.txt", "americas.txt", "australian.txt",]);
     }
 }
