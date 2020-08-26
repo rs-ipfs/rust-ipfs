@@ -1,6 +1,6 @@
 use futures::pin_mut;
 use futures::stream::StreamExt; // needed for StreamExt::next
-use ipfs::{Ipfs, IpfsPath, TestTypes, UninitializedIpfs};
+use ipfs::{Ipfs, IpfsOptions, IpfsPath, MultiaddrWithPeerId, TestTypes, UninitializedIpfs};
 use std::env;
 use std::process::exit;
 use tokio::io::AsyncWriteExt;
@@ -24,11 +24,13 @@ async fn main() {
             exit(1);
         }
         None => {
-            eprintln!("Usage: fetch_and_cat <IPFS_PATH | CID>");
+            eprintln!("Usage: fetch_and_cat <IPFS_PATH | CID> [MULTIADDR]");
             eprintln!(
                 "Example will accept connections and print all bytes of the unixfs file to \
                 stdout."
             );
+            eprintln!("If second argument is present, it is expected to be a Multiaddr with \
+                peer_id. The given Multiaddr will be connected to instead of awaiting an incoming connection.");
             exit(0);
         }
     };
@@ -41,21 +43,34 @@ async fn main() {
         exit(1);
     }
 
+    let target = env::args()
+        .nth(2)
+        .map(|s| s.parse::<MultiaddrWithPeerId>().unwrap());
+
     // Start daemon and initialize repo
-    let (ipfs, fut): (Ipfs<TestTypes>, _) =
-        UninitializedIpfs::default().await.start().await.unwrap();
+    let mut opts = IpfsOptions::inmemory_with_generated_keys();
+    opts.mdns = false;
+    let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts, None)
+        .await
+        .start()
+        .await
+        .unwrap();
     tokio::task::spawn(fut);
 
-    let (_, addresses) = ipfs.identity().await.unwrap();
-    assert!(!addresses.is_empty(), "Zero listening addresses");
+    if let Some(target) = target {
+        ipfs.connect(target).await.unwrap();
+    } else {
+        let (_, addresses) = ipfs.identity().await.unwrap();
+        assert!(!addresses.is_empty(), "Zero listening addresses");
 
-    eprintln!("Please connect an ipfs node having {} to:\n", path);
+        eprintln!("Please connect an ipfs node having {} to:\n", path);
 
-    for address in addresses {
-        eprintln!(" - {}", address);
+        for address in addresses {
+            eprintln!(" - {}", address);
+        }
+
+        eprintln!();
     }
-
-    eprintln!();
 
     let stream = ipfs.cat_unixfs(path, None).await.unwrap_or_else(|e| {
         eprintln!("Error: {}", e);
