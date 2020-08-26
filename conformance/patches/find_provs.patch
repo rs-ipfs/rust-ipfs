@@ -14,7 +14,7 @@
        ])
 
 -      providedCid = cids[0]
-+      providedCid = blocks[0].cid.toString()
++      providedCid = blocks[0].cid
 
        await Promise.all([
          all(nodeB.dht.provide(providedCid)),
