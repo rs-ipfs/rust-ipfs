@@ -497,7 +497,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     }
 
     pub fn get_providers(&mut self, cid: Cid) -> SubscriptionFuture<KadResult, String> {
-        let key = Key::from(cid.to_bytes());
+        let key = Key::from(cid.hash().as_bytes().to_owned());
         self.kad_subscriptions
             .create_subscription(self.kademlia.get_providers(key).into(), None)
     }
@@ -506,7 +506,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         &mut self,
         cid: Cid,
     ) -> Result<SubscriptionFuture<KadResult, String>, anyhow::Error> {
-        let key = Key::from(cid.to_bytes());
+        let key = Key::from(cid.hash().as_bytes().to_owned());
         match self.kademlia.start_providing(key) {
             Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
             Err(e) => {
