@@ -214,7 +214,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 .await
                 .ok();
 
-            if let Ok(kad_subscription) = rx.await? {
+            if let Ok(Ok(kad_subscription)) = rx.await {
                 kad_subscription.await?;
             }
         }
