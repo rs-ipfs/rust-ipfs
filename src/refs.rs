@@ -6,11 +6,33 @@ use futures::stream::Stream;
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::fmt;
+
+/// Represents a single link in an IPLD tree encountered during a `refs` walk.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Edge {
+    /// Source document which links to [`destination`]
+    pub source: Cid,
+    /// The destination document
+    pub destination: Cid,
+    /// The name of the link, in case of dag-pb
+    pub name: Option<String>,
+}
+
+impl fmt::Debug for Edge {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            fmt,
+            "Edge {{ source: {}, destination: {}, name: {:?} }}",
+            self.source, self.destination, self.name
+        )
+    }
+}
 
 /// Gather links as edges between two documents from all of the `iplds` which represent the
 /// document and it's original `Cid`, as the `Ipld` can be a subtree of the document.
 ///
-/// **Stream** does not stop on **error**.
+/// This stream does not stop on **error**.
 ///
 /// # Differences from other implementations
 ///
@@ -29,7 +51,7 @@ pub fn iplds_refs<'a, Types, MaybeOwned, Iter>(
     iplds: Iter,
     max_depth: Option<u64>,
     unique: bool,
-) -> impl Stream<Item = Result<(Cid, Cid, Option<String>), crate::ipld::BlockError>> + Send + 'a
+) -> impl Stream<Item = Result<Edge, crate::ipld::BlockError>> + Send + 'a
 where
     Types: IpfsTypes,
     MaybeOwned: Borrow<Ipfs<Types>> + Send + 'a,
@@ -110,7 +132,7 @@ where
                 }
             }
 
-            yield Ok((source, cid, link_name));
+            yield Ok(Edge { source, destination: cid, name: link_name });
         }
     }
 }
@@ -202,7 +224,7 @@ fn dagpb_links(ipld: Ipld) -> Vec<(Option<String>, Cid)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ipld_links, iplds_refs};
+    use super::{ipld_links, iplds_refs, Edge};
     use crate::ipld::{decode_ipld, validate};
     use crate::{Block, Node};
     use cid::Cid;
@@ -253,7 +275,13 @@ mod tests {
         let ipld = decode_ipld(root_block.cid(), root_block.data()).unwrap();
 
         let all_edges: Vec<_> = iplds_refs(ipfs, vec![(root_block.cid, ipld)], None, false)
-            .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
+            .map_ok(
+                |Edge {
+                     source,
+                     destination,
+                     ..
+                 }| (source.to_string(), destination.to_string()),
+            )
             .try_collect()
             .await
             .unwrap();
@@ -294,7 +322,7 @@ mod tests {
         let ipld = decode_ipld(root_block.cid(), root_block.data()).unwrap();
 
         let destinations: HashSet<_> = iplds_refs(ipfs, vec![(root_block.cid, ipld)], None, true)
-            .map_ok(|(_, dest, _)| dest.to_string())
+            .map_ok(|Edge { destination, .. }| destination.to_string())
             .try_collect()
             .await
             .unwrap();

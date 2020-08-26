@@ -65,8 +65,12 @@ async fn refs_inner<T: IpfsTypes>(
         // FIXME: strings are allocated for nothing, could just use a single BytesMut for the
         // rendering
         let res = match res {
-            Ok((source, dest, link_name)) => {
-                let ok = formatter.format(source, dest, link_name);
+            Ok(ipfs::refs::Edge {
+                source,
+                destination,
+                name,
+            }) => {
+                let ok = formatter.format(source, destination, name);
                 serde_json::to_string(&Edge {
                     ok: ok.into(),
                     err: "".into(),
@@ -122,7 +126,7 @@ async fn refs_paths<T: IpfsTypes>(
     max_depth: Option<u64>,
     unique: bool,
 ) -> Result<
-    impl Stream<Item = Result<(Cid, Cid, Option<String>), ipfs::ipld::BlockError>> + Send + 'static,
+    impl Stream<Item = Result<ipfs::refs::Edge, ipfs::ipld::BlockError>> + Send + 'static,
     ResolveError,
 > {
     use ipfs::dag::ResolvedNode;
@@ -275,7 +279,13 @@ mod tests {
             let all_edges: Vec<_> = refs_paths(ipfs.clone(), vec![path], None, false)
                 .await
                 .unwrap()
-                .map_ok(|(source, dest, _)| (source.to_string(), dest.to_string()))
+                .map_ok(
+                    |ipfs::refs::Edge {
+                         source,
+                         destination,
+                         ..
+                     }| (source.to_string(), destination.to_string()),
+                )
                 .try_collect()
                 .await
                 .unwrap();
