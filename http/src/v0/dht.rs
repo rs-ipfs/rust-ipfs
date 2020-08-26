@@ -29,7 +29,7 @@ struct ResponsesMember {
 
 #[derive(Debug, Deserialize)]
 pub struct FindPeerQuery {
-    arg: String,
+    arg: StringSerialized<PeerId>,
     // FIXME: doesn't seem to be used at the moment
     verbose: Option<bool>,
     timeout: Option<StringSerialized<humantime::Duration>>,
@@ -44,7 +44,7 @@ async fn find_peer_query<T: IpfsTypes>(
         verbose: _,
         timeout,
     } = query;
-    let peer_id = arg.parse::<PeerId>().map_err(StringError::from)?;
+    let peer_id = arg.into_inner();
     let addrs = ipfs
         .find_peer(peer_id.clone())
         .maybe_timeout(timeout.map(StringSerialized::into_inner))
@@ -76,7 +76,7 @@ pub fn find_peer<T: IpfsTypes>(
 
 #[derive(Debug, Deserialize)]
 pub struct FindProvidersQuery {
-    arg: String,
+    arg: StringSerialized<Cid>,
     // FIXME: in go-ipfs this returns a lot of logs
     verbose: Option<bool>,
     #[serde(rename = "num-providers")]
@@ -94,7 +94,7 @@ async fn find_providers_query<T: IpfsTypes>(
         num_providers,
         timeout,
     } = query;
-    let cid = arg.parse::<Cid>().map_err(StringError::from)?;
+    let cid = arg.into_inner();
     let providers = ipfs
         .get_providers(cid)
         .maybe_timeout(timeout.map(StringSerialized::into_inner))
@@ -130,7 +130,7 @@ pub fn find_providers<T: IpfsTypes>(
 
 #[derive(Debug, Deserialize)]
 pub struct ProvideQuery {
-    arg: String,
+    arg: StringSerialized<Cid>,
     // FIXME: in go-ipfs this returns a lot of logs
     verbose: Option<bool>,
     timeout: Option<StringSerialized<humantime::Duration>>,
@@ -145,7 +145,7 @@ async fn provide_query<T: IpfsTypes>(
         verbose: _,
         timeout,
     } = query;
-    let cid = arg.parse::<Cid>().map_err(StringError::from)?;
+    let cid = arg.into_inner();
     ipfs.provide(cid.clone())
         .maybe_timeout(timeout.map(StringSerialized::into_inner))
         .await
@@ -172,7 +172,7 @@ pub fn provide<T: IpfsTypes>(
 
 #[derive(Debug, Deserialize)]
 pub struct GetClosestPeersQuery {
-    arg: String,
+    arg: StringSerialized<PeerId>,
     // FIXME: in go-ipfs this returns a lot of logs
     verbose: Option<bool>,
     timeout: Option<StringSerialized<humantime::Duration>>,
@@ -187,7 +187,7 @@ async fn get_closest_peers_query<T: IpfsTypes>(
         verbose: _,
         timeout,
     } = query;
-    let peer_id = arg.parse::<PeerId>().map_err(StringError::from)?;
+    let peer_id = arg.into_inner();
     let closest_peers = ipfs
         .get_closest_peers(peer_id)
         .maybe_timeout(timeout.map(StringSerialized::into_inner))
