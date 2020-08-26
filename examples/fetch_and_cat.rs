@@ -30,7 +30,7 @@ async fn main() {
                 stdout."
             );
             eprintln!("If second argument is present, it is expected to be a Multiaddr with \
-                peer_id. The given multiaddr will be connected to instead of waiting an incoming connection.");
+                peer_id. The given Multiaddr will be connected to instead of awaiting an incoming connection.");
             exit(0);
         }
     };
