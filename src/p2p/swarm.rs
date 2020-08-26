@@ -7,7 +7,7 @@ use libp2p::swarm::protocols_handler::{
 };
 use libp2p::swarm::{self, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
 
 /// A description of currently active connection.
@@ -223,8 +223,16 @@ impl NetworkBehaviour for SwarmApi {
         error: &dyn std::error::Error,
     ) {
         trace!("inject_addr_reach_failure {} {}", addr, error);
-        if peer_id.is_some() {
-            let addr: MultiaddrWithPeerId = addr.clone().try_into().unwrap();
+        if let Some(peer_id) = peer_id {
+            let addr: MultiaddrWithPeerId = if let Ok(addr) = addr.to_owned().try_into() {
+                addr
+            } else {
+                (
+                    MultiaddrWithoutPeerId::try_from(addr.to_owned()).unwrap(),
+                    peer_id.to_owned(),
+                )
+                    .into()
+            };
             self.connect_registry
                 .finish_subscription(addr.into(), Err(error.to_string()));
         }

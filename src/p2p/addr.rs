@@ -95,9 +95,24 @@ impl From<(MultiaddrWithoutPeerId, PeerId)> for MultiaddrWithPeerId {
 impl TryFrom<Multiaddr> for MultiaddrWithPeerId {
     type Error = MultiaddrWrapperError;
 
-    fn try_from(mut multiaddr: Multiaddr) -> Result<Self, Self::Error> {
-        if let Some(Protocol::P2p(hash)) = multiaddr.pop() {
-            let multiaddr = MultiaddrWithoutPeerId(multiaddr);
+    fn try_from(multiaddr: Multiaddr) -> Result<Self, Self::Error> {
+        if let Some(Protocol::P2p(hash)) = multiaddr.iter().find(|p| matches!(p, Protocol::P2p(_)))
+        {
+            // FIXME: we've had a case where the PeerId was not the last part of the Multiaddr, which
+            // is unexpected; it is hard to trigger, hence this debug-only assertion so we might be
+            // able to catch it sometime during tests
+            debug_assert!(
+                matches!(multiaddr.iter().last(), Some(Protocol::P2p(_))),
+                "unexpected Multiaddr format: {}",
+                multiaddr
+            );
+
+            let multiaddr = MultiaddrWithoutPeerId(
+                multiaddr
+                    .into_iter()
+                    .filter(|p| !matches!(p, Protocol::P2p(_)))
+                    .collect(),
+            );
             let peer_id =
                 PeerId::from_multihash(hash).map_err(|_| MultiaddrWrapperError::InvalidPeerId)?;
             Ok(Self { multiaddr, peer_id })
