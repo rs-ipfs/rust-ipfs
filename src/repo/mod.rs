@@ -203,6 +203,10 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.subscriptions
             .finish_subscription(cid.clone().into(), Ok(block));
 
+        // FIXME: this doesn't cause actual DHT providing yet, only some
+        // bitswap housekeeping; RepoEvent::ProvideBlock should probably
+        // be renamed to ::NewBlock and we might want to not ignore the
+        // channel errors when we actually start providing on the DHT
         if let BlockPut::NewBlock = res {
             // sending only fails if no one is listening anymore
             // and that is okay with us.
@@ -214,7 +218,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 .await
                 .ok();
 
-            if let Ok(kad_subscription) = rx.await? {
+            if let Ok(Ok(kad_subscription)) = rx.await {
                 kad_subscription.await?;
             }
         }
