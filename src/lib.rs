@@ -281,7 +281,6 @@ enum IpfsEvent {
 pub struct UninitializedIpfs<Types: IpfsTypes> {
     repo: Repo<Types>,
     span: Span,
-    keys: Keypair,
     options: IpfsOptions,
     repo_events: Receiver<RepoEvent>,
 }
@@ -296,13 +295,11 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     pub fn new(options: IpfsOptions, span: Option<Span>) -> Self {
         let repo_options = RepoOptions::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
-        let keys = options.keypair.clone();
         let span = span.unwrap_or_else(|| tracing::trace_span!("ipfs"));
 
         UninitializedIpfs {
             repo,
             span,
-            keys,
             options,
             repo_events,
         }
@@ -320,7 +317,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let UninitializedIpfs {
             repo,
             span,
-            keys,
+            options,
             repo_events,
             ..
         } = self;
@@ -332,11 +329,11 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let ipfs = Ipfs(Arc::new(IpfsInner {
             span,
             repo,
-            keys: DebuggableKeypair(keys),
+            keys: DebuggableKeypair(options.keypair.clone()),
             to_task,
         }));
 
-        let swarm_options = SwarmOptions::from(&self.options);
+        let swarm_options = SwarmOptions::from(&options);
         let swarm = create_swarm(swarm_options, ipfs.clone()).await;
 
         let fut = IpfsFuture {
