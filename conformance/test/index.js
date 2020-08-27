@@ -121,7 +121,7 @@ tests.dht(factory, {
 
 // tests.repo(factory)
 // tests.object(factory)
-// tests.pin(factory)
+tests.pin.add(factory)
 // tests.bootstrap(factory)
 // tests.name(factory)
 // tests.namePubsub(factory)

@@ -5,6 +5,7 @@ use std::error::Error as StdError;
 use std::fmt;
 
 pub mod option_parsing;
+
 mod stream;
 pub use stream::StreamResponse;
 
