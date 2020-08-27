@@ -85,7 +85,7 @@ pub struct IpfsOptions {
     /// The path of the ipfs repo.
     pub ipfs_path: PathBuf,
     /// The keypair used with libp2p.
-    pub keypair: Keypair,
+    pub keypair: DebuggableKeypair<Keypair>,
     /// Nodes dialed during startup.
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
     /// Enables mdns for peer discovery when true.
@@ -101,7 +101,7 @@ impl fmt::Debug for IpfsOptions {
         fmt.debug_struct("IpfsOptions")
             .field("ipfs_path", &self.ipfs_path)
             .field("bootstrap", &self.bootstrap)
-            .field("keypair", &DebuggableKeypair(&self.keypair))
+            .field("keypair", &self.keypair)
             .field("mdns", &self.mdns)
             .field("kad_protocol", &self.kad_protocol)
             .finish()
@@ -113,7 +113,7 @@ impl IpfsOptions {
     pub fn inmemory_with_generated_keys() -> Self {
         Self {
             ipfs_path: std::env::temp_dir(),
-            keypair: Keypair::generate_ed25519(),
+            keypair: DebuggableKeypair(Keypair::generate_ed25519()),
             mdns: Default::default(),
             bootstrap: Default::default(),
             kad_protocol: Default::default(),
@@ -124,7 +124,7 @@ impl IpfsOptions {
 /// Workaround for libp2p::identity::Keypair missing a Debug impl, works with references and owned
 /// keypairs.
 #[derive(Clone)]
-struct DebuggableKeypair<I: Borrow<Keypair>>(I);
+pub struct DebuggableKeypair<I: Borrow<Keypair>>(I);
 
 impl<I: Borrow<Keypair>> fmt::Debug for DebuggableKeypair<I> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -154,7 +154,7 @@ impl IpfsOptions {
     ) -> Self {
         Self {
             ipfs_path,
-            keypair,
+            keypair: DebuggableKeypair(keypair),
             bootstrap,
             mdns,
             kad_protocol,
@@ -198,7 +198,7 @@ impl Default for IpfsOptions {
             .join("rust-ipfs")
             .join("config.json");
         let config = ConfigFile::new(config_path).unwrap();
-        let keypair = config.identity_key_pair();
+        let keypair = DebuggableKeypair(config.identity_key_pair());
         let bootstrap = config.bootstrap();
 
         IpfsOptions {
@@ -226,7 +226,7 @@ impl<Types: IpfsTypes> Clone for Ipfs<Types> {
 pub struct IpfsInner<Types: IpfsTypes> {
     pub span: Span,
     repo: Repo<Types>,
-    keys: DebuggableKeypair<Keypair>,
+    options: IpfsOptions,
     to_task: Sender<IpfsEvent>,
 }
 
@@ -279,8 +279,8 @@ enum IpfsEvent {
 
 /// Configured Ipfs instace or value which can be only initialized.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
-    repo: Repo<Types>,
     span: Span,
+    repo: Repo<Types>,
     options: IpfsOptions,
     repo_events: Receiver<RepoEvent>,
 }
@@ -319,21 +319,20 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             span,
             options,
             repo_events,
-            ..
         } = self;
 
         repo.init().await?;
 
         let (to_task, receiver) = channel::<IpfsEvent>(1);
+        let swarm_options = SwarmOptions::from(&options);
 
         let ipfs = Ipfs(Arc::new(IpfsInner {
             span,
             repo,
-            keys: DebuggableKeypair(options.keypair.clone()),
+            options,
             to_task,
         }));
 
-        let swarm_options = SwarmOptions::from(&options);
         let swarm = create_swarm(swarm_options, ipfs.clone()).await;
 
         let fut = IpfsFuture {
@@ -541,7 +540,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 .send(IpfsEvent::GetAddresses(tx))
                 .await?;
             let mut addresses = rx.await?;
-            let public_key = self.keys.get_ref().public();
+            let public_key = self.options.keypair.get_ref().public();
             let peer_id = public_key.clone().into_peer_id();
 
             for addr in &mut addresses {

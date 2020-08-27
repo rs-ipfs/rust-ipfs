@@ -26,7 +26,7 @@ pub struct SwarmOptions {
 
 impl From<&IpfsOptions> for SwarmOptions {
     fn from(options: &IpfsOptions) -> Self {
-        let keypair = options.keypair.clone();
+        let keypair = options.keypair.0.clone();
         let peer_id = keypair.public().into_peer_id();
         let bootstrap = options.bootstrap.clone();
         let mdns = options.mdns;
