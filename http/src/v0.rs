@@ -130,8 +130,9 @@ pub fn routes<T: IpfsTypes>(
             and_boxed!(warp::path!("peers"), swarm::peers(ipfs)),
         )),
         warp::path("pin").and(combine!(
-            and_boxed!(warp::path!("add"), pin::add_pin(ipfs)),
-            and_boxed!(warp::path!("ls"), pin::list(ipfs))
+            and_boxed!(warp::path!("add"), pin::add(ipfs)),
+            and_boxed!(warp::path!("ls"), pin::list(ipfs)),
+            and_boxed!(warp::path!("rm"), pin::rm(ipfs)),
         )),
         combine_unify!(
             warp::path!("bootstrap" / ..),

@@ -12,7 +12,7 @@ struct AddRequest {
     progress: bool,
 }
 
-async fn pin_block_request<T: IpfsTypes>(
+async fn add_inner<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     request: AddRequest,
 ) -> Result<impl Reply, Rejection> {
@@ -32,12 +32,10 @@ async fn pin_block_request<T: IpfsTypes>(
     })))
 }
 
-pub fn add_pin<T: IpfsTypes>(
+pub fn add<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
-    with_ipfs(ipfs)
-        .and(add_request())
-        .and_then(pin_block_request)
+    with_ipfs(ipfs).and(add_request()).and_then(add_inner)
 }
 
 pub fn list<T: IpfsTypes>(
@@ -47,6 +45,16 @@ pub fn list<T: IpfsTypes>(
 }
 
 async fn list_inner<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
+    Err::<&'static str, _>(crate::v0::NotImplemented.into())
+}
+
+pub fn rm<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs).and_then(rm_inner)
+}
+
+async fn rm_inner<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
     Err::<&'static str, _>(crate::v0::NotImplemented.into())
 }
 
