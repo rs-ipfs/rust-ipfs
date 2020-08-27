@@ -18,9 +18,12 @@ struct AddRequest {
 struct AddResponse {
     #[serde(rename = "Pins")]
     pins: Vec<StringSerialized<Cid>>,
+    // FIXME: go-ipfs doesn't respond with this
     //progress: u8,
 }
 
+/// `pin/add` per https://docs.ipfs.io/reference/http/api/#api-v0-pin-add or the
+/// interface-ipfs-http test suite.
 pub fn add<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
@@ -31,13 +34,26 @@ async fn add_inner<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     request: AddRequest,
 ) -> Result<impl Reply, Rejection> {
+    if request.recursive {
+        // FIXME: this is not documented however all tests always pass true or false
+        return Err(crate::v0::support::NotImplemented.into());
+    }
+
+    if request.progress {
+        // FIXME: there doesn't appear to be a test for this
+        return Err(crate::v0::support::NotImplemented.into());
+    }
+
     let cids: Vec<Cid> = request.args;
+
     let dispatched_pins = cids
         .into_iter()
         .map(|x| async { ipfs.pin_block(&x).await.map(move |_| StringSerialized(x)) });
+
     let completed = try_join_all(dispatched_pins)
         .await
         .map_err(StringError::from)?;
+
     Ok(reply::json(&AddResponse {
         pins: completed,
         //progress: 100,
@@ -52,6 +68,7 @@ pub fn list<T: IpfsTypes>(
 
 async fn list_inner<T: IpfsTypes>(_ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
     // interestingly conformance tests call this with `paths=cid&stream=true&arg=cid`
+    // this needs to be a stream of the listing
     Err::<&'static str, _>(crate::v0::NotImplemented.into())
 }
 
