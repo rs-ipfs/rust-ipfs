@@ -2,7 +2,7 @@ use std::num::NonZeroU16;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
+use ipfs::{Ipfs, IpfsOptions, IpfsTypes};
 use ipfs_http::{config, v0};
 
 #[derive(Debug, StructOpt)]
@@ -136,10 +136,9 @@ fn main() {
     rt.block_on(async move {
         let opts: IpfsOptions = IpfsOptions::new(home.clone(), keypair, Vec::new(), false, None);
 
-        let (ipfs, task): (Ipfs<ipfs::TestTypes>, _) = UninitializedIpfs::new(opts, None)
-            .start()
-            .await
-            .expect("Initialization failed");
+        let mut ipfs: Ipfs<ipfs::TestTypes> = Ipfs::new(opts, None);
+
+        let task = ipfs.start().await.expect("Initialization failed");
 
         tokio::spawn(task);
 

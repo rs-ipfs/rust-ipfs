@@ -268,11 +268,11 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
     fn inject_event(&mut self, event: BitswapEvent) {
         match event {
             BitswapEvent::ReceivedBlock(peer_id, block) => {
-                let ipfs = self.ipfs.clone();
+                let repo = Arc::clone(&self.ipfs.repo);
                 let peer_stats = Arc::clone(&self.bitswap.stats.get(&peer_id).unwrap());
                 task::spawn(async move {
                     let bytes = block.data().len() as u64;
-                    let res = ipfs.repo.put_block(block.clone()).await;
+                    let res = repo.put_block(block.clone()).await;
                     match res {
                         Ok((_, uniqueness)) => match uniqueness {
                             BlockPut::NewBlock => peer_stats.update_incoming_unique(bytes),
@@ -297,10 +297,10 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
                 );
 
                 let queued_blocks = self.bitswap().queued_blocks.clone();
-                let ipfs = self.ipfs.clone();
+                let repo = Arc::clone(&self.ipfs.repo);
 
                 task::spawn(async move {
-                    match ipfs.repo.get_block_now(&cid).await {
+                    match repo.get_block_now(&cid).await {
                         Ok(Some(block)) => {
                             let _ = queued_blocks.unbounded_send((peer_id, block));
                         }

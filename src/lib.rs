@@ -211,23 +211,27 @@ impl Default for IpfsOptions {
     }
 }
 
-#[derive(Debug)]
-pub struct Ipfs<Types: IpfsTypes>(Arc<IpfsInner<Types>>);
-
-impl<Types: IpfsTypes> Clone for Ipfs<Types> {
-    fn clone(&self) -> Self {
-        Ipfs(Arc::clone(&self.0))
-    }
-}
-
 /// Ipfs struct creates a new IPFS node and is the main entry point
 /// for interacting with IPFS.
 #[derive(Debug)]
-pub struct IpfsInner<Types: IpfsTypes> {
+pub struct Ipfs<Types: IpfsTypes> {
     pub span: Span,
-    repo: Repo<Types>,
+    repo: Arc<Repo<Types>>,
     options: IpfsOptions,
+    repo_events: Option<Receiver<RepoEvent>>,
     to_task: Sender<IpfsEvent>,
+}
+
+impl<Types: IpfsTypes> Clone for Ipfs<Types> {
+    fn clone(&self) -> Self {
+        Ipfs {
+            span: self.span.clone(),
+            repo: Arc::clone(&self.repo),
+            options: self.options.clone(),
+            repo_events: None,
+            to_task: self.to_task.clone(),
+        }
+    }
 }
 
 type Channel<T> = OneshotSender<Result<T, Error>>;
@@ -277,15 +281,7 @@ enum IpfsEvent {
     Exit,
 }
 
-/// Configured Ipfs instace or value which can be only initialized.
-pub struct UninitializedIpfs<Types: IpfsTypes> {
-    span: Span,
-    repo: Repo<Types>,
-    options: IpfsOptions,
-    repo_events: Receiver<RepoEvent>,
-}
-
-impl<Types: IpfsTypes> UninitializedIpfs<Types> {
+impl<Types: IpfsTypes> Ipfs<Types> {
     /// Configures a new UninitializedIpfs with from the given options and optionally a span.
     /// If the span is not given, it is defaulted to `tracing::trace_span!("ipfs")`.
     ///
@@ -296,12 +292,14 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let repo_options = RepoOptions::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let span = span.unwrap_or_else(|| tracing::trace_span!("ipfs"));
+        let to_task = channel::<IpfsEvent>(1).0; // FIXME: dummy
 
-        UninitializedIpfs {
-            repo,
+        Ipfs {
+            repo: Arc::new(repo),
             span,
             options,
-            repo_events,
+            repo_events: Some(repo_events),
+            to_task,
         }
     }
 
@@ -311,50 +309,29 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
     /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
     /// future should be spawned on a executor as soon as possible.
-    pub async fn start(self) -> Result<(Ipfs<Types>, impl Future<Output = ()>), Error> {
+    pub async fn start(&mut self) -> Result<impl Future<Output = ()>, Error> {
         use futures::stream::StreamExt;
 
-        let UninitializedIpfs {
-            repo,
-            span,
-            options,
-            repo_events,
-        } = self;
-
-        repo.init().await?;
-
         let (to_task, receiver) = channel::<IpfsEvent>(1);
-        let swarm_options = SwarmOptions::from(&options);
 
-        let ipfs = Ipfs(Arc::new(IpfsInner {
-            span,
-            repo,
-            options,
-            to_task,
-        }));
+        let repo_events = self.repo_events.take().unwrap().fuse();
+        self.to_task = to_task;
 
-        let swarm = create_swarm(swarm_options, ipfs.clone()).await;
+        self.repo.init().await?;
+
+        let swarm_options = SwarmOptions::from(&self.options);
+        let swarm = create_swarm(swarm_options, self.clone()).await;
 
         let fut = IpfsFuture {
-            repo_events: repo_events.fuse(),
+            repo_events,
             from_facade: receiver.fuse(),
             swarm,
             listening_addresses: HashMap::new(),
         };
 
-        Ok((ipfs, fut))
+        Ok(fut)
     }
-}
 
-impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
-    type Target = IpfsInner<Types>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<Types: IpfsTypes> Ipfs<Types> {
     pub fn dag(&self) -> IpldDag<Types> {
         IpldDag::new(self.clone())
     }
@@ -1249,11 +1226,9 @@ mod node {
         pub async fn with_options(opts: IpfsOptions) -> Self {
             let span = Some(Span::current());
 
-            let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts, span)
-                .start()
-                .in_current_span()
-                .await
-                .unwrap();
+            let mut ipfs = Ipfs::new(opts, span);
+
+            let fut = ipfs.start().in_current_span().await.unwrap();
 
             let bg_task = tokio::task::spawn(fut.in_current_span());
 
