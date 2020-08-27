@@ -1,7 +1,8 @@
 use crate::v0::support::option_parsing::ParseError;
-use crate::v0::support::{with_ipfs, StringError};
-use futures::future::join_all;
+use crate::v0::support::{with_ipfs, StringError, StringSerialized};
+use futures::future::try_join_all;
 use ipfs::{Cid, Ipfs, IpfsTypes};
+use serde::Serialize;
 use std::convert::TryFrom;
 use warp::{reply, Filter, Rejection, Reply};
 
@@ -10,6 +11,14 @@ struct AddRequest {
     args: Vec<Cid>,
     recursive: bool,
     progress: bool,
+    // TODO: timeout, probably with rollback semantics?
+}
+
+#[derive(Serialize)]
+struct AddResponse {
+    #[serde(rename = "Pins")]
+    pins: Vec<StringSerialized<Cid>>,
+    //progress: u8,
 }
 
 async fn add_inner<T: IpfsTypes>(
@@ -17,19 +26,16 @@ async fn add_inner<T: IpfsTypes>(
     request: AddRequest,
 ) -> Result<impl Reply, Rejection> {
     let cids: Vec<Cid> = request.args;
-    let dispatched_pins = cids.iter().map(|x| ipfs.pin_block(&x));
-    let completed = join_all(dispatched_pins).await;
-    let pins = completed
-        .iter()
-        .zip(cids)
-        .filter(|x| x.0.is_ok()) // ???
-        .map(|x| x.1.to_string())
-        .map(serde_json::Value::from)
-        .collect::<Vec<_>>();
-    Ok(reply::json(&serde_json::json!({
-        "pins": pins,
-        "progress": 100,
-    })))
+    let dispatched_pins = cids
+        .into_iter()
+        .map(|x| async { ipfs.pin_block(&x).await.map(move |_| StringSerialized(x)) });
+    let completed = try_join_all(dispatched_pins)
+        .await
+        .map_err(StringError::from)?;
+    Ok(reply::json(&AddResponse {
+        pins: completed,
+        //progress: 100,
+    }))
 }
 
 pub fn add<T: IpfsTypes>(
