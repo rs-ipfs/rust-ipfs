@@ -21,6 +21,12 @@ struct AddResponse {
     //progress: u8,
 }
 
+pub fn add<T: IpfsTypes>(
+    ipfs: &Ipfs<T>,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    with_ipfs(ipfs).and(add_request()).and_then(add_inner)
+}
+
 async fn add_inner<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     request: AddRequest,
@@ -36,12 +42,6 @@ async fn add_inner<T: IpfsTypes>(
         pins: completed,
         //progress: 100,
     }))
-}
-
-pub fn add<T: IpfsTypes>(
-    ipfs: &Ipfs<T>,
-) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
-    with_ipfs(ipfs).and(add_request()).and_then(add_inner)
 }
 
 pub fn list<T: IpfsTypes>(
