@@ -1,13 +1,13 @@
+use crate::v0::support::option_parsing::ParseError;
 use crate::v0::support::{with_ipfs, StringError};
 use futures::future::join_all;
 use ipfs::{Cid, Ipfs, IpfsTypes};
 use std::convert::TryFrom;
-use std::str::FromStr;
 use warp::{reply, Filter, Rejection, Reply};
 
 #[derive(Debug)]
 struct AddRequest {
-    args: Vec<String>,
+    args: Vec<Cid>,
     recursive: bool,
     progress: bool,
 }
@@ -16,18 +16,13 @@ async fn pin_block_request<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     request: AddRequest,
 ) -> Result<impl Reply, Rejection> {
-    let cids: Vec<Cid> = request
-        .args
-        .iter()
-        .map(|x| Cid::from_str(&x))
-        .collect::<Result<Vec<Cid>, _>>()
-        .map_err(StringError::from)?;
+    let cids: Vec<Cid> = request.args;
     let dispatched_pins = cids.iter().map(|x| ipfs.pin_block(&x));
     let completed = join_all(dispatched_pins).await;
     let pins = completed
         .iter()
         .zip(cids)
-        .filter(|x| x.0.is_ok())
+        .filter(|x| x.0.is_ok()) // ???
         .map(|x| x.1.to_string())
         .map(serde_json::Value::from)
         .collect::<Vec<_>>();
@@ -56,10 +51,48 @@ async fn list_inner<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejection
 }
 
 impl<'a> TryFrom<&'a str> for AddRequest {
-    type Error = crate::v0::support::option_parsing::ParseError<'a>;
+    type Error = ParseError<'a>;
 
     fn try_from(q: &'a str) -> Result<Self, Self::Error> {
-        todo!()
+        use ParseError::*;
+
+        let mut args = Vec::new();
+        let mut recursive = None;
+        let mut progress = None;
+
+        for (key, value) in url::form_urlencoded::parse(q.as_bytes()) {
+            let target = match &*key {
+                "arg" => {
+                    args.push(Cid::try_from(&*value).map_err(|e| InvalidCid("arg".into(), e))?);
+                    continue;
+                }
+                "recursive" => &mut recursive,
+                "progress" => &mut progress,
+                _ => {
+                    // ignore unknown
+                    continue;
+                }
+            };
+
+            if target.is_none() {
+                match value.parse::<bool>() {
+                    Ok(value) => *target = Some(value),
+                    Err(_) => return Err(InvalidBoolean(key, value)),
+                }
+            } else {
+                return Err(DuplicateField(key));
+            }
+        }
+
+        if args.is_empty() {
+            return Err(MissingArg);
+        }
+
+        Ok(AddRequest {
+            args,
+            recursive: recursive.unwrap_or(false),
+            progress: progress.unwrap_or(false),
+        })
     }
 }
 
