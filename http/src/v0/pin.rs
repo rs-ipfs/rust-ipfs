@@ -50,7 +50,8 @@ pub fn list<T: IpfsTypes>(
     with_ipfs(ipfs).and_then(list_inner)
 }
 
-async fn list_inner<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
+async fn list_inner<T: IpfsTypes>(_ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
+    // interestingly conformance tests call this with `paths=cid&stream=true&arg=cid`
     Err::<&'static str, _>(crate::v0::NotImplemented.into())
 }
 
@@ -60,7 +61,7 @@ pub fn rm<T: IpfsTypes>(
     with_ipfs(ipfs).and_then(rm_inner)
 }
 
-async fn rm_inner<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
+async fn rm_inner<T: IpfsTypes>(_ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
     Err::<&'static str, _>(crate::v0::NotImplemented.into())
 }
 
