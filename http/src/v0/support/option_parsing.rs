@@ -25,4 +25,12 @@ impl<'a> fmt::Display for ParseError<'a> {
     }
 }
 
-impl<'a> std::error::Error for ParseError<'a> {}
+impl<'a> std::error::Error for ParseError<'a> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use ParseError::*;
+        match self {
+            InvalidDuration(_, e) => Some(e),
+            _ => None,
+        }
+    }
+}
