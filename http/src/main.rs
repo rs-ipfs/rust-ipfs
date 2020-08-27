@@ -137,7 +137,6 @@ fn main() {
         let opts: IpfsOptions = IpfsOptions::new(home.clone(), keypair, Vec::new(), false, None);
 
         let (ipfs, task): (Ipfs<ipfs::TestTypes>, _) = UninitializedIpfs::new(opts, None)
-            .await
             .start()
             .await
             .expect("Initialization failed");

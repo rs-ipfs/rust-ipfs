@@ -293,7 +293,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// The span is attached to all operations called on the later created `Ipfs` along with all
     /// operations done in the background task as well as tasks spawned by the underlying
     /// `libp2p::Swarm`.
-    pub async fn new(options: IpfsOptions, span: Option<Span>) -> Self {
+    pub fn new(options: IpfsOptions, span: Option<Span>) -> Self {
         let repo_options = RepoOptions::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let keys = options.keypair.clone();
@@ -308,8 +308,8 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         }
     }
 
-    pub async fn default() -> Self {
-        Self::new(IpfsOptions::default(), None).await
+    pub fn default() -> Self {
+        Self::new(IpfsOptions::default(), None)
     }
 
     /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
@@ -1254,8 +1254,6 @@ mod node {
             let span = Some(Span::current());
 
             let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts, span)
-                .in_current_span()
-                .await
                 .start()
                 .in_current_span()
                 .await
