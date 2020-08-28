@@ -725,7 +725,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Obtain the addresses associated with the given `PeerId`; they are first searched for locally
-    /// and the DHT is used as a fallback.
+    /// and the DHT is used as a fallback: a `Kademlia::get_closest_peers(peer_id)` query is run and
+    /// when it's finished, the newly added DHT records are checked for the existence of the desired
+    /// `peer_id` and if it's there, the list of its known addresses is returned.
     pub async fn find_peer(&self, peer_id: PeerId) -> Result<Vec<Multiaddr>, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -782,7 +784,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         }
     }
 
-    /// Establishes the local node as a provider of a value for the given Cid.
+    /// Establishes the node as a provider of a block with the given Cid: it publishes a provider
+    /// record with the given key (Cid) and the node's PeerId to the peers closest to the key. The
+    /// publication of provider records is periodically repeated as per the interval specified in
+    /// `libp2p`'s  `KademliaConfig`.
     pub async fn provide(&self, cid: Cid) -> Result<(), Error> {
         // don't provide things we don't actually have
         if self.repo.get_block_now(&cid).await?.is_none() {
@@ -813,7 +818,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         }
     }
 
-    // Returns a list of peers closest to the given `PeerId`, as suggested by the DHT.
+    /// Returns a list of peers closest to the given `PeerId`, as suggested by the DHT. The
+    /// node must have at least one known peer in its routing table in order for the query
+    /// to return any values.
     pub async fn get_closest_peers(&self, peer_id: PeerId) -> Result<Vec<PeerId>, Error> {
         let kad_result = async move {
             let (tx, rx) = oneshot_channel();
@@ -1272,7 +1279,11 @@ mod node {
             &self.ipfs.repo.subscriptions.subscriptions
         }
 
-        /// Initiate a query for random key to discover peers.
+        /// Bootstraps the local node to join the DHT: it looks up the node's own ID in the
+        /// DHT and introduces it to the other nodes in it; at least one other node must be
+        /// known in order for the process to succeed. Subsequently, additional queries are
+        /// ran with random keys so that the buckets farther from the closest neighbor also
+        /// get refreshed.
         pub async fn bootstrap(&self) -> Result<KadResult, Error> {
             let (tx, rx) = oneshot_channel();
 
@@ -1281,7 +1292,9 @@ mod node {
             rx.await??.await.map_err(|e| anyhow!(e))
         }
 
-        /// Add a known peer to the DHT.
+        /// Add a known listen address of a peer participating in the DHT to the routing table.
+        /// This is mandatory in order for the peer to be discoverable by other members of the
+        /// DHT.
         pub async fn add_peer(&self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {
             self.to_task
                 .clone()
