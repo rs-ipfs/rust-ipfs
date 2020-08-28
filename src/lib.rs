@@ -82,6 +82,7 @@ impl RepoTypes for TestTypes {
 /// Ipfs options
 #[derive(Clone)]
 pub struct IpfsOptions {
+    pub span: Span,
     /// The path of the ipfs repo.
     pub ipfs_path: PathBuf,
     /// The keypair used with libp2p.
@@ -99,6 +100,7 @@ impl fmt::Debug for IpfsOptions {
         // needed since libp2p::identity::Keypair does not have a Debug impl, and the IpfsOptions
         // is a struct with all public fields, so don't enforce users to use this wrapper.
         fmt.debug_struct("IpfsOptions")
+            .field("span", &self.span)
             .field("ipfs_path", &self.ipfs_path)
             .field("bootstrap", &self.bootstrap)
             .field("keypair", &self.keypair)
@@ -112,6 +114,7 @@ impl IpfsOptions {
     /// Creates an inmemory store backed node for tests
     pub fn inmemory_with_generated_keys() -> Self {
         Self {
+            span: tracing::trace_span!("ipfs"),
             ipfs_path: std::env::temp_dir(),
             keypair: DebuggableKeypair(Keypair::generate_ed25519()),
             mdns: Default::default(),
@@ -151,8 +154,10 @@ impl IpfsOptions {
         bootstrap: Vec<(Multiaddr, PeerId)>,
         mdns: bool,
         kad_protocol: Option<String>,
+        span: Option<Span>,
     ) -> Self {
         Self {
+            span: span.unwrap_or_else(|| tracing::trace_span!("ipfs")),
             ipfs_path,
             keypair: DebuggableKeypair(keypair),
             bootstrap,
@@ -202,6 +207,7 @@ impl Default for IpfsOptions {
         let bootstrap = config.bootstrap();
 
         IpfsOptions {
+            span: tracing::trace_span!("ipfs"),
             ipfs_path,
             keypair,
             bootstrap,
@@ -215,7 +221,6 @@ impl Default for IpfsOptions {
 /// for interacting with IPFS.
 #[derive(Debug)]
 pub struct Ipfs<Types: IpfsTypes> {
-    pub span: Span,
     repo: Arc<Repo<Types>>,
     options: IpfsOptions,
     repo_events: Option<Receiver<RepoEvent>>,
@@ -225,7 +230,6 @@ pub struct Ipfs<Types: IpfsTypes> {
 impl<Types: IpfsTypes> Clone for Ipfs<Types> {
     fn clone(&self) -> Self {
         Ipfs {
-            span: self.span.clone(),
             repo: Arc::clone(&self.repo),
             options: self.options.clone(),
             repo_events: None,
@@ -288,23 +292,25 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// The span is attached to all operations called on the later created `Ipfs` along with all
     /// operations done in the background task as well as tasks spawned by the underlying
     /// `libp2p::Swarm`.
-    pub fn new(options: IpfsOptions, span: Option<Span>) -> Self {
+    pub fn new(options: IpfsOptions) -> Self {
         let repo_options = RepoOptions::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
-        let span = span.unwrap_or_else(|| tracing::trace_span!("ipfs"));
         let to_task = channel::<IpfsEvent>(1).0; // FIXME: dummy
 
         Ipfs {
             repo: Arc::new(repo),
-            span,
             options,
             repo_events: Some(repo_events),
             to_task,
         }
     }
 
+    fn span(&self) -> &Span {
+        &self.options.span
+    }
+
     pub fn default() -> Self {
-        Self::new(IpfsOptions::default(), None)
+        Self::new(IpfsOptions::default())
     }
 
     /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
@@ -344,7 +350,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
         self.repo
             .put_block(block)
-            .instrument(self.span.clone())
+            .instrument(self.span().clone())
             .await
             .map(|(cid, _put_status)| cid)
     }
@@ -352,40 +358,49 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Retrieves a block from the local blockstore, or starts fetching from the network or join an
     /// already started fetch.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
-        self.repo.get_block(cid).instrument(self.span.clone()).await
+        self.repo
+            .get_block(cid)
+            .instrument(self.span().clone())
+            .await
     }
 
     /// Remove block from the ipfs repo.
     pub async fn remove_block(&self, cid: Cid) -> Result<Cid, Error> {
         self.repo
             .remove_block(&cid)
-            .instrument(self.span.clone())
+            .instrument(self.span().clone())
             .await
     }
 
     /// Pins a given Cid
     pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
-        self.repo.pin_block(cid).instrument(self.span.clone()).await
+        self.repo
+            .pin_block(cid)
+            .instrument(self.span().clone())
+            .await
     }
 
     /// Unpins a given Cid
     pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
         self.repo
             .unpin_block(cid)
-            .instrument(self.span.clone())
+            .instrument(self.span().clone())
             .await
     }
 
     /// Checks whether a given block is pinned
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        self.repo.is_pinned(cid).instrument(self.span.clone()).await
+        self.repo
+            .is_pinned(cid)
+            .instrument(self.span().clone())
+            .await
     }
 
     /// Puts an ipld dag node into the ipfs repo.
     pub async fn put_dag(&self, ipld: Ipld) -> Result<Cid, Error> {
         self.dag()
             .put(ipld, Codec::DagCBOR)
-            .instrument(self.span.clone())
+            .instrument(self.span().clone())
             .await
     }
 
@@ -393,7 +408,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     pub async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
         self.dag()
             .get(path)
-            .instrument(self.span.clone())
+            .instrument(self.span().clone())
             .await
             .map_err(Error::new)
     }
@@ -414,7 +429,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         // convert early not to worry about the lifetime of parameter
         let starting_point = starting_point.into();
         unixfs::cat(self, starting_point, range)
-            .instrument(self.span.clone())
+            .instrument(self.span().clone())
             .await
     }
 
@@ -422,7 +437,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
         self.ipns()
             .resolve(path)
-            .instrument(self.span.clone())
+            .instrument(self.span().clone())
             .await
     }
 
@@ -430,13 +445,16 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     pub async fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error> {
         self.ipns()
             .publish(key, path)
-            .instrument(self.span.clone())
+            .instrument(self.span().clone())
             .await
     }
 
     /// Cancel an ipns path.
     pub async fn cancel_ipns(&self, key: &PeerId) -> Result<(), Error> {
-        self.ipns().cancel(key).instrument(self.span.clone()).await
+        self.ipns()
+            .cancel(key)
+            .instrument(self.span().clone())
+            .await
     }
 
     pub async fn connect(&self, target: MultiaddrWithPeerId) -> Result<(), Error> {
@@ -454,7 +472,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 futures::future::ready(Err(anyhow!("Duplicate connection attempt"))).await
             }
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -464,7 +482,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             self.to_task.clone().send(IpfsEvent::Addresses(tx)).await?;
             rx.await?
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -474,7 +492,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             self.to_task.clone().send(IpfsEvent::Listeners(tx)).await?;
             rx.await?
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -487,7 +505,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 .await?;
             rx.await?
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -500,7 +518,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 .await?;
             rx.await?
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -526,7 +544,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             Ok((public_key, addresses))
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -545,7 +563,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             rx.await?
                 .ok_or_else(|| format_err!("already subscribed to {:?}", topic))
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -561,7 +579,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             Ok(rx.await?)
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -577,7 +595,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             Ok(rx.await?)
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -593,7 +611,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             Ok(rx.await?)
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -609,7 +627,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             Ok(rx.await?)
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -627,12 +645,15 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             Ok(rx.await?)
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
     pub async fn refs_local(&self) -> Result<Vec<Cid>, Error> {
-        self.repo.list_blocks().instrument(self.span.clone()).await
+        self.repo
+            .list_blocks()
+            .instrument(self.span().clone())
+            .await
     }
 
     pub async fn bitswap_stats(&self) -> Result<BitswapStats, Error> {
@@ -646,7 +667,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             Ok(rx.await?)
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -674,7 +695,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             rx.await?
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -693,7 +714,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             rx.await?
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -728,7 +749,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 }
             }
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await
     }
 
@@ -744,7 +765,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             Ok(rx.await?).map_err(|e: String| anyhow!(e))
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await?
         .await;
 
@@ -775,7 +796,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             rx.await?
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await?
         .await;
 
@@ -798,7 +819,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             Ok(rx.await?).map_err(|e: String| anyhow!(e))
         }
-        .instrument(self.span.clone())
+        .instrument(self.span().clone())
         .await?
         .await;
 
@@ -1224,9 +1245,7 @@ mod node {
         }
 
         pub async fn with_options(opts: IpfsOptions) -> Self {
-            let span = Some(Span::current());
-
-            let mut ipfs = Ipfs::new(opts, span);
+            let mut ipfs = Ipfs::new(opts);
 
             let fut = ipfs.start().in_current_span().await.unwrap();
 
