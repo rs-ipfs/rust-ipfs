@@ -92,6 +92,8 @@ pub struct IpfsOptions {
     pub mdns: bool,
     /// Custom Kademlia protocol name.
     pub kad_protocol: Option<String>,
+    /// The span for tracing purposes.
+    span: Option<Span>,
 }
 
 impl fmt::Debug for IpfsOptions {
@@ -104,6 +106,7 @@ impl fmt::Debug for IpfsOptions {
             .field("keypair", &DebuggableKeypair(&self.keypair))
             .field("mdns", &self.mdns)
             .field("kad_protocol", &self.kad_protocol)
+            .field("span", &self.span)
             .finish()
     }
 }
@@ -117,6 +120,7 @@ impl IpfsOptions {
             mdns: Default::default(),
             bootstrap: Default::default(),
             kad_protocol: Default::default(),
+            span: Some(tracing::trace_span!("ipfs")),
         }
     }
 }
@@ -151,6 +155,7 @@ impl IpfsOptions {
         bootstrap: Vec<(Multiaddr, PeerId)>,
         mdns: bool,
         kad_protocol: Option<String>,
+        span: Option<Span>,
     ) -> Self {
         Self {
             ipfs_path,
@@ -158,6 +163,7 @@ impl IpfsOptions {
             bootstrap,
             mdns,
             kad_protocol,
+            span,
         }
     }
 }
@@ -207,6 +213,7 @@ impl Default for IpfsOptions {
             bootstrap,
             mdns: true,
             kad_protocol: None,
+            span: Some(tracing::trace_span!("ipfs")),
         }
     }
 }
@@ -282,7 +289,6 @@ enum IpfsEvent {
 /// Configured Ipfs instace or value which can be only initialized.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
     repo: Arc<Repo<Types>>,
-    span: Span,
     keys: Keypair,
     options: IpfsOptions,
     repo_events: Receiver<RepoEvent>,
@@ -295,15 +301,13 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// The span is attached to all operations called on the later created `Ipfs` along with all
     /// operations done in the background task as well as tasks spawned by the underlying
     /// `libp2p::Swarm`.
-    pub fn new(options: IpfsOptions, span: Option<Span>) -> Self {
+    pub fn new(options: IpfsOptions) -> Self {
         let repo_options = RepoOptions::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let keys = options.keypair.clone();
-        let span = span.unwrap_or_else(|| tracing::trace_span!("ipfs"));
 
         UninitializedIpfs {
             repo: Arc::new(repo),
-            span,
             keys,
             options,
             repo_events,
@@ -311,7 +315,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     }
 
     pub fn default() -> Self {
-        Self::new(IpfsOptions::default(), None)
+        Self::new(IpfsOptions::default())
     }
 
     /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
@@ -321,10 +325,9 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
         let UninitializedIpfs {
             repo,
-            span,
             keys,
             repo_events,
-            ..
+            mut options,
         } = self;
 
         repo.init().await?;
@@ -332,13 +335,16 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let (to_task, receiver) = channel::<IpfsEvent>(1);
 
         let ipfs = Ipfs {
-            span,
+            span: options
+                .span
+                .take()
+                .unwrap_or_else(|| tracing::trace_span!("ipfs")),
             repo,
             keys: DebuggableKeypair(keys),
             to_task,
         };
 
-        let swarm_options = SwarmOptions::from(&self.options);
+        let swarm_options = SwarmOptions::from(&options);
         let swarm = create_swarm(swarm_options, ipfs.clone()).await;
 
         let fut = IpfsFuture {
@@ -1245,9 +1251,7 @@ mod node {
         }
 
         pub async fn with_options(opts: IpfsOptions) -> Self {
-            let span = Some(Span::current());
-
-            let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts, span)
+            let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts)
                 .start()
                 .in_current_span()
                 .await
