@@ -145,7 +145,6 @@ fn main() {
         );
 
         let (ipfs, task): (Ipfs<ipfs::Types>, _) = UninitializedIpfs::new(opts, None)
-            .await
             .start()
             .await
             .expect("Initialization failed");
