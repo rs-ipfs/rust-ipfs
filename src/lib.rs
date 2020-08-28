@@ -138,8 +138,12 @@ pub struct IpfsOptions {
     ///
     /// [`libp2p_kad::KademliaConfig::set_protocol_name`]: https://docs.rs/libp2p-kad/*/libp2p_kad/struct.KademliaConfig.html##method.set_protocol_name
     pub kad_protocol: Option<String>,
+
     /// Bound listening addresses; by default the node will not listen on any address.
     pub listening_addrs: Vec<Multiaddr>,
+
+    /// The span for tracing purposes.
+    span: Option<Span>,
 }
 
 impl fmt::Debug for IpfsOptions {
@@ -153,6 +157,7 @@ impl fmt::Debug for IpfsOptions {
             .field("mdns", &self.mdns)
             .field("kad_protocol", &self.kad_protocol)
             .field("listening_addrs", &self.listening_addrs)
+            .field("span", &self.span)
             .finish()
     }
 }
@@ -170,6 +175,7 @@ impl IpfsOptions {
             // default to lan kad for go-ipfs use in tests
             kad_protocol: Some("/ipfs/lan/kad/1.0.0".to_owned()),
             listening_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+            span: None,
         }
     }
 }
@@ -205,6 +211,7 @@ impl IpfsOptions {
         mdns: bool,
         kad_protocol: Option<String>,
         listening_addrs: Vec<Multiaddr>,
+        span: Option<Span>,
     ) -> Self {
         Self {
             ipfs_path,
@@ -213,6 +220,7 @@ impl IpfsOptions {
             mdns,
             kad_protocol,
             listening_addrs,
+            span,
         }
     }
 }
@@ -263,6 +271,7 @@ impl Default for IpfsOptions {
             mdns: true,
             kad_protocol: None,
             listening_addrs: Vec::new(),
+            span: None,
         }
     }
 }
@@ -356,7 +365,6 @@ enum IpfsEvent {
 /// Configured Ipfs which can only be started.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
     repo: Arc<Repo<Types>>,
-    span: Span,
     keys: Keypair,
     options: IpfsOptions,
     repo_events: Receiver<RepoEvent>,
@@ -369,15 +377,13 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     /// The span is attached to all operations called on the later created `Ipfs` along with all
     /// operations done in the background task as well as tasks spawned by the underlying
     /// `libp2p::Swarm`.
-    pub fn new(options: IpfsOptions, span: Option<Span>) -> Self {
+    pub fn new(options: IpfsOptions) -> Self {
         let repo_options = RepoOptions::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let keys = options.keypair.clone();
-        let span = span.unwrap_or_else(|| trace_span!("ipfs"));
 
         UninitializedIpfs {
             repo: Arc::new(repo),
-            span,
             keys,
             options,
             repo_events,
@@ -385,7 +391,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     }
 
     pub fn default() -> Self {
-        Self::new(IpfsOptions::default(), None)
+        Self::new(IpfsOptions::default())
     }
 
     /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
@@ -395,10 +401,9 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
         let UninitializedIpfs {
             repo,
-            span,
             keys,
             repo_events,
-            options,
+            mut options,
         } = self;
 
         repo.init().await?;
@@ -406,7 +411,10 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let (to_task, receiver) = channel::<IpfsEvent>(1);
 
         let ipfs = Ipfs {
-            span,
+            span: options
+                .span
+                .take()
+                .unwrap_or_else(|| tracing::trace_span!("ipfs")),
             repo,
             keys: DebuggableKeypair(keys),
             to_task,
@@ -1667,10 +1675,9 @@ mod node {
 
     impl Node {
         pub async fn new<T: AsRef<str>>(name: T) -> Self {
-            let opts = IpfsOptions::inmemory_with_generated_keys();
-            Node::with_options(opts)
-                .instrument(trace_span!("ipfs", node = name.as_ref()))
-                .await
+            let mut opts = IpfsOptions::inmemory_with_generated_keys();
+            opts.span = Some(trace_span!("ipfs", node = name.as_ref()));
+            Self::with_options(opts).await
         }
 
         pub async fn connect(&self, addr: Multiaddr) -> Result<(), Error> {
@@ -1679,10 +1686,9 @@ mod node {
         }
 
         pub async fn with_options(opts: IpfsOptions) -> Self {
-            let span = Some(Span::current());
             let id = opts.keypair.public().into_peer_id();
 
-            let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts, span)
+            let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts)
                 .start()
                 .in_current_span()
                 .await
