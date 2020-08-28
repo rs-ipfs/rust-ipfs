@@ -287,7 +287,7 @@ impl<Types: IpfsTypes> Clone for Ipfs<Types> {
 #[derive(Debug)]
 #[doc(hidden)]
 pub struct IpfsInner<Types: IpfsTypes> {
-    pub span: Span,
+    span: Span,
     repo: Repo<Types>,
     keys: DebuggableKeypair<Keypair>,
     to_task: Sender<IpfsEvent>,
