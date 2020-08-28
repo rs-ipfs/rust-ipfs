@@ -52,7 +52,7 @@ pub async fn create_swarm<TIpfsTypes: IpfsTypes>(
     // Set up an encrypted TCP transport over the Mplex protocol.
     let transport = transport::build_transport(options.keypair.clone());
 
-    let swarm_span = ipfs.0.span.clone();
+    let swarm_span = ipfs.span.clone();
 
     // Create a Kademlia behaviour
     let behaviour = behaviour::build_behaviour(options, ipfs).await;

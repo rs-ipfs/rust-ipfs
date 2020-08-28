@@ -211,23 +211,25 @@ impl Default for IpfsOptions {
     }
 }
 
-#[derive(Debug)]
-pub struct Ipfs<Types: IpfsTypes>(Arc<IpfsInner<Types>>);
-
-impl<Types: IpfsTypes> Clone for Ipfs<Types> {
-    fn clone(&self) -> Self {
-        Ipfs(Arc::clone(&self.0))
-    }
-}
-
 /// Ipfs struct creates a new IPFS node and is the main entry point
 /// for interacting with IPFS.
 #[derive(Debug)]
-pub struct IpfsInner<Types: IpfsTypes> {
+pub struct Ipfs<Types: IpfsTypes> {
     span: Span,
-    repo: Repo<Types>,
+    repo: Arc<Repo<Types>>,
     keys: DebuggableKeypair<Keypair>,
     to_task: Sender<IpfsEvent>,
+}
+
+impl<Types: IpfsTypes> Clone for Ipfs<Types> {
+    fn clone(&self) -> Self {
+        Ipfs {
+            span: self.span.clone(),
+            repo: Arc::clone(&self.repo),
+            keys: self.keys.clone(),
+            to_task: self.to_task.clone(),
+        }
+    }
 }
 
 type Channel<T> = OneshotSender<Result<T, Error>>;
@@ -279,7 +281,7 @@ enum IpfsEvent {
 
 /// Configured Ipfs instace or value which can be only initialized.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
-    repo: Repo<Types>,
+    repo: Arc<Repo<Types>>,
     span: Span,
     keys: Keypair,
     options: IpfsOptions,
@@ -300,7 +302,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let span = span.unwrap_or_else(|| tracing::trace_span!("ipfs"));
 
         UninitializedIpfs {
-            repo,
+            repo: Arc::new(repo),
             span,
             keys,
             options,
@@ -329,12 +331,12 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
         let (to_task, receiver) = channel::<IpfsEvent>(1);
 
-        let ipfs = Ipfs(Arc::new(IpfsInner {
+        let ipfs = Ipfs {
             span,
             repo,
             keys: DebuggableKeypair(keys),
             to_task,
-        }));
+        };
 
         let swarm_options = SwarmOptions::from(&self.options);
         let swarm = create_swarm(swarm_options, ipfs.clone()).await;
@@ -347,14 +349,6 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         };
 
         Ok((ipfs, fut))
-    }
-}
-
-impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
-    type Target = IpfsInner<Types>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
@@ -853,13 +847,13 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Exit daemon.
-    pub async fn exit_daemon(self) {
+    pub async fn exit_daemon(mut self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
         // the background task or stream. After that this could be handled by dropping.
         self.repo.shutdown();
 
         // ignoring the error because it'd mean that the background task had already been dropped
-        let _ = self.to_task.clone().try_send(IpfsEvent::Exit);
+        let _ = self.to_task.try_send(IpfsEvent::Exit);
     }
 }
 
