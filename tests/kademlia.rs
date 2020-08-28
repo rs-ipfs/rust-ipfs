@@ -1,5 +1,5 @@
 use cid::{Cid, Codec};
-use ipfs::{p2p::MultiaddrWithPeerId, Block, IpfsOptions, Node};
+use ipfs::{p2p::MultiaddrWithPeerId, Block, Node};
 use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
 use multihash::Sha2_256;
 use std::{convert::TryInto, time::Duration};
@@ -33,19 +33,13 @@ async fn find_peer_local() {
     assert_eq!(found_addrs, b_addrs);
 }
 
-/// Check if `Ipfs::find_peer` works using DHT.
-#[tokio::test(max_threads = 1)]
-async fn find_peer_dht() {
-    // the length of the chain the nodes will be connected in;
-    // works for numbers >=2, though 2 would essentially just
-    // be the same as find_peer_local, so it should be higher
-    const CHAIN_LEN: usize = 10;
-
-    // fire up CHAIN_LEN nodes and register their PeerIds and
+// starts the specified number of nodes connected in a chain.
+async fn start_nodes_in_chain(count: usize) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>) {
+    // fire up count nodes and register their PeerIds and
     // Multiaddrs (without the PeerId) for add_peer purposes
-    let mut nodes = Vec::with_capacity(CHAIN_LEN);
-    let mut ids_and_addrs = Vec::with_capacity(CHAIN_LEN);
-    for i in 0..CHAIN_LEN {
+    let mut nodes = Vec::with_capacity(count);
+    let mut ids_and_addrs = Vec::with_capacity(count);
+    for i in 0..count {
         let node = Node::new(i.to_string()).await;
 
         let (key, mut addrs) = node.identity().await.unwrap();
@@ -60,19 +54,36 @@ async fn find_peer_dht() {
     // one another in a chain; node 0 is only aware of the existence
     // of node 1 and so on; bootstrap them eagerly/quickly, so that
     // they don't have a chance to form the full picture in the DHT
-    for i in 0..CHAIN_LEN {
-        let (next_id, next_addr) = if i < CHAIN_LEN - 1 {
+    for i in 0..count {
+        let (next_id, next_addr) = if i < count - 1 {
             ids_and_addrs[i + 1].clone()
         } else {
             // the last node in the chain also needs to know some address
             // in order to bootstrap, so give it its neighbour's information
             // and then bootstrap it as well
-            ids_and_addrs[CHAIN_LEN - 2].clone()
+            ids_and_addrs[count - 2].clone()
         };
 
         nodes[i].add_peer(next_id, next_addr).await.unwrap();
         nodes[i].bootstrap().await.unwrap();
     }
+
+    // make sure that the nodes are not actively connected to each other
+    // and that we are actually going to be testing the DHT here
+    for node in &nodes {
+        assert!([1usize, 2].contains(&node.peers().await.unwrap().len()));
+    }
+
+    (nodes, ids_and_addrs)
+}
+
+/// Check if `Ipfs::find_peer` works using DHT.
+#[tokio::test(max_threads = 1)]
+async fn dht_find_peer() {
+    // works for numbers >=2, though 2 would essentially just
+    // be the same as find_peer_local, so it should be higher
+    const CHAIN_LEN: usize = 10;
+    let (nodes, ids_and_addrs) = start_nodes_in_chain(CHAIN_LEN).await;
 
     // node 0 now tries to find the address of the very last node in the
     // chain; the chain should be long enough for it not to automatically
@@ -85,65 +96,24 @@ async fn find_peer_dht() {
     assert_eq!(found_addrs, vec![ids_and_addrs[CHAIN_LEN - 1].1.clone()]);
 }
 
-// TODO: split into separate, more advanced bootstrap and closest_peers
 #[tokio::test(max_threads = 1)]
-async fn kademlia_local_peer_discovery() {
-    const BOOTSTRAPPER_COUNT: usize = 20;
+async fn dht_get_closest_peers() {
+    const CHAIN_LEN: usize = 10;
+    let (nodes, ids_and_addrs) = start_nodes_in_chain(CHAIN_LEN).await;
 
-    // start up PEER_COUNT bootstrapper nodes
-    let mut bootstrappers = Vec::with_capacity(BOOTSTRAPPER_COUNT);
-    for i in 0..BOOTSTRAPPER_COUNT {
-        bootstrappers.push(Node::new(format!("bootstrapper_{}", i)).await);
-    }
-
-    // register the bootstrappers' ids and addresses
-    let mut bootstrapper_ids: Vec<(PeerId, Vec<Multiaddr>)> =
-        Vec::with_capacity(BOOTSTRAPPER_COUNT);
-    for bootstrapper in &bootstrappers {
-        let (id, mut addrs) = bootstrapper.identity().await.unwrap();
-        let id = PeerId::from_public_key(id);
-        // remove Protocol::P2p from the addrs
-        for addr in &mut addrs {
-            assert!(matches!(addr.pop(), Some(Protocol::P2p(_))));
-        }
-
-        bootstrapper_ids.push((id, addrs));
-    }
-
-    // connect all the bootstrappers to one another
-    for (i, (node_id, _)) in bootstrapper_ids.iter().enumerate() {
-        for (bootstrapper_id, addrs) in bootstrapper_ids
-            .iter()
-            .filter(|(peer_id, _)| peer_id != node_id)
-        {
-            bootstrappers[i]
-                .add_peer(bootstrapper_id.clone(), addrs[0].clone())
-                .await
-                .unwrap();
-        }
-    }
-
-    // introduce a peer and connect it to one of the bootstrappers
-    let peer = Node::new("peer").await;
-    assert!(peer
-        .add_peer(
-            bootstrapper_ids[0].0.clone(),
-            bootstrapper_ids[0].1[0].clone()
-        )
-        .await
-        .is_ok());
-
-    // check that kad::bootstrap works
-    assert!(peer.bootstrap().await.is_ok());
-
-    // check that kad::get_closest_peers works
-    let peer_id = peer.identity().await.unwrap().0.into_peer_id();
-    assert!(peer.get_closest_peers(peer_id).await.is_ok());
+    assert_eq!(
+        nodes[0]
+            .get_closest_peers(ids_and_addrs[0].0.clone())
+            .await
+            .unwrap()
+            .len(),
+        CHAIN_LEN - 1
+    );
 }
 
 #[ignore = "targets an actual bootstrapper, so random failures can happen"]
 #[tokio::test(max_threads = 1)]
-async fn kademlia_popular_content_discovery() {
+async fn dht_popular_content_discovery() {
     let (bootstrapper_id, bootstrapper_addr): (PeerId, Multiaddr) = (
         "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
             .parse()
@@ -151,11 +121,7 @@ async fn kademlia_popular_content_discovery() {
         "/ip4/104.131.131.82/tcp/4001".parse().unwrap(),
     );
 
-    // introduce a peer and specify the Kademlia protocol to it
-    // without a specified protocol, the test will not complete
-    let mut opts = IpfsOptions::inmemory_with_generated_keys();
-    opts.kad_protocol = Some("/ipfs/lan/kad/1.0.0".to_owned());
-    let peer = Node::with_options(opts).await;
+    let peer = Node::new("a").await;
 
     // connect it to one of the well-known bootstrappers
     assert!(peer
@@ -176,39 +142,13 @@ async fn kademlia_popular_content_discovery() {
 /// Check if Ipfs::{get_providers, provide} does its job.
 #[tokio::test(max_threads = 1)]
 async fn dht_providing() {
-    let node_a = Node::new("a").await;
-    let node_b = Node::new("b").await;
+    const CHAIN_LEN: usize = 10;
+    let (nodes, ids_and_addrs) = start_nodes_in_chain(CHAIN_LEN).await;
 
-    let (a_id, mut a_addrs) = node_a.identity().await.unwrap();
-    let a_id = a_id.into_peer_id();
-    let a_addr = a_addrs.pop().unwrap();
-
-    let (b_id, mut b_addrs) = node_b.identity().await.unwrap();
-    let b_id = b_id.into_peer_id();
-    let b_addr = b_addrs.pop().unwrap();
-
-    // the nodes need to learn about each other...
-    node_a
-        .add_peer(b_id, strip_peer_id(b_addr.clone()))
-        .await
-        .unwrap();
-    node_b
-        .add_peer(a_id.clone(), strip_peer_id(a_addr.clone()))
-        .await
-        .unwrap();
-
-    // ...and both join the DHT
-    node_a.bootstrap().await.unwrap();
-    node_b.bootstrap().await.unwrap();
-
-    // disconnect the nodes just to be extra sure only the DHT is
-    // involved in the providing process
-    node_a.disconnect(b_addr.try_into().unwrap()).await.unwrap();
-
-    // node_a puts a block in order to have something to provide
+    // the last node puts a block in order to have something to provide
     let data = b"hello block\n".to_vec().into_boxed_slice();
     let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
-    node_a
+    nodes[CHAIN_LEN - 1]
         .put_block(Block {
             cid: cid.clone(),
             data,
@@ -216,9 +156,12 @@ async fn dht_providing() {
         .await
         .unwrap();
 
-    // node_a provides the block, node_b searches for it in the DHT
-    node_a.provide(cid.clone()).await.unwrap();
-    let providers = node_b.get_providers(cid).await.unwrap();
+    // the last node then provides the Cid
+    nodes[CHAIN_LEN - 1].provide(cid.clone()).await.unwrap();
 
-    assert_eq!(providers, vec![a_id]);
+    // and the first one should be able to find it
+    assert_eq!(
+        nodes[0].get_providers(cid).await.unwrap(),
+        vec![ids_and_addrs[CHAIN_LEN - 1].0.clone()]
+    );
 }
