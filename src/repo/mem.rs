@@ -1,6 +1,8 @@
 //! Volatile memory backed repo
 use crate::error::Error;
-use crate::repo::{BlockPut, BlockStore, Column, DataStore, PinDocument, PinKind, PinStore};
+use crate::repo::{
+    BlockPut, BlockStore, Column, DataStore, PinDocument, PinKind, PinMode, PinStore,
+};
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
@@ -163,6 +165,53 @@ impl PinStore for MemDataStore {
                 Ok(())
             }
             Entry::Vacant(_) => Err(anyhow::anyhow!("not pinned")),
+        }
+    }
+
+    async fn list(
+        &self,
+        mode: Option<PinMode>,
+    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
+        use futures::stream::StreamExt;
+        use std::convert::TryFrom;
+        let g = self.pin.lock().await;
+
+        let copy = g
+            .iter()
+            .map(|(key, value)| {
+                let cid = Cid::try_from(key.as_slice())?;
+                let doc: PinDocument = serde_json::from_slice(value)?;
+                let mode = doc.mode().ok_or_else(|| anyhow::anyhow!("invalid mode"))?;
+
+                Ok((cid, mode))
+            })
+            .filter(move |res| {
+                // could return just two different boxed streams
+                if let Some(f) = &mode {
+                    match res {
+                        Ok((_, mode)) => mode == f,
+                        Err(_) => true,
+                    }
+                } else {
+                    true
+                }
+            })
+            .collect::<Vec<_>>();
+
+        futures::stream::iter(copy).boxed()
+    }
+
+    async fn get_pinmode(&self, cid: &Cid) -> Result<Option<PinMode>, Error> {
+        let g = self.pin.lock().await;
+
+        match g.get(&cid.to_bytes()) {
+            Some(raw) => {
+                let doc: PinDocument = serde_json::from_slice(raw)?;
+                Ok(Some(
+                    doc.mode().ok_or_else(|| anyhow::anyhow!("invalid mode"))?,
+                ))
+            }
+            None => Ok(None),
         }
     }
 }

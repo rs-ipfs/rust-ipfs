@@ -120,13 +120,25 @@ pub trait PinStore: Debug + Send + Sync + Unpin + 'static {
     async fn insert_pin(&self, target: &Cid, kind: PinKind<'_>) -> Result<(), Error>;
     async fn remove_pin(&self, target: &Cid, kind: PinKind<'_>) -> Result<(), Error>;
 
-    // TODO: list?
+    async fn list(
+        &self,
+        mode: Option<PinMode>,
+    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>>;
+
+    async fn get_pinmode(&self, cid: &Cid) -> Result<Option<PinMode>, Error>;
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum Column {
     Ipns,
     Pin,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum PinMode {
+    Indirect,
+    Direct,
+    Recursive,
 }
 
 pub enum PinKind<'a> {
@@ -353,6 +365,17 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
         self.data_store.is_pinned(&cid).await
     }
+
+    pub async fn list_pins(
+        &self,
+        mode: Option<PinMode>,
+    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
+        self.data_store.list(mode).await
+    }
+
+    pub async fn get_pinmode(&self, cid: &Cid) -> Result<Option<PinMode>, Error> {
+        self.data_store.get_pinmode(cid).await
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -378,8 +401,12 @@ impl PinDocument {
                 };
 
                 let modified = if self.indirect_by.is_empty() {
-                    self.indirect_by.push(root);
-                    true
+                    if add {
+                        self.indirect_by.push(root);
+                        true
+                    } else {
+                        false
+                    }
                 } else {
                     let mut set = self
                         .indirect_by
@@ -404,15 +431,33 @@ impl PinDocument {
                 Ok(modified)
             }
             PinKind::Recursive(descendants) => {
-                match self.recursive {
-                    Some(0) => self.recursive = Some(descendants),
-                    Some(other) if other != descendants => {
-                        return Err(PinUpdateError::ChangingNumberOfDescendants(other))
+                let modified = if add {
+                    match self.recursive {
+                        Some(other) if other != descendants => {
+                            return Err(PinUpdateError::UnexpectedNumberOfDescendants(
+                                other,
+                                descendants,
+                            ))
+                        }
+                        Some(_) => false,
+                        None => {
+                            self.recursive = Some(descendants);
+                            true
+                        }
                     }
-                    Some(_) => return Ok(false),
-                    None => self.recursive = Some(descendants),
-                }
-                Ok(true)
+                } else {
+                    match self.recursive.take() {
+                        Some(other) if other != descendants => {
+                            return Err(PinUpdateError::UnexpectedNumberOfDescendants(
+                                other,
+                                descendants,
+                            ))
+                        }
+                        Some(_) => true,
+                        None => return Err(PinUpdateError::NotPinnedRecursive),
+                    }
+                };
+                Ok(modified)
             }
         }
     }
@@ -420,17 +465,33 @@ impl PinDocument {
     fn can_remove(&self) -> bool {
         !self.direct && self.recursive.is_none() && self.indirect_by.is_empty()
     }
+
+    fn mode(&self) -> Option<PinMode> {
+        if self.recursive.is_some() {
+            Some(PinMode::Recursive)
+        } else if !self.indirect_by.is_empty() {
+            Some(PinMode::Indirect)
+        } else if self.direct {
+            Some(PinMode::Direct)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum PinUpdateError {
-    #[error("cannot change the non-zero number of descendants from {}", .0)]
-    ChangingNumberOfDescendants(u64),
+    #[error("unexpected number of descendants ({}), found {}", .1, .0)]
+    UnexpectedNumberOfDescendants(u64, u64),
+    #[error("not pinned recursive")]
+    NotPinnedRecursive,
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use futures::TryStreamExt;
+    use std::collections::HashMap;
     use std::env::temp_dir;
 
     #[derive(Clone)]
@@ -560,17 +621,83 @@ pub(crate) mod tests {
         assert!(repo.is_pinned(&root).await.unwrap());
         assert!(repo.is_pinned(&empty).await.unwrap());
 
-        todo!("should look like indirect")
+        let mut both = repo
+            .list_pins(None)
+            .await
+            .try_collect::<HashMap<Cid, PinMode>>()
+            .await
+            .unwrap();
+
+        assert_eq!(both.remove(&root), Some(PinMode::Recursive));
+        assert_eq!(both.remove(&empty), Some(PinMode::Indirect));
+
+        assert!(both.is_empty(), "{:?}", both);
     }
 
     #[tokio::test(max_threads = 1)]
     async fn indirect_can_be_pinned_directly_but_remains_looking_indirect() {
-        todo!("it will be both, but only show up as indirect")
+        let repo = inited_repo().await.unwrap();
+
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        let mut both = repo
+            .list_pins(None)
+            .await
+            .try_collect::<HashMap<Cid, PinMode>>()
+            .await
+            .unwrap();
+
+        assert_eq!(both.remove(&root), Some(PinMode::Recursive));
+        assert_eq!(both.remove(&empty), Some(PinMode::Indirect));
+
+        assert!(both.is_empty(), "{:?}", both);
     }
 
     #[tokio::test(max_threads = 1)]
     async fn direct_and_indirect_when_parent_unpinned() {
-        todo!("it should become back directly pinned")
+        let repo = inited_repo().await.unwrap();
+
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+
+        // first refs
+
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        // second refs
+
+        repo.remove_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+        repo.remove_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        let mut one = repo
+            .list_pins(None)
+            .await
+            .try_collect::<HashMap<Cid, PinMode>>()
+            .await
+            .unwrap();
+
+        assert_eq!(one.remove(&empty), Some(PinMode::Direct));
+
+        assert!(one.is_empty(), "{:?}", one);
     }
 
     #[tokio::test(max_threads = 1)]
