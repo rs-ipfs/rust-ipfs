@@ -126,10 +126,8 @@ async fn start_nodes_in_chain(
     let mut nodes = Vec::with_capacity(count - 1);
     let mut ids_and_addrs = Vec::with_capacity(count - 1);
     // exclude one node to make room for the intermediary go-ipfs node
-    for _ in 0..(count - 1) {
-        let mut opts = ipfs::IpfsOptions::inmemory_with_generated_keys();
-        opts.kad_protocol = Some("/ipfs/lan/kad/1.0.0".to_owned());
-        let node = Node::with_options(opts).await;
+    for i in 0..(count - 1) {
+        let node = Node::new(i.to_string()).await;
 
         let (key, mut addrs) = node.identity().await.unwrap();
         let id = key.into_peer_id();
