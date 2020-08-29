@@ -1,6 +1,6 @@
 //! Volatile memory backed repo
 use crate::error::Error;
-use crate::repo::{BlockPut, BlockStore, Column, DataStore};
+use crate::repo::{BlockPut, BlockStore, Column, DataStore, PinDocument, PinKind, PinStore};
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
@@ -88,6 +88,83 @@ impl BlockStore for MemBlockStore {
 pub struct MemDataStore {
     ipns: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
     pin: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+}
+
+#[async_trait]
+impl PinStore for MemDataStore {
+    async fn is_pinned(&self, block: &Cid) -> Result<bool, Error> {
+        let g = self.pin.lock().await;
+        let key = block.to_bytes();
+        Ok(g.contains_key(&key))
+    }
+
+    async fn insert_pin(&self, target: &Cid, kind: PinKind<'_>) -> Result<(), Error> {
+        use std::collections::hash_map::Entry;
+        let mut g = self.pin.lock().await;
+
+        // rationale for storing as Cid: the same multihash can be pinned with different codecs.
+        // even if there aren't many polyglot documents known, pair of raw and the actual codec is
+        // always a possibility.
+        let key = target.to_bytes();
+
+        match g.entry(key) {
+            Entry::Occupied(mut oe) => {
+                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
+                if doc.update(true, kind)? {
+                    let vec = oe.get_mut();
+                    vec.clear();
+                    serde_json::to_writer(vec, &doc)?;
+                }
+            }
+            Entry::Vacant(ve) => {
+                let mut doc = PinDocument {
+                    version: 0,
+                    direct: false,
+                    recursive: None,
+                    cid_version: match target.version() {
+                        cid::Version::V0 => 0,
+                        cid::Version::V1 => 1,
+                    },
+                    indirect_by: Vec::new(),
+                };
+
+                doc.update(true, kind).unwrap();
+                let vec = serde_json::to_vec(&doc)?;
+                ve.insert(vec);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn remove_pin(&self, target: &Cid, kind: PinKind<'_>) -> Result<(), Error> {
+        use std::collections::hash_map::Entry;
+
+        let mut g = self.pin.lock().await;
+
+        // see cid vs. multihash from [`insert_pin`]
+        let key = target.to_bytes();
+
+        match g.entry(key) {
+            Entry::Occupied(mut oe) => {
+                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
+                if !doc.update(false, kind)? {
+                    return Ok(());
+                }
+
+                if doc.can_remove() {
+                    oe.remove();
+                } else {
+                    let vec = oe.get_mut();
+                    vec.clear();
+                    serde_json::to_writer(vec, &doc)?;
+                }
+
+                Ok(())
+            }
+            Entry::Vacant(_) => Err(anyhow::anyhow!("not pinned")),
+        }
+    }
 }
 
 #[async_trait]

@@ -15,6 +15,7 @@ use futures::channel::{
 };
 use futures::sink::SinkExt;
 use libp2p::core::PeerId;
+use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
@@ -86,6 +87,7 @@ pub enum BlockRmError {
 }
 
 /// This API is being discussed and evolved, which will likely lead to breakage.
+// FIXME: why is this unpin? doesn't probably need to be since all of the futures are Box::pin'd.
 #[async_trait]
 pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
@@ -100,7 +102,7 @@ pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
 }
 
 #[async_trait]
-pub trait DataStore: Debug + Send + Sync + Unpin + 'static {
+pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -111,10 +113,26 @@ pub trait DataStore: Debug + Send + Sync + Unpin + 'static {
     async fn wipe(&self);
 }
 
+#[async_trait]
+pub trait PinStore: Debug + Send + Sync + Unpin + 'static {
+    async fn is_pinned(&self, block: &Cid) -> Result<bool, Error>;
+
+    async fn insert_pin(&self, target: &Cid, kind: PinKind<'_>) -> Result<(), Error>;
+    async fn remove_pin(&self, target: &Cid, kind: PinKind<'_>) -> Result<(), Error>;
+
+    // TODO: list?
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Column {
     Ipns,
     Pin,
+}
+
+pub enum PinKind<'a> {
+    IndirectFrom(&'a Cid),
+    Direct,
+    Recursive(u64),
 }
 
 #[derive(Debug)]
@@ -229,6 +247,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     /// Retrives a block from the block store, or starts fetching it from the network and awaits
     /// until it has been fetched.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
+        // FIXME: here's a race: block_store might give Ok(None) and we get to create our
+        // subscription after the put has completed. So maybe create the subscription first, then
+        // cancel it?
         if let Some(block) = self.block_store.get(&cid).await? {
             Ok(block)
         } else {
@@ -314,45 +335,97 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
-        let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
-
-        match pin_value {
-            Some(pin_count) => {
-                if pin_count[0] == std::u8::MAX {
-                    return Err(anyhow::anyhow!("Block cannot be pinned more times"));
-                }
-                self.data_store
-                    .put(Column::Pin, &cid.to_bytes(), &[pin_count[0] + 1])
-                    .await
-            }
-            None => {
-                self.data_store
-                    .put(Column::Pin, &cid.to_bytes(), &[1])
-                    .await
-            }
-        }
-    }
-
-    pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        self.data_store.contains(Column::Pin, &cid.to_bytes()).await
+        self.insert_pin(cid, PinKind::Direct).await
     }
 
     pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
-        let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
+        self.remove_pin(cid, PinKind::Direct).await
+    }
 
-        match pin_value {
-            Some(pin_count) if pin_count[0] == 1 => {
-                self.data_store.remove(Column::Pin, &cid.to_bytes()).await
+    pub async fn insert_pin(&self, cid: &Cid, kind: PinKind<'_>) -> Result<(), Error> {
+        self.data_store.insert_pin(cid, kind).await
+    }
+
+    pub async fn remove_pin(&self, cid: &Cid, kind: PinKind<'_>) -> Result<(), Error> {
+        self.data_store.remove_pin(cid, kind).await
+    }
+
+    pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
+        self.data_store.is_pinned(&cid).await
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PinDocument {
+    version: u8,
+    direct: bool,
+    // how many descendants; something to check when walking
+    recursive: Option<u64>,
+    // no further metadata necessary; cids are pinned by full cid
+    cid_version: u8,
+    indirect_by: Vec<String>,
+}
+
+impl PinDocument {
+    fn update(&mut self, add: bool, kind: PinKind<'_>) -> Result<bool, PinUpdateError> {
+        match kind {
+            PinKind::IndirectFrom(root) => {
+                let root = if root.version() == cid::Version::V1 {
+                    root.to_string()
+                } else {
+                    // this is one more allocation
+                    Cid::new_v1(root.codec(), root.hash().to_owned()).to_string()
+                };
+
+                let modified = if self.indirect_by.is_empty() {
+                    self.indirect_by.push(root);
+                    true
+                } else {
+                    let mut set = self
+                        .indirect_by
+                        .drain(..)
+                        .collect::<std::collections::BTreeSet<_>>();
+
+                    let modified = if add {
+                        set.insert(root)
+                    } else {
+                        set.remove(&root)
+                    };
+
+                    self.indirect_by.extend(set.into_iter());
+                    modified
+                };
+
+                Ok(modified)
             }
-            Some(pin_count) => {
-                self.data_store
-                    .put(Column::Pin, &cid.to_bytes(), &[pin_count[0] - 1])
-                    .await
+            PinKind::Direct => {
+                let modified = self.direct != add;
+                self.direct = add;
+                Ok(modified)
             }
-            // This is a no-op
-            None => Ok(()),
+            PinKind::Recursive(descendants) => {
+                match self.recursive {
+                    Some(0) => self.recursive = Some(descendants),
+                    Some(other) if other != descendants => {
+                        return Err(PinUpdateError::ChangingNumberOfDescendants(other))
+                    }
+                    Some(_) => return Ok(false),
+                    None => self.recursive = Some(descendants),
+                }
+                Ok(true)
+            }
         }
     }
+
+    fn can_remove(&self) -> bool {
+        !self.direct && self.recursive.is_none() && self.indirect_by.is_empty()
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PinUpdateError {
+    #[error("cannot change the non-zero number of descendants from {}", .0)]
+    ChangingNumberOfDescendants(u64),
 }
 
 #[cfg(test)]
@@ -375,9 +448,155 @@ pub(crate) mod tests {
         Repo::new(options)
     }
 
+    // Using boxed error here instead of anyhow to futureproof; we don't really care what goes
+    // wrong here
+    //
+    // FIXME: how to duplicate this for each?
+    async fn inited_repo() -> Result<
+        Repo<Types>, /*, Receiver<RepoEvent>)*/
+        Box<dyn std::error::Error + Send + Sync + 'static>,
+    > {
+        let (mock, rx) = create_mock_repo();
+        drop(rx);
+        mock.init().await?;
+
+        let (empty_cid, empty_file_block) = ipfs_unixfs::file::adder::FileAdder::default()
+            .finish()
+            .next()
+            .unwrap();
+
+        assert_eq!(
+            empty_cid.to_string(),
+            "QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH"
+        );
+
+        let empty_len = empty_file_block.len();
+
+        trace!("putting in empty block");
+        mock.put_block(Block {
+            cid: empty_cid.clone(),
+            data: empty_file_block.into(),
+        })
+        .await
+        .unwrap();
+
+        let mut tree_builder = ipfs_unixfs::dir::builder::BufferingTreeBuilder::default();
+
+        let empty_paths = [
+            "root/nested/deeper/an_empty_file",
+            "root/nested/deeper/another_empty",
+            // clone is just a copy of deeper but it's easier to build by copypasting this
+            "root/clone_of_deeper/an_empty_file",
+            "root/clone_of_deeper/another_empty",
+        ];
+
+        empty_paths
+            .iter()
+            .inspect(|p| println!("{:>50}: {}", p, empty_cid.clone()))
+            .try_for_each(|p| tree_builder.put_link(p, empty_cid.clone(), empty_len as u64))
+            .unwrap();
+
+        for node in tree_builder.build() {
+            let node = node.unwrap();
+            println!("{:>50}: {}", node.path, node.cid);
+            let block = Block {
+                cid: node.cid,
+                data: node.block,
+            };
+
+            mock.put_block(block).await.unwrap();
+        }
+
+        Ok(mock)
+    }
+
     #[tokio::test(max_threads = 1)]
     async fn test_repo() {
+        // FIXME: unsure what does this test
         let (repo, _) = create_mock_repo();
         repo.init().await.unwrap();
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn pin_direct_twice_is_good() {
+        // let _ = tracing_subscriber::fmt::try_init();
+        let repo = inited_repo().await.unwrap();
+
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        assert_eq!(repo.is_pinned(&empty).await.unwrap(), false);
+
+        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+
+        assert_eq!(repo.is_pinned(&empty).await.unwrap(), true);
+
+        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+
+        assert_eq!(repo.is_pinned(&empty).await.unwrap(), true);
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn pin_recursive_pins_all_blocks() {
+        let repo = inited_repo().await.unwrap();
+
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        // assumed use:
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        // once or twice, doesn't matter
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        // the count can be either unique or include duplicates, I guess we just need to be
+        // consistent
+        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        assert!(repo.is_pinned(&root).await.unwrap());
+        assert!(repo.is_pinned(&empty).await.unwrap());
+
+        todo!("should look like indirect")
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn indirect_can_be_pinned_directly_but_remains_looking_indirect() {
+        todo!("it will be both, but only show up as indirect")
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn direct_and_indirect_when_parent_unpinned() {
+        todo!("it should become back directly pinned")
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn cannot_pin_recursively_pinned_directly() {
+        // this is a bit of odd as other ops are additive
+        todo!()
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn can_pin_direct_as_indirect() {
+        todo!()
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn can_pin_direct_as_recursive() {
+        // the other way around doesn't work
+        todo!()
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn cannot_unpin_indirect() {
+        todo!("error should read the pinned parent or first pinned parent")
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn cannot_unpin_not_pinned() {
+        todo!("should this still fetch the block at upper level?")
     }
 }
