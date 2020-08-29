@@ -2,7 +2,14 @@ use cid::{Cid, Codec};
 use ipfs::{p2p::MultiaddrWithPeerId, Block, Node};
 use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
 use multihash::Sha2_256;
+#[cfg(feature = "test_dht_with_go")]
+use serde::Deserialize;
 use std::{convert::TryInto, env, fs, process::Child, time::Duration};
+#[cfg(feature = "test_dht_with_go")]
+use std::{
+    process::{Command, Stdio},
+    thread,
+};
 use tokio::time::timeout;
 
 fn strip_peer_id(addr: Multiaddr) -> Multiaddr {
@@ -92,32 +99,22 @@ async fn start_nodes_in_chain(
 }
 
 #[cfg(feature = "test_dht_with_go")]
-fn wait_for_go_node(tmp_dir: std::path::PathBuf) {
-    let now = std::time::Instant::now();
-    while tmp_dir.exists() {
-        if now.elapsed() > Duration::from_secs(5) {
-            let _ = fs::remove_dir_all(&tmp_dir);
-            break;
-        }
-    }
-    let _ = fs::create_dir(&tmp_dir);
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+struct GoNodeId {
+    #[serde(rename = "ID")]
+    id: String,
+    #[serde(skip)]
+    public_key: String,
+    addresses: Vec<String>,
+    #[serde(skip)]
+    agent_version: String,
+    #[serde(skip)]
+    protocol_version: String,
 }
 
-// most of the setup is the same as in the not(feature = "test_dht_with_go") case, with
-// the addition of a go-ipfs node in the middle of the chain; the first half of the chain
-// learns about the next peer, the go-ipfs node being the last one, and the second half
-// learns about the previous peer, the go-ipfs node being the first one; a visualization:
-// r[0] > r[1] > .. > go < .. < r[count - 3] < r[count - 2]
 #[cfg(feature = "test_dht_with_go")]
-async fn start_nodes_in_chain(
-    count: usize,
-) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<GoIpfsNode>) {
-    use serde::Deserialize;
-    use std::{
-        process::{Command, Stdio},
-        thread,
-    };
-
+fn start_go_node() -> (Child, GoNodeId) {
     // GO_IPFS_PATH should point to the location of the go-ipfs binary
     let go_ipfs_path = env::vars()
         .find(|(key, _val)| key == "GO_IPFS_PATH")
@@ -127,41 +124,17 @@ async fn start_nodes_in_chain(
     let mut tmp_dir = env::temp_dir();
     tmp_dir.push("ipfs");
 
-    #[derive(Deserialize, Debug)]
-    #[serde(rename_all = "PascalCase")]
-    struct GoNodeId {
-        #[serde(rename = "ID")]
-        id: String,
-        #[serde(skip)]
-        public_key: String,
-        addresses: Vec<String>,
-        #[serde(skip)]
-        agent_version: String,
-        #[serde(skip)]
-        protocol_version: String,
-    }
-
     // wait until there is no other test with go-ipfs is running, but at some point just break
     // FIXME: doesn't always work properly; the DHT tests with a go-ipfs node need to be run
     // one at a time for now
-    let tmp_dir_clone = tmp_dir.clone();
-    tokio::task::spawn_blocking(move || wait_for_go_node(tmp_dir_clone))
-        .await
-        .unwrap();
-
-    let mut nodes = Vec::with_capacity(count - 1);
-    let mut ids_and_addrs = Vec::with_capacity(count - 1);
-    // exclude one node to make room for the intermediary go-ipfs node
-    for i in 0..(count - 1) {
-        let node = Node::new(i.to_string()).await;
-
-        let (key, mut addrs) = node.identity().await.unwrap();
-        let id = key.into_peer_id();
-        let addr = strip_peer_id(addrs.pop().unwrap());
-
-        nodes.push(node);
-        ids_and_addrs.push((id, addr));
+    let now = std::time::Instant::now();
+    while tmp_dir.exists() {
+        if now.elapsed() > Duration::from_secs(5) {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            break;
+        }
     }
+    let _ = fs::create_dir(&tmp_dir);
 
     Command::new(&go_ipfs_path)
         .env("IPFS_PATH", &tmp_dir)
@@ -190,8 +163,40 @@ async fn start_nodes_in_chain(
         .output()
         .unwrap()
         .stdout;
+
     let go_id_stdout = String::from_utf8_lossy(&go_id);
     let go_id: GoNodeId = serde_json::de::from_str(&go_id_stdout).unwrap();
+
+    (go_daemon, go_id)
+}
+
+// most of the setup is the same as in the not(feature = "test_dht_with_go") case, with
+// the addition of a go-ipfs node in the middle of the chain; the first half of the chain
+// learns about the next peer, the go-ipfs node being the last one, and the second half
+// learns about the previous peer, the go-ipfs node being the first one; a visualization:
+// r[0] > r[1] > .. > go < .. < r[count - 3] < r[count - 2]
+#[cfg(feature = "test_dht_with_go")]
+async fn start_nodes_in_chain(
+    count: usize,
+) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<GoIpfsNode>) {
+    let (go_daemon, go_id) = tokio::task::spawn_blocking(|| start_go_node())
+        .await
+        .unwrap();
+
+    let mut nodes = Vec::with_capacity(count - 1);
+    let mut ids_and_addrs = Vec::with_capacity(count - 1);
+    // exclude one node to make room for the intermediary go-ipfs node
+    for i in 0..(count - 1) {
+        let node = Node::new(i.to_string()).await;
+
+        let (key, mut addrs) = node.identity().await.unwrap();
+        let id = key.into_peer_id();
+        let addr = strip_peer_id(addrs.pop().unwrap());
+
+        nodes.push(node);
+        ids_and_addrs.push((id, addr));
+    }
+
     let go_peer_id = go_id.id.parse::<PeerId>().unwrap();
     let go_addr = strip_peer_id(go_id.addresses[0].parse::<Multiaddr>().unwrap());
 
