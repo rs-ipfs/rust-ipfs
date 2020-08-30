@@ -352,14 +352,6 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.data_store.remove(Column::Ipns, ipns.as_bytes()).await
     }
 
-    pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
-        self.insert_pin(cid, PinKind::Direct).await
-    }
-
-    pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
-        self.remove_pin(cid, PinKind::Direct).await
-    }
-
     pub async fn insert_pin(&self, cid: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
         self.data_store.insert_pin(cid, kind).await
     }
@@ -368,6 +360,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.data_store.remove_pin(cid, kind).await
     }
 
+    // TODO: this is sort of superceded with list/query_pins
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
         self.data_store.is_pinned(&cid).await
     }

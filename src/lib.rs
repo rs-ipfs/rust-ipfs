@@ -54,8 +54,8 @@ pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::p2p::{Connection, KadResult, MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 pub use self::path::IpfsPath;
-pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
+pub use self::repo::{PinKind, PinMode, RepoTypes};
 use self::subscription::SubscriptionFuture;
 
 /// All types can be changed at compile time by implementing
@@ -382,7 +382,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         self.repo.get_block(cid).instrument(self.span.clone()).await
     }
 
-    /// Remove block from the ipfs repo.
+    /// Remove block from the ipfs repo. A pinned block cannot be removed.
     pub async fn remove_block(&self, cid: Cid) -> Result<Cid, Error> {
         self.repo
             .remove_block(&cid)
@@ -390,22 +390,58 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .await
     }
 
-    /// Pins a given Cid
-    pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
-        self.repo.pin_block(cid).instrument(self.span.clone()).await
+    /// Pins a given Cid recursively or directly (non-recursively).
+    ///
+    /// Pins on a block are additive in sense that a previously directly (non-recursively) pinned
+    /// can be made recursive, but removing the recursive pin on the block removes also the direct
+    /// pin as well.
+    ///
+    /// Pinning a Cid recursively (for supported dag-protobuf and dag-cbor) will walk it's
+    /// references and pin the references indirectly. When a Cid is pinned indirectly it will keep
+    /// it's previous direct or recursive pin and be indirect in addition.
+    ///
+    /// Recursively pinned Cids cannot be pinned non-recursively but non-recursively pinned Cids
+    /// can be "upgraded to" being recursively pinned.
+    pub async fn insert_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
+        if !recursive {
+            self.repo.insert_pin(cid, PinKind::Direct).await
+        } else {
+            // we'd need to do the walk, but locally...
+            todo!()
+        }
     }
 
-    /// Unpins a given Cid
-    pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
-        self.repo
-            .unpin_block(cid)
-            .instrument(self.span.clone())
-            .await
+    /// Unpins a given Cid recursively or only directly.
+    ///
+    /// Unpinning a previously only direclty pinned recursively will remove the direct pin.
+    ///
+    /// Unpinning an indirectly pinned Cid is not possible other than through it's recursively
+    /// pinned tree roots.
+    pub async fn remove_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
+        if !recursive {
+            self.repo.remove_pin(cid, PinKind::Direct).await
+        } else {
+            todo!()
+        }
     }
 
     /// Checks whether a given block is pinned
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
         self.repo.is_pinned(cid).instrument(self.span.clone()).await
+    }
+
+    pub async fn list_pins(
+        &self,
+        filter: Option<PinMode>,
+    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
+        self.repo.list_pins(filter).await
+    }
+
+    pub async fn query_pins(
+        &self,
+        cids: Vec<Cid>,
+    ) -> Result<Vec<(Cid, Result<Option<PinKind<Cid>>, Error>)>, Error> {
+        Ok(self.repo.query_pins(cids).await)
     }
 
     /// Puts an ipld dag node into the ipfs repo.
