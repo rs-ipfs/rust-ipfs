@@ -401,6 +401,10 @@ pub struct PinDocument {
 
 impl PinDocument {
     fn update(&mut self, add: bool, kind: PinKind<&'_ Cid>) -> Result<bool, PinUpdateError> {
+        // these update rules are a bit complex and there are cases we don't need to handle.
+        // Updating on upon `PinKind` forces the caller to inspect what the current state is for
+        // example to handle the case of failing "unpin currently recursively pinned as direct".
+        // the ruleset seems quite strange to be honest.
         match kind {
             PinKind::IndirectFrom(root) => {
                 let root = if root.version() == cid::Version::V1 {
@@ -436,6 +440,16 @@ impl PinDocument {
                 Ok(modified)
             }
             PinKind::Direct => {
+                if self.recursive.is_some() && !self.direct && add {
+                    // go-ipfs: cannot make recursive pin also direct
+                    // not really sure why does this rule exist; the other way around is allowed
+                    return Err(PinUpdateError::AlreadyPinnedRecursive);
+                }
+
+                if !self.direct && !add {
+                    panic!("this situation must be handled by the caller by checking that recursive pin is about to be removed as direct");
+                }
+
                 let modified = self.direct != add;
                 self.direct = add;
                 Ok(modified)
@@ -509,8 +523,11 @@ impl PinDocument {
 pub enum PinUpdateError {
     #[error("unexpected number of descendants ({}), found {}", .1, .0)]
     UnexpectedNumberOfDescendants(u64, u64),
-    #[error("not pinned recursive")]
+    #[error("not pinned recursively")]
     NotPinnedRecursive,
+    /// Not allowed: Adding direct pin while pinned recursive
+    #[error("already pinned recursively")]
+    AlreadyPinnedRecursive,
 }
 
 #[cfg(test)]
@@ -813,6 +830,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test(max_threads = 1)]
+    #[should_panic(expected = "situation must be handled by the caller")]
     async fn cannot_unpin_indirect() {
         let repo = inited_repo().await.unwrap();
         // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
@@ -827,10 +845,25 @@ pub(crate) mod tests {
 
         repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
 
-        let e = repo.remove_pin(&empty, PinKind::Direct).await.unwrap_err();
+        // should panic because the caller must not attempt this because:
 
-        // go-ipfs message
-        assert_eq!(e.to_string(), "not pinned or pinned indirectly");
+        let (_, kind) = repo
+            .query_pins(vec![empty.clone()])
+            .await
+            .into_iter()
+            .next()
+            .unwrap();
+
+        // the cids are stored as v1 ... not sure if that makes any sense TBH
+        // feels like Cid should be equal regardless of version.
+        let root_v1 = Cid::new_v1(root.codec(), root.hash().to_owned());
+        assert_eq!(kind.unwrap(), Some(PinKind::IndirectFrom(root_v1)));
+
+        // this makes the "remove direct" invalid, as the direct pin must not be removed while
+        // recursively pinned
+
+        let _ = repo.remove_pin(&empty, PinKind::Direct).await;
+        unreachable!("should have panicked");
     }
 
     #[tokio::test(max_threads = 1)]
