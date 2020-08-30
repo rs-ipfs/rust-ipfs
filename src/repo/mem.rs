@@ -100,7 +100,7 @@ impl PinStore for MemDataStore {
         Ok(g.contains_key(&key))
     }
 
-    async fn insert_pin(&self, target: &Cid, kind: PinKind<'_>) -> Result<(), Error> {
+    async fn insert_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
         use std::collections::hash_map::Entry;
         let mut g = self.pin.lock().await;
 
@@ -139,7 +139,7 @@ impl PinStore for MemDataStore {
         Ok(())
     }
 
-    async fn remove_pin(&self, target: &Cid, kind: PinKind<'_>) -> Result<(), Error> {
+    async fn remove_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
         use std::collections::hash_map::Entry;
 
         let mut g = self.pin.lock().await;
@@ -201,18 +201,28 @@ impl PinStore for MemDataStore {
         futures::stream::iter(copy).boxed()
     }
 
-    async fn get_pinmode(&self, cid: &Cid) -> Result<Option<PinMode>, Error> {
+    async fn query(&self, cids: Vec<Cid>) -> Vec<(Cid, Result<Option<PinKind<Cid>>, Error>)> {
         let g = self.pin.lock().await;
 
-        match g.get(&cid.to_bytes()) {
-            Some(raw) => {
-                let doc: PinDocument = serde_json::from_slice(raw)?;
-                Ok(Some(
-                    doc.mode().ok_or_else(|| anyhow::anyhow!("invalid mode"))?,
-                ))
-            }
-            None => Ok(None),
-        }
+        cids.into_iter()
+            .map(|cid| match g.get(&cid.to_bytes()) {
+                Some(raw) => {
+                    let doc: PinDocument = match serde_json::from_slice(raw) {
+                        Ok(doc) => doc,
+                        Err(e) => return (cid, Err(e.into())),
+                    };
+                    // None from document is bad result, since the document shouldn't exist in the
+                    // first place
+                    let mode = match doc.pick_kind() {
+                        Some(Ok(kind)) => Ok(Some(kind)),
+                        Some(Err(invalid_cid)) => Err(invalid_cid.into()),
+                        None => Ok(None),
+                    };
+                    (cid, mode)
+                }
+                None => (cid, Ok(None)),
+            })
+            .collect::<Vec<_>>()
     }
 }
 

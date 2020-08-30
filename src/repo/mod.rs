@@ -117,15 +117,20 @@ pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
 pub trait PinStore: Debug + Send + Sync + Unpin + 'static {
     async fn is_pinned(&self, block: &Cid) -> Result<bool, Error>;
 
-    async fn insert_pin(&self, target: &Cid, kind: PinKind<'_>) -> Result<(), Error>;
-    async fn remove_pin(&self, target: &Cid, kind: PinKind<'_>) -> Result<(), Error>;
+    async fn insert_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error>;
+    async fn remove_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error>;
 
     async fn list(
         &self,
         mode: Option<PinMode>,
     ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>>;
 
-    async fn get_pinmode(&self, cid: &Cid) -> Result<Option<PinMode>, Error>;
+    // here we should have resolved ids
+    // go-ipfs: doesnt start fetching the paths
+    // js-ipfs: starts fetching paths
+    // FIXME: there should probably be an additional Result<$inner, Error> here; the per pin error
+    // is serde OR cid::Error.
+    async fn query(&self, ids: Vec<Cid>) -> Vec<(Cid, Result<Option<PinKind<Cid>>, Error>)>;
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -141,8 +146,9 @@ pub enum PinMode {
     Recursive,
 }
 
-pub enum PinKind<'a> {
-    IndirectFrom(&'a Cid),
+#[derive(Debug, PartialEq, Eq)]
+pub enum PinKind<C: std::borrow::Borrow<Cid>> {
+    IndirectFrom(C),
     Direct,
     Recursive(u64),
 }
@@ -354,11 +360,11 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.remove_pin(cid, PinKind::Direct).await
     }
 
-    pub async fn insert_pin(&self, cid: &Cid, kind: PinKind<'_>) -> Result<(), Error> {
+    pub async fn insert_pin(&self, cid: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
         self.data_store.insert_pin(cid, kind).await
     }
 
-    pub async fn remove_pin(&self, cid: &Cid, kind: PinKind<'_>) -> Result<(), Error> {
+    pub async fn remove_pin(&self, cid: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
         self.data_store.remove_pin(cid, kind).await
     }
 
@@ -373,8 +379,11 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.data_store.list(mode).await
     }
 
-    pub async fn get_pinmode(&self, cid: &Cid) -> Result<Option<PinMode>, Error> {
-        self.data_store.get_pinmode(cid).await
+    pub async fn query_pins(
+        &self,
+        cids: Vec<Cid>,
+    ) -> Vec<(Cid, Result<Option<PinKind<Cid>>, Error>)> {
+        self.data_store.query(cids).await
     }
 }
 
@@ -386,11 +395,12 @@ pub struct PinDocument {
     recursive: Option<u64>,
     // no further metadata necessary; cids are pinned by full cid
     cid_version: u8,
+    // using the cidv1 versions of all cids here, not sure if that makes sense or is important
     indirect_by: Vec<String>,
 }
 
 impl PinDocument {
-    fn update(&mut self, add: bool, kind: PinKind<'_>) -> Result<bool, PinUpdateError> {
+    fn update(&mut self, add: bool, kind: PinKind<&'_ Cid>) -> Result<bool, PinUpdateError> {
         match kind {
             PinKind::IndirectFrom(root) => {
                 let root = if root.version() == cid::Version::V1 {
@@ -477,6 +487,22 @@ impl PinDocument {
             None
         }
     }
+
+    fn pick_kind(&self) -> Option<Result<PinKind<Cid>, cid::Error>> {
+        self.mode().map(|p| {
+            Ok(match p {
+                PinMode::Recursive => PinKind::Recursive(self.recursive.unwrap()),
+                PinMode::Indirect => {
+                    // go-ipfs does seem to be doing a fifo looking, perhaps this is a list there, or
+                    // the indirect pins aren't being written down anywhere and they just refs from
+                    // recursive roots.
+                    let cid = Cid::try_from(self.indirect_by[0].as_str())?;
+                    PinKind::IndirectFrom(cid)
+                }
+                PinMode::Direct => PinKind::Direct,
+            })
+        })
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -553,13 +579,13 @@ pub(crate) mod tests {
 
         empty_paths
             .iter()
-            .inspect(|p| println!("{:>50}: {}", p, empty_cid.clone()))
+            //.inspect(|p| println!("{:>50}: {}", p, empty_cid.clone()))
             .try_for_each(|p| tree_builder.put_link(p, empty_cid.clone(), empty_len as u64))
             .unwrap();
 
         for node in tree_builder.build() {
             let node = node.unwrap();
-            println!("{:>50}: {}", node.path, node.cid);
+            //println!("{:>50}: {}", node.path, node.cid);
             let block = Block {
                 cid: node.cid,
                 data: node.block,
@@ -673,6 +699,15 @@ pub(crate) mod tests {
 
         repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
 
+        assert_eq!(
+            repo.query_pins(vec![empty.clone()])
+                .await
+                .into_iter()
+                .map(|(cid, res)| (cid, res.unwrap()))
+                .collect::<Vec<_>>(),
+            vec![(empty.clone(), Some(PinKind::Direct))],
+        );
+
         // first refs
 
         repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
@@ -703,27 +738,114 @@ pub(crate) mod tests {
     #[tokio::test(max_threads = 1)]
     async fn cannot_pin_recursively_pinned_directly() {
         // this is a bit of odd as other ops are additive
-        todo!()
+        let repo = inited_repo().await.unwrap();
+
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        repo.insert_pin(&empty, PinKind::Recursive(0))
+            .await
+            .unwrap();
+
+        let e = repo.insert_pin(&empty, PinKind::Direct).await.unwrap_err();
+
+        // go-ipfs puts the cid in front here, not sure if we want to at this level? though in
+        // go-ipfs it's different than path resolving
+        assert_eq!(e.to_string(), "already pinned recursively");
     }
 
-    #[tokio::test(max_threads = 1)]
-    async fn can_pin_direct_as_indirect() {
-        todo!()
+    #[test]
+    fn pindocument_on_direct_pin() {
+        let mut doc = PinDocument {
+            version: 0,
+            direct: false,
+            recursive: None,
+            cid_version: 0,
+            indirect_by: Vec::new(),
+        };
+
+        assert!(doc.update(true, PinKind::Direct).unwrap());
+
+        assert_eq!(doc.mode(), Some(PinMode::Direct));
+        assert_eq!(doc.pick_kind().unwrap().unwrap(), PinKind::Direct);
     }
 
     #[tokio::test(max_threads = 1)]
     async fn can_pin_direct_as_recursive() {
         // the other way around doesn't work
-        todo!()
+        let repo = inited_repo().await.unwrap();
+        //
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        repo.insert_pin(&root, PinKind::Direct).await.unwrap();
+
+        // TODO: test failure here seems valid, perhaps PinDocument is buggy?
+        assert_eq!(
+            repo.query_pins(vec![empty.clone(), root.clone()])
+                .await
+                .into_iter()
+                // TODO: this is quite hard to use, but we need to return the per cid errors, dunno how
+                // to do it otherwise
+                .map(|(cid, res)| (cid, res.unwrap()))
+                .collect::<Vec<_>>(),
+            vec![(empty.clone(), None), (root.clone(), Some(PinKind::Direct))]
+        );
+
+        // first refs
+
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        let mut both = repo
+            .list_pins(None)
+            .await
+            .try_collect::<HashMap<Cid, PinMode>>()
+            .await
+            .unwrap();
+
+        assert_eq!(both.remove(&root), Some(PinMode::Recursive));
+        assert_eq!(both.remove(&empty), Some(PinMode::Indirect));
+
+        assert!(both.is_empty(), "{:?}", both);
     }
 
     #[tokio::test(max_threads = 1)]
     async fn cannot_unpin_indirect() {
-        todo!("error should read the pinned parent or first pinned parent")
+        let repo = inited_repo().await.unwrap();
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        // first refs
+
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        let e = repo.remove_pin(&empty, PinKind::Direct).await.unwrap_err();
+
+        // go-ipfs message
+        assert_eq!(e.to_string(), "not pinned or pinned indirectly");
     }
 
     #[tokio::test(max_threads = 1)]
     async fn cannot_unpin_not_pinned() {
-        todo!("should this still fetch the block at upper level?")
+        let repo = inited_repo().await.unwrap();
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        // the only pin we can try removing without first querying is direct, as shown in
+        // `cannot_unpin_indirect`.
+
+        let e = repo.remove_pin(&empty, PinKind::Direct).await.unwrap_err();
+
+        // FIXME: go-ipfs errors on the actual path
+        assert_eq!(e.to_string(), "not pinned");
     }
 }
