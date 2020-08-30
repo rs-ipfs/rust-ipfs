@@ -780,7 +780,6 @@ pub(crate) mod tests {
 
         repo.insert_pin(&root, PinKind::Direct).await.unwrap();
 
-        // TODO: test failure here seems valid, perhaps PinDocument is buggy?
         assert_eq!(
             repo.query_pins(vec![empty.clone(), root.clone()])
                 .await
