@@ -459,6 +459,9 @@ impl PinDocument {
                         Some(_) => false,
                         None => {
                             self.recursive = Some(descendants);
+                            // the previously direct has now been upgraded to recursive, it can
+                            // still be indirect though
+                            self.direct = false;
                             true
                         }
                     }
@@ -473,6 +476,9 @@ impl PinDocument {
                         Some(_) => true,
                         None => return Err(PinUpdateError::NotPinnedRecursive),
                     }
+                    // FIXME: removing ... not sure if this is an issue; was thinking that maybe
+                    // the update might need to be split to allow different api for removal than
+                    // addition.
                 };
                 Ok(modified)
             }
