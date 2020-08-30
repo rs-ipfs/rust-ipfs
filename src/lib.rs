@@ -883,7 +883,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         unique: bool,
     ) -> impl Stream<Item = Result<refs::Edge, ipld::BlockError>> + Send + 'a
     where
-        Iter: IntoIterator<Item = (Cid, Ipld)> + 'a,
+        Iter: IntoIterator<Item = (Cid, Ipld)> + Send + 'a,
     {
         refs::iplds_refs(self, iplds, max_depth, unique)
     }

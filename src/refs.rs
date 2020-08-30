@@ -29,6 +29,69 @@ impl fmt::Debug for Edge {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum IpldRefsError {
+    #[error("nested ipld document parsing failed")]
+    Block(#[from] crate::ipld::BlockError),
+    #[error("loading failed")]
+    Loading(#[from] crate::Error),
+    #[error("block not found locally: {}", .0)]
+    BlockNotFound(Cid),
+}
+
+pub(crate) struct IpldRefs {
+    max_depth: Option<u64>,
+    unique: bool,
+    download_blocks: bool,
+}
+
+impl Default for IpldRefs {
+    fn default() -> Self {
+        IpldRefs {
+            max_depth: None, // unlimited
+            unique: false,
+            download_blocks: true,
+        }
+    }
+}
+
+impl IpldRefs {
+    /// Overrides the default maximum depth of unlimited with the given maximum depth. Zero is
+    /// allowed and will result in an empty stream.
+    pub fn with_max_depth(mut self, depth: u64) -> IpldRefs {
+        self.max_depth = Some(depth);
+        self
+    }
+
+    /// Overrides the default of returning all links by supressing the links which have already
+    /// been reported once.
+    pub fn with_only_unique(mut self) -> IpldRefs {
+        self.unique = true;
+        self
+    }
+
+    /// Overrides the default of allowing the refs operation to fetch blocks. Useful at least
+    /// internally in rust-ipfs to implement pinning recursively. This changes the streams
+    /// behaviour to stop on first block which is not found locally.
+    pub fn with_existing_blocks(mut self) -> IpldRefs {
+        self.download_blocks = false;
+        self
+    }
+
+    pub fn refs_of_resolved<'a, Types, MaybeOwned, Iter>(
+        self,
+        ipfs: MaybeOwned,
+        iplds: Iter,
+    ) -> impl Stream<Item = Result<Edge, IpldRefsError>> + Send + 'a
+    where
+        Types: IpfsTypes,
+        MaybeOwned: Borrow<Ipfs<Types>> + Send + 'a,
+        Iter: IntoIterator<Item = (Cid, Ipld)> + Send + 'a,
+    {
+        iplds_refs_inner(ipfs, iplds, self)
+    }
+}
+
 /// Gather links as edges between two documents from all of the `iplds` which represent the
 /// document and it's original `Cid`, as the `Ipld` can be a subtree of the document.
 ///
@@ -55,10 +118,41 @@ pub fn iplds_refs<'a, Types, MaybeOwned, Iter>(
 where
     Types: IpfsTypes,
     MaybeOwned: Borrow<Ipfs<Types>> + Send + 'a,
+    Iter: IntoIterator<Item = (Cid, Ipld)> + Send + 'a,
+{
+    use futures::stream::TryStreamExt;
+    let opts = IpldRefs {
+        max_depth,
+        unique,
+        download_blocks: true,
+    };
+    iplds_refs_inner(ipfs, iplds, opts).map_err(|e| match e {
+        IpldRefsError::Block(e) => e,
+        x => unreachable!(
+            "iplds_refs_inner should not return other errors for download_blocks: false; {}",
+            x
+        ),
+    })
+}
+
+fn iplds_refs_inner<'a, Types, MaybeOwned, Iter>(
+    ipfs: MaybeOwned,
+    iplds: Iter,
+    opts: IpldRefs,
+) -> impl Stream<Item = Result<Edge, IpldRefsError>> + Send + 'a
+where
+    Types: IpfsTypes,
+    MaybeOwned: Borrow<Ipfs<Types>> + Send + 'a,
     Iter: IntoIterator<Item = (Cid, Ipld)>,
 {
     let mut work = VecDeque::new();
     let mut queued_or_visited = HashSet::new();
+
+    let IpldRefs {
+        max_depth,
+        unique,
+        download_blocks,
+    } = opts;
 
     let empty_stream = max_depth.map(|n| n == 0).unwrap_or(false);
 
@@ -98,15 +192,29 @@ where
             // `MaybeOwned` which we don't necessarily need.
             let borrowed = ipfs.borrow();
 
-            let data = match borrowed.get_block(&cid).await {
-                Ok(Block { data, .. }) => data,
-                Err(e) => {
-                    warn!("failed to load {}, linked from {}: {}", cid, source, e);
-                    // TODO: yield error msg
-                    // unsure in which cases this happens, because we'll start to search the content
-                    // and stop only when request has been cancelled (FIXME: no way to stop this
-                    // operation)
-                    continue;
+            let data = if download_blocks {
+                match borrowed.get_block(&cid).await {
+                    Ok(Block { data, .. }) => data,
+                    Err(e) => {
+                        warn!("failed to load {}, linked from {}: {}", cid, source, e);
+                        // TODO: yield error msg
+                        // unsure in which cases this happens, because we'll start to search the content
+                        // and stop only when request has been cancelled (FIXME: no way to stop this
+                        // operation)
+                        continue;
+                    }
+                }
+            } else {
+                match borrowed.repo.get_block_now(&cid).await {
+                    Ok(Some(Block { data, .. })) => data,
+                    Ok(None) => {
+                        yield Err(IpldRefsError::BlockNotFound(cid.to_owned()));
+                        return;
+                    }
+                    Err(e) => {
+                        yield Err(IpldRefsError::from(e));
+                        return;
+                    }
                 }
             };
 
@@ -116,7 +224,7 @@ where
                     warn!("failed to parse {}, linked from {}: {}", cid, source, e);
                     // go-ipfs on raw Qm hash:
                     // > failed to decode Protocol Buffers: incorrectly formatted merkledag node: unmarshal failed. proto: illegal wireType 6
-                    yield Err(e);
+                    yield Err(e.into());
                     continue;
                 }
             };
