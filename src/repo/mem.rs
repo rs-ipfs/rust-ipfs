@@ -1,7 +1,7 @@
 //! Volatile memory backed repo
 use crate::error::Error;
 use crate::repo::{
-    BlockPut, BlockStore, Column, DataStore, PinDocument, PinKind, PinMode, PinStore,
+    BlockPut, BlockStore, Column, DataStore, PinDocument, PinKind, PinMode, PinStore, Recursive,
 };
 use async_trait::async_trait;
 use bitswap::Block;
@@ -122,7 +122,7 @@ impl PinStore for MemDataStore {
                 let mut doc = PinDocument {
                     version: 0,
                     direct: false,
-                    recursive: None,
+                    recursive: Recursive::Not,
                     cid_version: match target.version() {
                         cid::Version::V0 => 0,
                         cid::Version::V1 => 1,

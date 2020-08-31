@@ -118,6 +118,7 @@ pub trait PinStore: Debug + Send + Sync + Unpin + 'static {
     async fn is_pinned(&self, block: &Cid) -> Result<bool, Error>;
 
     async fn insert_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error>;
+
     async fn remove_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error>;
 
     async fn list(
@@ -139,7 +140,7 @@ pub enum Column {
     Pin,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum PinMode {
     Indirect,
     Direct,
@@ -151,6 +152,7 @@ pub enum PinKind<C: std::borrow::Borrow<Cid>> {
     IndirectFrom(C),
     Direct,
     Recursive(u64),
+    RecursiveIntention,
 }
 
 #[derive(Debug)]
@@ -380,12 +382,35 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum Recursive {
+    /// Persistent record of **completed** recursive pinning. All references now have indirect pins
+    /// recorded.
+    Count(u64),
+    /// Persistent record of intent to add recursive pins to all indirect blocks or even not to
+    /// keep the go-ipfs way which might not be a bad idea after all. Adding all the indirect pins
+    /// on disk will cause massive write amplification in the end, but lets keep that way until we
+    /// get everything working at least.
+    Intent,
+    /// Not pinned recursively.
+    Not,
+}
+
+impl Recursive {
+    fn is_set(&self) -> bool {
+        match self {
+            Recursive::Count(_) | Recursive::Intent => true,
+            Recursive::Not => false,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct PinDocument {
     version: u8,
     direct: bool,
     // how many descendants; something to check when walking
-    recursive: Option<u64>,
+    recursive: Recursive,
     // no further metadata necessary; cids are pinned by full cid
     cid_version: u8,
     // using the cidv1 versions of all cids here, not sure if that makes sense or is important
@@ -433,7 +458,7 @@ impl PinDocument {
                 Ok(modified)
             }
             PinKind::Direct => {
-                if self.recursive.is_some() && !self.direct && add {
+                if self.recursive.is_set() && !self.direct && add {
                     // go-ipfs: cannot make recursive pin also direct
                     // not really sure why does this rule exist; the other way around is allowed
                     return Err(PinUpdateError::AlreadyPinnedRecursive);
@@ -447,18 +472,43 @@ impl PinDocument {
                 self.direct = add;
                 Ok(modified)
             }
+            PinKind::RecursiveIntention => {
+                let modified = if add {
+                    match self.recursive {
+                        Recursive::Count(_) => return Err(PinUpdateError::AlreadyPinnedRecursive),
+                        // can overwrite Intent with another Intent, as Ipfs::insert_pin is now moving to fix
+                        // the Intent into the "final form" of Recursive::Count.
+                        Recursive::Intent => false,
+                        Recursive::Not => {
+                            self.recursive = Recursive::Intent;
+                            self.direct = false;
+                            true
+                        }
+                    }
+                } else {
+                    match self.recursive {
+                        Recursive::Count(_) | Recursive::Intent => {
+                            self.recursive = Recursive::Not;
+                            true
+                        }
+                        Recursive::Not => false,
+                    }
+                };
+
+                Ok(modified)
+            }
             PinKind::Recursive(descendants) => {
                 let modified = if add {
                     match self.recursive {
-                        Some(other) if other != descendants => {
+                        Recursive::Count(other) if other != descendants => {
                             return Err(PinUpdateError::UnexpectedNumberOfDescendants(
                                 other,
                                 descendants,
                             ))
                         }
-                        Some(_) => false,
-                        None => {
-                            self.recursive = Some(descendants);
+                        Recursive::Count(_) => false,
+                        Recursive::Intent | Recursive::Not => {
+                            self.recursive = Recursive::Count(descendants);
                             // the previously direct has now been upgraded to recursive, it can
                             // still be indirect though
                             self.direct = false;
@@ -466,15 +516,18 @@ impl PinDocument {
                         }
                     }
                 } else {
-                    match self.recursive.take() {
-                        Some(other) if other != descendants => {
+                    match self.recursive {
+                        Recursive::Count(other) if other != descendants => {
                             return Err(PinUpdateError::UnexpectedNumberOfDescendants(
                                 other,
                                 descendants,
                             ))
                         }
-                        Some(_) => true,
-                        None => return Err(PinUpdateError::NotPinnedRecursive),
+                        Recursive::Count(_) | Recursive::Intent => {
+                            self.recursive = Recursive::Not;
+                            true
+                        }
+                        Recursive::Not => return Err(PinUpdateError::NotPinnedRecursive),
                     }
                     // FIXME: removing ... not sure if this is an issue; was thinking that maybe
                     // the update might need to be split to allow different api for removal than
@@ -486,11 +539,11 @@ impl PinDocument {
     }
 
     fn can_remove(&self) -> bool {
-        !self.direct && self.recursive.is_none() && self.indirect_by.is_empty()
+        !self.direct && !self.recursive.is_set() && self.indirect_by.is_empty()
     }
 
     fn mode(&self) -> Option<PinMode> {
-        if self.recursive.is_some() {
+        if self.recursive.is_set() {
             Some(PinMode::Recursive)
         } else if !self.indirect_by.is_empty() {
             Some(PinMode::Indirect)
@@ -504,7 +557,11 @@ impl PinDocument {
     fn pick_kind(&self) -> Option<Result<PinKind<Cid>, cid::Error>> {
         self.mode().map(|p| {
             Ok(match p {
-                PinMode::Recursive => PinKind::Recursive(self.recursive.unwrap()),
+                PinMode::Recursive => match self.recursive {
+                    Recursive::Intent => PinKind::RecursiveIntention,
+                    Recursive::Count(total) => PinKind::Recursive(total),
+                    _ => unreachable!("mode shuold not have returned PinKind::Recursive"),
+                },
                 PinMode::Indirect => {
                     // go-ipfs does seem to be doing a fifo looking, perhaps this is a list there, or
                     // the indirect pins aren't being written down anywhere and they just refs from

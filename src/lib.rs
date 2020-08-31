@@ -403,11 +403,41 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Recursively pinned Cids cannot be pinned non-recursively but non-recursively pinned Cids
     /// can be "upgraded to" being recursively pinned.
     pub async fn insert_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
+        use futures::stream::TryStreamExt;
         if !recursive {
             self.repo.insert_pin(cid, PinKind::Direct).await
         } else {
-            // we'd need to do the walk, but locally...
-            todo!()
+            // would zero work as "intention"?
+            // this needs to download everything but /pin/ls does not
+            let Block { data, .. } = self.repo.get_block(cid).await?;
+
+            self.repo
+                .insert_pin(cid, PinKind::RecursiveIntention)
+                .await?;
+
+            let ipld = crate::ipld::decode_ipld(&cid, &data)?;
+
+            let st = crate::refs::IpldRefs::default()
+                .with_only_unique()
+                .refs_of_resolved(self, vec![(cid.clone(), ipld.clone())].into_iter())
+                .into_stream();
+
+            futures::pin_mut!(st);
+
+            let mut count = 0u64;
+
+            while let Some(crate::refs::Edge { destination, .. }) = st.try_next().await? {
+                // we probably don't need to worry about rollback here, if we wrote a
+                self.repo
+                    .insert_pin(&destination, PinKind::IndirectFrom(&cid))
+                    .await?;
+
+                count += 1;
+            }
+
+            self.repo.insert_pin(cid, PinKind::Recursive(count)).await?;
+
+            Ok(())
         }
     }
 
@@ -418,16 +448,118 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Unpinning an indirectly pinned Cid is not possible other than through it's recursively
     /// pinned tree roots.
     pub async fn remove_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
+        use futures::stream::TryStreamExt;
         if !recursive {
             self.repo.remove_pin(cid, PinKind::Direct).await
         } else {
-            todo!()
+            let span = tracing::debug_span!("remove recursive pin", cid = %cid);
+
+            let (cid, kind) = self
+                .repo
+                .query_pins(vec![cid.to_owned()])
+                .instrument(span.clone())
+                .await
+                .swap_remove(0);
+
+            let kind = kind?;
+
+            trace!(pin = ?kind, "found pin to be removed");
+
+            let expected_count = match kind {
+                Some(PinKind::RecursiveIntention) => {
+                    // there may still be some stragglers so perhaps remove them
+                    // but we dont know how many should we expect to find
+                    None
+                }
+                Some(PinKind::Recursive(count)) => Some(count),
+                Some(PinKind::Direct) | Some(PinKind::IndirectFrom(_)) | None => {
+                    return Err(anyhow::anyhow!("not pinned recursively"))
+                }
+            };
+
+            // start walking refs of the root
+
+            let Block { data, .. } = match self.repo.get_block_now(&cid).await? {
+                Some(b) => b,
+                None => {
+                    return Err(anyhow::anyhow!("pinned root not found: {}", cid));
+                }
+            };
+
+            let ipld = crate::ipld::decode_ipld(&cid, &data)?;
+            let st = crate::refs::IpldRefs::default()
+                .with_only_unique()
+                .with_existing_blocks()
+                .refs_of_resolved(self, vec![(cid.clone(), ipld.clone())].into_iter())
+                .into_stream();
+
+            futures::pin_mut!(st);
+
+            let mut count = 0u64;
+
+            while let Some(crate::refs::Edge { destination, .. }) =
+                st.try_next().instrument(span.clone()).await?
+            {
+                // we probably don't need to worry about rollback here, if we wrote a
+                self.repo
+                    .remove_pin(&destination, PinKind::IndirectFrom(&cid))
+                    .instrument(span.clone())
+                    .await?;
+
+                count += 1;
+            }
+
+            let removed = if expected_count.is_some() {
+                PinKind::Recursive(count)
+            } else {
+                PinKind::RecursiveIntention
+            };
+
+            self.repo
+                .remove_pin(&cid, removed)
+                .instrument(span.clone())
+                .await?;
+
+            match expected_count {
+                Some(x) if x == count => {
+                    // good, we removed as many as we were supposed to
+                    info!(count = x, "removed as many indirect pins as were meant to");
+                }
+                Some(x) => {
+                    // bad
+                    error!(
+                        expected = x,
+                        actual = count,
+                        "removed unexpected number of indirect pins",
+                    );
+                }
+                None => {
+                    // well, we cleared out the previous partial operation! good
+                    info!(
+                        cleared_out = count,
+                        "cleaned up and removed previous partial pinning",
+                    );
+                }
+            }
+
+            Ok(())
         }
     }
 
     /// Checks whether a given block is pinned
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        self.repo.is_pinned(cid).instrument(self.span.clone()).await
+        if self
+            .repo
+            .is_pinned(cid)
+            .instrument(self.span.clone())
+            .await?
+        {
+            return Ok(true);
+        }
+
+        Err(anyhow::anyhow!(
+            "not implemented: check if there are any partial recursive pins, fix them, so on"
+        ))
     }
 
     pub async fn list_pins(

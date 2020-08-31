@@ -46,10 +46,15 @@ async fn add_inner<T: IpfsTypes>(
 
     let cids: Vec<Cid> = request.args;
 
-    let dispatched_pins = cids
-        .into_iter()
-        .map(|x| async { ipfs.pin_block(&x).await.map(move |_| StringSerialized(x)) });
+    let recursive = request.recursive;
 
+    let dispatched_pins = cids.into_iter().map(|x| async {
+        ipfs.insert_pin(&x, recursive)
+            .await
+            .map(move |_| StringSerialized(x))
+    });
+
+    // could be unordered :)
     let completed = try_join_all(dispatched_pins)
         .await
         .map_err(StringError::from)?;
