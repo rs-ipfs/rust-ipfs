@@ -1,5 +1,5 @@
 use crate::v0::support::option_parsing::ParseError;
-use crate::v0::support::{with_ipfs, StringError, StringSerialized};
+use crate::v0::support::{StringError, StringSerialized};
 use futures::future::try_join_all;
 use ipfs::{Cid, Ipfs, IpfsTypes};
 use serde::Serialize;

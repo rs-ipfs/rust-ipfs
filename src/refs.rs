@@ -58,6 +58,7 @@ impl Default for IpldRefs {
 impl IpldRefs {
     /// Overrides the default maximum depth of unlimited with the given maximum depth. Zero is
     /// allowed and will result in an empty stream.
+    #[allow(dead_code)]
     pub fn with_max_depth(mut self, depth: u64) -> IpldRefs {
         self.max_depth = Some(depth);
         self
