@@ -453,7 +453,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     ///
     /// Unpinning a previously only direclty pinned recursively will remove the direct pin.
     ///
-    /// Unpinning an indirectly pinned Cid is not possible other than through it's recursively
+    /// Unpinning an indirectly pinned Cid is not possible other than through its recursively
     /// pinned tree roots.
     pub async fn remove_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
         use futures::stream::TryStreamExt;
