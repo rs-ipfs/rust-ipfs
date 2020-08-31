@@ -1634,9 +1634,9 @@ mod tests {
         let data = make_ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
 
-        ipfs.pin_block(&cid).await.unwrap();
+        ipfs.insert_pin(&cid, false).await.unwrap();
         assert!(ipfs.is_pinned(&cid).await.unwrap());
-        ipfs.unpin_block(&cid).await.unwrap();
+        ipfs.remove_pin(&cid, false).await.unwrap();
         assert!(!ipfs.is_pinned(&cid).await.unwrap());
     }
 

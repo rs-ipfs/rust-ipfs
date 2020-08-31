@@ -831,7 +831,7 @@ pub(crate) mod tests {
         let mut doc = PinDocument {
             version: 0,
             direct: false,
-            recursive: None,
+            recursive: Recursive::Not,
             cid_version: 0,
             indirect_by: Vec::new(),
         };
