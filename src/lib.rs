@@ -407,37 +407,45 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         if !recursive {
             self.repo.insert_pin(cid, PinKind::Direct).await
         } else {
-            // would zero work as "intention"?
-            // this needs to download everything but /pin/ls does not
-            let Block { data, .. } = self.repo.get_block(cid).await?;
+            let span = tracing::debug_span!("insert recursive pin", cid = %cid);
 
-            self.repo
-                .insert_pin(cid, PinKind::RecursiveIntention)
-                .await?;
+            async move {
+                // this needs to download everything but /pin/ls does not
+                let Block { data, .. } = self.repo.get_block(cid).await?;
 
-            let ipld = crate::ipld::decode_ipld(&cid, &data)?;
-
-            let st = crate::refs::IpldRefs::default()
-                .with_only_unique()
-                .refs_of_resolved(self, vec![(cid.clone(), ipld.clone())].into_iter())
-                .into_stream();
-
-            futures::pin_mut!(st);
-
-            let mut count = 0u64;
-
-            while let Some(crate::refs::Edge { destination, .. }) = st.try_next().await? {
-                // we probably don't need to worry about rollback here, if we wrote a
                 self.repo
-                    .insert_pin(&destination, PinKind::IndirectFrom(&cid))
+                    .insert_pin(cid, PinKind::RecursiveIntention)
                     .await?;
 
-                count += 1;
+                let ipld = crate::ipld::decode_ipld(&cid, &data)?;
+
+                let st = crate::refs::IpldRefs::default()
+                    .with_only_unique()
+                    .refs_of_resolved(self, vec![(cid.clone(), ipld.clone())].into_iter())
+                    .into_stream();
+
+                futures::pin_mut!(st);
+
+                let mut count = 0u64;
+
+                while let Some(crate::refs::Edge { destination, .. }) = st.try_next().await? {
+                    trace!(dest = %destination, "located reference");
+                    // we probably don't need to worry about rollback here, if we wrote a
+                    self.repo
+                        .insert_pin(&destination, PinKind::IndirectFrom(&cid))
+                        .await?;
+
+                    count += 1;
+                }
+
+                self.repo.insert_pin(cid, PinKind::Recursive(count)).await?;
+
+                debug!(count = %count, "recursive pin inserted");
+
+                Ok(())
             }
-
-            self.repo.insert_pin(cid, PinKind::Recursive(count)).await?;
-
-            Ok(())
+            .instrument(span)
+            .await
         }
     }
 
@@ -456,23 +464,21 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             let (cid, kind) = self
                 .repo
-                .query_pins(vec![cid.to_owned()])
+                .query_pins(vec![cid.to_owned()], None)
                 .instrument(span.clone())
-                .await
+                .await?
                 .swap_remove(0);
-
-            let kind = kind?;
 
             trace!(pin = ?kind, "found pin to be removed");
 
             let expected_count = match kind {
-                Some(PinKind::RecursiveIntention) => {
+                PinKind::RecursiveIntention => {
                     // there may still be some stragglers so perhaps remove them
                     // but we dont know how many should we expect to find
                     None
                 }
-                Some(PinKind::Recursive(count)) => Some(count),
-                Some(PinKind::Direct) | Some(PinKind::IndirectFrom(_)) | None => {
+                PinKind::Recursive(count) => Some(count),
+                PinKind::Direct | PinKind::IndirectFrom(_) => {
                     return Err(anyhow::anyhow!("not pinned recursively"))
                 }
             };
@@ -572,8 +578,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     pub async fn query_pins(
         &self,
         cids: Vec<Cid>,
-    ) -> Result<Vec<(Cid, Result<Option<PinKind<Cid>>, Error>)>, Error> {
-        Ok(self.repo.query_pins(cids).await)
+        requirement: Option<PinMode>,
+    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
+        self.repo.query_pins(cids, requirement).await
     }
 
     /// Puts an ipld dag node into the ipfs repo.

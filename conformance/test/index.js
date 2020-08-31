@@ -121,7 +121,15 @@ tests.dht(factory, {
 
 // tests.repo(factory)
 // tests.object(factory)
-tests.pin.add(factory)
+tests.pin.add(factory, {
+  skip: ['should respect timeout option when pinning a block']
+})
+tests.pin.ls(factory, {
+  skip: ['should respect timeout option when listing pins']
+})
+tests.pin.rm(factory, {
+  skip: ['should respect timeout option when unpinning a block']
+})
 // tests.bootstrap(factory)
 // tests.name(factory)
 // tests.namePubsub(factory)

@@ -16,6 +16,7 @@ use futures::channel::{
 use futures::sink::SinkExt;
 use libp2p::core::PeerId;
 use serde::{Deserialize, Serialize};
+use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
@@ -131,7 +132,13 @@ pub trait PinStore: Debug + Send + Sync + Unpin + 'static {
     // js-ipfs: starts fetching paths
     // FIXME: there should probably be an additional Result<$inner, Error> here; the per pin error
     // is serde OR cid::Error.
-    async fn query(&self, ids: Vec<Cid>) -> Vec<(Cid, Result<Option<PinKind<Cid>>, Error>)>;
+    /// Returns error if any of the ids isn't pinned in the required type, otherwise returns
+    /// the pin details if all of the cids are pinned in one way or the another.
+    async fn query(
+        &self,
+        ids: Vec<Cid>,
+        requirement: Option<PinMode>,
+    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error>;
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -140,15 +147,27 @@ pub enum Column {
     Pin,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PinMode {
     Indirect,
     Direct,
     Recursive,
 }
 
+impl<'a, B: Borrow<Cid>> PartialEq<&'a PinMode> for PinKind<B> {
+    fn eq(&self, other: &&PinMode) -> bool {
+        match (self, other) {
+            (PinKind::IndirectFrom(_), PinMode::Indirect)
+            | (PinKind::Direct, PinMode::Direct)
+            | (PinKind::Recursive(_), PinMode::Recursive)
+            | (PinKind::RecursiveIntention, PinMode::Recursive) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
-pub enum PinKind<C: std::borrow::Borrow<Cid>> {
+pub enum PinKind<C: Borrow<Cid>> {
     IndirectFrom(C),
     Direct,
     Recursive(u64),
@@ -377,8 +396,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub async fn query_pins(
         &self,
         cids: Vec<Cid>,
-    ) -> Vec<(Cid, Result<Option<PinKind<Cid>>, Error>)> {
-        self.data_store.query(cids).await
+        requirement: Option<PinMode>,
+    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
+        self.data_store.query(cids, requirement).await
     }
 }
 
@@ -405,7 +425,7 @@ impl Recursive {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PinDocument {
     version: u8,
     direct: bool,
@@ -418,7 +438,7 @@ pub struct PinDocument {
 }
 
 impl PinDocument {
-    fn update(&mut self, add: bool, kind: PinKind<&'_ Cid>) -> Result<bool, PinUpdateError> {
+    fn update(&mut self, add: bool, kind: &PinKind<&'_ Cid>) -> Result<bool, PinUpdateError> {
         // these update rules are a bit complex and there are cases we don't need to handle.
         // Updating on upon `PinKind` forces the caller to inspect what the current state is for
         // example to handle the case of failing "unpin currently recursively pinned as direct".
@@ -429,7 +449,7 @@ impl PinDocument {
                     root.to_string()
                 } else {
                     // this is one more allocation
-                    Cid::new_v1(root.codec(), root.hash().to_owned()).to_string()
+                    Cid::new_v1(root.codec(), (*root).hash().to_owned()).to_string()
                 };
 
                 let modified = if self.indirect_by.is_empty() {
@@ -498,6 +518,7 @@ impl PinDocument {
                 Ok(modified)
             }
             PinKind::Recursive(descendants) => {
+                let descendants = *descendants;
                 let modified = if add {
                     match self.recursive {
                         Recursive::Count(other) if other != descendants => {

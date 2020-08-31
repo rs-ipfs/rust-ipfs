@@ -1,10 +1,11 @@
 use crate::v0::support::option_parsing::ParseError;
 use crate::v0::support::{with_ipfs, StringError, StringSerialized};
-use futures::future::try_join_all;
-use ipfs::{Cid, Ipfs, IpfsTypes};
-use serde::Serialize;
+use ipfs::{Cid, Ipfs, IpfsTypes, PinKind, PinMode};
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::convert::TryFrom;
-use warp::{reply, Filter, Rejection, Reply};
+use warp::{Filter, Rejection, Reply};
 
 mod add;
 
@@ -18,24 +19,381 @@ pub fn add<T: IpfsTypes>(
         .and_then(add::add_inner)
 }
 
+#[derive(Debug)]
+struct ListRequest {
+    // FIXME: should be Vec<IpfsPath>
+    arg: Vec<Cid>,
+    filter: PinFilter,
+    // FIXME: not sure if this is used
+    quiet: bool,
+    // FIXME copypaste
+    stream: bool,
+    timeout: Option<humantime::Duration>,
+}
+
+impl<'a> TryFrom<&'a str> for ListRequest {
+    type Error = ParseError<'a>;
+
+    fn try_from(q: &'a str) -> Result<Self, Self::Error> {
+        use ParseError::*;
+
+        // TODO: similar arg with duplicates question as always
+
+        let parse = url::form_urlencoded::parse(q.as_bytes());
+        let mut args = Vec::new();
+        let mut filter = None;
+        let mut quiet = None;
+        let mut stream = None;
+        let mut timeout = None;
+
+        for (key, value) in parse {
+            let target = match &*key {
+                "arg" => {
+                    // FIXME: this should be IpfsPath
+                    args.push(
+                        Cid::try_from(&*value)
+                            .map_err(|e| ParseError::InvalidCid("arg".into(), e))?,
+                    );
+                    continue;
+                }
+                "type" => {
+                    if filter.is_none() {
+                        // not parsing this the whole way as there might be hope to have this
+                        // function removed in the future.
+                        filter = Some(match &*value {
+                            "all" => PinFilter::All,
+                            "direct" => PinFilter::Direct,
+                            "recursive" => PinFilter::Recursive,
+                            "indirect" => PinFilter::Indirect,
+                            other => {
+                                return Err(ParseError::InvalidValue(
+                                    "type".into(),
+                                    other.to_owned().into(),
+                                ))
+                            }
+                        });
+                        continue;
+                    } else {
+                        return Err(DuplicateField(key));
+                    }
+                }
+                "timeout" => {
+                    if timeout.is_none() {
+                        timeout = Some(
+                            value
+                                .parse()
+                                .map_err(|e| ParseError::InvalidDuration("timeout".into(), e))?,
+                        );
+                        continue;
+                    } else {
+                        return Err(DuplicateField(key));
+                    }
+                }
+                "quiet" => &mut quiet,
+                "stream" => &mut stream,
+                _ => {
+                    // ignore unknown fields
+                    continue;
+                }
+            };
+
+            if target.is_none() {
+                match value.parse::<bool>() {
+                    Ok(value) => *target = Some(value),
+                    Err(_) => return Err(InvalidBoolean(key, value)),
+                }
+            } else {
+                return Err(DuplicateField(key));
+            }
+        }
+
+        // special case compared to others: it's ok not to have any args, or any filter
+
+        Ok(ListRequest {
+            arg: args,
+            filter: filter.unwrap_or(PinFilter::All),
+            quiet: quiet.unwrap_or(false),
+            // this default was mentioned in the pin/ls api
+            stream: quiet.unwrap_or(true),
+            timeout,
+        })
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum PinFilter {
+    Direct,
+    Indirect,
+    Recursive,
+    All,
+}
+
+impl Default for PinFilter {
+    fn default() -> Self {
+        PinFilter::All
+    }
+}
+
+impl PinFilter {
+    fn to_mode(&self) -> Option<PinMode> {
+        use PinFilter::*;
+        match self {
+            Direct => Some(PinMode::Direct),
+            Indirect => Some(PinMode::Indirect),
+            Recursive => Some(PinMode::Recursive),
+            All => None,
+        }
+    }
+}
+
+/// `pin/ls` per https://docs.ipfs.io/reference/http/api/#api-v0-pin-ls
 pub fn list<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
-    with_ipfs(ipfs).and_then(list_inner)
+    with_ipfs(ipfs).and(list_options()).and_then(list_inner)
 }
 
-async fn list_inner<T: IpfsTypes>(_ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
-    // interestingly conformance tests call this with `paths=cid&stream=true&arg=cid`
-    // this needs to be a stream of the listing
-    Err::<&'static str, _>(crate::v0::NotImplemented.into())
+fn list_options() -> impl Filter<Extract = (ListRequest,), Error = Rejection> + Clone {
+    warp::filters::query::raw().and_then(|q: String| {
+        let res = ListRequest::try_from(q.as_str())
+            .map_err(StringError::from)
+            .map_err(warp::reject::custom);
+
+        futures::future::ready(res)
+    })
 }
+
+async fn list_inner<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    req: ListRequest,
+) -> Result<impl Reply, Rejection> {
+    use bytes::{buf::BufMutExt, BufMut, BytesMut};
+    use futures::stream::StreamExt;
+
+    #[derive(serde::Serialize)]
+    struct Good {
+        #[serde(rename = "Cid")]
+        cid: StringSerialized<Cid>,
+        #[serde(rename = "Type")]
+        mode: Cow<'static, str>,
+    }
+
+    // this is extending the http spec quite a lot, but we don't have a way to report these with
+    // headers.
+    #[derive(serde::Serialize)]
+    struct Bad {
+        err: String,
+    }
+
+    if req.arg.is_empty() {
+        let st = ipfs.list_pins(req.filter.to_mode()).await;
+
+        if req.stream {
+            let mut buffer = BytesMut::with_capacity(256);
+            let st = st.map(move |res| match res {
+                Ok((cid, mode)) => {
+                    serde_json::to_writer(
+                        (&mut buffer).writer(),
+                        &Good {
+                            cid: StringSerialized(cid),
+                            mode: match mode {
+                                PinMode::Direct => "direct",
+                                PinMode::Indirect => "indirect",
+                                PinMode::Recursive => "recursive",
+                            }
+                            .into(),
+                        },
+                    )
+                    // not in general but here
+                    .expect("no component should fail serialization");
+
+                    buffer.put_u8(b'\n');
+
+                    Ok::<_, std::convert::Infallible>(buffer.split().freeze())
+                }
+                Err(e) => {
+                    serde_json::to_writer((&mut buffer).writer(), &Bad { err: e.to_string() })
+                        .unwrap();
+                    buffer.put_u8(b'\n');
+
+                    // the stream should end on first error
+                    Ok(buffer.split().freeze())
+                }
+            });
+
+            Ok(crate::v0::support::StreamResponse(st).into_response())
+        } else {
+            // TODO: the non stream variant looks like the http docs one:
+            // { "Keys": { "cid": { "Type": "indirect" } } }
+            Err(crate::v0::NotImplemented.into())
+        }
+    } else {
+        // the variant where we are not actually listing anything but more about finding the
+        // specific cids
+
+        let requirement = req.filter.to_mode();
+
+        let details = ipfs
+            .query_pins(req.arg, requirement)
+            .await
+            .map_err(StringError::from)?;
+
+        if req.stream {
+            let mut buffer = BytesMut::with_capacity(256);
+            let st = futures::stream::iter(details)
+                .map(|tuple| Ok::<_, std::convert::Infallible>(tuple))
+                .map(move |res| match res {
+                    Ok((cid, kind)) => {
+                        serde_json::to_writer(
+                            (&mut buffer).writer(),
+                            &Good {
+                                cid: StringSerialized(cid),
+                                mode: match kind {
+                                    PinKind::Recursive(_) | PinKind::RecursiveIntention => {
+                                        "recursive".into()
+                                    }
+                                    PinKind::Direct => "direct".into(),
+                                    PinKind::IndirectFrom(cid) => {
+                                        format!("indirect through {}", cid).into()
+                                    }
+                                },
+                            },
+                        )
+                        .expect("no component should fail serialization");
+
+                        buffer.put_u8(b'\n');
+
+                        Ok::<_, std::convert::Infallible>(buffer.split().freeze())
+                    }
+                    Err(e) => {
+                        serde_json::to_writer((&mut buffer).writer(), &Bad { err: e.to_string() })
+                            .unwrap();
+                        buffer.put_u8(b'\n');
+
+                        // the stream should end on first error
+                        Ok(buffer.split().freeze())
+                    }
+                });
+
+            Ok(crate::v0::support::StreamResponse(st).into_response())
+
+        // FIXME: here the req.filter is in fact not a filter but in fact a requirement; if any of
+        // the pins don't satisfy this requirement the response should be just error
+        //
+        // the formats are same as above
+        } else {
+            Err(crate::v0::NotImplemented.into())
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ListResponse<'a> {
+    #[serde(rename = "Keys")]
+    keys: HashMap<StringSerialized<Cid>, TypeDecorator<'a>>,
+}
+
+#[derive(Debug, Serialize)]
+struct TypeDecorator<'a> {
+    #[serde(rename = "Type")]
+    kind: Cow<'a, str>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RemoveRequest {
+    // FIXME: go-ipfs supports multiple pin removals on single request
+    arg: StringSerialized<Cid>,
+    // Not mentioned in the API docs but this is accepted
+    // Defaults to true which will remove both recursive and direct.
+    recursive: Option<bool>,
+}
+
+/*impl<'a> TryFrom<&'a str> for RemoveRequest {
+    type Error = ParseError<'a>;
+
+    fn try_from(q: &'a str) -> Result<Self, Self::Error> {
+        use ParseError::*;
+
+        // TODO: similar arg with duplicates question as always
+
+        let parse = url::form_urlencoded::parse(q.as_bytes());
+        let mut args = Vec::new();
+        let mut recursive = None;
+
+        for (key, value) in parse {
+            let target = match &*key {
+                "arg" => {
+                    // FIXME: this should be IpfsPath
+                    args.push(
+                        Cid::try_from(&*value)
+                            .map_err(|e| ParseError::InvalidCid("arg".into(), e))?,
+                    );
+                    continue;
+                }
+                "recursive" => &mut recursive,
+                _ => {
+                    // ignore unknown fields
+                    continue;
+                }
+            };
+
+            if target.is_none() {
+                match value.parse::<bool>() {
+                    Ok(value) => *target = Some(value),
+                    Err(_) => return Err(InvalidBoolean(key, value)),
+                }
+            } else {
+                return Err(DuplicateField(key));
+            }
+        }
+
+        if args.is_empty() {
+            return Err(MissingArg);
+        }
+
+        Ok(RemoveRequest {
+            arg: args,
+            recursive: recursive.unwrap_or(true),
+        })
+    }
+}
+
+fn remove_request() -> impl Filter<Extract = (RemoveRequest,), Error = Rejection> + Clone {
+    warp::filters::query::raw().and_then(|q: String| {
+        let res = RemoveRequest::try_from(q.as_str())
+            .map_err(StringError::from)
+            .map_err(warp::reject::custom);
+
+        futures::future::ready(res)
+    })
+}
+*/
 
 pub fn rm<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
-    with_ipfs(ipfs).and_then(rm_inner)
+    //with_ipfs(ipfs).and(remove_request()).and_then(rm_inner)
+    with_ipfs(ipfs)
+        .and(warp::query::<RemoveRequest>())
+        .and_then(rm_inner)
 }
 
-async fn rm_inner<T: IpfsTypes>(_ipfs: Ipfs<T>) -> Result<impl Reply, Rejection> {
-    Err::<&'static str, _>(crate::v0::NotImplemented.into())
+async fn rm_inner<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    req: RemoveRequest,
+) -> Result<impl Reply, Rejection> {
+    ipfs.remove_pin(req.arg.as_ref(), req.recursive.unwrap_or(true))
+        .await
+        .map_err(StringError::from)?;
+
+    Ok(warp::reply::json(&RemoveResponse {
+        pins: vec![req.arg],
+    }))
+}
+
+#[derive(Debug, Serialize)]
+struct RemoveResponse {
+    #[serde(rename = "Pins")]
+    pins: Vec<StringSerialized<Cid>>,
 }

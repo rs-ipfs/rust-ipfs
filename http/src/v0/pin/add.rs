@@ -26,11 +26,6 @@ pub async fn add_inner<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     request: AddRequest,
 ) -> Result<impl Reply, Rejection> {
-    if request.recursive {
-        // FIXME: this is not documented however all tests always pass true or false
-        return Err(crate::v0::support::NotImplemented.into());
-    }
-
     if request.progress {
         // FIXME: there doesn't appear to be a test for this
         return Err(crate::v0::support::NotImplemented.into());

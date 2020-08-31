@@ -112,10 +112,13 @@ impl PinStore for MemDataStore {
         match g.entry(key) {
             Entry::Occupied(mut oe) => {
                 let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
-                if doc.update(true, kind)? {
+                if doc.update(true, &kind)? {
                     let vec = oe.get_mut();
                     vec.clear();
                     serde_json::to_writer(vec, &doc)?;
+                    trace!(doc = ?doc, kind = ?kind, "updated on insert");
+                } else {
+                    trace!(doc = ?doc, kind = ?kind, "update not needed on insert");
                 }
             }
             Entry::Vacant(ve) => {
@@ -130,9 +133,10 @@ impl PinStore for MemDataStore {
                     indirect_by: Vec::new(),
                 };
 
-                doc.update(true, kind).unwrap();
+                doc.update(true, &kind).unwrap();
                 let vec = serde_json::to_vec(&doc)?;
                 ve.insert(vec);
+                trace!(doc = ?doc, kind = ?kind, "created on insert");
             }
         }
 
@@ -150,7 +154,8 @@ impl PinStore for MemDataStore {
         match g.entry(key) {
             Entry::Occupied(mut oe) => {
                 let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
-                if !doc.update(false, kind)? {
+                if !doc.update(false, &kind)? {
+                    trace!(doc = ?doc, kind = ?kind, "update not needed on removal");
                     return Ok(());
                 }
 
@@ -201,28 +206,58 @@ impl PinStore for MemDataStore {
         futures::stream::iter(copy).boxed()
     }
 
-    async fn query(&self, cids: Vec<Cid>) -> Vec<(Cid, Result<Option<PinKind<Cid>>, Error>)> {
+    async fn query(
+        &self,
+        cids: Vec<Cid>,
+        requirement: Option<PinMode>,
+    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
         let g = self.pin.lock().await;
 
         cids.into_iter()
-            .map(|cid| match g.get(&cid.to_bytes()) {
-                Some(raw) => {
-                    let doc: PinDocument = match serde_json::from_slice(raw) {
-                        Ok(doc) => doc,
-                        Err(e) => return (cid, Err(e.into())),
-                    };
-                    // None from document is bad result, since the document shouldn't exist in the
-                    // first place
-                    let mode = match doc.pick_kind() {
-                        Some(Ok(kind)) => Ok(Some(kind)),
-                        Some(Err(invalid_cid)) => Err(invalid_cid.into()),
-                        None => Ok(None),
-                    };
-                    (cid, mode)
+            .map(move |cid| {
+                match g.get(&cid.to_bytes()) {
+                    Some(raw) => {
+                        let doc: PinDocument = match serde_json::from_slice(raw) {
+                            Ok(doc) => doc,
+                            Err(e) => return Err(e.into()),
+                        };
+                        // None from document is bad result, since the document shouldn't exist in the
+                        // first place
+                        let mode = match doc.pick_kind() {
+                            Some(Ok(kind)) => kind,
+                            Some(Err(invalid_cid)) => return Err(Error::new(invalid_cid)),
+                            None => {
+                                trace!(doc = ?doc, "could not pick pin kind");
+                                return Err(anyhow::anyhow!("{} is not pinned", cid));
+                            }
+                        };
+
+                        // would be more clear if this business was in a separate map; quite awful
+                        // as it is now
+
+                        let matches = requirement.as_ref().map(|req| mode == req).unwrap_or(true);
+
+                        if matches {
+                            trace!(cid = %cid, req = ?requirement, "pin matches");
+                            return Ok((cid, mode));
+                        } else {
+                            // FIXME: this error is about the same as http api expects
+                            return Err(anyhow::anyhow!(
+                                "{} is not pinned as {:?}",
+                                cid,
+                                requirement.expect("matches is never false if requirement is none")
+                            ));
+                        }
+                    }
+                    None => {
+                        trace!(cid = %cid, "no record found");
+                    }
                 }
-                None => (cid, Ok(None)),
+
+                // FIXME: this error is expected on http interface
+                Err(anyhow::anyhow!("{} is not pinned", cid))
             })
-            .collect::<Vec<_>>()
+            .collect::<Result<Vec<_>, _>>()
     }
 }
 
