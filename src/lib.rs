@@ -461,94 +461,87 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             self.repo.remove_pin(cid, PinKind::Direct).await
         } else {
             let span = tracing::debug_span!("remove recursive pin", cid = %cid);
+            async move {
+                let (cid, kind) = self
+                    .repo
+                    .query_pins(vec![cid.to_owned()], None)
+                    .await?
+                    .swap_remove(0);
 
-            let (cid, kind) = self
-                .repo
-                .query_pins(vec![cid.to_owned()], None)
-                .instrument(span.clone())
-                .await?
-                .swap_remove(0);
+                trace!(pin = ?kind, "found pin to be removed");
 
-            trace!(pin = ?kind, "found pin to be removed");
+                let expected_count = match kind {
+                    PinKind::RecursiveIntention => {
+                        // there may still be some stragglers so perhaps remove them
+                        // but we dont know how many should we expect to find
+                        debug!("detected previous incomplete pinning");
+                        None
+                    }
+                    PinKind::Recursive(count) => Some(count),
+                    PinKind::Direct | PinKind::IndirectFrom(_) => {
+                        return Err(anyhow::anyhow!("not pinned recursively"))
+                    }
+                };
 
-            let expected_count = match kind {
-                PinKind::RecursiveIntention => {
-                    // there may still be some stragglers so perhaps remove them
-                    // but we dont know how many should we expect to find
-                    None
+                // start walking refs of the root after loading it
+
+                let Block { data, .. } = match self.repo.get_block_now(&cid).await? {
+                    Some(b) => b,
+                    None => {
+                        return Err(anyhow::anyhow!("pinned root not found: {}", cid));
+                    }
+                };
+
+                let ipld = crate::ipld::decode_ipld(&cid, &data)?;
+                let st = crate::refs::IpldRefs::default()
+                    .with_only_unique()
+                    .with_existing_blocks()
+                    .refs_of_resolved(self, vec![(cid.clone(), ipld.clone())].into_iter())
+                    .into_stream();
+
+                futures::pin_mut!(st);
+
+                let mut count = 0u64;
+
+                while let Some(crate::refs::Edge { destination, .. }) = st.try_next().await? {
+                    self.repo
+                        .remove_pin(&destination, PinKind::IndirectFrom(&cid))
+                        .await?;
+
+                    count += 1;
                 }
-                PinKind::Recursive(count) => Some(count),
-                PinKind::Direct | PinKind::IndirectFrom(_) => {
-                    return Err(anyhow::anyhow!("not pinned recursively"))
+
+                let removed = if expected_count.is_some() {
+                    PinKind::Recursive(count)
+                } else {
+                    PinKind::RecursiveIntention
+                };
+
+                self.repo.remove_pin(&cid, removed).await?;
+
+                match expected_count {
+                    Some(x) if x == count => {
+                        info!(count = x, "removed as many indirect pins as were meant to");
+                    }
+                    Some(x) => {
+                        warn!(
+                            expected = x,
+                            actual = count,
+                            "removed unexpected number of indirect pins",
+                        );
+                    }
+                    None => {
+                        info!(
+                            cleared_out = count,
+                            "cleaned up and removed previous partial pinning",
+                        );
+                    }
                 }
-            };
 
-            // start walking refs of the root
-
-            let Block { data, .. } = match self.repo.get_block_now(&cid).await? {
-                Some(b) => b,
-                None => {
-                    return Err(anyhow::anyhow!("pinned root not found: {}", cid));
-                }
-            };
-
-            let ipld = crate::ipld::decode_ipld(&cid, &data)?;
-            let st = crate::refs::IpldRefs::default()
-                .with_only_unique()
-                .with_existing_blocks()
-                .refs_of_resolved(self, vec![(cid.clone(), ipld.clone())].into_iter())
-                .into_stream();
-
-            futures::pin_mut!(st);
-
-            let mut count = 0u64;
-
-            while let Some(crate::refs::Edge { destination, .. }) =
-                st.try_next().instrument(span.clone()).await?
-            {
-                // we probably don't need to worry about rollback here, if we wrote a
-                self.repo
-                    .remove_pin(&destination, PinKind::IndirectFrom(&cid))
-                    .instrument(span.clone())
-                    .await?;
-
-                count += 1;
+                Ok(())
             }
-
-            let removed = if expected_count.is_some() {
-                PinKind::Recursive(count)
-            } else {
-                PinKind::RecursiveIntention
-            };
-
-            self.repo
-                .remove_pin(&cid, removed)
-                .instrument(span.clone())
-                .await?;
-
-            match expected_count {
-                Some(x) if x == count => {
-                    // good, we removed as many as we were supposed to
-                    info!(count = x, "removed as many indirect pins as were meant to");
-                }
-                Some(x) => {
-                    // bad
-                    error!(
-                        expected = x,
-                        actual = count,
-                        "removed unexpected number of indirect pins",
-                    );
-                }
-                None => {
-                    // well, we cleared out the previous partial operation! good
-                    info!(
-                        cleared_out = count,
-                        "cleaned up and removed previous partial pinning",
-                    );
-                }
-            }
-
-            Ok(())
+            .instrument(span)
+            .await
         }
     }
 
