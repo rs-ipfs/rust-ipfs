@@ -147,6 +147,7 @@ pub enum Column {
     Pin,
 }
 
+/// `PinMode` is the description of pin type for quering purposes.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PinMode {
     Indirect,
@@ -166,6 +167,9 @@ impl<'a, B: Borrow<Cid>> PartialEq<&'a PinMode> for PinKind<B> {
     }
 }
 
+/// `PinKind` is more specific pin description for writing purposes. Implements
+/// `PartialEq<&PinMode>`. Generic over `Borrow<Cid>` to allow storing both reference and owned
+/// value of Cid.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PinKind<C: Borrow<Cid>> {
     IndirectFrom(C),
@@ -182,6 +186,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     pub(crate) subscriptions: SubscriptionRegistry<Block, String>,
 }
 
+/// Events used to communicate to the swarm on repo changes.
 #[derive(Debug)]
 pub enum RepoEvent {
     WantBlock(Cid),
@@ -426,7 +431,7 @@ impl Recursive {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct PinDocument {
+struct PinDocument {
     version: u8,
     direct: bool,
     // how many descendants; something to check when walking

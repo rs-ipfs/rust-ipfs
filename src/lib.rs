@@ -430,7 +430,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
                 while let Some(crate::refs::Edge { destination, .. }) = st.try_next().await? {
                     trace!(dest = %destination, "located reference");
-                    // we probably don't need to worry about rollback here, if we wrote a
+                    // this would be the best place to fail in a test case
                     self.repo
                         .insert_pin(&destination, PinKind::IndirectFrom(&cid))
                         .await?;
@@ -552,7 +552,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         }
     }
 
-    /// Checks whether a given block is pinned
+    /// Checks whether a given block is pinned. At the moment does not support incomplete recursive
+    /// pins.
+    ///
+    /// Does not currently detect missing indirect pins from partial recursive pin insertions.
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
         if self
             .repo
@@ -568,6 +571,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         ))
     }
 
+    /// Lists all pins, or the specific kind.
+    ///
+    /// Does not currently recover from partial recursive pin insertions.
     pub async fn list_pins(
         &self,
         filter: Option<PinMode>,
@@ -575,6 +581,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         self.repo.list_pins(filter).await
     }
 
+    /// Read specific pins. When `requirement` is `Some`, all pins are required to be of the given
+    /// `PinMode`.
+    ///
+    /// Does not currently recover from partial recursive pin insertions.
     pub async fn query_pins(
         &self,
         cids: Vec<Cid>,
