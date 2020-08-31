@@ -278,7 +278,6 @@ impl DataStore for MemDataStore {
     async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
-            Column::Pin => &self.pin,
         };
         let contains = map.lock().await.contains_key(key);
         Ok(contains)
@@ -287,7 +286,6 @@ impl DataStore for MemDataStore {
     async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
-            Column::Pin => &self.pin,
         };
         let value = map.lock().await.get(key).map(|value| value.to_owned());
         Ok(value)
@@ -296,7 +294,6 @@ impl DataStore for MemDataStore {
     async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
-            Column::Pin => &self.pin,
         };
         map.lock().await.insert(key.to_owned(), value.to_owned());
         Ok(())
@@ -305,7 +302,6 @@ impl DataStore for MemDataStore {
     async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
-            Column::Pin => &self.pin,
         };
         map.lock().await.remove(key);
         Ok(())

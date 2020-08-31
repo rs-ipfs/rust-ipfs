@@ -144,7 +144,6 @@ pub trait PinStore: Debug + Send + Sync + Unpin + 'static {
 #[derive(Clone, Copy, Debug)]
 pub enum Column {
     Ipns,
-    Pin,
 }
 
 /// `PinMode` is the description of pin type for quering purposes.
