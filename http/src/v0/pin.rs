@@ -309,67 +309,6 @@ struct RemoveRequest {
     recursive: Option<bool>,
 }
 
-/*impl<'a> TryFrom<&'a str> for RemoveRequest {
-    type Error = ParseError<'a>;
-
-    fn try_from(q: &'a str) -> Result<Self, Self::Error> {
-        use ParseError::*;
-
-        // TODO: similar arg with duplicates question as always
-
-        let parse = url::form_urlencoded::parse(q.as_bytes());
-        let mut args = Vec::new();
-        let mut recursive = None;
-
-        for (key, value) in parse {
-            let target = match &*key {
-                "arg" => {
-                    // FIXME: this should be IpfsPath
-                    args.push(
-                        Cid::try_from(&*value)
-                            .map_err(|e| ParseError::InvalidCid("arg".into(), e))?,
-                    );
-                    continue;
-                }
-                "recursive" => &mut recursive,
-                _ => {
-                    // ignore unknown fields
-                    continue;
-                }
-            };
-
-            if target.is_none() {
-                match value.parse::<bool>() {
-                    Ok(value) => *target = Some(value),
-                    Err(_) => return Err(InvalidBoolean(key, value)),
-                }
-            } else {
-                return Err(DuplicateField(key));
-            }
-        }
-
-        if args.is_empty() {
-            return Err(MissingArg);
-        }
-
-        Ok(RemoveRequest {
-            arg: args,
-            recursive: recursive.unwrap_or(true),
-        })
-    }
-}
-
-fn remove_request() -> impl Filter<Extract = (RemoveRequest,), Error = Rejection> + Clone {
-    warp::filters::query::raw().and_then(|q: String| {
-        let res = RemoveRequest::try_from(q.as_str())
-            .map_err(StringError::from)
-            .map_err(warp::reject::custom);
-
-        futures::future::ready(res)
-    })
-}
-*/
-
 pub fn rm<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
