@@ -9,8 +9,8 @@ use bitswap::{Bitswap, BitswapEvent};
 use cid::Cid;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{Identify, IdentifyEvent};
-use libp2p::kad::record::{store::MemoryStore, Key};
-use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent};
+use libp2p::kad::record::{store::MemoryStore, Key, Record};
+use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent, Quorum};
 use libp2p::mdns::{MdnsEvent, TokioMdns};
 use libp2p::ping::{Ping, PingEvent};
 use libp2p::swarm::toggle::Toggle;
@@ -41,6 +41,7 @@ pub struct Behaviour<Types: IpfsTypes> {
 pub enum KadResult {
     Complete,
     Peers(Vec<PeerId>),
+    Records(Vec<Record>),
 }
 
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<()> for Behaviour<Types> {
@@ -83,7 +84,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                 if self.kademlia.query(&id).is_none() {
                     match result {
                         // these subscriptions return actual values
-                        GetClosestPeers(_) | GetProviders(_) => {}
+                        GetClosestPeers(_) | GetProviders(_) | GetRecord(_) => {}
                         // and the rest just a general KadResult::Complete
                         _ => {
                             self.kad_subscriptions
@@ -164,9 +165,10 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         warn!("kad: timed out trying to republish provider {}", key);
                     }
                     GetRecord(Ok(GetRecordOk { records })) => {
-                        for record in records {
-                            let key = multibase::encode(Base::Base32Lower, record.record.key);
-                            debug!("kad: got record {}:{:?}", key, record.record.value);
+                        if self.kademlia.query(&id).is_none() {
+                            let records = records.into_iter().map(|rec| rec.record).collect();
+                            self.kad_subscriptions
+                                .finish_subscription(id.into(), Ok(KadResult::Records(records)));
                         }
                     }
                     GetRecord(Err(GetRecordError::NotFound {
@@ -175,37 +177,44 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
                         warn!("kad: couldn't find record {}", key);
+
+                        if self.kademlia.query(&id).is_none() {
+                            self.kad_subscriptions.finish_subscription(
+                                id.into(),
+                                Err("couldn't find a record for the given key".to_string()),
+                            );
+                        }
                     }
                     GetRecord(Err(GetRecordError::QuorumFailed {
                         key,
-                        records,
+                        records: _,
                         quorum,
                     })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
+                        warn!("kad: quorum failed {} trying to get key {}", quorum, key);
 
-                        warn!(
-                            "kad: quorum failed {} trying to get key {}; got the following:",
-                            quorum, key
-                        );
-                        for record in records {
-                            let key = multibase::encode(Base::Base32Lower, record.record.key);
-                            debug!("kad: got record {}:{:?}", key, record.record.value);
+                        if self.kademlia.query(&id).is_none() {
+                            self.kad_subscriptions.finish_subscription(
+                                id.into(),
+                                Err("quorum failed when trying to obtain a record for the given key"
+                                    .to_string()),
+                            );
                         }
                     }
                     GetRecord(Err(GetRecordError::Timeout {
                         key,
-                        records,
+                        records: _,
                         quorum: _,
                     })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
+                        warn!("kad: timed out trying to get key {}", key);
 
-                        warn!(
-                            "kad: timed out trying to get key {}; got the following:",
-                            key
-                        );
-                        for record in records {
-                            let key = multibase::encode(Base::Base32Lower, record.record.key);
-                            debug!("kad: got record {}:{:?}", key, record.record.value);
+                        if self.kademlia.query(&id).is_none() {
+                            self.kad_subscriptions.finish_subscription(
+                                id.into(),
+                                Err("timed out trying to obtain a record for the given key"
+                                    .to_string()),
+                            );
                         }
                     }
                     PutRecord(Ok(PutRecordOk { key }))
@@ -512,6 +521,31 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             Err(e) => {
                 error!("kad: can't provide a key: {:?}", e);
                 Err(anyhow!("kad: can't provide the key: {:?}", e))
+            }
+        }
+    }
+
+    pub fn dht_get(&mut self, key: Key) -> SubscriptionFuture<KadResult, String> {
+        self.kad_subscriptions
+            .create_subscription(self.kademlia.get_record(&key, Quorum::One).into(), None)
+    }
+
+    pub fn dht_put(
+        &mut self,
+        key: Key,
+        value: Vec<u8>,
+    ) -> Result<SubscriptionFuture<KadResult, String>, anyhow::Error> {
+        let record = Record {
+            key,
+            value,
+            publisher: None,
+            expires: None,
+        };
+        match self.kademlia.put_record(record, Quorum::One) {
+            Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
+            Err(e) => {
+                error!("kad: can't put a record: {:?}", e);
+                Err(anyhow!("kad: can't provide the record: {:?}", e))
             }
         }
     }

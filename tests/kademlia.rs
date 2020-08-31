@@ -318,3 +318,22 @@ async fn dht_providing() {
         .unwrap()
         .contains(&ids_and_addrs[last_index].0.clone()));
 }
+
+/// Check if Ipfs::{get, put} does its job.
+#[tokio::test(max_threads = 1)]
+async fn dht_get_put() {
+    const CHAIN_LEN: usize = 10;
+    let (nodes, _ids_and_addrs, go_node) = start_nodes_in_chain(CHAIN_LEN).await;
+    let last_index = CHAIN_LEN - if go_node.is_none() { 1 } else { 2 };
+
+    let (key, value) = (b"key".to_vec(), b"value".to_vec());
+
+    // the last node puts a key+value record
+    nodes[last_index]
+        .dht_put(key.clone(), value.clone())
+        .await
+        .unwrap();
+
+    // and the first node should be able to get it
+    assert_eq!(nodes[0].dht_get(key).await.unwrap(), vec![value]);
+}
