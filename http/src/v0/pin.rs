@@ -168,8 +168,7 @@ async fn list_inner<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     req: ListRequest,
 ) -> Result<impl Reply, Rejection> {
-    use bytes::{buf::BufMutExt, BufMut, BytesMut};
-    use futures::stream::StreamExt;
+    use futures::stream::{StreamExt, TryStreamExt};
 
     #[derive(serde::Serialize)]
     struct Good {
@@ -179,50 +178,31 @@ async fn list_inner<T: IpfsTypes>(
         mode: Cow<'static, str>,
     }
 
-    // this is extending the http spec quite a lot, but we don't have a way to report these with
-    // headers.
-    #[derive(serde::Serialize)]
-    struct Bad {
-        err: String,
+    impl From<(Cid, Cow<'static, str>)> for Good {
+        fn from((cid, mode): (Cid, Cow<'static, str>)) -> Good {
+            Good {
+                cid: StringSerialized(cid),
+                mode,
+            }
+        }
     }
 
     if req.arg.is_empty() {
         let st = ipfs.list_pins(req.filter.to_mode()).await;
 
         if req.stream {
-            let mut buffer = BytesMut::with_capacity(256);
-            let st = st.map(move |res| match res {
-                Ok((cid, mode)) => {
-                    serde_json::to_writer(
-                        (&mut buffer).writer(),
-                        &Good {
-                            cid: StringSerialized(cid),
-                            mode: match mode {
-                                PinMode::Direct => "direct",
-                                PinMode::Indirect => "indirect",
-                                PinMode::Recursive => "recursive",
-                            }
-                            .into(),
-                        },
-                    )
-                    // not in general but here
-                    .expect("no component should fail serialization");
-
-                    buffer.put_u8(b'\n');
-
-                    Ok::<_, std::convert::Infallible>(buffer.split().freeze())
-                }
-                Err(e) => {
-                    serde_json::to_writer((&mut buffer).writer(), &Bad { err: e.to_string() })
-                        .unwrap();
-                    buffer.put_u8(b'\n');
-
-                    // the stream should end on first error
-                    Ok(buffer.split().freeze())
-                }
+            let st = st.map_ok(|(cid, mode)| {
+                Good::from((
+                    cid,
+                    match mode {
+                        PinMode::Direct => Cow::Borrowed("direct"),
+                        PinMode::Indirect => Cow::Borrowed("indirect"),
+                        PinMode::Recursive => Cow::Borrowed("recursive"),
+                    },
+                ))
             });
 
-            Ok(crate::v0::support::StreamResponse(st).into_response())
+            Ok(format_json_newline(st))
         } else {
             // TODO: the non stream variant looks like the http docs one:
             // { "Keys": { "cid": { "Type": "indirect" } } }
@@ -240,52 +220,64 @@ async fn list_inner<T: IpfsTypes>(
             .map_err(StringError::from)?;
 
         if req.stream {
-            let mut buffer = BytesMut::with_capacity(256);
             let st = futures::stream::iter(details)
-                .map(|tuple| Ok::<_, std::convert::Infallible>(tuple))
-                .map(move |res| match res {
-                    Ok((cid, kind)) => {
-                        serde_json::to_writer(
-                            (&mut buffer).writer(),
-                            &Good {
-                                cid: StringSerialized(cid),
-                                mode: match kind {
-                                    PinKind::Recursive(_) | PinKind::RecursiveIntention => {
-                                        "recursive".into()
-                                    }
-                                    PinKind::Direct => "direct".into(),
-                                    PinKind::IndirectFrom(cid) => {
-                                        format!("indirect through {}", cid).into()
-                                    }
-                                },
-                            },
-                        )
-                        .expect("no component should fail serialization");
-
-                        buffer.put_u8(b'\n');
-
-                        Ok::<_, std::convert::Infallible>(buffer.split().freeze())
-                    }
-                    Err(e) => {
-                        serde_json::to_writer((&mut buffer).writer(), &Bad { err: e.to_string() })
-                            .unwrap();
-                        buffer.put_u8(b'\n');
-
-                        // the stream should end on first error
-                        Ok(buffer.split().freeze())
-                    }
+                .map(Ok::<_, std::convert::Infallible>) // only done trying to match the types
+                .map_ok(|(cid, kind)| {
+                    Good::from((
+                        cid,
+                        match kind {
+                            PinKind::Recursive(_) | PinKind::RecursiveIntention => {
+                                "recursive".into()
+                            }
+                            PinKind::Direct => "direct".into(),
+                            PinKind::IndirectFrom(cid) => {
+                                format!("indirect through {}", cid).into()
+                            }
+                        },
+                    ))
                 });
 
-            Ok(crate::v0::support::StreamResponse(st).into_response())
-
-        // FIXME: here the req.filter is in fact not a filter but in fact a requirement; if any of
-        // the pins don't satisfy this requirement the response should be just error
-        //
-        // the formats are same as above
+            Ok(format_json_newline(st))
         } else {
             Err(crate::v0::NotImplemented.into())
         }
     }
+}
+
+fn format_json_newline<St, T, E>(st: St) -> warp::http::Response<hyper::body::Body>
+where
+    St: futures::stream::Stream<Item = Result<T, E>> + Send + 'static,
+    T: Serialize + Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+{
+    use bytes::{buf::BufMutExt, BufMut, BytesMut};
+    use futures::stream::StreamExt;
+
+    let mut buffer = BytesMut::with_capacity(256);
+    let st = st.map(move |res| match res {
+        Ok(good) => {
+            serde_json::to_writer((&mut buffer).writer(), &good)
+                .expect("no component should fail serialization");
+
+            buffer.put_u8(b'\n');
+
+            Ok::<_, std::convert::Infallible>(buffer.split().freeze())
+        }
+        Err(e) => {
+            // FIXME: this is non-standard once again
+            serde_json::to_writer(
+                (&mut buffer).writer(),
+                &serde_json::json!({ "Err": e.to_string() }),
+            )
+            .unwrap();
+            buffer.put_u8(b'\n');
+
+            // the stream should end on first error
+            Ok(buffer.split().freeze())
+        }
+    });
+
+    crate::v0::support::StreamResponse(st).into_response()
 }
 
 #[derive(Debug, Serialize)]
