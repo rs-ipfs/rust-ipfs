@@ -798,12 +798,12 @@ pub(crate) mod tests {
         repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
 
         assert_eq!(
-            repo.query_pins(vec![empty.clone()])
+            repo.query_pins(vec![empty.clone()], None)
                 .await
+                .unwrap()
                 .into_iter()
-                .map(|(cid, res)| (cid, res.unwrap()))
                 .collect::<Vec<_>>(),
-            vec![(empty.clone(), Some(PinKind::Direct))],
+            vec![(empty.clone(), PinKind::Direct)],
         );
 
         // first refs
@@ -861,7 +861,7 @@ pub(crate) mod tests {
             indirect_by: Vec::new(),
         };
 
-        assert!(doc.update(true, PinKind::Direct).unwrap());
+        assert!(doc.update(true, &PinKind::Direct).unwrap());
 
         assert_eq!(doc.mode(), Some(PinMode::Direct));
         assert_eq!(doc.pick_kind().unwrap().unwrap(), PinKind::Direct);
@@ -869,6 +869,7 @@ pub(crate) mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn can_pin_direct_as_recursive() {
+        use futures::stream::TryStreamExt;
         // the other way around doesn't work
         let repo = inited_repo().await.unwrap();
         //
@@ -878,16 +879,14 @@ pub(crate) mod tests {
 
         repo.insert_pin(&root, PinKind::Direct).await.unwrap();
 
-        assert_eq!(
-            repo.query_pins(vec![empty.clone(), root.clone()])
-                .await
-                .into_iter()
-                // TODO: this is quite hard to use, but we need to return the per cid errors, dunno how
-                // to do it otherwise
-                .map(|(cid, res)| (cid, res.unwrap()))
-                .collect::<Vec<_>>(),
-            vec![(empty.clone(), None), (root.clone(), Some(PinKind::Direct))]
-        );
+        let pins = repo
+            .list_pins(None)
+            .await
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+
+        assert_eq!(pins, vec![(root.clone(), PinMode::Direct)]);
 
         // first refs
 
@@ -929,8 +928,9 @@ pub(crate) mod tests {
         // should panic because the caller must not attempt this because:
 
         let (_, kind) = repo
-            .query_pins(vec![empty.clone()])
+            .query_pins(vec![empty.clone()], None)
             .await
+            .unwrap()
             .into_iter()
             .next()
             .unwrap();
@@ -938,7 +938,7 @@ pub(crate) mod tests {
         // the cids are stored as v1 ... not sure if that makes any sense TBH
         // feels like Cid should be equal regardless of version.
         let root_v1 = Cid::new_v1(root.codec(), root.hash().to_owned());
-        assert_eq!(kind.unwrap(), Some(PinKind::IndirectFrom(root_v1)));
+        assert_eq!(kind, PinKind::IndirectFrom(root_v1));
 
         // this makes the "remove direct" invalid, as the direct pin must not be removed while
         // recursively pinned
