@@ -47,7 +47,7 @@ struct ResolveResponse {
 #[derive(Debug, Deserialize)]
 pub struct DnsQuery {
     // the name to resolve
-    arg: StringSerialized<IpfsPath>,
+    arg: String,
 }
 
 pub fn dns<T: IpfsTypes>(
@@ -58,8 +58,20 @@ pub fn dns<T: IpfsTypes>(
 
 async fn dns_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: DnsQuery) -> Result<impl Reply, Rejection> {
     let DnsQuery { arg, .. } = query;
+    // attempt to parse the argument prepended with "/ipns/" if it fails to parse like a compliant
+    // IpfsPath and there is no leading slash
+    let path = if !arg.starts_with('/') {
+        if let Ok(parsed) = arg.parse() {
+            Ok(parsed)
+        } else {
+            format!("/ipns/{}", arg).parse()
+        }
+    } else {
+        arg.parse()
+    }
+    .map_err(StringError::from)?;
     let path = ipfs
-        .resolve(&arg.into_inner())
+        .resolve(&path)
         .await
         .map_err(StringError::from)?
         .to_string();
