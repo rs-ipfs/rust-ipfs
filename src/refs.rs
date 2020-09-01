@@ -56,7 +56,7 @@ impl Default for IpldRefs {
 }
 
 impl IpldRefs {
-    /// Overrides the default maximum depth of unlimited with the given maximum depth. Zero is
+    /// Overrides the default maximum depth of "unlimited" with the given maximum depth. Zero is
     /// allowed and will result in an empty stream.
     #[allow(dead_code)]
     pub fn with_max_depth(mut self, depth: u64) -> IpldRefs {
@@ -72,7 +72,7 @@ impl IpldRefs {
     }
 
     /// Overrides the default of allowing the refs operation to fetch blocks. Useful at least
-    /// internally in rust-ipfs to implement pinning recursively. This changes the streams
+    /// internally in rust-ipfs to implement pinning recursively. This changes the stream's
     /// behaviour to stop on first block which is not found locally.
     pub fn with_existing_blocks(mut self) -> IpldRefs {
         self.download_blocks = false;

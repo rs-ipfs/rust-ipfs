@@ -147,7 +147,7 @@ impl PinFilter {
     }
 }
 
-/// `pin/ls` per https://docs.ipfs.io/reference/http/api/#api-v0-pin-ls
+/// `pin/ls` as per https://docs.ipfs.io/reference/http/api/#api-v0-pin-ls
 pub fn list<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {

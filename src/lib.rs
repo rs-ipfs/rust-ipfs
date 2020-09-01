@@ -396,11 +396,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// can be made recursive, but removing the recursive pin on the block removes also the direct
     /// pin as well.
     ///
-    /// Pinning a Cid recursively (for supported dag-protobuf and dag-cbor) will walk it's
+    /// Pinning a Cid recursively (for supported dag-protobuf and dag-cbor) will walk its
     /// references and pin the references indirectly. When a Cid is pinned indirectly it will keep
-    /// it's previous direct or recursive pin and be indirect in addition.
+    /// its previous direct or recursive pin and be indirect in addition.
     ///
-    /// Recursively pinned Cids cannot be pinned non-recursively but non-recursively pinned Cids
+    /// Recursively pinned Cids cannot be re-pinned non-recursively but non-recursively pinned Cids
     /// can be "upgraded to" being recursively pinned.
     ///
     /// # Crash unsafety
@@ -457,7 +457,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Unpins a given Cid recursively or only directly.
     ///
-    /// Unpinning a previously only direclty pinned recursively will remove the direct pin.
+    /// Recursively unpinning a previously only directly pinned Cid will remove the direct pin.
     ///
     /// Unpinning an indirectly pinned Cid is not possible other than through its recursively
     /// pinned tree roots.
@@ -572,7 +572,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         self.repo.is_pinned(cid).instrument(self.span.clone()).await
     }
 
-    /// Lists all pins, or the specific kind.
+    /// Lists all pins, or the specific kind thereof.
     ///
     /// Does not currently recover from partial recursive pin insertions.
     pub async fn list_pins(
