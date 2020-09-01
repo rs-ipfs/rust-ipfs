@@ -107,8 +107,6 @@ tests.dht(factory, {
     "should find other peers",
     // no auto-bootstrapping?
     "should be able to find providers",
-    // invalid PeerId encoding
-    "should return the other node in the query",
     // multiple entries in the param
     "should allow multiple CIDs to be passed",
     // unimplemented endpoints

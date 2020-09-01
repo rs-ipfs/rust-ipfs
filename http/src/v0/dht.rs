@@ -189,7 +189,7 @@ async fn get_closest_peers_query<T: IpfsTypes>(
     } = query;
     let peer_id = arg.into_inner();
     let closest_peers = ipfs
-        .get_closest_peers(peer_id)
+        .get_closest_peers(peer_id.clone())
         .maybe_timeout(timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?
@@ -204,7 +204,7 @@ async fn get_closest_peers_query<T: IpfsTypes>(
     // FIXME: go-ipfs returns just a list of PeerIds
     let response = Response {
         extra: Default::default(),
-        id: Default::default(),
+        id: peer_id.to_string(),
         responses: closest_peers,
         r#type: 2,
     };
