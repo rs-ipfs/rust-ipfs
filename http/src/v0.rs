@@ -88,6 +88,7 @@ pub fn routes<T: IpfsTypes>(
         and_boxed!(warp::path!("id"), id::identity(ipfs)),
         and_boxed!(warp::path!("add"), root_files::add(ipfs)),
         and_boxed!(warp::path!("cat"), root_files::cat(ipfs)),
+        and_boxed!(warp::path!("dns"), ipns::dns(ipfs)),
         and_boxed!(warp::path!("get"), root_files::get(ipfs)),
         and_boxed!(warp::path!("refs" / "local"), refs::local(ipfs)),
         and_boxed!(warp::path!("refs"), refs::refs(ipfs)),

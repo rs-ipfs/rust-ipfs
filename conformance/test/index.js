@@ -33,7 +33,8 @@ const factory = createFactory(options)
 // Phase 1.0-ish
 //
 tests.miscellaneous(factory, { skip: [
-  'dns',
+  // recursive resolving is not implemented yet
+  'should recursively resolve ipfs.io',
   // the cidBase param is not implemented yet
   'should resolve an IPFS hash and return a base64url encoded CID in path',
   // different Cid, the /path/to/testfile.txt suffix shouldn't be there
