@@ -6,6 +6,7 @@ pub mod block;
 pub mod dag;
 pub mod dht;
 pub mod id;
+pub mod ipns;
 pub mod pin;
 pub mod pubsub;
 pub mod refs;
@@ -90,6 +91,7 @@ pub fn routes<T: IpfsTypes>(
         and_boxed!(warp::path!("get"), root_files::get(ipfs)),
         and_boxed!(warp::path!("refs" / "local"), refs::local(ipfs)),
         and_boxed!(warp::path!("refs"), refs::refs(ipfs)),
+        and_boxed!(warp::path!("resolve"), ipns::resolve(ipfs)),
         warp::path!("version")
             .and(query::<version::Query>())
             .and_then(version::version),

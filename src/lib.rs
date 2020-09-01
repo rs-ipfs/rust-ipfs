@@ -859,6 +859,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         refs::iplds_refs(self, iplds, max_depth, unique)
     }
 
+    pub async fn resolve(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
+        self.ipns().resolve(path).await
+    }
+
     /// Exit daemon.
     pub async fn exit_daemon(self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of

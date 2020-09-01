@@ -18,7 +18,7 @@ use thiserror::Error;
 #[error("no dnslink entry")]
 pub struct DnsLinkError;
 
-type FutureAnswer = Pin<Box<dyn Future<Output = Result<Answer, io::Error>>>>;
+type FutureAnswer = Pin<Box<dyn Future<Output = Result<Answer, io::Error>> + Send>>;
 
 pub struct DnsLinkFuture {
     query: SelectOk<FutureAnswer>,
