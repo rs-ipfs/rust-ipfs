@@ -122,13 +122,23 @@ tests.dht(factory, {
 // tests.repo(factory)
 // tests.object(factory)
 tests.pin.add(factory, {
-  skip: ['should respect timeout option when pinning a block']
+  skip: [
+    'should respect timeout option when pinning a block'
+  ]
 })
 tests.pin.ls(factory, {
-  skip: ['should respect timeout option when listing pins']
+  skip: [
+    'should respect timeout option when listing pins',
+    // ignore these for now: https://github.com/rs-ipfs/rust-ipfs/issues/350
+    'should throw an error on missing direct pins for existing path',
+    'should throw an error on missing link for a specific path',
+    'should list indirect pins for a specific path',
+  ]
 })
 tests.pin.rm(factory, {
-  skip: ['should respect timeout option when unpinning a block']
+  skip: [
+    'should respect timeout option when unpinning a block'
+  ]
 })
 // tests.bootstrap(factory)
 // tests.name(factory)
