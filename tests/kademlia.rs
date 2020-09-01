@@ -129,7 +129,7 @@ fn start_go_node() -> GoIpfsNode {
     // GO_IPFS_PATH should point to the location of the go-ipfs binary
     let go_ipfs_path = env::vars()
         .find(|(key, _val)| key == "GO_IPFS_PATH")
-        .expect("the GO_IPFS_PATH environment variable not found")
+        .expect("the GO_IPFS_PATH environment variable was not found")
         .1;
 
     let mut tmp_dir = env::temp_dir();
