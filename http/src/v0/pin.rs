@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::str::FromStr;
 use warp::{Filter, Rejection, Reply};
 
 mod add;
@@ -47,55 +48,47 @@ impl<'a> TryFrom<&'a str> for ListRequest {
         let mut timeout = None;
 
         for (key, value) in parse {
-            let target = match &*key {
-                "arg" => {
-                    // FIXME: this should be IpfsPath
-                    args.push(
-                        Cid::try_from(&*value)
-                            .map_err(|e| ParseError::InvalidCid("arg".into(), e))?,
-                    );
-                    continue;
-                }
-                "type" => {
-                    if filter.is_none() {
-                        // not parsing this the whole way as there might be hope to have this
-                        // function removed in the future.
-                        filter = Some(match &*value {
-                            "all" => PinFilter::All,
-                            "direct" => PinFilter::Direct,
-                            "recursive" => PinFilter::Recursive,
-                            "indirect" => PinFilter::Indirect,
-                            other => {
-                                return Err(ParseError::InvalidValue(
-                                    "type".into(),
-                                    other.to_owned().into(),
-                                ))
-                            }
-                        });
-                        continue;
-                    } else {
-                        return Err(DuplicateField(key));
-                    }
-                }
-                "timeout" => {
-                    if timeout.is_none() {
-                        timeout = Some(
-                            value
-                                .parse()
-                                .map_err(|e| ParseError::InvalidDuration("timeout".into(), e))?,
+            let target =
+                match &*key {
+                    "arg" => {
+                        // FIXME: this should be IpfsPath
+                        args.push(
+                            Cid::try_from(&*value)
+                                .map_err(|e| ParseError::InvalidCid("arg".into(), e))?,
                         );
                         continue;
-                    } else {
-                        return Err(DuplicateField(key));
                     }
-                }
-                "quiet" => &mut quiet,
-                "stream" => &mut stream,
-                _ => {
-                    // ignore unknown fields
-                    continue;
-                }
-            };
+                    "type" => {
+                        if filter.is_none() {
+                            // not parsing this the whole way as there might be hope to have this
+                            // function removed in the future.
+                            filter =
+                                Some(value.parse::<PinFilter>().map_err(|e| {
+                                    ParseError::InvalidValue("type".into(), e.into())
+                                })?);
+                            continue;
+                        } else {
+                            return Err(DuplicateField(key));
+                        }
+                    }
+                    "timeout" => {
+                        if timeout.is_none() {
+                            timeout =
+                                Some(value.parse().map_err(|e| {
+                                    ParseError::InvalidDuration("timeout".into(), e)
+                                })?);
+                            continue;
+                        } else {
+                            return Err(DuplicateField(key));
+                        }
+                    }
+                    "quiet" => &mut quiet,
+                    "stream" => &mut stream,
+                    _ => {
+                        // ignore unknown fields
+                        continue;
+                    }
+                };
 
             if target.is_none() {
                 match value.parse::<bool>() {
@@ -120,13 +113,28 @@ impl<'a> TryFrom<&'a str> for ListRequest {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug)]
 enum PinFilter {
     Direct,
     Indirect,
     Recursive,
     All,
+}
+
+impl FromStr for PinFilter {
+    // the not understood input
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use PinFilter::*;
+        Ok(match s {
+            "all" => All,
+            "direct" => Direct,
+            "recursive" => Recursive,
+            "indirect" => Indirect,
+            other => return Err(other.to_owned()),
+        })
+    }
 }
 
 impl Default for PinFilter {
