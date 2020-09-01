@@ -202,11 +202,11 @@ async fn list_inner<T: IpfsTypes>(
             let st = st.map_ok(|(cid, mode)| {
                 Good::from((
                     cid,
-                    match mode {
-                        PinMode::Direct => Cow::Borrowed("direct"),
-                        PinMode::Indirect => Cow::Borrowed("indirect"),
-                        PinMode::Recursive => Cow::Borrowed("recursive"),
-                    },
+                    Cow::Borrowed(match mode {
+                        PinMode::Direct => "direct",
+                        PinMode::Indirect => "indirect",
+                        PinMode::Recursive => "recursive",
+                    }),
                 ))
             });
 
