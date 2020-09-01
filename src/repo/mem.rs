@@ -246,7 +246,7 @@ impl PinStore for MemDataStore {
                         // would be more clear if this business was in a separate map; quite awful
                         // as it is now
 
-                        let matches = requirement.as_ref().map(|req| mode == req).unwrap_or(true);
+                        let matches = requirement.as_ref().map(|req| mode == *req).unwrap_or(true);
 
                         if matches {
                             trace!(cid = %cid, req = ?requirement, "pin matches");
@@ -256,7 +256,9 @@ impl PinStore for MemDataStore {
                             return Err(anyhow::anyhow!(
                                 "{} is not pinned as {:?}",
                                 cid,
-                                requirement.expect("matches is never false if requirement is none")
+                                requirement
+                                    .as_ref()
+                                    .expect("matches is never false if requirement is none")
                             ));
                         }
                     }

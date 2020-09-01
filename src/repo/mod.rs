@@ -154,8 +154,8 @@ pub enum PinMode {
     Recursive,
 }
 
-impl<'a, B: Borrow<Cid>> PartialEq<&'a PinMode> for PinKind<B> {
-    fn eq(&self, other: &&PinMode) -> bool {
+impl<B: Borrow<Cid>> PartialEq<PinMode> for PinKind<B> {
+    fn eq(&self, other: &PinMode) -> bool {
         match (self, other) {
             (PinKind::IndirectFrom(_), PinMode::Indirect)
             | (PinKind::Direct, PinMode::Direct)
