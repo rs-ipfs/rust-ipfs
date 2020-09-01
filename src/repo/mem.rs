@@ -89,14 +89,25 @@ impl BlockStore for MemBlockStore {
 #[derive(Debug, Default)]
 pub struct MemDataStore {
     ipns: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+    // this could also be PinDocument however doing any serialization allows to see the required
+    // error types easier
     pin: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
 }
 
 #[async_trait]
 impl PinStore for MemDataStore {
     async fn is_pinned(&self, block: &Cid) -> Result<bool, Error> {
-        let g = self.pin.lock().await;
         let key = block.to_bytes();
+
+        let g = self.pin.lock().await;
+
+        // the use of PinKind::RecursiveIntention necessitates the only return fast for
+        // only the known pins; we should somehow now query to see if there are any
+        // RecursiveIntention's. If there are any, we must walk the refs of each to see if the
+        // `block` is amongst of those recursive references which are not yet written to disk.
+        //
+        // doing this without holding a repo lock is not possible, so leaving this as partial
+        // implementation right now.
         Ok(g.contains_key(&key))
     }
 

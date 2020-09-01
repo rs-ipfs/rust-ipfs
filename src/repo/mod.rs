@@ -385,7 +385,6 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.data_store.remove_pin(cid, kind).await
     }
 
-    // TODO: this is sort of superceded with list/query_pins
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
         self.data_store.is_pinned(&cid).await
     }

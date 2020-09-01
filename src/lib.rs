@@ -402,6 +402,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     ///
     /// Recursively pinned Cids cannot be pinned non-recursively but non-recursively pinned Cids
     /// can be "upgraded to" being recursively pinned.
+    ///
+    /// # Crash unsafety
+    ///
+    /// If a recursive `insert_pin` operation is interrupted because of a crash or the crash
+    /// prevents synchronizing data store to disk, this will leave the system in inconsistent
+    /// state. Remedy is to re-pin recursive pins.
     pub async fn insert_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
         use futures::stream::TryStreamExt;
         if !recursive {
@@ -548,20 +554,22 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Checks whether a given block is pinned. At the moment does not support incomplete recursive
     /// pins.
     ///
-    /// Does not currently detect missing indirect pins from partial recursive pin insertions.
+    /// Returns true if the block is pinned, false if not. See Crash unsafety notes for the false
+    /// response.
+    ///
+    /// # Crash unsafety
+    ///
+    /// Cannot detect partially written recursive pins. Such happen if `Ipfs::insert_pin(cid,
+    /// recursive: true)` is interrupted by a crash for example.
+    ///
+    /// Works correctly only under no-crash situations. Workaround for hitting a crash is to re-pin
+    /// any existing recursive pins.
+    ///
+    /// TODO: This operation could be provided as a `Ipfs::fix_pins()`.
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        if self
-            .repo
-            .is_pinned(cid)
-            .instrument(self.span.clone())
-            .await?
-        {
-            return Ok(true);
-        }
-
-        Err(anyhow::anyhow!(
-            "not implemented: check if there are any partial recursive pins, fix them, so on"
-        ))
+        // best to just delegate, we cannot efficiently list of PinKind::RecursiveIntention but the
+        // repo impl can
+        self.repo.is_pinned(cid).instrument(self.span.clone()).await
     }
 
     /// Lists all pins, or the specific kind.
@@ -1638,7 +1646,6 @@ mod tests {
     }
 
     #[tokio::test(max_threads = 1)]
-    #[ignore = "temporary ignore to get other errors from CI"]
     async fn test_pin_and_unpin() {
         let ipfs = Node::new("test_node").await;
 
