@@ -147,7 +147,7 @@ pub enum Column {
 }
 
 /// `PinMode` is the description of pin type for quering purposes.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum PinMode {
     Indirect,
     Direct,
