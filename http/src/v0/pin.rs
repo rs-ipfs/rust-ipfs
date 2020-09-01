@@ -111,7 +111,7 @@ impl<'a> TryFrom<&'a str> for ListRequest {
 
         Ok(ListRequest {
             arg: args,
-            filter: filter.unwrap_or(PinFilter::All),
+            filter: filter.unwrap_or_default(),
             quiet: quiet.unwrap_or(false),
             // this default was mentioned in the pin/ls api
             stream: quiet.unwrap_or(true),
