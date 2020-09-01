@@ -206,6 +206,7 @@ async fn list_inner<T: IpfsTypes>(
         } else {
             // TODO: the non stream variant looks like the http docs one:
             // { "Keys": { "cid": { "Type": "indirect" } } }
+            // See https://github.com/rs-ipfs/rust-ipfs/issues/351
             Err(crate::v0::NotImplemented.into())
         }
     } else {
@@ -295,7 +296,9 @@ struct TypeDecorator<'a> {
 
 #[derive(Debug, Deserialize)]
 struct RemoveRequest {
-    // FIXME: go-ipfs supports multiple pin removals on single request
+    // FIXME: go-ipfs supports multiple pin removals on single request however for us it does not
+    // seem like a possibility at least for now. Not tested by conformance tests as far as I can
+    // see.
     arg: StringSerialized<Cid>,
     // Not mentioned in the API docs but this is accepted
     // Defaults to true which will remove both recursive and direct.
@@ -305,7 +308,6 @@ struct RemoveRequest {
 pub fn rm<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
-    //with_ipfs(ipfs).and(remove_request()).and_then(rm_inner)
     with_ipfs(ipfs)
         .and(warp::query::<RemoveRequest>())
         .and_then(rm_inner)
