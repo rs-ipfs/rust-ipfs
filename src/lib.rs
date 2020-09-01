@@ -116,7 +116,8 @@ impl IpfsOptions {
             keypair: Keypair::generate_ed25519(),
             mdns: Default::default(),
             bootstrap: Default::default(),
-            kad_protocol: Default::default(),
+            // default to lan kad for go-ipfs use in tests
+            kad_protocol: Some("/ipfs/lan/kad/1.0.0".to_owned()),
         }
     }
 }

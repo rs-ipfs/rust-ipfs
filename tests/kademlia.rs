@@ -2,12 +2,56 @@ use cid::{Cid, Codec};
 use ipfs::{p2p::MultiaddrWithPeerId, Block, Node};
 use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
 use multihash::Sha2_256;
+#[cfg(feature = "test_dht_with_go")]
+use rand::prelude::*;
+#[cfg(feature = "test_dht_with_go")]
+use serde::Deserialize;
 use std::{convert::TryInto, time::Duration};
+#[cfg(feature = "test_dht_with_go")]
+use std::{
+    env, fs,
+    path::PathBuf,
+    process::{Child, Command, Stdio},
+    thread,
+};
 use tokio::time::timeout;
 
 fn strip_peer_id(addr: Multiaddr) -> Multiaddr {
     let MultiaddrWithPeerId { multiaddr, .. } = addr.try_into().unwrap();
     multiaddr.into()
+}
+
+#[cfg(feature = "test_dht_with_go")]
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+struct GoNodeId {
+    #[serde(rename = "ID")]
+    id: String,
+    #[serde(skip)]
+    public_key: String,
+    addresses: Vec<String>,
+    #[serde(skip)]
+    agent_version: String,
+    #[serde(skip)]
+    protocol_version: String,
+}
+
+#[cfg(feature = "test_dht_with_go")]
+struct GoIpfsNode {
+    daemon: Child,
+    id: GoNodeId,
+    dir: PathBuf,
+}
+
+#[cfg(not(feature = "test_dht_with_go"))]
+struct GoIpfsNode;
+
+#[cfg(feature = "test_dht_with_go")]
+impl Drop for GoIpfsNode {
+    fn drop(&mut self) {
+        let _ = self.daemon.kill();
+        let _ = fs::remove_dir_all(&self.dir);
+    }
 }
 
 /// Check if `Ipfs::find_peer` works without DHT involvement.
@@ -33,8 +77,11 @@ async fn find_peer_local() {
     assert_eq!(found_addrs, b_addrs);
 }
 
-// starts the specified number of nodes connected in a chain.
-async fn start_nodes_in_chain(count: usize) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>) {
+// starts the specified number of rust IPFS nodes connected in a chain.
+#[cfg(not(feature = "test_dht_with_go"))]
+async fn start_nodes_in_chain(
+    count: usize,
+) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<GoIpfsNode>) {
     // fire up count nodes and register their PeerIds and
     // Multiaddrs (without the PeerId) for add_peer purposes
     let mut nodes = Vec::with_capacity(count);
@@ -74,7 +121,110 @@ async fn start_nodes_in_chain(count: usize) -> (Vec<Node>, Vec<(PeerId, Multiadd
         assert!([1usize, 2].contains(&node.peers().await.unwrap().len()));
     }
 
-    (nodes, ids_and_addrs)
+    (nodes, ids_and_addrs, None)
+}
+
+#[cfg(feature = "test_dht_with_go")]
+fn start_go_node() -> GoIpfsNode {
+    // GO_IPFS_PATH should point to the location of the go-ipfs binary
+    let go_ipfs_path = env::vars()
+        .find(|(key, _val)| key == "GO_IPFS_PATH")
+        .expect("the GO_IPFS_PATH environment variable was not found")
+        .1;
+
+    let mut tmp_dir = env::temp_dir();
+    let mut rng = rand::thread_rng();
+    tmp_dir.push(&format!("ipfs_test_{}", rng.gen::<u64>()));
+    let _ = fs::create_dir(&tmp_dir);
+
+    Command::new(&go_ipfs_path)
+        .env("IPFS_PATH", &tmp_dir)
+        .arg("init")
+        .arg("-p")
+        .arg("test")
+        .arg("--bits")
+        .arg("2048")
+        .stdout(Stdio::null())
+        .status()
+        .unwrap();
+
+    let go_daemon = Command::new(&go_ipfs_path)
+        .env("IPFS_PATH", &tmp_dir)
+        .arg("daemon")
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+
+    // give the go-ipfs daemon a little bit of time to start
+    thread::sleep(Duration::from_secs(1));
+
+    let go_id = Command::new(&go_ipfs_path)
+        .env("IPFS_PATH", &tmp_dir)
+        .arg("id")
+        .output()
+        .unwrap()
+        .stdout;
+
+    let go_id_stdout = String::from_utf8_lossy(&go_id);
+    let go_id: GoNodeId = serde_json::de::from_str(&go_id_stdout).unwrap();
+
+    GoIpfsNode {
+        daemon: go_daemon,
+        id: go_id,
+        dir: tmp_dir,
+    }
+}
+
+// most of the setup is the same as in the not(feature = "test_dht_with_go") case, with
+// the addition of a go-ipfs node in the middle of the chain; the first half of the chain
+// learns about the next peer, the go-ipfs node being the last one, and the second half
+// learns about the previous peer, the go-ipfs node being the first one; a visualization:
+// r[0] > r[1] > .. > go < .. < r[count - 3] < r[count - 2]
+#[cfg(feature = "test_dht_with_go")]
+async fn start_nodes_in_chain(
+    count: usize,
+) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<GoIpfsNode>) {
+    let go_node = start_go_node();
+
+    let mut nodes = Vec::with_capacity(count - 1);
+    let mut ids_and_addrs = Vec::with_capacity(count - 1);
+    // exclude one node to make room for the intermediary go-ipfs node
+    for i in 0..(count - 1) {
+        let node = Node::new(i.to_string()).await;
+
+        let (key, mut addrs) = node.identity().await.unwrap();
+        let id = key.into_peer_id();
+        let addr = strip_peer_id(addrs.pop().unwrap());
+
+        nodes.push(node);
+        ids_and_addrs.push((id, addr));
+    }
+
+    let go_peer_id = go_node.id.id.parse::<PeerId>().unwrap();
+    let go_addr = strip_peer_id(go_node.id.addresses[0].parse::<Multiaddr>().unwrap());
+
+    // skip the last index again, as there is a go node without one bound to it
+    for i in 0..(count - 1) {
+        let (next_id, next_addr) = if i == count / 2 - 1 || i == count / 2 {
+            println!("telling rust node {} about the go node", i);
+            (go_peer_id.clone(), go_addr.clone())
+        } else if i < count / 2 {
+            println!("telling rust node {} about rust node {}", i, i + 1);
+            ids_and_addrs[i + 1].clone()
+        } else {
+            println!("telling rust node {} about rust node {}", i, i - 1);
+            ids_and_addrs[i - 1].clone()
+        };
+
+        nodes[i].add_peer(next_id, next_addr).await.unwrap();
+        nodes[i].bootstrap().await.unwrap();
+    }
+
+    // in this case we can't make sure that all the nodes only have 1 or 2 peers but it's not a big
+    // deal, since in reality this kind of extreme conditions are unlikely and we already test that
+    // in the pure-rust setup
+
+    (nodes, ids_and_addrs, Some(go_node))
 }
 
 /// Check if `Ipfs::find_peer` works using DHT.
@@ -83,23 +233,24 @@ async fn dht_find_peer() {
     // works for numbers >=2, though 2 would essentially just
     // be the same as find_peer_local, so it should be higher
     const CHAIN_LEN: usize = 10;
-    let (nodes, ids_and_addrs) = start_nodes_in_chain(CHAIN_LEN).await;
+    let (nodes, ids_and_addrs, go_node) = start_nodes_in_chain(CHAIN_LEN).await;
+    let last_index = CHAIN_LEN - if go_node.is_none() { 1 } else { 2 };
 
     // node 0 now tries to find the address of the very last node in the
     // chain; the chain should be long enough for it not to automatically
     // be connected to it after the bootstrap
     let found_addrs = nodes[0]
-        .find_peer(ids_and_addrs[CHAIN_LEN - 1].0.clone())
+        .find_peer(ids_and_addrs[last_index].0.clone())
         .await
         .unwrap();
 
-    assert_eq!(found_addrs, vec![ids_and_addrs[CHAIN_LEN - 1].1.clone()]);
+    assert_eq!(found_addrs, vec![ids_and_addrs[last_index].1.clone()]);
 }
 
 #[tokio::test(max_threads = 1)]
 async fn dht_get_closest_peers() {
     const CHAIN_LEN: usize = 10;
-    let (nodes, ids_and_addrs) = start_nodes_in_chain(CHAIN_LEN).await;
+    let (nodes, ids_and_addrs, _go_node) = start_nodes_in_chain(CHAIN_LEN).await;
 
     assert_eq!(
         nodes[0]
@@ -143,12 +294,13 @@ async fn dht_popular_content_discovery() {
 #[tokio::test(max_threads = 1)]
 async fn dht_providing() {
     const CHAIN_LEN: usize = 10;
-    let (nodes, ids_and_addrs) = start_nodes_in_chain(CHAIN_LEN).await;
+    let (nodes, ids_and_addrs, go_node) = start_nodes_in_chain(CHAIN_LEN).await;
+    let last_index = CHAIN_LEN - if go_node.is_none() { 1 } else { 2 };
 
     // the last node puts a block in order to have something to provide
     let data = b"hello block\n".to_vec().into_boxed_slice();
     let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
-    nodes[CHAIN_LEN - 1]
+    nodes[last_index]
         .put_block(Block {
             cid: cid.clone(),
             data,
@@ -157,11 +309,12 @@ async fn dht_providing() {
         .unwrap();
 
     // the last node then provides the Cid
-    nodes[CHAIN_LEN - 1].provide(cid.clone()).await.unwrap();
+    nodes[last_index].provide(cid.clone()).await.unwrap();
 
-    // and the first one should be able to find it
-    assert_eq!(
-        nodes[0].get_providers(cid).await.unwrap(),
-        vec![ids_and_addrs[CHAIN_LEN - 1].0.clone()]
-    );
+    // and the first node should be able to learn that the last one provides it
+    assert!(nodes[0]
+        .get_providers(cid)
+        .await
+        .unwrap()
+        .contains(&ids_and_addrs[last_index].0.clone()));
 }
