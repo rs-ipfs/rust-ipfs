@@ -28,7 +28,7 @@ async fn resolve_query<T: IpfsTypes>(
     let ResolveQuery { arg, .. } = query;
     let name = arg.into_inner();
     let path = ipfs
-        .resolve(&name)
+        .resolve(&name, false)
         .await
         .map_err(StringError::from)?
         .to_string();
@@ -48,6 +48,7 @@ struct ResolveResponse {
 pub struct DnsQuery {
     // the name to resolve
     arg: String,
+    recursive: Option<bool>,
 }
 
 pub fn dns<T: IpfsTypes>(
@@ -57,7 +58,7 @@ pub fn dns<T: IpfsTypes>(
 }
 
 async fn dns_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: DnsQuery) -> Result<impl Reply, Rejection> {
-    let DnsQuery { arg, .. } = query;
+    let DnsQuery { arg, recursive } = query;
     // attempt to parse the argument prepended with "/ipns/" if it fails to parse like a compliant
     // IpfsPath and there is no leading slash
     let path = if !arg.starts_with('/') {
@@ -70,8 +71,9 @@ async fn dns_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: DnsQuery) -> Result<impl 
         arg.parse()
     }
     .map_err(StringError::from)?;
+
     let path = ipfs
-        .resolve(&path)
+        .resolve(&path, recursive.unwrap_or(false))
         .await
         .map_err(StringError::from)?
         .to_string();
