@@ -1,6 +1,8 @@
 //! Volatile memory backed repo
 use crate::error::Error;
-use crate::repo::{BlockPut, BlockStore, Column, DataStore};
+use crate::repo::{
+    BlockPut, BlockStore, Column, DataStore, PinDocument, PinKind, PinMode, PinStore, Recursive,
+};
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
@@ -87,7 +89,189 @@ impl BlockStore for MemBlockStore {
 #[derive(Debug, Default)]
 pub struct MemDataStore {
     ipns: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+    // this could also be PinDocument however doing any serialization allows to see the required
+    // error types easier
     pin: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+}
+
+#[async_trait]
+impl PinStore for MemDataStore {
+    async fn is_pinned(&self, block: &Cid) -> Result<bool, Error> {
+        let key = block.to_bytes();
+
+        let g = self.pin.lock().await;
+
+        // the use of PinKind::RecursiveIntention necessitates the only return fast for
+        // only the known pins; we should somehow now query to see if there are any
+        // RecursiveIntention's. If there are any, we must walk the refs of each to see if the
+        // `block` is amongst of those recursive references which are not yet written to disk.
+        //
+        // doing this without holding a repo lock is not possible, so leaving this as partial
+        // implementation right now.
+        Ok(g.contains_key(&key))
+    }
+
+    async fn insert_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
+        use std::collections::hash_map::Entry;
+        let mut g = self.pin.lock().await;
+
+        // rationale for storing as Cid: the same multihash can be pinned with different codecs.
+        // even if there aren't many polyglot documents known, pair of raw and the actual codec is
+        // always a possibility.
+        let key = target.to_bytes();
+
+        match g.entry(key) {
+            Entry::Occupied(mut oe) => {
+                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
+                if doc.update(true, &kind)? {
+                    let vec = oe.get_mut();
+                    vec.clear();
+                    serde_json::to_writer(vec, &doc)?;
+                    trace!(doc = ?doc, kind = ?kind, "updated on insert");
+                } else {
+                    trace!(doc = ?doc, kind = ?kind, "update not needed on insert");
+                }
+            }
+            Entry::Vacant(ve) => {
+                let mut doc = PinDocument {
+                    version: 0,
+                    direct: false,
+                    recursive: Recursive::Not,
+                    cid_version: match target.version() {
+                        cid::Version::V0 => 0,
+                        cid::Version::V1 => 1,
+                    },
+                    indirect_by: Vec::new(),
+                };
+
+                doc.update(true, &kind).unwrap();
+                let vec = serde_json::to_vec(&doc)?;
+                ve.insert(vec);
+                trace!(doc = ?doc, kind = ?kind, "created on insert");
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn remove_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
+        use std::collections::hash_map::Entry;
+
+        let mut g = self.pin.lock().await;
+
+        // see cid vs. multihash from [`insert_pin`]
+        let key = target.to_bytes();
+
+        match g.entry(key) {
+            Entry::Occupied(mut oe) => {
+                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
+                if !doc.update(false, &kind)? {
+                    trace!(doc = ?doc, kind = ?kind, "update not needed on removal");
+                    return Ok(());
+                }
+
+                if doc.can_remove() {
+                    oe.remove();
+                } else {
+                    let vec = oe.get_mut();
+                    vec.clear();
+                    serde_json::to_writer(vec, &doc)?;
+                }
+
+                Ok(())
+            }
+            Entry::Vacant(_) => Err(anyhow::anyhow!("not pinned")),
+        }
+    }
+
+    async fn list(
+        &self,
+        mode: Option<PinMode>,
+    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
+        use futures::stream::StreamExt;
+        use std::convert::TryFrom;
+        let g = self.pin.lock().await;
+
+        let copy = g
+            .iter()
+            .map(|(key, value)| {
+                let cid = Cid::try_from(key.as_slice())?;
+                let doc: PinDocument = serde_json::from_slice(value)?;
+                let mode = doc.mode().ok_or_else(|| anyhow::anyhow!("invalid mode"))?;
+
+                Ok((cid, mode))
+            })
+            .filter(move |res| {
+                // could return just two different boxed streams
+                if let Some(f) = &mode {
+                    match res {
+                        Ok((_, mode)) => mode == f,
+                        Err(_) => true,
+                    }
+                } else {
+                    true
+                }
+            })
+            .collect::<Vec<_>>();
+
+        futures::stream::iter(copy).boxed()
+    }
+
+    async fn query(
+        &self,
+        cids: Vec<Cid>,
+        requirement: Option<PinMode>,
+    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
+        let g = self.pin.lock().await;
+
+        cids.into_iter()
+            .map(move |cid| {
+                match g.get(&cid.to_bytes()) {
+                    Some(raw) => {
+                        let doc: PinDocument = match serde_json::from_slice(raw) {
+                            Ok(doc) => doc,
+                            Err(e) => return Err(e.into()),
+                        };
+                        // None from document is bad result, since the document shouldn't exist in the
+                        // first place
+                        let mode = match doc.pick_kind() {
+                            Some(Ok(kind)) => kind,
+                            Some(Err(invalid_cid)) => return Err(Error::new(invalid_cid)),
+                            None => {
+                                trace!(doc = ?doc, "could not pick pin kind");
+                                return Err(anyhow::anyhow!("{} is not pinned", cid));
+                            }
+                        };
+
+                        // would be more clear if this business was in a separate map; quite awful
+                        // as it is now
+
+                        let matches = requirement.as_ref().map(|req| mode == *req).unwrap_or(true);
+
+                        if matches {
+                            trace!(cid = %cid, req = ?requirement, "pin matches");
+                            return Ok((cid, mode));
+                        } else {
+                            // FIXME: this error is about the same as http api expects
+                            return Err(anyhow::anyhow!(
+                                "{} is not pinned as {:?}",
+                                cid,
+                                requirement
+                                    .as_ref()
+                                    .expect("matches is never false if requirement is none")
+                            ));
+                        }
+                    }
+                    None => {
+                        trace!(cid = %cid, "no record found");
+                    }
+                }
+
+                // FIXME: this error is expected on http interface
+                Err(anyhow::anyhow!("{} is not pinned", cid))
+            })
+            .collect::<Result<Vec<_>, _>>()
+    }
 }
 
 #[async_trait]
@@ -107,7 +291,6 @@ impl DataStore for MemDataStore {
     async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
-            Column::Pin => &self.pin,
         };
         let contains = map.lock().await.contains_key(key);
         Ok(contains)
@@ -116,7 +299,6 @@ impl DataStore for MemDataStore {
     async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
-            Column::Pin => &self.pin,
         };
         let value = map.lock().await.get(key).map(|value| value.to_owned());
         Ok(value)
@@ -125,7 +307,6 @@ impl DataStore for MemDataStore {
     async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
-            Column::Pin => &self.pin,
         };
         map.lock().await.insert(key.to_owned(), value.to_owned());
         Ok(())
@@ -134,7 +315,6 @@ impl DataStore for MemDataStore {
     async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error> {
         let map = match col {
             Column::Ipns => &self.ipns,
-            Column::Pin => &self.pin,
         };
         map.lock().await.remove(key);
         Ok(())

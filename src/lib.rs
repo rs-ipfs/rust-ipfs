@@ -54,8 +54,8 @@ pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
 use self::p2p::{create_swarm, SwarmOptions, TSwarm};
 pub use self::p2p::{Connection, KadResult, MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 pub use self::path::IpfsPath;
-pub use self::repo::RepoTypes;
 use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
+pub use self::repo::{PinKind, PinMode, RepoTypes};
 use self::subscription::SubscriptionFuture;
 
 /// All types can be changed at compile time by implementing
@@ -383,7 +383,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         self.repo.get_block(cid).instrument(self.span.clone()).await
     }
 
-    /// Remove block from the ipfs repo.
+    /// Remove block from the ipfs repo. A pinned block cannot be removed.
     pub async fn remove_block(&self, cid: Cid) -> Result<Cid, Error> {
         self.repo
             .remove_block(&cid)
@@ -391,22 +391,208 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .await
     }
 
-    /// Pins a given Cid
-    pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
-        self.repo.pin_block(cid).instrument(self.span.clone()).await
-    }
+    /// Pins a given Cid recursively or directly (non-recursively).
+    ///
+    /// Pins on a block are additive in sense that a previously directly (non-recursively) pinned
+    /// can be made recursive, but removing the recursive pin on the block removes also the direct
+    /// pin as well.
+    ///
+    /// Pinning a Cid recursively (for supported dag-protobuf and dag-cbor) will walk its
+    /// references and pin the references indirectly. When a Cid is pinned indirectly it will keep
+    /// its previous direct or recursive pin and be indirect in addition.
+    ///
+    /// Recursively pinned Cids cannot be re-pinned non-recursively but non-recursively pinned Cids
+    /// can be "upgraded to" being recursively pinned.
+    ///
+    /// # Crash unsafety
+    ///
+    /// If a recursive `insert_pin` operation is interrupted because of a crash or the crash
+    /// prevents from synchronizing the data store to disk, this will leave the system in an inconsistent
+    /// state. The remedy is to re-pin recursive pins.
+    pub async fn insert_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
+        use futures::stream::TryStreamExt;
+        if !recursive {
+            self.repo.insert_pin(cid, PinKind::Direct).await
+        } else {
+            let span = tracing::debug_span!("insert recursive pin", cid = %cid);
 
-    /// Unpins a given Cid
-    pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
-        self.repo
-            .unpin_block(cid)
-            .instrument(self.span.clone())
+            async move {
+                // this needs to download everything but /pin/ls does not
+                let Block { data, .. } = self.repo.get_block(cid).await?;
+
+                self.repo
+                    .insert_pin(cid, PinKind::RecursiveIntention)
+                    .await?;
+
+                let ipld = crate::ipld::decode_ipld(&cid, &data)?;
+
+                let st = crate::refs::IpldRefs::default()
+                    .with_only_unique()
+                    .refs_of_resolved(self, vec![(cid.clone(), ipld.clone())].into_iter())
+                    .into_stream();
+
+                futures::pin_mut!(st);
+
+                let mut count = 0u64;
+
+                while let Some(crate::refs::Edge { destination, .. }) = st.try_next().await? {
+                    trace!(dest = %destination, "located reference");
+                    // this would be the best place to fail in a test case
+                    self.repo
+                        .insert_pin(&destination, PinKind::IndirectFrom(&cid))
+                        .await?;
+
+                    count += 1;
+                }
+
+                self.repo.insert_pin(cid, PinKind::Recursive(count)).await?;
+
+                debug!(count = %count, "recursive pin inserted");
+
+                Ok(())
+            }
+            .instrument(span)
             .await
+        }
     }
 
-    /// Checks whether a given block is pinned
+    /// Unpins a given Cid recursively or only directly.
+    ///
+    /// Recursively unpinning a previously only directly pinned Cid will remove the direct pin.
+    ///
+    /// Unpinning an indirectly pinned Cid is not possible other than through its recursively
+    /// pinned tree roots.
+    pub async fn remove_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
+        use futures::stream::TryStreamExt;
+        if !recursive {
+            self.repo.remove_pin(cid, PinKind::Direct).await
+        } else {
+            let span = tracing::debug_span!("remove recursive pin", cid = %cid);
+            async move {
+                let (cid, kind) = self
+                    .repo
+                    .query_pins(vec![cid.to_owned()], None)
+                    .await?
+                    .swap_remove(0);
+
+                trace!(pin = ?kind, "found pin to be removed");
+
+                let expected_count = match kind {
+                    PinKind::RecursiveIntention => {
+                        // there may still be some stragglers so perhaps remove them
+                        // but we dont know how many should we expect to find
+                        debug!("detected previous incomplete pinning");
+                        None
+                    }
+                    PinKind::Recursive(count) => Some(count),
+                    PinKind::Direct | PinKind::IndirectFrom(_) => {
+                        return Err(anyhow::anyhow!("not pinned recursively"))
+                    }
+                };
+
+                // start walking refs of the root after loading it
+
+                let Block { data, .. } = match self.repo.get_block_now(&cid).await? {
+                    Some(b) => b,
+                    None => {
+                        return Err(anyhow::anyhow!("pinned root not found: {}", cid));
+                    }
+                };
+
+                let ipld = crate::ipld::decode_ipld(&cid, &data)?;
+                let st = crate::refs::IpldRefs::default()
+                    .with_only_unique()
+                    .with_existing_blocks()
+                    .refs_of_resolved(self, vec![(cid.clone(), ipld.clone())].into_iter())
+                    .into_stream();
+
+                futures::pin_mut!(st);
+
+                let mut count = 0u64;
+
+                while let Some(crate::refs::Edge { destination, .. }) = st.try_next().await? {
+                    self.repo
+                        .remove_pin(&destination, PinKind::IndirectFrom(&cid))
+                        .await?;
+
+                    count += 1;
+                }
+
+                let removed = if expected_count.is_some() {
+                    PinKind::Recursive(count)
+                } else {
+                    PinKind::RecursiveIntention
+                };
+
+                self.repo.remove_pin(&cid, removed).await?;
+
+                match expected_count {
+                    Some(x) if x == count => {
+                        info!(count = x, "removed as many indirect pins as were meant to");
+                    }
+                    Some(x) => {
+                        warn!(
+                            expected = x,
+                            actual = count,
+                            "removed unexpected number of indirect pins",
+                        );
+                    }
+                    None => {
+                        info!(
+                            cleared_out = count,
+                            "cleaned up and removed previous partial pinning",
+                        );
+                    }
+                }
+
+                Ok(())
+            }
+            .instrument(span)
+            .await
+        }
+    }
+
+    /// Checks whether a given block is pinned. At the moment does not support incomplete recursive
+    /// pins.
+    ///
+    /// Returns true if the block is pinned, false if not. See Crash unsafety notes for the false
+    /// response.
+    ///
+    /// # Crash unsafety
+    ///
+    /// Cannot detect partially written recursive pins. Those can happen if `Ipfs::insert_pin(cid,
+    /// recursive: true)` is interrupted by a crash for example.
+    ///
+    /// Works correctly only under no-crash situations. Workaround for hitting a crash is to re-pin
+    /// any existing recursive pins.
+    ///
+    /// TODO: This operation could be provided as a `Ipfs::fix_pins()`.
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
+        // best to just delegate, we cannot efficiently obtain a list of PinKind::RecursiveIntention but the
+        // repo impl can
         self.repo.is_pinned(cid).instrument(self.span.clone()).await
+    }
+
+    /// Lists all pins, or the specific kind thereof.
+    ///
+    /// Does not currently recover from partial recursive pin insertions.
+    pub async fn list_pins(
+        &self,
+        filter: Option<PinMode>,
+    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
+        self.repo.list_pins(filter).await
+    }
+
+    /// Read specific pins. When `requirement` is `Some`, all pins are required to be of the given
+    /// `PinMode`.
+    ///
+    /// Does not currently recover from partial recursive pin insertions.
+    pub async fn query_pins(
+        &self,
+        cids: Vec<Cid>,
+        requirement: Option<PinMode>,
+    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
+        self.repo.query_pins(cids, requirement).await
     }
 
     /// Puts an ipld dag node into the ipfs repo.
@@ -855,7 +1041,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         unique: bool,
     ) -> impl Stream<Item = Result<refs::Edge, ipld::BlockError>> + Send + 'a
     where
-        Iter: IntoIterator<Item = (Cid, Ipld)> + 'a,
+        Iter: IntoIterator<Item = (Cid, Ipld)> + Send + 'a,
     {
         refs::iplds_refs(self, iplds, max_depth, unique)
     }
@@ -1480,9 +1666,9 @@ mod tests {
         let data = make_ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
 
-        ipfs.pin_block(&cid).await.unwrap();
+        ipfs.insert_pin(&cid, false).await.unwrap();
         assert!(ipfs.is_pinned(&cid).await.unwrap());
-        ipfs.unpin_block(&cid).await.unwrap();
+        ipfs.remove_pin(&cid, false).await.unwrap();
         assert!(!ipfs.is_pinned(&cid).await.unwrap());
     }
 

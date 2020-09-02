@@ -6,12 +6,18 @@ use std::str::FromStr;
 /// Display to serde::Serialize. Probably should be used with Cid, PeerId and such.
 ///
 /// Monkeyd from: https://github.com/serde-rs/serde/issues/1316
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StringSerialized<T>(pub T);
 
 impl<T> StringSerialized<T> {
     pub fn into_inner(self) -> T {
         self.0
+    }
+}
+
+impl<T> AsRef<T> for StringSerialized<T> {
+    fn as_ref(&self) -> &T {
+        &self.0
     }
 }
 

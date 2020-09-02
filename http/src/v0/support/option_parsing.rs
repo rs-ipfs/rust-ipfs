@@ -10,6 +10,7 @@ pub enum ParseError<'a> {
     InvalidBoolean(Cow<'a, str>, Cow<'a, str>),
     InvalidDuration(Cow<'a, str>, humantime::DurationError),
     InvalidCid(Cow<'a, str>, cid::Error),
+    InvalidValue(Cow<'a, str>, Cow<'a, str>),
 }
 
 impl<'a> fmt::Display for ParseError<'a> {
@@ -25,6 +26,9 @@ impl<'a> fmt::Display for ParseError<'a> {
                 write!(fmt, "field {:?} invalid duration: {}", field, e)
             }
             InvalidCid(ref field, ref e) => write!(fmt, "field {:?} invalid cid: {}", field, e),
+            InvalidValue(ref field, ref value) => {
+                write!(fmt, "field {:?} invalid value: {:?}", field, value)
+            }
         }
     }
 }

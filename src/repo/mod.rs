@@ -15,6 +15,8 @@ use futures::channel::{
 };
 use futures::sink::SinkExt;
 use libp2p::core::PeerId;
+use serde::{Deserialize, Serialize};
+use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
@@ -86,6 +88,7 @@ pub enum BlockRmError {
 }
 
 /// This API is being discussed and evolved, which will likely lead to breakage.
+// FIXME: why is this unpin? doesn't probably need to be since all of the futures are Box::pin'd.
 #[async_trait]
 pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
@@ -100,7 +103,7 @@ pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
 }
 
 #[async_trait]
-pub trait DataStore: Debug + Send + Sync + Unpin + 'static {
+pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
@@ -111,10 +114,67 @@ pub trait DataStore: Debug + Send + Sync + Unpin + 'static {
     async fn wipe(&self);
 }
 
+#[async_trait]
+pub trait PinStore: Debug + Send + Sync + Unpin + 'static {
+    async fn is_pinned(&self, block: &Cid) -> Result<bool, Error>;
+
+    async fn insert_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error>;
+
+    async fn remove_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error>;
+
+    async fn list(
+        &self,
+        mode: Option<PinMode>,
+    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>>;
+
+    // here we should have resolved ids
+    // go-ipfs: doesnt start fetching the paths
+    // js-ipfs: starts fetching paths
+    // FIXME: there should probably be an additional Result<$inner, Error> here; the per pin error
+    // is serde OR cid::Error.
+    /// Returns error if any of the ids isn't pinned in the required type, otherwise returns
+    /// the pin details if all of the cids are pinned in one way or the another.
+    async fn query(
+        &self,
+        ids: Vec<Cid>,
+        requirement: Option<PinMode>,
+    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error>;
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Column {
     Ipns,
-    Pin,
+}
+
+/// `PinMode` is the description of pin type for quering purposes.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum PinMode {
+    Indirect,
+    Direct,
+    Recursive,
+}
+
+impl<B: Borrow<Cid>> PartialEq<PinMode> for PinKind<B> {
+    fn eq(&self, other: &PinMode) -> bool {
+        match (self, other) {
+            (PinKind::IndirectFrom(_), PinMode::Indirect)
+            | (PinKind::Direct, PinMode::Direct)
+            | (PinKind::Recursive(_), PinMode::Recursive)
+            | (PinKind::RecursiveIntention, PinMode::Recursive) => true,
+            _ => false,
+        }
+    }
+}
+
+/// `PinKind` is more specific pin description for writing purposes. Implements
+/// `PartialEq<&PinMode>`. Generic over `Borrow<Cid>` to allow storing both reference and owned
+/// value of Cid.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PinKind<C: Borrow<Cid>> {
+    IndirectFrom(C),
+    Direct,
+    Recursive(u64),
+    RecursiveIntention,
 }
 
 #[derive(Debug)]
@@ -125,6 +185,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     pub(crate) subscriptions: SubscriptionRegistry<Block, String>,
 }
 
+/// Events used to communicate to the swarm on repo changes.
 #[derive(Debug)]
 pub enum RepoEvent {
     WantBlock(Cid),
@@ -229,6 +290,9 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     /// Retrives a block from the block store, or starts fetching it from the network and awaits
     /// until it has been fetched.
     pub async fn get_block(&self, cid: &Cid) -> Result<Block, Error> {
+        // FIXME: here's a race: block_store might give Ok(None) and we get to create our
+        // subscription after the put has completed. So maybe create the subscription first, then
+        // cancel it?
         if let Some(block) = self.block_store.get(&cid).await? {
             Ok(block)
         } else {
@@ -313,51 +377,244 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.data_store.remove(Column::Ipns, ipns.as_bytes()).await
     }
 
-    pub async fn pin_block(&self, cid: &Cid) -> Result<(), Error> {
-        let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
+    pub async fn insert_pin(&self, cid: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
+        self.data_store.insert_pin(cid, kind).await
+    }
 
-        match pin_value {
-            Some(pin_count) => {
-                if pin_count[0] == std::u8::MAX {
-                    return Err(anyhow::anyhow!("Block cannot be pinned more times"));
-                }
-                self.data_store
-                    .put(Column::Pin, &cid.to_bytes(), &[pin_count[0] + 1])
-                    .await
-            }
-            None => {
-                self.data_store
-                    .put(Column::Pin, &cid.to_bytes(), &[1])
-                    .await
-            }
-        }
+    pub async fn remove_pin(&self, cid: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
+        self.data_store.remove_pin(cid, kind).await
     }
 
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        self.data_store.contains(Column::Pin, &cid.to_bytes()).await
+        self.data_store.is_pinned(&cid).await
     }
 
-    pub async fn unpin_block(&self, cid: &Cid) -> Result<(), Error> {
-        let pin_value = self.data_store.get(Column::Pin, &cid.to_bytes()).await?;
+    pub async fn list_pins(
+        &self,
+        mode: Option<PinMode>,
+    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
+        self.data_store.list(mode).await
+    }
 
-        match pin_value {
-            Some(pin_count) if pin_count[0] == 1 => {
-                self.data_store.remove(Column::Pin, &cid.to_bytes()).await
-            }
-            Some(pin_count) => {
-                self.data_store
-                    .put(Column::Pin, &cid.to_bytes(), &[pin_count[0] - 1])
-                    .await
-            }
-            // This is a no-op
-            None => Ok(()),
+    pub async fn query_pins(
+        &self,
+        cids: Vec<Cid>,
+        requirement: Option<PinMode>,
+    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
+        self.data_store.query(cids, requirement).await
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum Recursive {
+    /// Persistent record of **completed** recursive pinning. All references now have indirect pins
+    /// recorded.
+    Count(u64),
+    /// Persistent record of intent to add recursive pins to all indirect blocks or even not to
+    /// keep the go-ipfs way which might not be a bad idea after all. Adding all the indirect pins
+    /// on disk will cause massive write amplification in the end, but lets keep that way until we
+    /// get everything working at least.
+    Intent,
+    /// Not pinned recursively.
+    Not,
+}
+
+impl Recursive {
+    fn is_set(&self) -> bool {
+        match self {
+            Recursive::Count(_) | Recursive::Intent => true,
+            Recursive::Not => false,
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PinDocument {
+    version: u8,
+    direct: bool,
+    // how many descendants; something to check when walking
+    recursive: Recursive,
+    // no further metadata necessary; cids are pinned by full cid
+    cid_version: u8,
+    // using the cidv1 versions of all cids here, not sure if that makes sense or is important
+    indirect_by: Vec<String>,
+}
+
+impl PinDocument {
+    fn update(&mut self, add: bool, kind: &PinKind<&'_ Cid>) -> Result<bool, PinUpdateError> {
+        // these update rules are a bit complex and there are cases we don't need to handle.
+        // Updating on upon `PinKind` forces the caller to inspect what the current state is for
+        // example to handle the case of failing "unpin currently recursively pinned as direct".
+        // the ruleset seems quite strange to be honest.
+        match kind {
+            PinKind::IndirectFrom(root) => {
+                let root = if root.version() == cid::Version::V1 {
+                    root.to_string()
+                } else {
+                    // this is one more allocation
+                    Cid::new_v1(root.codec(), (*root).hash().to_owned()).to_string()
+                };
+
+                let modified = if self.indirect_by.is_empty() {
+                    if add {
+                        self.indirect_by.push(root);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    let mut set = self
+                        .indirect_by
+                        .drain(..)
+                        .collect::<std::collections::BTreeSet<_>>();
+
+                    let modified = if add {
+                        set.insert(root)
+                    } else {
+                        set.remove(&root)
+                    };
+
+                    self.indirect_by.extend(set.into_iter());
+                    modified
+                };
+
+                Ok(modified)
+            }
+            PinKind::Direct => {
+                if self.recursive.is_set() && !self.direct && add {
+                    // go-ipfs: cannot make recursive pin also direct
+                    // not really sure why does this rule exist; the other way around is allowed
+                    return Err(PinUpdateError::AlreadyPinnedRecursive);
+                }
+
+                if !self.direct && !add {
+                    panic!("this situation must be handled by the caller by checking that recursive pin is about to be removed as direct");
+                }
+
+                let modified = self.direct != add;
+                self.direct = add;
+                Ok(modified)
+            }
+            PinKind::RecursiveIntention => {
+                let modified = if add {
+                    match self.recursive {
+                        Recursive::Count(_) => return Err(PinUpdateError::AlreadyPinnedRecursive),
+                        // can overwrite Intent with another Intent, as Ipfs::insert_pin is now moving to fix
+                        // the Intent into the "final form" of Recursive::Count.
+                        Recursive::Intent => false,
+                        Recursive::Not => {
+                            self.recursive = Recursive::Intent;
+                            self.direct = false;
+                            true
+                        }
+                    }
+                } else {
+                    match self.recursive {
+                        Recursive::Count(_) | Recursive::Intent => {
+                            self.recursive = Recursive::Not;
+                            true
+                        }
+                        Recursive::Not => false,
+                    }
+                };
+
+                Ok(modified)
+            }
+            PinKind::Recursive(descendants) => {
+                let descendants = *descendants;
+                let modified = if add {
+                    match self.recursive {
+                        Recursive::Count(other) if other != descendants => {
+                            return Err(PinUpdateError::UnexpectedNumberOfDescendants(
+                                other,
+                                descendants,
+                            ))
+                        }
+                        Recursive::Count(_) => false,
+                        Recursive::Intent | Recursive::Not => {
+                            self.recursive = Recursive::Count(descendants);
+                            // the previously direct has now been upgraded to recursive, it can
+                            // still be indirect though
+                            self.direct = false;
+                            true
+                        }
+                    }
+                } else {
+                    match self.recursive {
+                        Recursive::Count(other) if other != descendants => {
+                            return Err(PinUpdateError::UnexpectedNumberOfDescendants(
+                                other,
+                                descendants,
+                            ))
+                        }
+                        Recursive::Count(_) | Recursive::Intent => {
+                            self.recursive = Recursive::Not;
+                            true
+                        }
+                        Recursive::Not => return Err(PinUpdateError::NotPinnedRecursive),
+                    }
+                    // FIXME: removing ... not sure if this is an issue; was thinking that maybe
+                    // the update might need to be split to allow different api for removal than
+                    // addition.
+                };
+                Ok(modified)
+            }
+        }
+    }
+
+    fn can_remove(&self) -> bool {
+        !self.direct && !self.recursive.is_set() && self.indirect_by.is_empty()
+    }
+
+    fn mode(&self) -> Option<PinMode> {
+        if self.recursive.is_set() {
+            Some(PinMode::Recursive)
+        } else if !self.indirect_by.is_empty() {
+            Some(PinMode::Indirect)
+        } else if self.direct {
+            Some(PinMode::Direct)
+        } else {
+            None
+        }
+    }
+
+    fn pick_kind(&self) -> Option<Result<PinKind<Cid>, cid::Error>> {
+        self.mode().map(|p| {
+            Ok(match p {
+                PinMode::Recursive => match self.recursive {
+                    Recursive::Intent => PinKind::RecursiveIntention,
+                    Recursive::Count(total) => PinKind::Recursive(total),
+                    _ => unreachable!("mode shuold not have returned PinKind::Recursive"),
+                },
+                PinMode::Indirect => {
+                    // go-ipfs does seem to be doing a fifo looking, perhaps this is a list there, or
+                    // the indirect pins aren't being written down anywhere and they just refs from
+                    // recursive roots.
+                    let cid = Cid::try_from(self.indirect_by[0].as_str())?;
+                    PinKind::IndirectFrom(cid)
+                }
+                PinMode::Direct => PinKind::Direct,
+            })
+        })
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PinUpdateError {
+    #[error("unexpected number of descendants ({}), found {}", .1, .0)]
+    UnexpectedNumberOfDescendants(u64, u64),
+    #[error("not pinned recursively")]
+    NotPinnedRecursive,
+    /// Not allowed: Adding direct pin while pinned recursive
+    #[error("already pinned recursively")]
+    AlreadyPinnedRecursive,
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use futures::TryStreamExt;
+    use std::collections::HashMap;
     use std::env::temp_dir;
 
     #[derive(Clone)]
@@ -375,9 +632,332 @@ pub(crate) mod tests {
         Repo::new(options)
     }
 
+    // Using boxed error here instead of anyhow to futureproof; we don't really care what goes
+    // wrong here
+    //
+    // FIXME: how to duplicate this for each?
+    async fn inited_repo() -> Result<
+        Repo<Types>, /*, Receiver<RepoEvent>)*/
+        Box<dyn std::error::Error + Send + Sync + 'static>,
+    > {
+        let (mock, rx) = create_mock_repo();
+        drop(rx);
+        mock.init().await?;
+
+        let (empty_cid, empty_file_block) = ipfs_unixfs::file::adder::FileAdder::default()
+            .finish()
+            .next()
+            .unwrap();
+
+        assert_eq!(
+            empty_cid.to_string(),
+            "QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH"
+        );
+
+        let empty_len = empty_file_block.len();
+
+        trace!("putting in empty block");
+        mock.put_block(Block {
+            cid: empty_cid.clone(),
+            data: empty_file_block.into(),
+        })
+        .await
+        .unwrap();
+
+        let mut tree_builder = ipfs_unixfs::dir::builder::BufferingTreeBuilder::default();
+
+        let empty_paths = [
+            "root/nested/deeper/an_empty_file",
+            "root/nested/deeper/another_empty",
+            // clone is just a copy of deeper but it's easier to build by copypasting this
+            "root/clone_of_deeper/an_empty_file",
+            "root/clone_of_deeper/another_empty",
+        ];
+
+        empty_paths
+            .iter()
+            //.inspect(|p| println!("{:>50}: {}", p, empty_cid.clone()))
+            .try_for_each(|p| tree_builder.put_link(p, empty_cid.clone(), empty_len as u64))
+            .unwrap();
+
+        for node in tree_builder.build() {
+            let node = node.unwrap();
+            //println!("{:>50}: {}", node.path, node.cid);
+            let block = Block {
+                cid: node.cid,
+                data: node.block,
+            };
+
+            mock.put_block(block).await.unwrap();
+        }
+
+        Ok(mock)
+    }
+
     #[tokio::test(max_threads = 1)]
     async fn test_repo() {
+        // FIXME: unsure what does this test
         let (repo, _) = create_mock_repo();
         repo.init().await.unwrap();
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn pin_direct_twice_is_good() {
+        // let _ = tracing_subscriber::fmt::try_init();
+        let repo = inited_repo().await.unwrap();
+
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        assert_eq!(repo.is_pinned(&empty).await.unwrap(), false);
+
+        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+
+        assert_eq!(repo.is_pinned(&empty).await.unwrap(), true);
+
+        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+
+        assert_eq!(repo.is_pinned(&empty).await.unwrap(), true);
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn pin_recursive_pins_all_blocks() {
+        let repo = inited_repo().await.unwrap();
+
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        // assumed use:
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        // once or twice, doesn't matter
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        // the count can be either unique or include duplicates, I guess we just need to be
+        // consistent
+        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        assert!(repo.is_pinned(&root).await.unwrap());
+        assert!(repo.is_pinned(&empty).await.unwrap());
+
+        let mut both = repo
+            .list_pins(None)
+            .await
+            .try_collect::<HashMap<Cid, PinMode>>()
+            .await
+            .unwrap();
+
+        assert_eq!(both.remove(&root), Some(PinMode::Recursive));
+        assert_eq!(both.remove(&empty), Some(PinMode::Indirect));
+
+        assert!(both.is_empty(), "{:?}", both);
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn indirect_can_be_pinned_directly_but_remains_looking_indirect() {
+        let repo = inited_repo().await.unwrap();
+
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        let mut both = repo
+            .list_pins(None)
+            .await
+            .try_collect::<HashMap<Cid, PinMode>>()
+            .await
+            .unwrap();
+
+        assert_eq!(both.remove(&root), Some(PinMode::Recursive));
+        assert_eq!(both.remove(&empty), Some(PinMode::Indirect));
+
+        assert!(both.is_empty(), "{:?}", both);
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn direct_and_indirect_when_parent_unpinned() {
+        let repo = inited_repo().await.unwrap();
+
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+
+        assert_eq!(
+            repo.query_pins(vec![empty.clone()], None)
+                .await
+                .unwrap()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![(empty.clone(), PinKind::Direct)],
+        );
+
+        // first refs
+
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        // second refs
+
+        repo.remove_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+        repo.remove_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        let mut one = repo
+            .list_pins(None)
+            .await
+            .try_collect::<HashMap<Cid, PinMode>>()
+            .await
+            .unwrap();
+
+        assert_eq!(one.remove(&empty), Some(PinMode::Direct));
+
+        assert!(one.is_empty(), "{:?}", one);
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn cannot_pin_recursively_pinned_directly() {
+        // this is a bit of odd as other ops are additive
+        let repo = inited_repo().await.unwrap();
+
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        repo.insert_pin(&empty, PinKind::Recursive(0))
+            .await
+            .unwrap();
+
+        let e = repo.insert_pin(&empty, PinKind::Direct).await.unwrap_err();
+
+        // go-ipfs puts the cid in front here, not sure if we want to at this level? though in
+        // go-ipfs it's different than path resolving
+        assert_eq!(e.to_string(), "already pinned recursively");
+    }
+
+    #[test]
+    fn pindocument_on_direct_pin() {
+        let mut doc = PinDocument {
+            version: 0,
+            direct: false,
+            recursive: Recursive::Not,
+            cid_version: 0,
+            indirect_by: Vec::new(),
+        };
+
+        assert!(doc.update(true, &PinKind::Direct).unwrap());
+
+        assert_eq!(doc.mode(), Some(PinMode::Direct));
+        assert_eq!(doc.pick_kind().unwrap().unwrap(), PinKind::Direct);
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn can_pin_direct_as_recursive() {
+        use futures::stream::TryStreamExt;
+        // the other way around doesn't work
+        let repo = inited_repo().await.unwrap();
+        //
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        repo.insert_pin(&root, PinKind::Direct).await.unwrap();
+
+        let pins = repo
+            .list_pins(None)
+            .await
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+
+        assert_eq!(pins, vec![(root.clone(), PinMode::Direct)]);
+
+        // first refs
+
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        let mut both = repo
+            .list_pins(None)
+            .await
+            .try_collect::<HashMap<Cid, PinMode>>()
+            .await
+            .unwrap();
+
+        assert_eq!(both.remove(&root), Some(PinMode::Recursive));
+        assert_eq!(both.remove(&empty), Some(PinMode::Indirect));
+
+        assert!(both.is_empty(), "{:?}", both);
+    }
+
+    #[tokio::test(max_threads = 1)]
+    #[should_panic(expected = "situation must be handled by the caller")]
+    async fn cannot_unpin_indirect() {
+        let repo = inited_repo().await.unwrap();
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        // first refs
+
+        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
+            .await
+            .unwrap();
+
+        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+
+        // should panic because the caller must not attempt this because:
+
+        let (_, kind) = repo
+            .query_pins(vec![empty.clone()], None)
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+
+        // the cids are stored as v1 ... not sure if that makes any sense TBH
+        // feels like Cid should be equal regardless of version.
+        let root_v1 = Cid::new_v1(root.codec(), root.hash().to_owned());
+        assert_eq!(kind, PinKind::IndirectFrom(root_v1));
+
+        // this makes the "remove direct" invalid, as the direct pin must not be removed while
+        // recursively pinned
+
+        let _ = repo.remove_pin(&empty, PinKind::Direct).await;
+        unreachable!("should have panicked");
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn cannot_unpin_not_pinned() {
+        let repo = inited_repo().await.unwrap();
+        // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
+        let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
+
+        // the only pin we can try removing without first querying is direct, as shown in
+        // `cannot_unpin_indirect`.
+
+        let e = repo.remove_pin(&empty, PinKind::Direct).await.unwrap_err();
+
+        // FIXME: go-ipfs errors on the actual path
+        assert_eq!(e.to_string(), "not pinned");
     }
 }
