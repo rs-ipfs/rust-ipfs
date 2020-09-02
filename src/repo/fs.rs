@@ -21,6 +21,10 @@ use super::{BlockRm, BlockRmError};
 #[derive(Debug)]
 pub struct FsBlockStore {
     path: PathBuf,
+    /// Synchronize concurrent reads and writes to the same Cid.
+    /// If the write ever happens, the message sent will be Ok(()), on failure it'll be an Err(()).
+    /// Since this is a broadcast channel, the late arriving receiver might not get any messages.
+    #[allow(clippy::type_complexity)]
     writes: Arc<Mutex<HashMap<Cid, broadcast::Sender<Result<(), ()>>>>>,
     written_bytes: AtomicU64,
 }
@@ -223,7 +227,7 @@ impl BlockStore for FsBlockStore {
                     Ok(message) => message,
                     Err(broadcast::RecvError::Closed) => {
                         // there were never any write intention by any party, and we may have just
-                        // closed the last sender above
+                        // closed the last sender above, or we were late for the one message.
                         Ok(())
                     }
                     Err(broadcast::RecvError::Lagged(_)) => {
