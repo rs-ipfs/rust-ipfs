@@ -15,8 +15,10 @@ use tokio::fs;
 use tokio::sync::broadcast;
 
 use super::{BlockRm, BlockRmError, RepoCid};
+use std::hash::Hash;
 
 // mod flatfs;
+type ArcMutexMap<A, B> = Arc<Mutex<HashMap<A, B>>>;
 
 #[derive(Debug)]
 pub struct FsBlockStore {
@@ -25,8 +27,19 @@ pub struct FsBlockStore {
     /// If the write ever happens, the message sent will be Ok(()), on failure it'll be an Err(()).
     /// Since this is a broadcast channel, the late arriving receiver might not get any messages.
     #[allow(clippy::type_complexity)]
-    writes: Arc<Mutex<HashMap<RepoCid, broadcast::Sender<Result<(), ()>>>>>,
+    writes: ArcMutexMap<RepoCid, broadcast::Sender<Result<(), ()>>>,
     written_bytes: AtomicU64,
+}
+
+struct RemoveOnDrop<K: Eq + Hash, V>(ArcMutexMap<K, V>, Option<K>);
+
+impl<K: Eq + Hash, V> Drop for RemoveOnDrop<K, V> {
+    fn drop(&mut self) {
+        if let Some(key) = self.1.take() {
+            let mut g = self.0.lock().unwrap();
+            g.remove(&key);
+        }
+    }
 }
 
 #[async_trait]
@@ -131,109 +144,96 @@ impl BlockStore for FsBlockStore {
         // why synchronize here? because when we lose the race we cant know if there was someone
         // else interested in writing this block or not
 
-        let (tx, mut rx, created) = {
+        // FIXME: allowing only the creator to cleanup means this is not forget safe. the forget
+        // doesn't result in memory unsafety but it will deadlock any other access to the cid.
+        let (tx, mut rx) = {
             let mut g = self.writes.lock().expect("cant support poisoned");
 
             match g.entry(RepoCid(cid.to_owned())) {
                 Entry::Occupied(oe) => {
                     // someone is already writing this, nice
-                    (oe.get().clone(), oe.get().subscribe(), false)
+                    (oe.get().clone(), oe.get().subscribe())
                 }
                 Entry::Vacant(ve) => {
                     // we might be the first, or then the block exists already
                     let (tx, rx) = broadcast::channel(1);
                     ve.insert(tx.clone());
-                    (tx, rx, true)
+                    (tx, rx)
                 }
             }
         };
 
-        fs::create_dir_all(
-            target_path
+        // create this in case the winner is dropped while awaiting
+        let cleanup = RemoveOnDrop(self.writes.clone(), Some(RepoCid(cid.to_owned())));
+
+        // launch a blocking task for the filesystem mutation.
+        // `tx` is moved into the task but `rx` stays in the async context.
+        let je = tokio::task::spawn_blocking(move || {
+            // pick winning writer with filesystem and create_new; this error will be the 1st
+            // nested level
+
+            let sharded = target_path
                 .parent()
-                .expect("parent always exists as it's the sharding directory"),
-        )
-        .await?;
+                .expect("we already have at least the shard parent");
 
-        // pick the next writer by chance
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&target_path)
-        {
-            Ok(target) => {
-                // we get to write first!
-                let je = tokio::task::spawn_blocking(move || {
-                    let temp_path = target_path.with_extension("tmp");
+            std::fs::create_dir_all(sharded)?;
 
-                    match write_through_tempfile(target, &target_path, temp_path, &data) {
-                        Ok(()) => Ok::<_, std::io::Error>(data.len()),
-                        Err(e) => {
-                            // try to cleanup, ignore any errors (perhaps the disk broke already)
-                            let _ = std::fs::remove_file(target_path);
-                            Err(e)
-                        }
+            let target = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target_path)?;
+
+            let temp_path = target_path.with_extension("tmp");
+
+            match write_through_tempfile(target, &target_path, temp_path, &data) {
+                Ok(()) => {
+                    let _ = tx
+                        .send(Ok(()))
+                        .expect("this cannot fail as we have at least one receiver on stack");
+
+                    Ok::<_, std::io::Error>(Ok(data.len()))
+                }
+                Err(e) => {
+                    match std::fs::remove_file(&target_path) {
+                        Ok(_) => debug!("removed partially written {:?}", target_path),
+                        Err(removal) => warn!(
+                            "failed to remove partially written {:?}: {}",
+                            target_path, removal
+                        ),
                     }
-                })
-                .await;
+                    let _ = tx
+                        .send(Err(()))
+                        .expect("this cannot fail as we have at least one receiver on stack");
+                    Ok(Err(e))
+                }
+            }
+        })
+        .await;
 
-                let written = match je {
-                    Ok(Ok(written)) => written,
-                    Ok(Err(e)) => {
-                        // write failed but hopefully the target was removed
-                        // no point in trying to remove it now
-                        // ignore if no one is listening
-                        let _ = tx.send(Err(()));
-                        return Err(Error::new(e).context("write failed"));
-                    }
-                    Err(e) => {
-                        // blocking task panicked or the runtime is going down, but we don't know
-                        // if the thread has completed or not (likely not)
-                        return Err(e.into());
-                    }
-                };
+        // this is quite unfortunate but can't think of a way which would handle cleanup in drop
+        // and not waste much effort. perhaps this could be a Arc<(Weak, K)>?
+        drop(cleanup);
 
-                let _ = tx
-                    .send(Ok(()))
-                    .expect("this cannot fail as we have at least one receiver on stack");
-
-                drop(tx);
+        match je {
+            Ok(Ok(Ok(written))) => {
                 drop(rx);
-
-                let cid = if created {
-                    let mut g = self.writes.lock().expect("cannot support poisoned");
-                    // last one turns off the lights; the explicit drops for tx and rx are there
-                    // only to make sure they are dropped before this point; removing the value
-                    // will remove the last sender for any loser waiting on the AlreadyExists arm.
-                    let key = RepoCid(cid);
-                    g.remove(&key).expect("must exist; we created it");
-                    let RepoCid(cid) = key;
-                    cid
-                } else {
-                    cid
-                };
 
                 self.written_bytes
                     .fetch_add(written as u64, Ordering::SeqCst);
 
                 Ok((cid, BlockPut::NewBlock))
             }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            Ok(Ok(Err(e))) => {
+                // write failed but hopefully the target was removed
+                // no point in trying to remove it now
+                // ignore if no one is listening
+                Err(Error::new(e))
+            }
+            Ok(Err(_)) => {
                 // At least the following cases:
                 // - the block existed already
                 // - the block is being written to and we should await for this to complete
-
-                drop(tx);
-
-                if created {
-                    // need to remove this *before* we start awaiting since otherwise the sender
-                    // would still be alive
-                    let mut g = self.writes.lock().expect("cannot support poisoned");
-                    // note comment on Ok(target) arm
-                    g.remove(&RepoCid(cid.to_owned()))
-                        .expect("must exist; we created it");
-                }
-
+                // - readonly or full filesystem prevents file creation
                 let message = match rx.recv().await {
                     Ok(message) => message,
                     Err(broadcast::RecvError::Closed) => {
@@ -256,7 +256,11 @@ impl BlockStore for FsBlockStore {
                     Ok((cid.to_owned(), BlockPut::Existed))
                 }
             }
-            Err(e) => Err(Error::new(e).context("creating target file failed")),
+            Err(e) => {
+                // blocking task panicked or the runtime is going down, but we don't know
+                // if the thread has stopped or not (like not)
+                Err(e.into())
+            }
         }
     }
 
@@ -405,8 +409,8 @@ mod tests {
             panic!("block should not be found")
         }
 
-        let put = store.put(block.clone());
-        assert_eq!(put.await.unwrap().0, cid.to_owned());
+        let put = store.put(block.clone()).await.unwrap();
+        assert_eq!(put.0, cid.to_owned());
         let contains = store.contains(&cid);
         assert_eq!(contains.await.unwrap(), true);
         let get = store.get(&cid);
