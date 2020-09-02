@@ -28,7 +28,7 @@ async fn resolve_query<T: IpfsTypes>(
     let ResolveQuery { arg, .. } = query;
     let name = arg.into_inner();
     let path = ipfs
-        .resolve(&name, false)
+        .resolve_ipns(&name, false)
         .await
         .map_err(StringError::from)?
         .to_string();
@@ -73,7 +73,7 @@ async fn dns_query<T: IpfsTypes>(ipfs: Ipfs<T>, query: DnsQuery) -> Result<impl 
     .map_err(StringError::from)?;
 
     let path = ipfs
-        .resolve(&path, recursive.unwrap_or(false))
+        .resolve_ipns(&path, recursive.unwrap_or(false))
         .await
         .map_err(StringError::from)?
         .to_string();

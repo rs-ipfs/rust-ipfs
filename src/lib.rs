@@ -446,11 +446,26 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Resolves a ipns path to an ipld path.
-    pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        self.ipns()
-            .resolve(path)
-            .instrument(self.span.clone())
-            .await
+    pub async fn resolve_ipns(&self, path: &IpfsPath, recursive: bool) -> Result<IpfsPath, Error> {
+        let ipns = self.ipns();
+        let mut resolved = ipns.resolve(path).await;
+
+        if recursive {
+            let mut previous = None;
+            while let Ok(ref res) = resolved {
+                if let Some(ref prev) = previous {
+                    if prev == res {
+                        break;
+                    }
+                }
+                previous = Some(res.clone());
+                resolved = ipns.resolve(&res).await;
+            }
+
+            resolved
+        } else {
+            resolved
+        }
     }
 
     /// Publishes an ipld path.
@@ -857,28 +872,6 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         Iter: IntoIterator<Item = (Cid, Ipld)> + 'a,
     {
         refs::iplds_refs(self, iplds, max_depth, unique)
-    }
-
-    pub async fn resolve(&self, path: &IpfsPath, recursive: bool) -> Result<IpfsPath, Error> {
-        let ipns = self.ipns();
-        let mut resolved = ipns.resolve(path).await;
-
-        if recursive {
-            let mut previous = None;
-            while let Ok(ref res) = resolved {
-                if let Some(ref prev) = previous {
-                    if prev == res {
-                        break;
-                    }
-                }
-                previous = Some(res.clone());
-                resolved = ipns.resolve(&res).await;
-            }
-
-            resolved
-        } else {
-            resolved
-        }
     }
 
     /// Exit daemon.
