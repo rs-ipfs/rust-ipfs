@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use tokio::fs;
 use tokio::sync::broadcast;
 
-use super::{BlockRm, BlockRmError};
+use super::{BlockRm, BlockRmError, RepoCid};
 
 // mod flatfs;
 
@@ -25,7 +25,7 @@ pub struct FsBlockStore {
     /// If the write ever happens, the message sent will be Ok(()), on failure it'll be an Err(()).
     /// Since this is a broadcast channel, the late arriving receiver might not get any messages.
     #[allow(clippy::type_complexity)]
-    writes: Arc<Mutex<HashMap<Cid, broadcast::Sender<Result<(), ()>>>>>,
+    writes: Arc<Mutex<HashMap<RepoCid, broadcast::Sender<Result<(), ()>>>>>,
     written_bytes: AtomicU64,
 }
 
@@ -52,6 +52,10 @@ impl BlockStore for FsBlockStore {
 
     async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
         let path = block_path(self.path.clone(), cid);
+
+        // why doesn't this synchronize with the rest? Not sure if there is any use for this method
+        // actually. When does it matter if a block exists, except for testing.
+
         let metadata = match fs::metadata(path).await {
             Ok(m) => m,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -69,7 +73,7 @@ impl BlockStore for FsBlockStore {
             .writes
             .lock()
             .expect("cannot support poisoned")
-            .entry(cid.to_owned())
+            .entry(RepoCid(cid.to_owned()))
         {
             Entry::Occupied(oe) => Ok(oe.get().subscribe()),
             Entry::Vacant(ve) => Err(ve.into_key()),
@@ -91,7 +95,7 @@ impl BlockStore for FsBlockStore {
 
                 cid.to_owned()
             }
-            Err(cid) => cid,
+            Err(RepoCid(cid)) => cid,
         };
 
         let path = block_path(self.path.clone(), &cid);
@@ -130,7 +134,7 @@ impl BlockStore for FsBlockStore {
         let (tx, mut rx, created) = {
             let mut g = self.writes.lock().expect("cant support poisoned");
 
-            match g.entry(cid.to_owned()) {
+            match g.entry(RepoCid(cid.to_owned())) {
                 Entry::Occupied(oe) => {
                     // someone is already writing this, nice
                     (oe.get().clone(), oe.get().subscribe(), false)
@@ -195,13 +199,18 @@ impl BlockStore for FsBlockStore {
                 drop(tx);
                 drop(rx);
 
-                if created {
+                let cid = if created {
                     let mut g = self.writes.lock().expect("cannot support poisoned");
                     // last one turns off the lights; the explicit drops for tx and rx are there
                     // only to make sure they are dropped before this point; removing the value
                     // will remove the last sender for any loser waiting on the AlreadyExists arm.
-                    g.remove(&cid).expect("must exist; we created it");
-                }
+                    let key = RepoCid(cid);
+                    g.remove(&key).expect("must exist; we created it");
+                    let RepoCid(cid) = key;
+                    cid
+                } else {
+                    cid
+                };
 
                 self.written_bytes
                     .fetch_add(written as u64, Ordering::SeqCst);
@@ -220,7 +229,8 @@ impl BlockStore for FsBlockStore {
                     // would still be alive
                     let mut g = self.writes.lock().expect("cannot support poisoned");
                     // note comment on Ok(target) arm
-                    g.remove(&cid).expect("must exist; we created it");
+                    g.remove(&RepoCid(cid.to_owned()))
+                        .expect("must exist; we created it");
                 }
 
                 let message = match rx.recv().await {
@@ -250,6 +260,9 @@ impl BlockStore for FsBlockStore {
 
     async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
         let path = block_path(self.path.clone(), cid);
+
+        // why not sychronize here?
+        // FIXME: there is a race here.
 
         match fs::remove_file(path).await {
             // FIXME: not sure if theres any point in taking cid ownership here?
