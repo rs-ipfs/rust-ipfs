@@ -46,7 +46,7 @@ impl BlockStore for FsBlockStore {
     }
 
     async fn open(&self) -> Result<(), Error> {
-        // TODO: we probably want to cache the file
+        // TODO: we probably want to cache the space usage?
         Ok(())
     }
 
@@ -169,6 +169,7 @@ impl BlockStore for FsBlockStore {
                     match write_through_tempfile(target, &target_path, temp_path, &data) {
                         Ok(()) => Ok::<_, std::io::Error>(data.len()),
                         Err(e) => {
+                            // try to cleanup, ignore any errors (perhaps the disk broke already)
                             let _ = std::fs::remove_file(target_path);
                             Err(e)
                         }
@@ -187,7 +188,7 @@ impl BlockStore for FsBlockStore {
                     }
                     Err(e) => {
                         // blocking task panicked or the runtime is going down, but we don't know
-                        // if the thread has stopped or not (like not)
+                        // if the thread has completed or not (likely not)
                         return Err(e.into());
                     }
                 };
@@ -236,7 +237,7 @@ impl BlockStore for FsBlockStore {
                 let message = match rx.recv().await {
                     Ok(message) => message,
                     Err(broadcast::RecvError::Closed) => {
-                        // there were never any write intention by any party, and we may have just
+                        // there was never any write intention by any party, and we may have just
                         // closed the last sender above, or we were late for the one message.
                         Ok(())
                     }
@@ -249,6 +250,7 @@ impl BlockStore for FsBlockStore {
 
                 if message.is_err() {
                     // could loop, however if one write failed, the next should probably
+                    // fail as well (e.g. out of disk space)
                     Err(anyhow::anyhow!("other concurrent write failed"))
                 } else {
                     Ok((cid.to_owned(), BlockPut::Existed))
