@@ -157,8 +157,10 @@ mod tests {
     use super::*;
     use bitswap::Block;
     use cid::{Cid, Codec};
+    use hex_literal::hex;
     use multihash::Sha2_256;
     use std::env::temp_dir;
+    use std::sync::Arc;
 
     #[tokio::test(max_threads = 1)]
     async fn test_fs_blockstore() {
@@ -245,5 +247,59 @@ mod tests {
         for cid in cids.iter() {
             assert!(block_store.contains(cid).await.unwrap());
         }
+    }
+
+    #[tokio::test(max_threads = 4)]
+    async fn race_to_insert() {
+        // FIXME: why not tempdir?
+        let mut tmp = temp_dir();
+        tmp.push("race_to_insert");
+        std::fs::remove_dir_all(&tmp).ok();
+
+        let single = FsBlockStore::new(tmp.clone());
+        single.init().await.unwrap();
+
+        let single = Arc::new(single);
+
+        let cid = Cid::try_from("QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL").unwrap();
+        let data = hex!("0a0d08021207666f6f6261720a1807");
+
+        let count = 10;
+
+        let barrier = Arc::new(tokio::sync::Barrier::new(count));
+
+        let block = Block {
+            cid,
+            data: data.into(),
+        };
+
+        let join_handles = (0..count)
+            .map(|_| {
+                tokio::spawn({
+                    let bs = Arc::clone(&single);
+                    let barrier = Arc::clone(&barrier);
+                    let block = block.clone();
+                    async move {
+                        barrier.wait().await;
+                        bs.put(block).await
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let mut successes = 0;
+        for jh in join_handles {
+            let res = jh.await;
+
+            match res {
+                Ok(_) => successes += 1,
+                Err(e) => println!("{}", e),
+            }
+        }
+
+        let single = Arc::try_unwrap(single).unwrap();
+        assert_eq!(single.written_bytes.into_inner(), 15);
+
+        assert_eq!(successes, count);
     }
 }
