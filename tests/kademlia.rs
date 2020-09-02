@@ -1,6 +1,6 @@
 use cid::{Cid, Codec};
 use ipfs::{p2p::MultiaddrWithPeerId, Block, Node};
-use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
+use libp2p::{kad::Quorum, multiaddr::Protocol, Multiaddr, PeerId};
 use multihash::Sha2_256;
 #[cfg(feature = "test_dht_with_go")]
 use rand::prelude::*;
@@ -327,13 +327,14 @@ async fn dht_get_put() {
     let last_index = CHAIN_LEN - if go_node.is_none() { 1 } else { 2 };
 
     let (key, value) = (b"key".to_vec(), b"value".to_vec());
+    let quorum = Quorum::One;
 
     // the last node puts a key+value record
     nodes[last_index]
-        .dht_put(key.clone(), value.clone())
+        .dht_put(key.clone(), value.clone(), quorum)
         .await
         .unwrap();
 
     // and the first node should be able to get it
-    assert_eq!(nodes[0].dht_get(key).await.unwrap(), vec![value]);
+    assert_eq!(nodes[0].dht_get(key, quorum).await.unwrap(), vec![value]);
 }

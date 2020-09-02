@@ -525,15 +525,16 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         }
     }
 
-    pub fn dht_get(&mut self, key: Key) -> SubscriptionFuture<KadResult, String> {
+    pub fn dht_get(&mut self, key: Key, quorum: Quorum) -> SubscriptionFuture<KadResult, String> {
         self.kad_subscriptions
-            .create_subscription(self.kademlia.get_record(&key, Quorum::One).into(), None)
+            .create_subscription(self.kademlia.get_record(&key, quorum).into(), None)
     }
 
     pub fn dht_put(
         &mut self,
         key: Key,
         value: Vec<u8>,
+        quorum: Quorum,
     ) -> Result<SubscriptionFuture<KadResult, String>, anyhow::Error> {
         let record = Record {
             key,
@@ -541,7 +542,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             publisher: None,
             expires: None,
         };
-        match self.kademlia.put_record(record, Quorum::One) {
+        match self.kademlia.put_record(record, quorum) {
             Ok(id) => Ok(self.kad_subscriptions.create_subscription(id.into(), None)),
             Err(e) => {
                 error!("kad: can't put a record: {:?}", e);
