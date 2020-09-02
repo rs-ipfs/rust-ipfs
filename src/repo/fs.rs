@@ -104,7 +104,7 @@ impl BlockStore for FsBlockStore {
         // lot; might be better to just guard with mutex to enforce single task file access.. the
         // current implementation will write over the same file multiple times, each time believing
         // it was the first.
-        Ok((block.cid().to_owned(), retval))
+        Ok((block.cid, retval))
     }
 
     async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
