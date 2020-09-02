@@ -10,6 +10,7 @@ use futures::stream::StreamExt;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncWriteExt},
@@ -21,6 +22,7 @@ use super::{BlockRm, BlockRmError, RepoCid};
 pub struct FsBlockStore {
     path: PathBuf,
     cids: Mutex<HashSet<RepoCid>>,
+    written_bytes: AtomicU64,
 }
 
 #[async_trait]
@@ -29,6 +31,7 @@ impl BlockStore for FsBlockStore {
         FsBlockStore {
             path,
             cids: Default::default(),
+            written_bytes: Default::default(),
         }
     }
 
@@ -92,18 +95,28 @@ impl BlockStore for FsBlockStore {
         let path = block_path(self.path.clone(), &block.cid());
         let cids = &self.cids;
         let data = block.data();
-        let mut file = fs::File::create(path).await?;
-        file.write_all(&*data).await?;
-        file.flush().await?;
+
+        let written = {
+            let mut file = fs::File::create(path).await?;
+            file.write_all(&*data).await?;
+            file.flush().await?;
+            data.len()
+        };
+
         let retval = if cids.lock().await.insert(RepoCid(block.cid().to_owned())) {
             BlockPut::NewBlock
         } else {
             BlockPut::Existed
         };
+
         // FIXME: checking if the file existed already while creating complicates this function a
         // lot; might be better to just guard with mutex to enforce single task file access.. the
         // current implementation will write over the same file multiple times, each time believing
         // it was the first.
+
+        self.written_bytes
+            .fetch_add(written as u64, Ordering::SeqCst);
+
         Ok((block.cid, retval))
     }
 
