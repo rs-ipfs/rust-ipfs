@@ -8,15 +8,21 @@ use domain_resolv::{stub::Answer, StubResolver};
 use futures::future::{select_ok, SelectOk};
 use futures::pin_mut;
 use std::future::Future;
-use std::io;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::task::{Context, Poll};
-use thiserror::Error;
+use std::{fmt, io};
 
-#[derive(Debug, Error)]
-#[error("no dnslink entry")]
-pub struct DnsLinkError;
+#[derive(Debug)]
+pub struct DnsLinkError(String);
+
+impl fmt::Display for DnsLinkError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(fmt, "DNS error: {}", self.0)
+    }
+}
+
+impl std::error::Error for DnsLinkError {}
 
 type FutureAnswer = Pin<Box<dyn Future<Output = Result<Answer, io::Error>> + Send>>;
 
@@ -46,11 +52,13 @@ impl Future for DnsLinkFuture {
                     if !rest.is_empty() {
                         _self.query = select_ok(rest);
                     } else {
-                        return Poll::Ready(Err(DnsLinkError.into()));
+                        return Poll::Ready(Err(
+                            DnsLinkError("no DNS records found".to_owned()).into()
+                        ));
                     }
                 }
                 Poll::Pending => return Poll::Pending,
-                Poll::Ready(Err(_)) => return Poll::Ready(Err(DnsLinkError.into())),
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(DnsLinkError(e.to_string()).into())),
             }
         }
     }
