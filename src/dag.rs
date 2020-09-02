@@ -46,6 +46,14 @@ pub enum ResolveError {
     /// Path attempted to resolve through a property, index or link which did not exist.
     #[error("no link named {:?} under {0}", .1.iter().last().unwrap())]
     NotFound(Cid, SlashedPath),
+
+    /// Tried to use a path neiter containing nor resolving to a Cid.
+    #[error("the path neiter contains nor resolves to a Cid")]
+    NoCid(IpfsPath),
+
+    /// Couldn't resolve a path via IPNS.
+    #[error("can't resolve an IPNS path")]
+    IpnsResolutionFailed(IpfsPath),
 }
 
 #[derive(Debug, Error)]
@@ -178,19 +186,24 @@ impl<Types: RepoTypes> IpldDag<Types> {
     ///
     /// Returns the resolved node as `Ipld`.
     pub async fn get(&self, path: IpfsPath) -> Result<Ipld, ResolveError> {
-        // FIXME: do ipns resolve first
-        let cid = match path.root().cid() {
+        let resolved_path = self
+            .ipfs
+            .resolve_ipns(&path, true)
+            .await
+            .map_err(|_| ResolveError::IpnsResolutionFailed(path))?;
+
+        let cid = match resolved_path.root().cid() {
             Some(cid) => cid,
-            None => panic!("Ipns resolution not implemented; expected a Cid-based path"),
+            None => return Err(ResolveError::NoCid(resolved_path)),
         };
 
-        let mut iter = path.iter().peekable();
+        let mut iter = resolved_path.iter().peekable();
 
         let (node, _) = match self.resolve0(cid, &mut iter, true).await {
             Ok(t) => t,
             Err(e) => {
                 drop(iter);
-                return Err(e.with_path(path));
+                return Err(e.with_path(resolved_path));
             }
         };
 
@@ -213,19 +226,24 @@ impl<Types: RepoTypes> IpldDag<Types> {
         path: IpfsPath,
         follow_links: bool,
     ) -> Result<(ResolvedNode, SlashedPath), ResolveError> {
-        // FIXME: do ipns resolve first
-        let cid = match path.root().cid() {
+        let resolved_path = self
+            .ipfs
+            .resolve_ipns(&path, true)
+            .await
+            .map_err(|_| ResolveError::IpnsResolutionFailed(path))?;
+
+        let cid = match resolved_path.root().cid() {
             Some(cid) => cid,
-            None => panic!("Ipns resolution not implemented; expected a Cid-based path"),
+            None => return Err(ResolveError::NoCid(resolved_path)),
         };
 
         let (node, matched_segments) = {
-            let mut iter = path.iter().peekable();
+            let mut iter = resolved_path.iter().peekable();
             match self.resolve0(cid, &mut iter, follow_links).await {
                 Ok(t) => t,
                 Err(e) => {
                     drop(iter);
-                    return Err(e.with_path(path));
+                    return Err(e.with_path(resolved_path));
                 }
             }
         };
@@ -233,7 +251,7 @@ impl<Types: RepoTypes> IpldDag<Types> {
         // we only care about returning this remaining_path with segments up until the last
         // document but it can and should contain all of the following segments (if any). there
         // could be more segments when `!follow_links`.
-        let remaining_path = path.into_shifted(matched_segments);
+        let remaining_path = resolved_path.into_shifted(matched_segments);
 
         Ok((node, remaining_path))
     }
