@@ -303,8 +303,13 @@ impl BlockStore for FsBlockStore {
 }
 
 fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
-    // this is ascii always
-    let mut file = cid.to_string();
+    // this is ascii always, and wasteful until we can drop the cid for multihash ... which is
+    // probably soon, we just need turn /refs/local to use /pin/list.
+    let mut file = if cid.version() == cid::Version::V1 {
+        cid.to_string()
+    } else {
+        Cid::new_v1(cid.codec(), cid.hash().to_owned()).to_string()
+    };
 
     // second-to-last/2
     let start = file.len() - 3;
