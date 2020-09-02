@@ -5,26 +5,22 @@ use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
 use core::convert::TryFrom;
-use futures::lock::Mutex;
-use futures::stream::StreamExt;
 use std::collections::HashMap;
-use std::collections::HashSet;
-use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 
+use tokio::fs;
 use tokio::sync::broadcast;
-use tokio::{fs, io::AsyncReadExt};
 
-use super::{BlockRm, BlockRmError, RepoCid};
+use super::{BlockRm, BlockRmError};
 
 // mod flatfs;
 
 #[derive(Debug)]
 pub struct FsBlockStore {
     path: PathBuf,
-    cids: Mutex<HashSet<RepoCid>>,
     writes: Arc<Mutex<HashMap<Cid, broadcast::Sender<Result<(), ()>>>>>,
     written_bytes: AtomicU64,
 }
@@ -34,7 +30,7 @@ impl BlockStore for FsBlockStore {
     fn new(path: PathBuf) -> Self {
         FsBlockStore {
             path,
-            cids: Default::default(),
+            //cids: Default::default(),
             writes: Arc::new(Mutex::new(HashMap::with_capacity(8))),
             written_bytes: Default::default(),
         }
@@ -46,60 +42,81 @@ impl BlockStore for FsBlockStore {
     }
 
     async fn open(&self) -> Result<(), Error> {
-        let path = &self.path;
-        let cids = &self.cids;
-
-        let mut stream = fs::read_dir(path).await?;
-
-        async fn append_cid(cids: &Mutex<HashSet<RepoCid>>, path: PathBuf) {
-            if path.extension() != Some(OsStr::new("data")) {
-                return;
-            }
-            let cid_str = path.file_stem().unwrap();
-            let cid = Cid::try_from(cid_str.to_str().unwrap()).unwrap();
-            cids.lock().await.insert(RepoCid(cid));
-        }
-
-        loop {
-            let dir = stream.next().await;
-
-            match dir {
-                Some(Ok(dir)) => append_cid(&cids, dir.path()).await,
-                Some(Err(e)) => return Err(e.into()),
-                None => return Ok(()),
-            }
-        }
+        // TODO: we probably want to cache the file
+        Ok(())
     }
 
     async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
-        let contains = self.cids.lock().await.contains(&RepoCid(cid.to_owned()));
-        Ok(contains)
+        let path = block_path(self.path.clone(), cid);
+        let metadata = match fs::metadata(path).await {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(e.into()),
+        };
+
+        Ok(metadata.is_file())
     }
 
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
-        let path = block_path(self.path.clone(), cid);
-        let cid = cid.to_owned();
-        let mut file = match fs::File::open(path).await {
-            Ok(file) => file,
-            Err(err) => {
-                if err.kind() == std::io::ErrorKind::NotFound {
-                    return Ok(None);
-                } else {
-                    return Err(err.into());
-                }
-            }
+        use std::collections::hash_map::Entry;
+        use std::io::Read;
+
+        let receiver_or_cid = match self
+            .writes
+            .lock()
+            .expect("cannot support poisoned")
+            .entry(cid.to_owned())
+        {
+            Entry::Occupied(oe) => Ok(oe.get().subscribe()),
+            Entry::Vacant(ve) => Err(ve.into_key()),
         };
-        let mut data = Vec::new();
-        file.read_to_end(&mut data).await?;
-        let block = Block::new(data.into_boxed_slice(), cid);
-        Ok(Some(block))
+
+        let cid = match receiver_or_cid {
+            Ok(mut rx) => {
+                match rx.recv().await {
+                    Ok(Ok(())) => { /* good, something was just written */ }
+                    Ok(Err(_)) => {
+                        // write failed
+                        return Ok(None);
+                    }
+                    Err(broadcast::RecvError::Closed) => { /* we missed it, could be either way */ }
+                    Err(broadcast::RecvError::Lagged(_)) => unreachable!(
+                        "sending at most one message to the channel with capacity of one"
+                    ),
+                }
+
+                cid.to_owned()
+            }
+            Err(cid) => cid,
+        };
+
+        let path = block_path(self.path.clone(), &cid);
+
+        // probably best to do everything in the blocking thread if we are to issue multiple
+        // syscalls
+        tokio::task::spawn_blocking(|| {
+            let mut file = match std::fs::File::open(path) {
+                Ok(file) => file,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(e) => {
+                    return Err(e.into());
+                }
+            };
+
+            let len = file.metadata()?.len();
+
+            let mut data = Vec::with_capacity(len as usize);
+            file.read_to_end(&mut data)?;
+            let block = Block::new(data.into_boxed_slice(), cid);
+            Ok(Some(block))
+        })
+        .await?
     }
 
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
         use std::collections::hash_map::Entry;
 
         let target_path = block_path(self.path.clone(), &block.cid());
-        let cids = &self.cids;
         let cid = block.cid;
         let data = block.data;
 
@@ -107,7 +124,7 @@ impl BlockStore for FsBlockStore {
         // else interested in writing this block or not
 
         let (tx, mut rx, created) = {
-            let mut g = self.writes.lock().await;
+            let mut g = self.writes.lock().expect("cant support poisoned");
 
             match g.entry(cid.to_owned()) {
                 Entry::Occupied(oe) => {
@@ -122,6 +139,13 @@ impl BlockStore for FsBlockStore {
                 }
             }
         };
+
+        fs::create_dir_all(
+            target_path
+                .parent()
+                .expect("parent always exists as it's the sharding directory"),
+        )
+        .await?;
 
         // pick the next writer by chance
         match std::fs::OpenOptions::new()
@@ -160,8 +184,6 @@ impl BlockStore for FsBlockStore {
                     }
                 };
 
-                cids.lock().await.insert(RepoCid(cid.to_owned()));
-
                 let _ = tx
                     .send(Ok(()))
                     .expect("this cannot fail as we have at least one receiver on stack");
@@ -170,7 +192,7 @@ impl BlockStore for FsBlockStore {
                 drop(rx);
 
                 if created {
-                    let mut g = self.writes.lock().await;
+                    let mut g = self.writes.lock().expect("cannot support poisoned");
                     // last one turns off the lights; the explicit drops for tx and rx are there
                     // only to make sure they are dropped before this point; removing the value
                     // will remove the last sender for any loser waiting on the AlreadyExists arm.
@@ -192,7 +214,7 @@ impl BlockStore for FsBlockStore {
                 if created {
                     // need to remove this *before* we start awaiting since otherwise the sender
                     // would still be alive
-                    let mut g = self.writes.lock().await;
+                    let mut g = self.writes.lock().expect("cannot support poisoned");
                     // note comment on Ok(target) arm
                     g.remove(&cid).expect("must exist; we created it");
                 }
@@ -224,31 +246,74 @@ impl BlockStore for FsBlockStore {
 
     async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
         let path = block_path(self.path.clone(), cid);
-        let cids = &self.cids;
 
-        // We want to panic if there's a mutex unlock error
-        // TODO: Check for pinned blocks here? Instead of repo?
-        if cids.lock().await.remove(&RepoCid(cid.to_owned())) {
-            fs::remove_file(path).await?;
-            Ok(Ok(BlockRm::Removed(cid.clone())))
-        } else {
-            Ok(Err(BlockRmError::NotFound(cid.clone())))
+        match fs::remove_file(path).await {
+            // FIXME: not sure if theres any point in taking cid ownership here?
+            Ok(()) => Ok(Ok(BlockRm::Removed(cid.to_owned()))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Ok(Err(BlockRmError::NotFound(cid.to_owned())))
+            }
+            Err(e) => Err(e.into()),
         }
     }
 
     async fn list(&self) -> Result<Vec<Cid>, Error> {
-        // unwrapping as we want to panic on poisoned lock
-        let guard = self.cids.lock().await;
-        Ok(guard.iter().map(|cid| cid.0.clone()).collect())
+        use futures::stream::TryStreamExt;
+
+        let stream = fs::read_dir(self.path.clone()).await?;
+
+        // FIXME: written as a stream to make the Vec be BoxStream<'static, Cid>
+        let vec = stream
+            .and_then(|d| async move {
+                // map over the shard directories
+                Ok(if d.file_type().await?.is_dir() {
+                    futures::future::Either::Left(fs::read_dir(d.path()).await?)
+                } else {
+                    futures::future::Either::Right(futures::stream::empty())
+                })
+            })
+            // flatten each
+            .try_flatten()
+            // convert the paths ending in ".data" into cid
+            .try_filter_map(|d| {
+                let name = d.file_name();
+                let path: &std::path::Path = name.as_ref();
+
+                futures::future::ready(if path.extension() != Some("data".as_ref()) {
+                    Ok(None)
+                } else {
+                    let wrong_way = path.file_stem().and_then(|stem| stem.to_str()).map(|s| {
+                        Cid::try_from(s)
+                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                    });
+                    match wrong_way {
+                        Some(Ok(cid)) => Ok(Some(cid)),
+                        Some(Err(e)) => Err(e),
+                        None => Ok(None),
+                    }
+                })
+            })
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        Ok(vec)
     }
 
-    async fn wipe(&self) {
-        self.cids.lock().await.clear();
-    }
+    async fn wipe(&self) {}
 }
 
 fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
+    // this is ascii always
     let mut file = cid.to_string();
+
+    // second-to-last/2
+    let start = file.len() - 3;
+
+    let shard = &file[start..start + 2];
+    assert_eq!(file[start + 2..].len(), 1);
+    base.push(shard);
+
+    // not sure why set extension instead
     file.push_str(".data");
     base.push(file);
     base
@@ -308,10 +373,10 @@ mod tests {
         store.init().await.unwrap();
         store.open().await.unwrap();
 
-        let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), false);
-        let get = store.get(&cid);
-        assert_eq!(get.await.unwrap(), None);
+        let contains = store.contains(&cid).await.unwrap();
+        assert_eq!(contains, false);
+        let get = store.get(&cid).await.unwrap();
+        assert_eq!(get, None);
         if store.remove(&cid).await.unwrap().is_ok() {
             panic!("block should not be found")
         }
