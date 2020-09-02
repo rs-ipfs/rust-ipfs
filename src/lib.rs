@@ -406,8 +406,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// # Crash unsafety
     ///
     /// If a recursive `insert_pin` operation is interrupted because of a crash or the crash
-    /// prevents synchronizing data store to disk, this will leave the system in inconsistent
-    /// state. Remedy is to re-pin recursive pins.
+    /// prevents from synchronizing the data store to disk, this will leave the system in an inconsistent
+    /// state. The remedy is to re-pin recursive pins.
     pub async fn insert_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
         use futures::stream::TryStreamExt;
         if !recursive {
@@ -559,7 +559,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     ///
     /// # Crash unsafety
     ///
-    /// Cannot detect partially written recursive pins. Such happen if `Ipfs::insert_pin(cid,
+    /// Cannot detect partially written recursive pins. Those can happen if `Ipfs::insert_pin(cid,
     /// recursive: true)` is interrupted by a crash for example.
     ///
     /// Works correctly only under no-crash situations. Workaround for hitting a crash is to re-pin
@@ -567,7 +567,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     ///
     /// TODO: This operation could be provided as a `Ipfs::fix_pins()`.
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        // best to just delegate, we cannot efficiently list of PinKind::RecursiveIntention but the
+        // best to just delegate, we cannot efficiently obtain a list of PinKind::RecursiveIntention but the
         // repo impl can
         self.repo.is_pinned(cid).instrument(self.span.clone()).await
     }
