@@ -24,12 +24,17 @@ type ArcMutexMap<A, B> = Arc<Mutex<HashMap<A, B>>>;
 
 #[derive(Debug)]
 pub struct FsBlockStore {
+    /// The base directory under which we have a sharded directory structure, and the individual
+    /// blocks are stored under the shard. See unixfs/examples/cat.rs for read example.
     path: PathBuf,
+
     /// Synchronize concurrent reads and writes to the same Cid.
     /// If the write ever happens, the message sent will be Ok(()), on failure it'll be an Err(()).
     /// Since this is a broadcast channel, the late arriving receiver might not get any messages.
-    #[allow(clippy::type_complexity)]
     writes: ArcMutexMap<RepoCid, broadcast::Sender<Result<(), ()>>>,
+
+    /// Initially used to demonstrate a bug, not really needed anymore. Could be used as a basis
+    /// for periodic synching to disk to know much space we have used.
     written_bytes: AtomicU64,
 }
 
@@ -44,6 +49,8 @@ impl<K: Eq + Hash, V> Drop for RemoveOnDrop<K, V> {
     }
 }
 
+/// When synchronizing to a possible ongoing write through `FsBlockStore::writes` these are the
+/// possible outcomes.
 #[derive(Debug)]
 enum WriteCompletion {
     KnownGood,
@@ -72,7 +79,7 @@ impl FsBlockStore {
             }
         };
 
-        trace!("awaiting for concurrent write to completion");
+        trace!("awaiting concurrent write to completion");
 
         match rx.recv().await {
             Ok(Ok(())) => WriteCompletion::KnownGood,
