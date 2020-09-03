@@ -132,7 +132,6 @@ impl MemDataStore {
                         cid::Version::V1 => 1,
                     },
                     indirect_by: Vec::new(),
-                    indirect_to: Vec::new(),
                 };
 
                 doc.update(true, &kind).unwrap();

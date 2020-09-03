@@ -473,9 +473,6 @@ struct PinDocument {
     cid_version: u8,
     // using the cidv1 versions of all cids here, not sure if that makes sense or is important
     indirect_by: Vec<String>,
-    // supporting all kinds of directions here; this is a list of the Cids that are indirectly
-    // pinned because of this recursive pinning.
-    indirect_to: Vec<String>,
 }
 
 impl PinDocument {
@@ -894,7 +891,6 @@ pub(crate) mod tests {
             recursive: Recursive::Not,
             cid_version: 0,
             indirect_by: Vec::new(),
-            indirect_to: Vec::new(),
         };
 
         assert!(doc.update(true, &PinKind::Direct).unwrap());
