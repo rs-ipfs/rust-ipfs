@@ -364,27 +364,7 @@ impl BlockStore for FsBlockStore {
                     ready(if path.extension() != Some("data".as_ref()) {
                         Ok(None)
                     } else {
-                        let maybe_cid =
-                            path.file_stem()
-                                .and_then(|stem| stem.to_str())
-                                .and_then(|s| {
-                                    let cid = Cid::try_from(s);
-
-                                    // it's very unlikely that we'd hit a valid file with "data" extension
-                                    // which we did write so I'd say wrapping the Cid parsing error as
-                                    // std::io::Error is highly unnecessary. if someone wants to
-                                    // *keep* ".data" ending files in the block store we shouldn't
-                                    // die over it.
-                                    //
-                                    // if we could, we would do a log_once here, if we could easily
-                                    // do such thing. like a inode based global probabilistic
-                                    // hashset.
-                                    //
-                                    // FIXME: add test
-
-                                    cid.ok()
-                                });
-
+                        let maybe_cid = filestem_to_cid(path.file_stem());
                         Ok(maybe_cid)
                     })
                 })
@@ -400,6 +380,26 @@ impl BlockStore for FsBlockStore {
     async fn wipe(&self) {
         unimplemented!("wipe")
     }
+}
+
+fn filestem_to_cid(file_stem: Option<&std::ffi::OsStr>) -> Option<Cid> {
+    file_stem.and_then(|stem| stem.to_str()).and_then(|s| {
+        let cid = Cid::try_from(s);
+
+        // it's very unlikely that we'd hit a valid file with "data" extension
+        // which we did write so I'd say wrapping the Cid parsing error as
+        // std::io::Error is highly unnecessary. if someone wants to
+        // *keep* ".data" ending files in the block store we shouldn't
+        // die over it.
+        //
+        // if we could, we would do a log_once here, if we could easily
+        // do such thing. like a inode based global probabilistic
+        // hashset.
+        //
+        // FIXME: add test
+
+        cid.ok()
+    })
 }
 
 fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
