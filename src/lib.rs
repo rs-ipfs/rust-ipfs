@@ -68,7 +68,7 @@ impl<T: RepoTypes> IpfsTypes for T {}
 pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
-    type TDataStore = repo::mem::MemDataStore;
+    type TDataStore = repo::fs::FsDataStore;
 }
 
 /// Testing IPFS types
