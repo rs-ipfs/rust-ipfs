@@ -42,41 +42,39 @@ impl<K: Eq + Hash, V> Drop for RemoveOnDrop<K, V> {
     }
 }
 
+enum WriteCompletion {
+    KnownGood,
+    NotObserved,
+    KnownBad,
+    NotOngoing,
+}
+
 impl FsBlockStore {
     /// Returns the same Cid in either case. Ok variant is returned in case it is suspected the
     /// write completed successfully or there was never any write ongoing. Err variant is returned
     /// if it's known that the write failed.
-    async fn write_completion(&self, cid: Cid) -> Result<Cid, Cid> {
+    async fn write_completion(&self, cid: &Cid) -> WriteCompletion {
         use std::collections::hash_map::Entry;
 
-        let receiver_or_cid = match self
+        let mut rx = match self
             .writes
             .lock()
             .expect("cannot support poisoned")
             .entry(RepoCid(cid.clone()))
         {
-            Entry::Occupied(oe) => Ok(oe.get().subscribe()),
-            Entry::Vacant(ve) => Err(ve.into_key()),
+            Entry::Occupied(oe) => oe.get().subscribe(),
+            Entry::Vacant(_) => {
+                return WriteCompletion::NotOngoing;
+            }
         };
 
-        match receiver_or_cid {
-            Ok(mut rx) => {
-                match rx.recv().await {
-                    Ok(Ok(())) => { /* good, something was just written */ }
-                    Err(broadcast::RecvError::Closed) => { /* we missed it, could be either way */ }
-                    Ok(Err(_)) => {
-                        // write failed
-                        return Err(cid);
-                    }
-                    Err(broadcast::RecvError::Lagged(_)) => unreachable!(
-                        "sending at most one message to the channel with capacity of one"
-                    ),
-                }
-
-                Ok(cid.to_owned())
+        match rx.recv().await {
+            Ok(Ok(())) => WriteCompletion::KnownGood,
+            Err(broadcast::RecvError::Closed) => WriteCompletion::NotObserved,
+            Ok(Err(_)) => WriteCompletion::KnownBad,
+            Err(broadcast::RecvError::Lagged(_)) => {
+                unreachable!("sending at most one message to the channel with capacity of one")
             }
-            // nothing ongoing
-            Err(RepoCid(cid)) => Ok(cid),
         }
     }
 }
@@ -120,19 +118,18 @@ impl BlockStore for FsBlockStore {
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
         use std::io::Read;
 
-        let cid = match self.write_completion(cid.to_owned()).await {
-            Ok(cid) => cid,
-            Err(_) => {
-                // known to have failed
-                return Ok(None);
-            }
+        match self.write_completion(cid).await {
+            WriteCompletion::KnownBad => return Ok(None),
+            _ => {}
         };
 
-        let path = block_path(self.path.clone(), &cid);
+        let path = block_path(self.path.clone(), cid);
+
+        let cid = cid.to_owned();
 
         // probably best to do everything in the blocking thread if we are to issue multiple
         // syscalls
-        tokio::task::spawn_blocking(|| {
+        tokio::task::spawn_blocking(move || {
             let mut file = match std::fs::File::open(path) {
                 Ok(file) => file,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -284,21 +281,18 @@ impl BlockStore for FsBlockStore {
     async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
         let path = block_path(self.path.clone(), cid);
 
-        let cid = match self.write_completion(cid.to_owned()).await {
-            Ok(cid) => cid,
-            Err(cid) => {
-                // write known to have failed
-                return Ok(Err(BlockRmError::NotFound(cid)));
+        match self.write_completion(cid).await {
+            WriteCompletion::KnownBad => Ok(Err(BlockRmError::NotFound(cid.to_owned()))),
+            _ => {
+                match fs::remove_file(path).await {
+                    // FIXME: not sure if theres any point in taking cid ownership here?
+                    Ok(()) => Ok(Ok(BlockRm::Removed(cid.to_owned()))),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                        Ok(Err(BlockRmError::NotFound(cid.to_owned())))
+                    }
+                    Err(e) => Err(e.into()),
+                }
             }
-        };
-
-        match fs::remove_file(path).await {
-            // FIXME: not sure if theres any point in taking cid ownership here?
-            Ok(()) => Ok(Ok(BlockRm::Removed(cid))),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Ok(Err(BlockRmError::NotFound(cid)))
-            }
-            Err(e) => Err(e.into()),
         }
     }
 
