@@ -118,10 +118,9 @@ impl BlockStore for FsBlockStore {
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
         use std::io::Read;
 
-        match self.write_completion(cid).await {
-            WriteCompletion::KnownBad => return Ok(None),
-            _ => {}
-        };
+        if let WriteCompletion::KnownBad = self.write_completion(cid).await {
+            return Ok(None);
+        }
 
         let path = block_path(self.path.clone(), cid);
 
