@@ -415,9 +415,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// prevents from synchronizing the data store to disk, this will leave the system in an inconsistent
     /// state. The remedy is to re-pin recursive pins.
     pub async fn insert_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
-        use futures::stream::TryStreamExt;
+        use futures::stream::{StreamExt, TryStreamExt};
         if !recursive {
-            self.repo.insert_pin(cid, PinKind::Direct).await
+            self.repo.insert_direct_pin(cid).await
         } else {
             let span = tracing::debug_span!("insert recursive pin", cid = %cid);
 
@@ -425,36 +425,16 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 // this needs to download everything but /pin/ls does not
                 let Block { data, .. } = self.repo.get_block(cid).await?;
 
-                self.repo
-                    .insert_pin(cid, PinKind::RecursiveIntention)
-                    .await?;
-
                 let ipld = crate::ipld::decode_ipld(&cid, &data)?;
 
                 let st = crate::refs::IpldRefs::default()
                     .with_only_unique()
                     .refs_of_resolved(self, vec![(cid.clone(), ipld.clone())].into_iter())
-                    .into_stream();
+                    .map_ok(|crate::refs::Edge { destination, .. }| destination)
+                    .into_stream()
+                    .boxed();
 
-                futures::pin_mut!(st);
-
-                let mut count = 0u64;
-
-                while let Some(crate::refs::Edge { destination, .. }) = st.try_next().await? {
-                    trace!(dest = %destination, "located reference");
-                    // this would be the best place to fail in a test case
-                    self.repo
-                        .insert_pin(&destination, PinKind::IndirectFrom(&cid))
-                        .await?;
-
-                    count += 1;
-                }
-
-                self.repo.insert_pin(cid, PinKind::Recursive(count)).await?;
-
-                debug!(count = %count, "recursive pin inserted");
-
-                Ok(())
+                self.repo.insert_recursive_pin(cid, st).await
             }
             .instrument(span)
             .await
@@ -468,33 +448,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Unpinning an indirectly pinned Cid is not possible other than through its recursively
     /// pinned tree roots.
     pub async fn remove_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
-        use futures::stream::TryStreamExt;
+        use futures::stream::{StreamExt, TryStreamExt};
         if !recursive {
-            self.repo.remove_pin(cid, PinKind::Direct).await
+            self.repo.remove_direct_pin(cid).await
         } else {
             let span = tracing::debug_span!("remove recursive pin", cid = %cid);
             async move {
-                let (cid, kind) = self
-                    .repo
-                    .query_pins(vec![cid.to_owned()], None)
-                    .await?
-                    .swap_remove(0);
-
-                trace!(pin = ?kind, "found pin to be removed");
-
-                let expected_count = match kind {
-                    PinKind::RecursiveIntention => {
-                        // there may still be some stragglers so perhaps remove them
-                        // but we dont know how many should we expect to find
-                        debug!("detected previous incomplete pinning");
-                        None
-                    }
-                    PinKind::Recursive(count) => Some(count),
-                    PinKind::Direct | PinKind::IndirectFrom(_) => {
-                        return Err(anyhow::anyhow!("not pinned recursively"))
-                    }
-                };
-
                 // start walking refs of the root after loading it
 
                 let Block { data, .. } = match self.repo.get_block_now(&cid).await? {
@@ -508,49 +467,15 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 let st = crate::refs::IpldRefs::default()
                     .with_only_unique()
                     .with_existing_blocks()
-                    .refs_of_resolved(self, vec![(cid.clone(), ipld.clone())].into_iter())
-                    .into_stream();
+                    .refs_of_resolved(
+                        self.to_owned(),
+                        vec![(cid.clone(), ipld.clone())].into_iter(),
+                    )
+                    .map_ok(|crate::refs::Edge { destination, .. }| destination)
+                    .into_stream()
+                    .boxed();
 
-                futures::pin_mut!(st);
-
-                let mut count = 0u64;
-
-                while let Some(crate::refs::Edge { destination, .. }) = st.try_next().await? {
-                    self.repo
-                        .remove_pin(&destination, PinKind::IndirectFrom(&cid))
-                        .await?;
-
-                    count += 1;
-                }
-
-                let removed = if expected_count.is_some() {
-                    PinKind::Recursive(count)
-                } else {
-                    PinKind::RecursiveIntention
-                };
-
-                self.repo.remove_pin(&cid, removed).await?;
-
-                match expected_count {
-                    Some(x) if x == count => {
-                        info!(count = x, "removed as many indirect pins as were meant to");
-                    }
-                    Some(x) => {
-                        warn!(
-                            expected = x,
-                            actual = count,
-                            "removed unexpected number of indirect pins",
-                        );
-                    }
-                    None => {
-                        info!(
-                            cleared_out = count,
-                            "cleaned up and removed previous partial pinning",
-                        );
-                    }
-                }
-
-                Ok(())
+                self.repo.remove_recursive_pin(cid, st).await
             }
             .instrument(span)
             .await

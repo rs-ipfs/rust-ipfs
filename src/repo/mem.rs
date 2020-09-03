@@ -6,13 +6,15 @@ use crate::repo::{
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
-use futures::lock::Mutex;
 use std::path::PathBuf;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use super::{BlockRm, BlockRmError, RepoCid};
+use std::collections::hash_map::Entry;
 
 // FIXME: Transition to Persistent Map to make iterating more consistent
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug, Default)]
 pub struct MemBlockStore {
@@ -91,7 +93,87 @@ pub struct MemDataStore {
     ipns: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
     // this could also be PinDocument however doing any serialization allows to see the required
     // error types easier
-    pin: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+    pin: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
+}
+
+impl MemDataStore {
+    /// Returns true if the pin document was changed, false otherwise.
+    fn insert_pin<'a>(
+        g: &mut OwnedMutexGuard<HashMap<Vec<u8>, Vec<u8>>>,
+        target: &'a Cid,
+        kind: &'a PinKind<&'_ Cid>,
+    ) -> Result<bool, Error> {
+        // rationale for storing as Cid: the same multihash can be pinned with different codecs.
+        // even if there aren't many polyglot documents known, pair of raw and the actual codec is
+        // always a possibility.
+        let key = target.to_bytes();
+
+        match g.entry(key) {
+            Entry::Occupied(mut oe) => {
+                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
+                if doc.update(true, kind)? {
+                    let vec = oe.get_mut();
+                    vec.clear();
+                    serde_json::to_writer(vec, &doc)?;
+                    trace!(doc = ?doc, kind = ?kind, "updated on insert");
+                    Ok(true)
+                } else {
+                    trace!(doc = ?doc, kind = ?kind, "update not needed on insert");
+                    Ok(false)
+                }
+            }
+            Entry::Vacant(ve) => {
+                let mut doc = PinDocument {
+                    version: 0,
+                    direct: false,
+                    recursive: Recursive::Not,
+                    cid_version: match target.version() {
+                        cid::Version::V0 => 0,
+                        cid::Version::V1 => 1,
+                    },
+                    indirect_by: Vec::new(),
+                    indirect_to: Vec::new(),
+                };
+
+                doc.update(true, &kind).unwrap();
+                let vec = serde_json::to_vec(&doc)?;
+                ve.insert(vec);
+                trace!(doc = ?doc, kind = ?kind, "created on insert");
+                Ok(true)
+            }
+        }
+    }
+
+    /// Returns true if the pin document was changed, false otherwise.
+    fn remove_pin<'a>(
+        g: &mut OwnedMutexGuard<HashMap<Vec<u8>, Vec<u8>>>,
+        target: &'a Cid,
+        kind: &'a PinKind<&'_ Cid>,
+    ) -> Result<bool, Error> {
+        // see cid vs. multihash from [`insert_direct_pin`]
+        let key = target.to_bytes();
+
+        match g.entry(key) {
+            Entry::Occupied(mut oe) => {
+                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
+                if !doc.update(false, kind)? {
+                    trace!(doc = ?doc, kind = ?kind, "update not needed on removal");
+                    return Ok(false);
+                }
+
+                if doc.can_remove() {
+                    oe.remove();
+                } else {
+                    let vec = oe.get_mut();
+                    vec.clear();
+                    serde_json::to_writer(vec, &doc)?;
+                }
+
+                Ok(true)
+            }
+            Entry::Vacant(_) => Err(anyhow::anyhow!("not pinned")),
+        }
+    }
 }
 
 #[async_trait]
@@ -111,77 +193,102 @@ impl PinStore for MemDataStore {
         Ok(g.contains_key(&key))
     }
 
-    async fn insert_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
-        use std::collections::hash_map::Entry;
-        let mut g = self.pin.lock().await;
+    async fn insert_direct_pin(&self, target: &Cid) -> Result<(), Error> {
+        let mut g = Mutex::lock_owned(Arc::clone(&self.pin)).await;
+        Self::insert_pin(&mut g, target, &PinKind::Direct)?;
+        Ok(())
+    }
 
-        // rationale for storing as Cid: the same multihash can be pinned with different codecs.
-        // even if there aren't many polyglot documents known, pair of raw and the actual codec is
-        // always a possibility.
-        let key = target.to_bytes();
+    async fn remove_direct_pin(&self, target: &Cid) -> Result<(), Error> {
+        let mut g = Mutex::lock_owned(Arc::clone(&self.pin)).await;
+        Self::remove_pin(&mut g, target, &PinKind::Direct)?;
+        Ok(())
+    }
 
-        match g.entry(key) {
-            Entry::Occupied(mut oe) => {
-                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
-                if doc.update(true, &kind)? {
-                    let vec = oe.get_mut();
-                    vec.clear();
-                    serde_json::to_writer(vec, &doc)?;
-                    trace!(doc = ?doc, kind = ?kind, "updated on insert");
-                } else {
-                    trace!(doc = ?doc, kind = ?kind, "update not needed on insert");
-                }
-            }
-            Entry::Vacant(ve) => {
-                let mut doc = PinDocument {
-                    version: 0,
-                    direct: false,
-                    recursive: Recursive::Not,
-                    cid_version: match target.version() {
-                        cid::Version::V0 => 0,
-                        cid::Version::V1 => 1,
-                    },
-                    indirect_by: Vec::new(),
-                };
+    async fn insert_recursive_pin(
+        &self,
+        target: &Cid,
+        mut refs: super::References<'_>,
+    ) -> Result<(), Error> {
+        use futures::stream::TryStreamExt;
 
-                doc.update(true, &kind).unwrap();
-                let vec = serde_json::to_vec(&doc)?;
-                ve.insert(vec);
-                trace!(doc = ?doc, kind = ?kind, "created on insert");
-            }
+        let mut g = Mutex::lock_owned(Arc::clone(&self.pin)).await;
+
+        // this must fail if it is already fully pinned
+        Self::insert_pin(&mut g, target, &PinKind::RecursiveIntention)?;
+
+        let target_v1 = if target.version() == cid::Version::V1 {
+            target.to_owned()
+        } else {
+            // this is one more allocation
+            Cid::new_v1(target.codec(), target.hash().to_owned())
+        };
+
+        // collect these before even if they are many ... not sure if this is a good idea but, the
+        // inmem version doesn't need to be all that great. this could be for nothing, if the root
+        // was already pinned.
+
+        let mut count = 0;
+        let kind = PinKind::IndirectFrom(&target_v1);
+        while let Some(next) = refs.try_next().await? {
+            // no rollback, nothing
+            Self::insert_pin(&mut g, &next, &kind)?;
+            count += 1;
         }
+
+        let kind = PinKind::Recursive(count as u64);
+        Self::insert_pin(&mut g, target, &kind)?;
 
         Ok(())
     }
 
-    async fn remove_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
-        use std::collections::hash_map::Entry;
+    async fn remove_recursive_pin(
+        &self,
+        target: &Cid,
+        mut refs: super::References<'_>,
+    ) -> Result<(), Error> {
+        use futures::stream::TryStreamExt;
 
-        let mut g = self.pin.lock().await;
+        let mut g = Mutex::lock_owned(Arc::clone(&self.pin)).await;
 
-        // see cid vs. multihash from [`insert_pin`]
-        let key = target.to_bytes();
+        let doc: PinDocument = match g.get(&target.to_bytes()) {
+            Some(raw) => match serde_json::from_slice(raw) {
+                Ok(doc) => doc,
+                Err(e) => return Err(e.into()),
+            },
+            None => return Err(anyhow::anyhow!("not pinned")),
+        };
 
-        match g.entry(key) {
-            Entry::Occupied(mut oe) => {
-                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
-                if !doc.update(false, &kind)? {
-                    trace!(doc = ?doc, kind = ?kind, "update not needed on removal");
-                    return Ok(());
-                }
-
-                if doc.can_remove() {
-                    oe.remove();
-                } else {
-                    let vec = oe.get_mut();
-                    vec.clear();
-                    serde_json::to_writer(vec, &doc)?;
-                }
-
-                Ok(())
+        let kind = match doc.pick_kind() {
+            Some(Ok(kind @ PinKind::Recursive(_)))
+            | Some(Ok(kind @ PinKind::RecursiveIntention)) => kind,
+            Some(Ok(PinKind::Direct)) => {
+                Self::remove_pin(&mut g, target, &PinKind::Direct)?;
+                return Ok(());
             }
-            Entry::Vacant(_) => Err(anyhow::anyhow!("not pinned")),
+            Some(Ok(PinKind::IndirectFrom(cid))) => {
+                return Err(anyhow::anyhow!("pinned indirectly through {}", cid))
+            }
+            _ => return Err(anyhow::anyhow!("not pinned")),
+        };
+
+        // this must fail if it is already fully pinned
+        Self::remove_pin(&mut g, target, &kind.as_ref())?;
+
+        let target_v1 = if target.version() == cid::Version::V1 {
+            target.to_owned()
+        } else {
+            // this is one more allocation
+            Cid::new_v1(target.codec(), target.hash().to_owned())
+        };
+
+        let kind = PinKind::IndirectFrom(&target_v1);
+        while let Some(next) = refs.try_next().await? {
+            // no rollback, nothing
+            Self::remove_pin(&mut g, &next, &kind)?;
         }
+
+        Ok(())
     }
 
     async fn list(

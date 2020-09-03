@@ -114,13 +114,27 @@ pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
     async fn wipe(&self);
 }
 
+type References<'a> = futures::stream::BoxStream<'a, Result<Cid, crate::refs::IpldRefsError>>;
+
 #[async_trait]
 pub trait PinStore: Debug + Send + Sync + Unpin + 'static {
     async fn is_pinned(&self, block: &Cid) -> Result<bool, Error>;
 
-    async fn insert_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error>;
+    async fn insert_direct_pin(&self, target: &Cid) -> Result<(), Error>;
 
-    async fn remove_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error>;
+    async fn insert_recursive_pin(
+        &self,
+        target: &Cid,
+        referenced: References<'_>,
+    ) -> Result<(), Error>;
+
+    async fn remove_direct_pin(&self, target: &Cid) -> Result<(), Error>;
+
+    async fn remove_recursive_pin(
+        &self,
+        target: &Cid,
+        referenced: References<'_>,
+    ) -> Result<(), Error>;
 
     async fn list(
         &self,
@@ -175,6 +189,18 @@ pub enum PinKind<C: Borrow<Cid>> {
     Direct,
     Recursive(u64),
     RecursiveIntention,
+}
+
+impl<C: Borrow<Cid>> PinKind<C> {
+    fn as_ref(&self) -> PinKind<&'_ Cid> {
+        use PinKind::*;
+        match self {
+            IndirectFrom(c) => PinKind::IndirectFrom(c.borrow()),
+            Direct => PinKind::Direct,
+            Recursive(count) => PinKind::Recursive(*count),
+            RecursiveIntention => PinKind::RecursiveIntention,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -377,12 +403,21 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.data_store.remove(Column::Ipns, ipns.as_bytes()).await
     }
 
-    pub async fn insert_pin(&self, cid: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
-        self.data_store.insert_pin(cid, kind).await
+    pub async fn insert_direct_pin(&self, cid: &Cid) -> Result<(), Error> {
+        self.data_store.insert_direct_pin(cid).await
     }
 
-    pub async fn remove_pin(&self, cid: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
-        self.data_store.remove_pin(cid, kind).await
+    pub async fn insert_recursive_pin(&self, cid: &Cid, refs: References<'_>) -> Result<(), Error> {
+        self.data_store.insert_recursive_pin(cid, refs).await
+    }
+
+    pub async fn remove_direct_pin(&self, cid: &Cid) -> Result<(), Error> {
+        self.data_store.remove_direct_pin(cid).await
+    }
+
+    pub async fn remove_recursive_pin(&self, cid: &Cid, refs: References<'_>) -> Result<(), Error> {
+        // FIXME: not really sure why is there not an easier way to to transfer control
+        self.data_store.remove_recursive_pin(cid, refs).await
     }
 
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
@@ -438,6 +473,9 @@ struct PinDocument {
     cid_version: u8,
     // using the cidv1 versions of all cids here, not sure if that makes sense or is important
     indirect_by: Vec<String>,
+    // supporting all kinds of directions here; this is a list of the Cids that are indirectly
+    // pinned because of this recursive pinning.
+    indirect_to: Vec<String>,
 }
 
 impl PinDocument {
@@ -613,7 +651,7 @@ pub enum PinUpdateError {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use futures::TryStreamExt;
+    use futures::stream::{StreamExt, TryStreamExt};
     use std::collections::HashMap;
     use std::env::temp_dir;
 
@@ -710,11 +748,11 @@ pub(crate) mod tests {
 
         assert_eq!(repo.is_pinned(&empty).await.unwrap(), false);
 
-        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+        repo.insert_direct_pin(&empty).await.unwrap();
 
         assert_eq!(repo.is_pinned(&empty).await.unwrap(), true);
 
-        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+        repo.insert_direct_pin(&empty).await.unwrap();
 
         assert_eq!(repo.is_pinned(&empty).await.unwrap(), true);
     }
@@ -728,18 +766,12 @@ pub(crate) mod tests {
         let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
 
         // assumed use:
-        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
-            .await
-            .unwrap();
-
-        // once or twice, doesn't matter
-        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
-            .await
-            .unwrap();
-
-        // the count can be either unique or include duplicates, I guess we just need to be
-        // consistent
-        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+        repo.insert_recursive_pin(
+            &root,
+            futures::stream::iter(vec![Ok(empty.clone())]).boxed(),
+        )
+        .await
+        .unwrap();
 
         assert!(repo.is_pinned(&root).await.unwrap());
         assert!(repo.is_pinned(&empty).await.unwrap());
@@ -765,13 +797,14 @@ pub(crate) mod tests {
         let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
         let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
 
-        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+        repo.insert_direct_pin(&empty).await.unwrap();
 
-        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
-            .await
-            .unwrap();
-
-        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+        repo.insert_recursive_pin(
+            &root,
+            futures::stream::iter(vec![Ok(empty.clone())]).boxed(),
+        )
+        .await
+        .unwrap();
 
         let mut both = repo
             .list_pins(None)
@@ -794,7 +827,7 @@ pub(crate) mod tests {
         let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
         let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
 
-        repo.insert_pin(&empty, PinKind::Direct).await.unwrap();
+        repo.insert_direct_pin(&empty).await.unwrap();
 
         assert_eq!(
             repo.query_pins(vec![empty.clone()], None)
@@ -807,18 +840,21 @@ pub(crate) mod tests {
 
         // first refs
 
-        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
-            .await
-            .unwrap();
-
-        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+        repo.insert_recursive_pin(
+            &root,
+            futures::stream::iter(vec![Ok(empty.clone())]).boxed(),
+        )
+        .await
+        .unwrap();
 
         // second refs
 
-        repo.remove_pin(&empty, PinKind::IndirectFrom(&root))
-            .await
-            .unwrap();
-        repo.remove_pin(&root, PinKind::Recursive(1)).await.unwrap();
+        repo.remove_recursive_pin(
+            &root,
+            futures::stream::iter(vec![Ok(empty.clone())]).boxed(),
+        )
+        .await
+        .unwrap();
 
         let mut one = repo
             .list_pins(None)
@@ -839,11 +875,11 @@ pub(crate) mod tests {
 
         let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
 
-        repo.insert_pin(&empty, PinKind::Recursive(0))
+        repo.insert_recursive_pin(&empty, futures::stream::iter(vec![]).boxed())
             .await
             .unwrap();
 
-        let e = repo.insert_pin(&empty, PinKind::Direct).await.unwrap_err();
+        let e = repo.insert_direct_pin(&empty).await.unwrap_err();
 
         // go-ipfs puts the cid in front here, not sure if we want to at this level? though in
         // go-ipfs it's different than path resolving
@@ -858,6 +894,7 @@ pub(crate) mod tests {
             recursive: Recursive::Not,
             cid_version: 0,
             indirect_by: Vec::new(),
+            indirect_to: Vec::new(),
         };
 
         assert!(doc.update(true, &PinKind::Direct).unwrap());
@@ -868,7 +905,6 @@ pub(crate) mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn can_pin_direct_as_recursive() {
-        use futures::stream::TryStreamExt;
         // the other way around doesn't work
         let repo = inited_repo().await.unwrap();
         //
@@ -876,7 +912,7 @@ pub(crate) mod tests {
         let root = Cid::try_from("QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp").unwrap();
         let empty = Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
 
-        repo.insert_pin(&root, PinKind::Direct).await.unwrap();
+        repo.insert_direct_pin(&root).await.unwrap();
 
         let pins = repo
             .list_pins(None)
@@ -889,11 +925,12 @@ pub(crate) mod tests {
 
         // first refs
 
-        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
-            .await
-            .unwrap();
-
-        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+        repo.insert_recursive_pin(
+            &root,
+            futures::stream::iter(vec![Ok(empty.clone())]).boxed(),
+        )
+        .await
+        .unwrap();
 
         let mut both = repo
             .list_pins(None)
@@ -918,11 +955,12 @@ pub(crate) mod tests {
 
         // first refs
 
-        repo.insert_pin(&empty, PinKind::IndirectFrom(&root))
-            .await
-            .unwrap();
-
-        repo.insert_pin(&root, PinKind::Recursive(1)).await.unwrap();
+        repo.insert_recursive_pin(
+            &root,
+            futures::stream::iter(vec![Ok(empty.clone())]).boxed(),
+        )
+        .await
+        .unwrap();
 
         // should panic because the caller must not attempt this because:
 
@@ -942,7 +980,7 @@ pub(crate) mod tests {
         // this makes the "remove direct" invalid, as the direct pin must not be removed while
         // recursively pinned
 
-        let _ = repo.remove_pin(&empty, PinKind::Direct).await;
+        let _ = repo.remove_direct_pin(&empty).await;
         unreachable!("should have panicked");
     }
 
@@ -955,7 +993,7 @@ pub(crate) mod tests {
         // the only pin we can try removing without first querying is direct, as shown in
         // `cannot_unpin_indirect`.
 
-        let e = repo.remove_pin(&empty, PinKind::Direct).await.unwrap_err();
+        let e = repo.remove_direct_pin(&empty).await.unwrap_err();
 
         // FIXME: go-ipfs errors on the actual path
         assert_eq!(e.to_string(), "not pinned");
