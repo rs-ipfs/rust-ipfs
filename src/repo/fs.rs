@@ -593,4 +593,34 @@ mod tests {
 
         (writes, existing)
     }
+
+    #[tokio::test(max_threads = 1)]
+    async fn remove() {
+        // FIXME: why not tempdir?
+        let mut tmp = temp_dir();
+        tmp.push("remove");
+        std::fs::remove_dir_all(&tmp).ok();
+
+        let single = FsBlockStore::new(tmp.clone());
+
+        single.init().await.unwrap();
+
+        let cid = Cid::try_from("QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL").unwrap();
+        let data = hex!("0a0d08021207666f6f6261720a1807");
+
+        let block = Block {
+            cid: cid.clone(),
+            data: data.into(),
+        };
+
+        assert_eq!(single.list().await.unwrap().len(), 0);
+
+        single.put(block).await.unwrap();
+
+        // compare the multihash since we store the block named as cidv1
+        assert_eq!(single.list().await.unwrap()[0].hash(), cid.hash());
+
+        single.remove(&cid).await.unwrap().unwrap();
+        assert_eq!(single.list().await.unwrap().len(), 0);
+    }
 }
