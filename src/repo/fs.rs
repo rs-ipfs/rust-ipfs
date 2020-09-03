@@ -388,7 +388,9 @@ impl BlockStore for FsBlockStore {
         .await
     }
 
-    async fn wipe(&self) {}
+    async fn wipe(&self) {
+        unimplemented!("wipe")
+    }
 }
 
 fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
