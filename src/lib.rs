@@ -416,15 +416,16 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// state. The remedy is to re-pin recursive pins.
     pub async fn insert_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
         use futures::stream::{StreamExt, TryStreamExt};
-        if !recursive {
-            self.repo.insert_direct_pin(cid).await
-        } else {
-            let span = tracing::debug_span!("insert recursive pin", cid = %cid);
+        let span = debug_span!(parent: &self.span, "insert_pin", cid = %cid, recursive);
+        let refs_span = debug_span!(parent: &span, "insert_pin refs");
 
-            async move {
-                // this needs to download everything but /pin/ls does not
-                let Block { data, .. } = self.repo.get_block(cid).await?;
+        async move {
+            // this needs to download everything but /pin/ls does not
+            let Block { data, .. } = self.repo.get_block(cid).await?;
 
+            if !recursive {
+                self.repo.insert_direct_pin(cid).await
+            } else {
                 let ipld = crate::ipld::decode_ipld(&cid, &data)?;
 
                 let st = crate::refs::IpldRefs::default()
@@ -432,13 +433,14 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                     .refs_of_resolved(self, vec![(cid.clone(), ipld.clone())].into_iter())
                     .map_ok(|crate::refs::Edge { destination, .. }| destination)
                     .into_stream()
+                    .instrument(refs_span)
                     .boxed();
 
                 self.repo.insert_recursive_pin(cid, st).await
             }
-            .instrument(span)
-            .await
         }
+        .instrument(span)
+        .await
     }
 
     /// Unpins a given Cid recursively or only directly.
@@ -449,11 +451,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// pinned tree roots.
     pub async fn remove_pin(&self, cid: &Cid, recursive: bool) -> Result<(), Error> {
         use futures::stream::{StreamExt, TryStreamExt};
-        if !recursive {
-            self.repo.remove_direct_pin(cid).await
-        } else {
-            let span = tracing::debug_span!("remove recursive pin", cid = %cid);
-            async move {
+        let span = debug_span!(parent: &self.span, "remove_pin", cid = %cid, recursive);
+        async move {
+            if !recursive {
+                self.repo.remove_direct_pin(cid).await
+            } else {
                 // start walking refs of the root after loading it
 
                 let Block { data, .. } = match self.repo.get_block_now(&cid).await? {
@@ -477,9 +479,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
                 self.repo.remove_recursive_pin(cid, st).await
             }
-            .instrument(span)
-            .await
         }
+        .instrument(span)
+        .await
     }
 
     /// Checks whether a given block is pinned. At the moment does not support incomplete recursive
@@ -498,9 +500,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     ///
     /// TODO: This operation could be provided as a `Ipfs::fix_pins()`.
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        // best to just delegate, we cannot efficiently obtain a list of PinKind::RecursiveIntention but the
-        // repo impl can
-        self.repo.is_pinned(cid).instrument(self.span.clone()).await
+        let span = debug_span!(parent: &self.span, "is_pinned", cid = %cid);
+        self.repo.is_pinned(cid).instrument(span).await
     }
 
     /// Lists all pins, or the specific kind thereof.
@@ -510,7 +511,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         &self,
         filter: Option<PinMode>,
     ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
-        self.repo.list_pins(filter).await
+        let span = debug_span!(parent: &self.span, "list_pins", ?filter);
+        self.repo.list_pins(filter).instrument(span).await
     }
 
     /// Read specific pins. When `requirement` is `Some`, all pins are required to be of the given
@@ -522,7 +524,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         cids: Vec<Cid>,
         requirement: Option<PinMode>,
     ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
-        self.repo.query_pins(cids, requirement).await
+        let span = debug_span!(parent: &self.span, "query_pins", ids = cids.len(), ?requirement);
+        self.repo
+            .query_pins(cids, requirement)
+            .instrument(span)
+            .await
     }
 
     /// Puts an ipld dag node into the ipfs repo.
