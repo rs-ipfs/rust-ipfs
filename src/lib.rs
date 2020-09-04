@@ -338,7 +338,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         }));
 
         let swarm_options = SwarmOptions::from(&self.options);
-        let swarm = create_swarm(swarm_options, ipfs.clone()).await;
+        let swarm = create_swarm(swarm_options, ipfs.clone()).await?;
 
         let fut = IpfsFuture {
             repo_events: repo_events.fuse(),

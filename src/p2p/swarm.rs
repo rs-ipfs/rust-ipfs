@@ -290,7 +290,7 @@ mod tests {
     fn mk_transport() -> (PeerId, TTransport) {
         let key = Keypair::generate_ed25519();
         let peer_id = key.public().into_peer_id();
-        let transport = build_transport(key);
+        let transport = build_transport(key).unwrap();
         (peer_id, transport)
     }
 }
