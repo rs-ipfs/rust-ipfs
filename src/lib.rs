@@ -298,7 +298,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         let repo_options = RepoOptions::from(&options);
         let (repo, repo_events) = create_repo(repo_options);
         let keys = options.keypair.clone();
-        let span = span.unwrap_or_else(|| tracing::trace_span!("ipfs"));
+        let span = span.unwrap_or_else(|| trace_span!("ipfs"));
 
         UninitializedIpfs {
             repo,
@@ -1371,7 +1371,7 @@ mod node {
         pub async fn new<T: AsRef<str>>(name: T) -> Self {
             let opts = IpfsOptions::inmemory_with_generated_keys();
             Node::with_options(opts)
-                .instrument(tracing::trace_span!("ipfs", node = name.as_ref()))
+                .instrument(trace_span!("ipfs", node = name.as_ref()))
                 .await
         }
 
