@@ -67,7 +67,7 @@ macro_rules! tests_for_ds_impl {
             }
 
             #[tokio::test(max_threads = 1)]
-            async fn cannot_unpin_not_pinned() {
+            async fn cannot_recursively_unpin_unpinned() {
                 let repo = DSTestContext::with($factory).await;
                 // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
                 let empty =
@@ -76,14 +76,16 @@ macro_rules! tests_for_ds_impl {
                 // the only pin we can try removing without first querying is direct, as shown in
                 // `cannot_unpin_indirect`.
 
-                let e = repo.remove_direct_pin(&empty).await.unwrap_err();
+                let e = repo
+                    .remove_recursive_pin(&empty, futures::stream::empty().boxed())
+                    .await
+                    .unwrap_err();
 
                 // FIXME: go-ipfs errors on the actual path
-                assert_eq!(e.to_string(), "not pinned");
+                assert_eq!(e.to_string(), "not pinned or pinned indirectly");
             }
 
             #[tokio::test(max_threads = 1)]
-            #[should_panic(expected = "situation must be handled by the caller")]
             async fn cannot_unpin_indirect() {
                 let repo = DSTestContext::with($factory).await;
                 // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
@@ -120,8 +122,10 @@ macro_rules! tests_for_ds_impl {
                 // this makes the "remove direct" invalid, as the direct pin must not be removed while
                 // recursively pinned
 
-                let _ = repo.remove_direct_pin(&empty).await;
-                unreachable!("should have panicked");
+                let e = repo.remove_direct_pin(&empty).await.unwrap_err();
+
+                // FIXME: go-ipfs errors on the actual path
+                assert_eq!(e.to_string(), "not pinned or pinned indirectly");
             }
 
             #[tokio::test(max_threads = 1)]
@@ -196,7 +200,7 @@ macro_rules! tests_for_ds_impl {
             }
 
             #[tokio::test(max_threads = 1)]
-            async fn indirect_can_be_pinned_directly_but_remains_looking_indirect() {
+            async fn indirect_can_be_pinned_directly() {
                 let repo = DSTestContext::with($factory).await;
 
                 // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
@@ -221,7 +225,16 @@ macro_rules! tests_for_ds_impl {
                     .unwrap();
 
                 assert_eq!(both.remove(&root), Some(PinMode::Recursive));
-                assert_eq!(both.remove(&empty), Some(PinMode::Indirect));
+
+                // when working on the first round of mem based recursive pinning I had understood
+                // this to be a rule. go-ipfs preferes the priority order of Recursive, Direct,
+                // Indirect and so does our fs datastore.
+                let mode = both.remove(&empty).unwrap();
+                assert!(
+                    mode == PinMode::Indirect || mode == PinMode::Direct,
+                    "{:?}",
+                    mode
+                );
 
                 assert!(both.is_empty(), "{:?}", both);
             }
