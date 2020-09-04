@@ -649,7 +649,7 @@ pub enum PinUpdateError {
 }
 
 #[cfg(test)]
-crate::tests_for_ds_impl!(common_tests, |p| crate::repo::mem::MemDataStore::new(p));
+crate::tests_for_ds_impl!(common_tests, crate::repo::mem::MemDataStore::new);
 
 #[cfg(test)]
 mod tests {

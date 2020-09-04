@@ -86,4 +86,4 @@ impl DataStore for FsDataStore {
 }
 
 #[cfg(test)]
-crate::tests_for_ds_impl!(common_tests, |p| crate::repo::fs::FsDataStore::new(p));
+crate::tests_for_ds_impl!(common_tests, crate::repo::fs::FsDataStore::new);
