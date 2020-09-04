@@ -193,8 +193,13 @@ impl PinStore for FsDataStore {
 
             path.set_extension("direct");
 
+            let mut any = false;
+
             match std::fs::remove_file(&path) {
-                Ok(_) => trace!("direct pin removed"),
+                Ok(_) => {
+                    trace!("direct pin removed");
+                    any |= true;
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     // nevermind, we are just trying to remove the direct as it should go, if it
                     // was left by mistake
@@ -208,14 +213,19 @@ impl PinStore for FsDataStore {
             match std::fs::remove_file(&path) {
                 Ok(_) => {
                     trace!("recursive pin removed");
-                    Ok(())
+                    any |= true;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    // we may have removed only the direct pin, but in the `pin rm` sense this is
-                    // still a success
-                    Ok(())
+                    // we may have removed only the direct pin, but if we cleaned out a direct pin
+                    // this would have been a success
                 }
-                Err(e) => Err(e.into()),
+                Err(e) => return Err(e.into()),
+            }
+
+            if !any {
+                Err(anyhow::anyhow!("not pinned or pinned indirectly"))
+            } else {
+                Ok(())
             }
         })
         .await??;

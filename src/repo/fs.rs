@@ -84,3 +84,6 @@ impl DataStore for FsDataStore {
         todo!()
     }
 }
+
+#[cfg(test)]
+crate::pinstore_interface_tests!(common_tests, crate::repo::fs::FsDataStore::new);

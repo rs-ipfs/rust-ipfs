@@ -255,7 +255,8 @@ impl PinStore for MemDataStore {
                 Ok(doc) => doc,
                 Err(e) => return Err(e.into()),
             },
-            None => return Err(anyhow::anyhow!("not pinned")),
+            // well we know it's not pinned at all but this is the general error message
+            None => return Err(anyhow::anyhow!("not pinned or pinned indirectly")),
         };
 
         let kind = match doc.pick_kind() {
@@ -268,7 +269,8 @@ impl PinStore for MemDataStore {
             Some(Ok(PinKind::IndirectFrom(cid))) => {
                 return Err(anyhow::anyhow!("pinned indirectly through {}", cid))
             }
-            _ => return Err(anyhow::anyhow!("not pinned")),
+            // same here as above with the same message
+            _ => return Err(anyhow::anyhow!("not pinned or pinned indirectly")),
         };
 
         // this must fail if it is already fully pinned
@@ -514,8 +516,12 @@ impl PinDocument {
                     return Err(PinUpdateError::AlreadyPinnedRecursive);
                 }
 
-                if !self.direct && !add {
-                    panic!("this situation must be handled by the caller by checking that recursive pin is about to be removed as direct");
+                if !add && !self.direct {
+                    if !self.recursive.is_set() {
+                        return Err(PinUpdateError::CannotUnpinUnpinned);
+                    } else {
+                        return Err(PinUpdateError::CannotUnpinDirectOnRecursivelyPinned);
+                    }
                 }
 
                 let modified = self.direct != add;
@@ -635,7 +641,15 @@ pub enum PinUpdateError {
     /// Not allowed: Adding direct pin while pinned recursive
     #[error("already pinned recursively")]
     AlreadyPinnedRecursive,
+    #[error("not pinned or pinned indirectly")]
+    CannotUnpinUnpinned,
+    // go-ipfs prepends the ipfspath here
+    #[error("is pinned recursively")]
+    CannotUnpinDirectOnRecursivelyPinned,
 }
+
+#[cfg(test)]
+crate::pinstore_interface_tests!(common_tests, crate::repo::mem::MemDataStore::new);
 
 #[cfg(test)]
 mod tests {
