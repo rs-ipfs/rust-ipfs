@@ -369,6 +369,11 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Puts a block into the ipfs repo.
+    ///
+    /// # Forget safety
+    ///
+    /// Forgetting the returned future will not result in memory unsafety, but it can
+    /// deadlock other tasks.
     pub async fn put_block(&self, block: Block) -> Result<Cid, Error> {
         self.repo
             .put_block(block)
