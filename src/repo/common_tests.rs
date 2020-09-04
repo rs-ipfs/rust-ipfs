@@ -110,10 +110,12 @@ macro_rules! tests_for_ds_impl {
                     .next()
                     .unwrap();
 
-                // the cids are stored as v1 ... not sure if that makes any sense TBH
-                // feels like Cid should be equal regardless of version.
-                let root_v1 = Cid::new_v1(root.codec(), root.hash().to_owned());
-                assert_eq!(kind, PinKind::IndirectFrom(root_v1));
+                // mem based uses "canonicalized" cids and fs uses them raw
+                match kind {
+                    PinKind::IndirectFrom(v0_or_v1)
+                        if v0_or_v1.hash() == root.hash() && v0_or_v1.codec() == root.codec() => {}
+                    x => unreachable!("{:?}", x),
+                }
 
                 // this makes the "remove direct" invalid, as the direct pin must not be removed while
                 // recursively pinned
