@@ -219,10 +219,12 @@ where
                 }
             };
 
+            trace!(cid = %cid, "loaded next");
+
             let ipld = match decode_ipld(&cid, &data) {
                 Ok(ipld) => ipld,
                 Err(e) => {
-                    warn!("failed to parse {}, linked from {}: {}", cid, source, e);
+                    warn!(cid = %cid, source = %cid, "failed to parse: {}", e);
                     // go-ipfs on raw Qm hash:
                     // > failed to decode Protocol Buffers: incorrectly formatted merkledag node: unmarshal failed. proto: illegal wireType 6
                     yield Err(e.into());
@@ -233,7 +235,7 @@ where
             if traverse_links {
                 for (link_name, next_cid) in ipld_links(&cid, ipld) {
                     if unique && !queued_or_visited.insert(next_cid.clone()) {
-                        trace!("skipping already queued {}", next_cid);
+                        trace!(queued = %next_cid, "skipping already queued");
                         continue;
                     }
 
