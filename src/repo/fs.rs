@@ -59,7 +59,7 @@ impl FsDataStore {
         let stream = match tokio::fs::read_dir(self.path.clone()).await {
             Ok(st) => Either::Left(st),
             // make this into a stream which will only yield the initial error
-            Err(e) => Either::Right(futures::stream::once(futures::future::ready(Err(e.into())))),
+            Err(e) => Either::Right(futures::stream::once(futures::future::ready(Err(e)))),
         };
 
         stream
@@ -73,7 +73,7 @@ impl FsDataStore {
             })
             // flatten each
             .try_flatten()
-            .map_err(|e| Error::new(e))
+            .map_err(Error::new)
             // convert the paths ending in ".data" into cid
             .try_filter_map(|d| {
                 let name = d.file_name();
@@ -121,7 +121,7 @@ async fn read_recursively_pinned(path: PathBuf, cid: Cid) -> Result<(Cid, Vec<Ci
     // scale quite up as well.
     let found = cids
         .into_iter()
-        .map(|cid| Cid::try_from(cid))
+        .map(Cid::try_from)
         .collect::<Result<Vec<Cid>, _>>()?;
 
     trace!(cid = %cid, count = found.len(), "read indirect pins");
@@ -221,7 +221,7 @@ impl PinStore for FsDataStore {
 
         let path = pin_path(self.path.clone(), cid);
 
-        if let Some(_) = read_direct_or_recursive(path).await? {
+        if read_direct_or_recursive(path).await?.is_some() {
             return Ok(true);
         }
 
@@ -241,11 +241,7 @@ impl PinStore for FsDataStore {
             let (_, references) = read_recursively_pinned(self.path.clone(), recursive).await?;
 
             // if we always wrote down the cids in some order we might be able to binary search?
-            if references
-                .into_iter()
-                .position(move |x| x == *cid)
-                .is_some()
-            {
+            if references.into_iter().any(move |x| x == *cid) {
                 return Ok(true);
             }
         }
@@ -402,6 +398,7 @@ impl PinStore for FsDataStore {
                     // nevermind, we are just trying to remove the direct as it should go, if it
                     // was left by mistake
                 }
+                // Error::new instead of e.into() to help out the type inference
                 Err(e) => return Err(Error::new(e)),
             }
 
@@ -417,7 +414,7 @@ impl PinStore for FsDataStore {
                     // still a success
                     Ok(())
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => Err(e.into()),
             }
         })
         .await??;
