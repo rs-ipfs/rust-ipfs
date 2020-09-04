@@ -59,8 +59,8 @@ pub fn filestem_to_pin_cid(file_stem: Option<&std::ffi::OsStr>) -> Option<Cid> {
     })
 }
 
-/// second-to-last/2 sharding, just by taking the two substring from an ASCII encoded key string to
-/// be prepended as the directory or "shard".
+/// second-to-last/2 sharding, just by taking the two characters from suffix ignoring the last
+/// character from an ASCII encoded key string to be prepended as the directory or "shard".
 ///
 /// This is done so that the directories don't get
 /// gazillion files in them, which would slow them down. For example, git does this with hex or

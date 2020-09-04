@@ -1,27 +1,26 @@
+use super::{block_path, filestem_to_block_cid};
+use super::{BlockRm, BlockRmError, RepoCid};
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore};
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
-use tracing_futures::Instrument;
-
 use tokio::fs;
 use tokio::sync::broadcast;
-
-use super::{BlockRm, BlockRmError, RepoCid};
-use std::hash::Hash;
-
-use std::collections::HashMap;
-
-use super::{block_path, filestem_to_block_cid};
+use tracing_futures::Instrument;
 
 type ArcMutexMap<A, B> = Arc<Mutex<HashMap<A, B>>>;
 
+/// File system backed block store.
+///
+/// For information on path mangling, please see [`block_path`] and [`filestem_to_block_cid`].
 #[derive(Debug)]
 pub struct FsBlockStore {
     /// The base directory under which we have a sharded directory structure, and the individual

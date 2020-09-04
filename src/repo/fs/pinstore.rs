@@ -1,23 +1,18 @@
-//! Persistent fs backed repo
+//! Persistent filesystem backed pin store. See [`FsDataStore`] for more information.
+use super::{filestem_to_pin_cid, pin_path, FsDataStore};
 use crate::error::Error;
+use crate::repo::{PinKind, PinMode, PinStore, References};
 use async_trait::async_trait;
-
 use cid::Cid;
 use core::convert::TryFrom;
-use std::path::PathBuf;
-
-use tracing_futures::Instrument;
-
-use tokio::fs;
-
-use super::{filestem_to_pin_cid, pin_path, FsDataStore};
-use crate::repo::{PinKind, PinMode, PinStore, References};
-
 use futures::future::Either;
 use futures::stream::{empty, StreamExt, TryStreamExt};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::fs;
 use tokio::sync::Semaphore;
+use tracing_futures::Instrument;
 
 // PinStore is a trait from ipfs::repo implemented on FsDataStore defined at ipfs::repo::fs or
 // parent module.
