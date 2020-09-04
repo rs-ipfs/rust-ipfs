@@ -133,7 +133,7 @@ mod tests {
         // the blockstore has only one kind of file (plus the temp file) so data extension is
         // included always.
         let expected =
-            "another_root/5l/afybeicizfmyaovkw4pnrwpa4kcirzaveabyw4vsixt45mrrhr2xm2d5lm.data";
+            "another_root/5l/bafybeicizfmyaovkw4pnrwpa4kcirzaveabyw4vsixt45mrrhr2xm2d5lm.data";
 
         assert_eq!(cid_v1_path, Path::new(expected));
     }
@@ -144,7 +144,7 @@ mod tests {
         let cid_v1 = Cid::try_from(cid_v1).unwrap();
 
         let path =
-            "another_root/5l/afybeicizfmyaovkw4pnrwpa4kcirzaveabyw4vsixt45mrrhr2xm2d5lm.data";
+            "another_root/5l/bafybeicizfmyaovkw4pnrwpa4kcirzaveabyw4vsixt45mrrhr2xm2d5lm.data";
         let path = Path::new(path);
 
         let parsed = super::filestem_to_block_cid(path.file_stem());
