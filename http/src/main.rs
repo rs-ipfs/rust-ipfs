@@ -5,6 +5,9 @@ use structopt::StructOpt;
 use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
 use ipfs_http::{config, v0};
 
+#[macro_use]
+extern crate tracing;
+
 #[derive(Debug, StructOpt)]
 enum Options {
     /// Should initialize the repository (create directories and such). `js-ipfsd-ctl` calls this
@@ -168,11 +171,11 @@ fn main() {
             // locking on the repo, unsure how go-ipfs locks the fsstore
             let _ = tokio::fs::File::create(&api_link_file)
                 .await
-                .map_err(|e| eprintln!("Failed to truncate {:?}: {}", api_link_file, e));
+                .map_err(|e| info!("Failed to truncate {:?}: {}", api_link_file, e));
         }
     });
 
-    println!("Shutdown complete");
+    info!("Shutdown complete");
 }
 
 fn serve<Types: IpfsTypes>(
@@ -189,7 +192,7 @@ fn serve<Types: IpfsTypes>(
 
     warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 0), async move {
         shutdown_rx.next().await;
-        println!("Shutdown trigger received; starting shutdown");
+        info!("Shutdown trigger received; starting shutdown");
         ipfs.exit_daemon().await;
     })
 }
