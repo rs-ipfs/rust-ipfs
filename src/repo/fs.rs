@@ -83,6 +83,21 @@ impl DataStore for FsDataStore {
     }
 }
 
+fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
+    // this is ascii always, and wasteful until we can drop the cid for multihash ... which is
+    // probably soon, we just need turn /refs/local to use /pin/list.
+    let key = if cid.version() == cid::Version::V1 {
+        cid.to_string()
+    } else {
+        Cid::new_v1(cid.codec(), cid.hash().to_owned()).to_string()
+    };
+
+    shard(&mut base, &key);
+
+    base.set_extension("data");
+    base
+}
+
 fn filestem_to_block_cid(file_stem: Option<&std::ffi::OsStr>) -> Option<Cid> {
     file_stem.and_then(|stem| stem.to_str()).and_then(|s| {
         // this isn't an interchangeable way to store esp. cidv0
@@ -104,64 +119,51 @@ fn filestem_to_block_cid(file_stem: Option<&std::ffi::OsStr>) -> Option<Cid> {
     })
 }
 
+/// Same as `block_path` except it doesn't canonicalize the cid to later version. The produced
+/// filename must be converted back to `Cid` using [`filestem_to_pin_cid`].
+fn pin_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
+    // it might be illegal to to render cidv0 as base32
+    let key: String = multibase::Base::Base32Lower.encode(cid.to_bytes());
+    shard(&mut base, &key);
+    base
+}
+
+/// Decodes the file stem produced by [`pin_path`], ignoring errors.
 fn filestem_to_pin_cid(file_stem: Option<&std::ffi::OsStr>) -> Option<Cid> {
     file_stem.and_then(|stem| stem.to_str()).and_then(|s| {
         // this isn't an interchangeable way to store esp. cidv0
         let bytes = multibase::Base::Base32Lower.decode(s).ok()?;
         let cid = Cid::try_from(bytes);
 
-        // it's very unlikely that we'd hit a valid file with "data" extension
-        // which we did write so I'd say wrapping the Cid parsing error as
-        // std::io::Error is highly unnecessary. if someone wants to
-        // *keep* ".data" ending files in the block store we shouldn't
-        // die over it.
-        //
-        // if we could, we would do a log_once here, if we could easily
-        // do such thing. like a inode based global probabilistic
-        // hashset.
-        //
-        // FIXME: add test
-
+        // See filestem_to_block_cid for discusison on why the error is ignored
         cid.ok()
     })
 }
 
-fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
-    // this is ascii always, and wasteful until we can drop the cid for multihash ... which is
-    // probably soon, we just need turn /refs/local to use /pin/list.
-    let mut file = if cid.version() == cid::Version::V1 {
-        cid.to_string()
-    } else {
-        Cid::new_v1(cid.codec(), cid.hash().to_owned()).to_string()
-    };
-
-    // second-to-last/2
-    let start = file.len() - 3;
-
-    let shard = &file[start..start + 2];
-    assert_eq!(file[start + 2..].len(), 1);
-    base.push(shard);
-
-    // not sure why set extension instead
-    file.push_str(".data");
-    base.push(file);
-    base
+/// second-to-last/2 sharding, just by taking the two substring from an ASCII encoded key string to
+/// be prepended as the directory or "shard".
+///
+/// This is done so that the directories don't get
+/// gazillion files in them, which would slow them down. For example, git does this with hex or
+/// base16 representation of sha1.
+///
+/// This function does not care how the key has been encoded, it is enough to have ASCII characters
+/// where the shard is selected.
+fn shard(path: &mut PathBuf, key: &str) {
+    let start = key.len() - 3;
+    let shard = &key[start..start + 2];
+    assert_eq!(key[start + 2..].len(), 1);
+    path.push(shard);
+    path.push(key);
 }
 
-/// Same as `block_path` except it doesn't canonicalize the cid to later version.
-fn pin_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
-    // it might be illegal to to render cidv0 as base32
-    let mut file: String = multibase::Base::Base32Lower.encode(cid.to_bytes());
+#[test]
+fn shard_example() {
+    let mut path = std::path::PathBuf::from("some/path/somewhere");
+    let key = "ABCDEFG";
 
-    // second-to-last/2
-    let start = file.len() - 3;
+    shard(&mut path, key);
 
-    let shard = &file[start..start + 2];
-    assert_eq!(file[start + 2..].len(), 1);
-    base.push(shard);
-
-    // not sure why set extension instead
-    file.push_str(".data");
-    base.push(file);
-    base
+    let expected = std::path::Path::new("some/path/somewhere/EF/ABCDEFG");
+    assert_eq!(path, expected);
 }
