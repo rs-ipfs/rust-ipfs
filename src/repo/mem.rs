@@ -638,6 +638,9 @@ pub enum PinUpdateError {
 }
 
 #[cfg(test)]
+crate::tests_for_ds_impl!(common_tests, |p| crate::repo::mem::MemDataStore::new(p));
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use bitswap::Block;

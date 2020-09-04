@@ -84,3 +84,6 @@ impl DataStore for FsDataStore {
         todo!()
     }
 }
+
+#[cfg(test)]
+crate::tests_for_ds_impl!(common_tests, |p| crate::repo::fs::FsDataStore::new(p));

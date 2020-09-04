@@ -46,6 +46,7 @@ hex-literal = { default-features = false, version = "0.3" }
 sha2 = { default-features = false, version = "0.9" }
 tokio = { default-features = false, features = ["io-std"], version = "0.2" }
 tracing-subscriber = { default-features = false, features = ["fmt", "tracing-log", "ansi", "env-filter"], version = "0.2" }
+tempfile = "3.1.0"
 
 [workspace]
 members = [ "bitswap", "http", "unixfs" ]
