@@ -39,11 +39,8 @@ pub struct FsDataStore {
     written_bytes: AtomicU64,
 }
 
-// FIXME: need to do
-//  - bring back the canonicalized version, or just force base32? should work with that as well
-//  - block rm test failure
-//  - refs local test failure
-
+/// The column operations are all unimplemented pending at least downscoping of the
+/// DataStore trait itself.
 #[async_trait]
 impl DataStore for FsDataStore {
     fn new(mut root: PathBuf) -> Self {
