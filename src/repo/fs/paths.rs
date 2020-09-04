@@ -31,8 +31,6 @@ pub fn filestem_to_block_cid(file_stem: Option<&std::ffi::OsStr>) -> Option<Cid>
         // if we could, we would do a log_once here, if we could easily
         // do such thing. like a inode based global probabilistic
         // hashset.
-        //
-        // FIXME: add test
 
         cid.ok()
     })
@@ -152,6 +150,18 @@ mod tests {
         let parsed = super::filestem_to_block_cid(path.file_stem());
 
         assert_eq!(parsed, Some(cid_v1));
+    }
+
+    #[test]
+    fn invalid_block_path_is_silently_ignored() {
+        let block_path = Path::new("another_root/ba/foobar.data");
+        assert_eq!(super::filestem_to_block_cid(block_path.file_stem()), None);
+    }
+
+    #[test]
+    fn invalid_pin_path_is_silently_ignored() {
+        let pin_path = Path::new("another_root/ca/foocar.recursive");
+        assert_eq!(super::filestem_to_block_cid(pin_path.file_stem()), None);
     }
 
     #[test]
