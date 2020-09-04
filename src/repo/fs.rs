@@ -676,10 +676,7 @@ impl FsBlockStore {
             .entry(RepoCid(cid.clone()))
         {
             Entry::Occupied(oe) => oe.get().subscribe(),
-            Entry::Vacant(_) => {
-                trace!("no concurrent write ongoing");
-                return WriteCompletion::NotOngoing;
-            }
+            Entry::Vacant(_) => return WriteCompletion::NotOngoing,
         };
 
         trace!("awaiting concurrent write to completion");
@@ -805,9 +802,12 @@ impl BlockStore for FsBlockStore {
             // create this in case the winner is dropped while awaiting
             let cleanup = RemoveOnDrop(self.writes.clone(), Some(RepoCid(cid.to_owned())));
 
+            let span = tracing::Span::current();
+
             // launch a blocking task for the filesystem mutation.
             // `tx` is moved into the task but `rx` stays in the async context.
             let je = tokio::task::spawn_blocking(move || {
+                let _entered = span.enter();
                 // pick winning writer with filesystem and create_new; this error will be the 1st
                 // nested level
 
@@ -880,10 +880,11 @@ impl BlockStore for FsBlockStore {
                     // - the block is being written to and we should await for this to complete
                     // - readonly or full filesystem prevents file creation
 
-                    trace!("lost the race; synchronizing with the writer");
-
                     let message = match rx.recv().await {
-                        Ok(message) => message,
+                        Ok(message) => {
+                            trace!("synchronized with writer, write outcome: {:?}", message);
+                            message
+                        }
                         Err(broadcast::RecvError::Closed) => {
                             // there was never any write intention by any party, and we may have just
                             // closed the last sender above, or we were late for the one message.
@@ -893,8 +894,6 @@ impl BlockStore for FsBlockStore {
                             unreachable!("broadcast channel should only be messaged once here")
                         }
                     };
-
-                    trace!("synchronized, write outcome: {:?}", message);
 
                     drop(rx);
 
