@@ -16,12 +16,15 @@ use crate::repo::{PinKind, PinMode, PinStore, References};
 use futures::future::Either;
 use futures::stream::{empty, StreamExt, TryStreamExt};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+
+// PinStore is a trait from ipfs::repo implemented on FsDataStore defined at ipfs::repo::fs or
+// parent module.
 
 #[async_trait]
 impl PinStore for FsDataStore {
     async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        let _g = self.lock.read().await;
-
         let path = pin_path(self.path.clone(), cid);
 
         if read_direct_or_recursive(path).await?.is_some() {
@@ -53,13 +56,15 @@ impl PinStore for FsDataStore {
     }
 
     async fn insert_direct_pin(&self, target: &Cid) -> Result<(), Error> {
-        let _g = self.lock.write().await;
+        let permit = Semaphore::acquire_owned(Arc::clone(&self.lock)).await;
 
         let mut path = pin_path(self.path.clone(), target);
 
         let span = tracing::Span::current();
 
         tokio::task::spawn_blocking(move || {
+            // move the permit to the blocking thread to ensure we keep it as long as needed
+            let _permit = permit;
             let _entered = span.enter();
 
             std::fs::create_dir_all(path.parent().expect("shard parent has to exist"))?;
@@ -87,18 +92,14 @@ impl PinStore for FsDataStore {
             .try_collect::<std::collections::BTreeSet<_>>()
             .await?;
 
-        // FIXME: this needs to become OwnedWriteGuard so that we can move it to the task
-        // otherwise this future might be dropped, but the task will continue
-        // this is not supported; perhaps until that we are "best effort"
-        //
-        // Owned semaphore permits are available; maybe synchronize writes with that?
-        let _g = self.lock.write().await;
+        let permit = Semaphore::acquire_owned(Arc::clone(&self.lock)).await;
 
         let mut path = pin_path(self.path.clone(), target);
 
         let span = tracing::Span::current();
 
         tokio::task::spawn_blocking(move || {
+            let _permit = permit; // again move to the threadpool thread
             let _entered = span.enter();
 
             std::fs::create_dir_all(path.parent().expect("shard parent has to exist"))?;
@@ -150,13 +151,14 @@ impl PinStore for FsDataStore {
     }
 
     async fn remove_direct_pin(&self, target: &Cid) -> Result<(), Error> {
-        let _g = self.lock.write().await;
+        let permit = Semaphore::acquire_owned(Arc::clone(&self.lock)).await;
 
         let mut path = pin_path(self.path.clone(), target);
 
         let span = tracing::Span::current();
 
         tokio::task::spawn_blocking(move || {
+            let _permit = permit; // move in to threadpool thread
             let _entered = span.enter();
 
             path.set_extension("recursive");
@@ -184,13 +186,14 @@ impl PinStore for FsDataStore {
     }
 
     async fn remove_recursive_pin(&self, target: &Cid, _: References<'_>) -> Result<(), Error> {
-        let _g = self.lock.write().await;
+        let permit = Semaphore::acquire_owned(Arc::clone(&self.lock)).await;
 
         let mut path = pin_path(self.path.clone(), target);
 
         let span = tracing::Span::current();
 
         tokio::task::spawn_blocking(move || {
+            let _permit = permit; // move into threadpool thread
             let _entered = span.enter();
 
             path.set_extension("direct");
@@ -229,7 +232,7 @@ impl PinStore for FsDataStore {
         &self,
         requirement: Option<PinMode>,
     ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
-        // FIXME: needs a lock, or does it?
+        // no locking, dirty reads are probably good enough until gc
         let cids = self.list_pinfiles().await;
 
         let path = self.path.clone();

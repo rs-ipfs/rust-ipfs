@@ -2,7 +2,8 @@
 use crate::error::Error;
 use async_trait::async_trait;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
+use std::sync::{atomic::AtomicU64, Arc};
+use tokio::sync::Semaphore;
 
 use super::{BlockRm, BlockRmError, Column, DataStore, RepoCid};
 
@@ -31,9 +32,11 @@ pub struct FsDataStore {
     path: PathBuf,
 
     /// Start with simple, conservative solution, allows concurrent queries but single writer.
-    /// FIXME: this needs to become semaphore for owned permits; do "dirty reads" as there should
-    /// not be any chance of seeing partial writes, that is, under modern linux filesystems.
-    lock: tokio::sync::RwLock<()>,
+    /// It is assumed the reads do not require permit as non-empty writes are done through
+    /// tempfiles and the consistency regarding reads is not a concern right now. For garbage
+    /// collection implementation, it might be needed to hold this permit for the duration of
+    /// garbage collection, or something similar.
+    lock: Arc<Semaphore>,
 
     /// Not really needed
     written_bytes: AtomicU64,
@@ -47,7 +50,7 @@ impl DataStore for FsDataStore {
         root.push("pins");
         FsDataStore {
             path: root,
-            lock: Default::default(),
+            lock: Arc::new(Semaphore::new(1)),
             written_bytes: Default::default(),
         }
     }
