@@ -157,13 +157,92 @@ fn shard(path: &mut PathBuf, key: &str) {
     path.push(key);
 }
 
-#[test]
-fn shard_example() {
-    let mut path = std::path::PathBuf::from("some/path/somewhere");
-    let key = "ABCDEFG";
+#[cfg(test)]
+mod tests {
 
-    shard(&mut path, key);
+    use super::shard;
+    use cid::Cid;
+    use std::convert::TryFrom;
+    use std::path::{Path, PathBuf};
 
-    let expected = std::path::Path::new("some/path/somewhere/EF/ABCDEFG");
-    assert_eq!(path, expected);
+    #[test]
+    fn cid_v0_to_pin_and_back() {
+        roundtrip_pin_path(
+            "QmTEn8ypAkbJXZUXCRHBorwF2jM8uTUW9yRLzrcQouSoD4",
+            "some_root",
+            "some_root/2w/ciqerskzqa5kvny63dm6byuerdsbkiadrnzlerphz2zdcpdvozuh2wy",
+        );
+    }
+
+    #[test]
+    fn cid_v1_to_pin_and_back() {
+        roundtrip_pin_path(
+            "bafybeicizfmyaovkw4pnrwpa4kcirzaveabyw4vsixt45mrrhr2xm2d5lm",
+            "some_root",
+            "some_root/5l/afybeicizfmyaovkw4pnrwpa4kcirzaveabyw4vsixt45mrrhr2xm2d5lm",
+        );
+    }
+
+    fn roundtrip_pin_path(cid: &str, base: &str, expected_path: &str) {
+        let cid = Cid::try_from(cid).unwrap();
+
+        let path = super::pin_path(PathBuf::from(base), &cid);
+
+        assert_eq!(path, Path::new(expected_path));
+
+        let parsed_cid = super::filestem_to_pin_cid(path.file_stem());
+
+        assert_eq!(parsed_cid, Some(cid));
+    }
+
+    #[test]
+    fn cid_to_block_path() {
+        // block_path canonicalizes the path; not sure if there's any point nor does it really
+        // match how the locking is done (through the multihash) but ... It's close. not spending
+        // time fixing this right now but hopefully moving over to storing just multihashes soon.
+
+        let cid_v0 = "QmTEn8ypAkbJXZUXCRHBorwF2jM8uTUW9yRLzrcQouSoD4";
+        let cid_v0 = Cid::try_from(cid_v0).unwrap();
+        let cid_v1 = "bafybeicizfmyaovkw4pnrwpa4kcirzaveabyw4vsixt45mrrhr2xm2d5lm";
+        let cid_v1 = Cid::try_from(cid_v1).unwrap();
+
+        let base = PathBuf::from("another_root");
+
+        let cid_v0_path = super::block_path(base.clone(), &cid_v0);
+        let cid_v1_path = super::block_path(base, &cid_v1);
+
+        assert_eq!(cid_v0_path, cid_v1_path);
+
+        // the blockstore has only one kind of file (plus the temp file) so data extension is
+        // included always.
+        let expected =
+            "another_root/5l/afybeicizfmyaovkw4pnrwpa4kcirzaveabyw4vsixt45mrrhr2xm2d5lm.data";
+
+        assert_eq!(cid_v1_path, Path::new(expected));
+    }
+
+    #[test]
+    fn block_path_to_cid() {
+        let cid_v1 = "bafybeicizfmyaovkw4pnrwpa4kcirzaveabyw4vsixt45mrrhr2xm2d5lm";
+        let cid_v1 = Cid::try_from(cid_v1).unwrap();
+
+        let path =
+            "another_root/5l/afybeicizfmyaovkw4pnrwpa4kcirzaveabyw4vsixt45mrrhr2xm2d5lm.data";
+        let path = Path::new(path);
+
+        let parsed = super::filestem_to_block_cid(path.file_stem());
+
+        assert_eq!(parsed, Some(cid_v1));
+    }
+
+    #[test]
+    fn shard_example() {
+        let mut path = PathBuf::from("some_root");
+        let key = "ABCDEFG";
+
+        shard(&mut path, key);
+
+        let expected = Path::new("some_root/EF/ABCDEFG");
+        assert_eq!(path, expected);
+    }
 }
