@@ -1,18 +1,20 @@
 //! Volatile memory backed repo
 use crate::error::Error;
-use crate::repo::{
-    BlockPut, BlockStore, Column, DataStore, PinDocument, PinKind, PinMode, PinStore, Recursive,
-};
+use crate::repo::{BlockPut, BlockStore, Column, DataStore, PinKind, PinMode, PinStore};
 use async_trait::async_trait;
 use bitswap::Block;
 use cid::Cid;
-use futures::lock::Mutex;
+use std::convert::TryFrom;
 use std::path::PathBuf;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use super::{BlockRm, BlockRmError, RepoCid};
+use std::collections::hash_map::Entry;
 
 // FIXME: Transition to Persistent Map to make iterating more consistent
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug, Default)]
 pub struct MemBlockStore {
@@ -91,7 +93,86 @@ pub struct MemDataStore {
     ipns: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
     // this could also be PinDocument however doing any serialization allows to see the required
     // error types easier
-    pin: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+    pin: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
+}
+
+impl MemDataStore {
+    /// Returns true if the pin document was changed, false otherwise.
+    fn insert_pin<'a>(
+        g: &mut OwnedMutexGuard<HashMap<Vec<u8>, Vec<u8>>>,
+        target: &'a Cid,
+        kind: &'a PinKind<&'_ Cid>,
+    ) -> Result<bool, Error> {
+        // rationale for storing as Cid: the same multihash can be pinned with different codecs.
+        // even if there aren't many polyglot documents known, pair of raw and the actual codec is
+        // always a possibility.
+        let key = target.to_bytes();
+
+        match g.entry(key) {
+            Entry::Occupied(mut oe) => {
+                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
+                if doc.update(true, kind)? {
+                    let vec = oe.get_mut();
+                    vec.clear();
+                    serde_json::to_writer(vec, &doc)?;
+                    trace!(doc = ?doc, kind = ?kind, "updated on insert");
+                    Ok(true)
+                } else {
+                    trace!(doc = ?doc, kind = ?kind, "update not needed on insert");
+                    Ok(false)
+                }
+            }
+            Entry::Vacant(ve) => {
+                let mut doc = PinDocument {
+                    version: 0,
+                    direct: false,
+                    recursive: Recursive::Not,
+                    cid_version: match target.version() {
+                        cid::Version::V0 => 0,
+                        cid::Version::V1 => 1,
+                    },
+                    indirect_by: Vec::new(),
+                };
+
+                doc.update(true, &kind).unwrap();
+                let vec = serde_json::to_vec(&doc)?;
+                ve.insert(vec);
+                trace!(doc = ?doc, kind = ?kind, "created on insert");
+                Ok(true)
+            }
+        }
+    }
+
+    /// Returns true if the pin document was changed, false otherwise.
+    fn remove_pin<'a>(
+        g: &mut OwnedMutexGuard<HashMap<Vec<u8>, Vec<u8>>>,
+        target: &'a Cid,
+        kind: &'a PinKind<&'_ Cid>,
+    ) -> Result<bool, Error> {
+        // see cid vs. multihash from [`insert_direct_pin`]
+        let key = target.to_bytes();
+
+        match g.entry(key) {
+            Entry::Occupied(mut oe) => {
+                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
+                if !doc.update(false, kind)? {
+                    trace!(doc = ?doc, kind = ?kind, "update not needed on removal");
+                    return Ok(false);
+                }
+
+                if doc.can_remove() {
+                    oe.remove();
+                } else {
+                    let vec = oe.get_mut();
+                    vec.clear();
+                    serde_json::to_writer(vec, &doc)?;
+                }
+
+                Ok(true)
+            }
+            Entry::Vacant(_) => Err(anyhow::anyhow!("not pinned")),
+        }
+    }
 }
 
 #[async_trait]
@@ -111,77 +192,102 @@ impl PinStore for MemDataStore {
         Ok(g.contains_key(&key))
     }
 
-    async fn insert_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
-        use std::collections::hash_map::Entry;
-        let mut g = self.pin.lock().await;
+    async fn insert_direct_pin(&self, target: &Cid) -> Result<(), Error> {
+        let mut g = Mutex::lock_owned(Arc::clone(&self.pin)).await;
+        Self::insert_pin(&mut g, target, &PinKind::Direct)?;
+        Ok(())
+    }
 
-        // rationale for storing as Cid: the same multihash can be pinned with different codecs.
-        // even if there aren't many polyglot documents known, pair of raw and the actual codec is
-        // always a possibility.
-        let key = target.to_bytes();
+    async fn remove_direct_pin(&self, target: &Cid) -> Result<(), Error> {
+        let mut g = Mutex::lock_owned(Arc::clone(&self.pin)).await;
+        Self::remove_pin(&mut g, target, &PinKind::Direct)?;
+        Ok(())
+    }
 
-        match g.entry(key) {
-            Entry::Occupied(mut oe) => {
-                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
-                if doc.update(true, &kind)? {
-                    let vec = oe.get_mut();
-                    vec.clear();
-                    serde_json::to_writer(vec, &doc)?;
-                    trace!(doc = ?doc, kind = ?kind, "updated on insert");
-                } else {
-                    trace!(doc = ?doc, kind = ?kind, "update not needed on insert");
-                }
-            }
-            Entry::Vacant(ve) => {
-                let mut doc = PinDocument {
-                    version: 0,
-                    direct: false,
-                    recursive: Recursive::Not,
-                    cid_version: match target.version() {
-                        cid::Version::V0 => 0,
-                        cid::Version::V1 => 1,
-                    },
-                    indirect_by: Vec::new(),
-                };
+    async fn insert_recursive_pin(
+        &self,
+        target: &Cid,
+        mut refs: super::References<'_>,
+    ) -> Result<(), Error> {
+        use futures::stream::TryStreamExt;
 
-                doc.update(true, &kind).unwrap();
-                let vec = serde_json::to_vec(&doc)?;
-                ve.insert(vec);
-                trace!(doc = ?doc, kind = ?kind, "created on insert");
-            }
+        let mut g = Mutex::lock_owned(Arc::clone(&self.pin)).await;
+
+        // this must fail if it is already fully pinned
+        Self::insert_pin(&mut g, target, &PinKind::RecursiveIntention)?;
+
+        let target_v1 = if target.version() == cid::Version::V1 {
+            target.to_owned()
+        } else {
+            // this is one more allocation
+            Cid::new_v1(target.codec(), target.hash().to_owned())
+        };
+
+        // collect these before even if they are many ... not sure if this is a good idea but, the
+        // inmem version doesn't need to be all that great. this could be for nothing, if the root
+        // was already pinned.
+
+        let mut count = 0;
+        let kind = PinKind::IndirectFrom(&target_v1);
+        while let Some(next) = refs.try_next().await? {
+            // no rollback, nothing
+            Self::insert_pin(&mut g, &next, &kind)?;
+            count += 1;
         }
+
+        let kind = PinKind::Recursive(count as u64);
+        Self::insert_pin(&mut g, target, &kind)?;
 
         Ok(())
     }
 
-    async fn remove_pin(&self, target: &Cid, kind: PinKind<&'_ Cid>) -> Result<(), Error> {
-        use std::collections::hash_map::Entry;
+    async fn remove_recursive_pin(
+        &self,
+        target: &Cid,
+        mut refs: super::References<'_>,
+    ) -> Result<(), Error> {
+        use futures::stream::TryStreamExt;
 
-        let mut g = self.pin.lock().await;
+        let mut g = Mutex::lock_owned(Arc::clone(&self.pin)).await;
 
-        // see cid vs. multihash from [`insert_pin`]
-        let key = target.to_bytes();
+        let doc: PinDocument = match g.get(&target.to_bytes()) {
+            Some(raw) => match serde_json::from_slice(raw) {
+                Ok(doc) => doc,
+                Err(e) => return Err(e.into()),
+            },
+            None => return Err(anyhow::anyhow!("not pinned")),
+        };
 
-        match g.entry(key) {
-            Entry::Occupied(mut oe) => {
-                let mut doc: PinDocument = serde_json::from_slice(oe.get())?;
-                if !doc.update(false, &kind)? {
-                    trace!(doc = ?doc, kind = ?kind, "update not needed on removal");
-                    return Ok(());
-                }
-
-                if doc.can_remove() {
-                    oe.remove();
-                } else {
-                    let vec = oe.get_mut();
-                    vec.clear();
-                    serde_json::to_writer(vec, &doc)?;
-                }
-
-                Ok(())
+        let kind = match doc.pick_kind() {
+            Some(Ok(kind @ PinKind::Recursive(_)))
+            | Some(Ok(kind @ PinKind::RecursiveIntention)) => kind,
+            Some(Ok(PinKind::Direct)) => {
+                Self::remove_pin(&mut g, target, &PinKind::Direct)?;
+                return Ok(());
             }
-            Entry::Vacant(_) => Err(anyhow::anyhow!("not pinned")),
+            Some(Ok(PinKind::IndirectFrom(cid))) => {
+                return Err(anyhow::anyhow!("pinned indirectly through {}", cid))
+            }
+            _ => return Err(anyhow::anyhow!("not pinned")),
+        };
+
+        // this must fail if it is already fully pinned
+        Self::remove_pin(&mut g, target, &kind.as_ref())?;
+
+        let target_v1 = if target.version() == cid::Version::V1 {
+            target.to_owned()
+        } else {
+            // this is one more allocation
+            Cid::new_v1(target.codec(), target.hash().to_owned())
+        };
+
+        let kind = PinKind::IndirectFrom(&target_v1);
+        while let Some(next) = refs.try_next().await? {
+            // no rollback, nothing
+            Self::remove_pin(&mut g, &next, &kind)?;
         }
+
+        Ok(())
     }
 
     async fn list(
@@ -326,6 +432,211 @@ impl DataStore for MemDataStore {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum Recursive {
+    /// Persistent record of **completed** recursive pinning. All references now have indirect pins
+    /// recorded.
+    Count(u64),
+    /// Persistent record of intent to add recursive pins to all indirect blocks or even not to
+    /// keep the go-ipfs way which might not be a bad idea after all. Adding all the indirect pins
+    /// on disk will cause massive write amplification in the end, but lets keep that way until we
+    /// get everything working at least.
+    Intent,
+    /// Not pinned recursively.
+    Not,
+}
+
+impl Recursive {
+    fn is_set(&self) -> bool {
+        match self {
+            Recursive::Count(_) | Recursive::Intent => true,
+            Recursive::Not => false,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PinDocument {
+    version: u8,
+    direct: bool,
+    // how many descendants; something to check when walking
+    recursive: Recursive,
+    // no further metadata necessary; cids are pinned by full cid
+    cid_version: u8,
+    // using the cidv1 versions of all cids here, not sure if that makes sense or is important
+    indirect_by: Vec<String>,
+}
+
+impl PinDocument {
+    fn update(&mut self, add: bool, kind: &PinKind<&'_ Cid>) -> Result<bool, PinUpdateError> {
+        // these update rules are a bit complex and there are cases we don't need to handle.
+        // Updating on upon `PinKind` forces the caller to inspect what the current state is for
+        // example to handle the case of failing "unpin currently recursively pinned as direct".
+        // the ruleset seems quite strange to be honest.
+        match kind {
+            PinKind::IndirectFrom(root) => {
+                let root = if root.version() == cid::Version::V1 {
+                    root.to_string()
+                } else {
+                    // this is one more allocation
+                    Cid::new_v1(root.codec(), (*root).hash().to_owned()).to_string()
+                };
+
+                let modified = if self.indirect_by.is_empty() {
+                    if add {
+                        self.indirect_by.push(root);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    let mut set = self
+                        .indirect_by
+                        .drain(..)
+                        .collect::<std::collections::BTreeSet<_>>();
+
+                    let modified = if add {
+                        set.insert(root)
+                    } else {
+                        set.remove(&root)
+                    };
+
+                    self.indirect_by.extend(set.into_iter());
+                    modified
+                };
+
+                Ok(modified)
+            }
+            PinKind::Direct => {
+                if self.recursive.is_set() && !self.direct && add {
+                    // go-ipfs: cannot make recursive pin also direct
+                    // not really sure why does this rule exist; the other way around is allowed
+                    return Err(PinUpdateError::AlreadyPinnedRecursive);
+                }
+
+                if !self.direct && !add {
+                    panic!("this situation must be handled by the caller by checking that recursive pin is about to be removed as direct");
+                }
+
+                let modified = self.direct != add;
+                self.direct = add;
+                Ok(modified)
+            }
+            PinKind::RecursiveIntention => {
+                let modified = if add {
+                    match self.recursive {
+                        Recursive::Count(_) => return Err(PinUpdateError::AlreadyPinnedRecursive),
+                        // can overwrite Intent with another Intent, as Ipfs::insert_pin is now moving to fix
+                        // the Intent into the "final form" of Recursive::Count.
+                        Recursive::Intent => false,
+                        Recursive::Not => {
+                            self.recursive = Recursive::Intent;
+                            self.direct = false;
+                            true
+                        }
+                    }
+                } else {
+                    match self.recursive {
+                        Recursive::Count(_) | Recursive::Intent => {
+                            self.recursive = Recursive::Not;
+                            true
+                        }
+                        Recursive::Not => false,
+                    }
+                };
+
+                Ok(modified)
+            }
+            PinKind::Recursive(descendants) => {
+                let descendants = *descendants;
+                let modified = if add {
+                    match self.recursive {
+                        Recursive::Count(other) if other != descendants => {
+                            return Err(PinUpdateError::UnexpectedNumberOfDescendants(
+                                other,
+                                descendants,
+                            ))
+                        }
+                        Recursive::Count(_) => false,
+                        Recursive::Intent | Recursive::Not => {
+                            self.recursive = Recursive::Count(descendants);
+                            // the previously direct has now been upgraded to recursive, it can
+                            // still be indirect though
+                            self.direct = false;
+                            true
+                        }
+                    }
+                } else {
+                    match self.recursive {
+                        Recursive::Count(other) if other != descendants => {
+                            return Err(PinUpdateError::UnexpectedNumberOfDescendants(
+                                other,
+                                descendants,
+                            ))
+                        }
+                        Recursive::Count(_) | Recursive::Intent => {
+                            self.recursive = Recursive::Not;
+                            true
+                        }
+                        Recursive::Not => return Err(PinUpdateError::NotPinnedRecursive),
+                    }
+                    // FIXME: removing ... not sure if this is an issue; was thinking that maybe
+                    // the update might need to be split to allow different api for removal than
+                    // addition.
+                };
+                Ok(modified)
+            }
+        }
+    }
+
+    fn can_remove(&self) -> bool {
+        !self.direct && !self.recursive.is_set() && self.indirect_by.is_empty()
+    }
+
+    fn mode(&self) -> Option<PinMode> {
+        if self.recursive.is_set() {
+            Some(PinMode::Recursive)
+        } else if !self.indirect_by.is_empty() {
+            Some(PinMode::Indirect)
+        } else if self.direct {
+            Some(PinMode::Direct)
+        } else {
+            None
+        }
+    }
+
+    fn pick_kind(&self) -> Option<Result<PinKind<Cid>, cid::Error>> {
+        self.mode().map(|p| {
+            Ok(match p {
+                PinMode::Recursive => match self.recursive {
+                    Recursive::Intent => PinKind::RecursiveIntention,
+                    Recursive::Count(total) => PinKind::Recursive(total),
+                    _ => unreachable!("mode shuold not have returned PinKind::Recursive"),
+                },
+                PinMode::Indirect => {
+                    // go-ipfs does seem to be doing a fifo looking, perhaps this is a list there, or
+                    // the indirect pins aren't being written down anywhere and they just refs from
+                    // recursive roots.
+                    let cid = Cid::try_from(self.indirect_by[0].as_str())?;
+                    PinKind::IndirectFrom(cid)
+                }
+                PinMode::Direct => PinKind::Direct,
+            })
+        })
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PinUpdateError {
+    #[error("unexpected number of descendants ({}), found {}", .1, .0)]
+    UnexpectedNumberOfDescendants(u64, u64),
+    #[error("not pinned recursively")]
+    NotPinnedRecursive,
+    /// Not allowed: Adding direct pin while pinned recursive
+    #[error("already pinned recursively")]
+    AlreadyPinnedRecursive,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,5 +730,21 @@ mod tests {
         assert_eq!(contains.await.unwrap(), false);
         let get = store.get(col, &key);
         assert_eq!(get.await.unwrap(), None);
+    }
+
+    #[test]
+    fn pindocument_on_direct_pin() {
+        let mut doc = PinDocument {
+            version: 0,
+            direct: false,
+            recursive: Recursive::Not,
+            cid_version: 0,
+            indirect_by: Vec::new(),
+        };
+
+        assert!(doc.update(true, &PinKind::Direct).unwrap());
+
+        assert_eq!(doc.mode(), Some(PinMode::Direct));
+        assert_eq!(doc.pick_kind().unwrap().unwrap(), PinKind::Direct);
     }
 }

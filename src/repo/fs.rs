@@ -215,6 +215,8 @@ impl BlockStore for FsBlockStore {
                     .parent()
                     .expect("we already have at least the shard parent");
 
+                // FIXME: missing fsync on directories; for example after winning the race we could
+                // fsync the parent and parent.parent
                 std::fs::create_dir_all(sharded)?;
 
                 let target = std::fs::OpenOptions::new()
