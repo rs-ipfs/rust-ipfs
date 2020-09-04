@@ -39,8 +39,12 @@ impl<T: DataStore> std::ops::Deref for DSTestContext<T> {
     }
 }
 
+/// Generates the "common interface" tests for PinStore implementations as a given module using a
+/// types factory method. When adding tests, it might be easier to write them against the one
+/// implementation and only then move them here; the compiler errors seem to point at the
+/// `#[tokio::test]` attribute and the error needs to be guessed.
 #[macro_export]
-macro_rules! tests_for_ds_impl {
+macro_rules! pinstore_interface_tests {
     ($module_name:ident, $factory:expr) => {
         #[cfg(test)]
         mod $module_name {
