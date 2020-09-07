@@ -50,6 +50,7 @@ jobs:
       CARGO_INCREMENTAL: 0
       LLVM_CONFIG_PATH: /usr/local/opt/llvm/bin/llvm-config
       NDK_HOME: /usr/local/lib/android/sdk/ndk-bundle
+      GO_IPFS_PATH: /home/runner/work/rust-ipfs/rust-ipfs/go-ipfs/ipfs
       VCPKGRS_DYNAMIC: 1
       DEBUG: ipfsd-ctl:* # enables all debug output from javascript 'debug' lib used by js-ipfsd-ctl
 
@@ -89,6 +90,12 @@ jobs:
       if: matrix.platform.host == 'macos-latest'
       run: brew install llvm openssl
 
+    - name: Download go-ipfs on Linux
+      if: matrix.platform.host == 'ubuntu-latest'
+      run: |
+        curl -L https://github.com/ipfs/go-ipfs/releases/download/v0.6.0/go-ipfs_v0.6.0_linux-amd64.tar.gz --output go_ipfs.tar.gz
+        tar -xf go_ipfs.tar.gz
+
     - name: Install dependencies windows (openssl)
       uses: lukka/run-vcpkg@v3.3
       id: windows-runvcpkg
@@ -112,6 +119,10 @@ jobs:
     - name: Build (others)
       if: matrix.platform.cross == false
       run: cargo build --locked --workspace --all-targets
+
+    - name: Run interop DHT tests with go-ipfs
+      if: matrix.platform.host == 'ubuntu-latest'
+      run: cargo test --features=test_dht_with_go dht
 
     - name: Setup conformance tests (non-cross targets)
       if: matrix.platform.cross == false
