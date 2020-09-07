@@ -122,7 +122,7 @@ jobs:
 
     - name: Run interop DHT tests with go-ipfs
       if: matrix.platform.host == 'ubuntu-latest'
-      run: cargo test --features=test_dht_with_go dht
+      run: cargo test --features=test_go_interop dht
 
     - name: Setup conformance tests (non-cross targets)
       if: matrix.platform.cross == false

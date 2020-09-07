@@ -1,10 +1,10 @@
-#[cfg(feature = "test_dht_with_go")]
+#[cfg(feature = "test_go_interop")]
 use rand::prelude::*;
-#[cfg(feature = "test_dht_with_go")]
+#[cfg(feature = "test_go_interop")]
 use serde::Deserialize;
-#[cfg(feature = "test_dht_with_go")]
+#[cfg(feature = "test_go_interop")]
 use std::time::Duration;
-#[cfg(feature = "test_dht_with_go")]
+#[cfg(feature = "test_go_interop")]
 use std::{
     env, fs,
     path::PathBuf,
@@ -12,7 +12,7 @@ use std::{
     thread,
 };
 
-#[cfg(feature = "test_dht_with_go")]
+#[cfg(feature = "test_go_interop")]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub struct GoNodeId {
@@ -27,7 +27,7 @@ pub struct GoNodeId {
     protocol_version: String,
 }
 
-#[cfg(feature = "test_dht_with_go")]
+#[cfg(feature = "test_go_interop")]
 pub struct GoIpfsNode {
     daemon: Child,
     pub id: GoNodeId,
@@ -35,8 +35,8 @@ pub struct GoIpfsNode {
 }
 
 impl GoIpfsNode {
-    #[cfg(feature = "test_dht_with_go")]
-    pub fn new() -> GoIpfsNode {
+    #[cfg(feature = "test_go_interop")]
+    fn new() -> GoIpfsNode {
         // GO_IPFS_PATH should point to the location of the go-ipfs binary
         let go_ipfs_path = env::vars()
             .find(|(key, _val)| key == "GO_IPFS_PATH")
@@ -87,10 +87,10 @@ impl GoIpfsNode {
     }
 }
 
-#[cfg(not(feature = "test_dht_with_go"))]
+#[cfg(not(feature = "test_go_interop"))]
 pub struct GoIpfsNode;
 
-#[cfg(feature = "test_dht_with_go")]
+#[cfg(feature = "test_go_interop")]
 impl Drop for GoIpfsNode {
     fn drop(&mut self) {
         let _ = self.daemon.kill();

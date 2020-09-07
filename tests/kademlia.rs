@@ -38,7 +38,7 @@ async fn find_peer_local() {
 }
 
 // starts the specified number of rust IPFS nodes connected in a chain.
-#[cfg(not(feature = "test_dht_with_go"))]
+#[cfg(not(feature = "test_go_interop"))]
 async fn start_nodes_in_chain(
     count: usize,
 ) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<GoIpfsNode>) {
@@ -84,12 +84,12 @@ async fn start_nodes_in_chain(
     (nodes, ids_and_addrs, None)
 }
 
-// most of the setup is the same as in the not(feature = "test_dht_with_go") case, with
+// most of the setup is the same as in the not(feature = "test_go_interop") case, with
 // the addition of a go-ipfs node in the middle of the chain; the first half of the chain
 // learns about the next peer, the go-ipfs node being the last one, and the second half
 // learns about the previous peer, the go-ipfs node being the first one; a visualization:
 // r[0] > r[1] > .. > go < .. < r[count - 3] < r[count - 2]
-#[cfg(feature = "test_dht_with_go")]
+#[cfg(feature = "test_go_interop")]
 async fn start_nodes_in_chain(
     count: usize,
 ) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<GoIpfsNode>) {

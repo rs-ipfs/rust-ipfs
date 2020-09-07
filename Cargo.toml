@@ -8,7 +8,7 @@ version = "0.1.0"
 [features]
 default = []
 nightly = []
-test_dht_with_go = []
+test_go_interop = []
 
 [dependencies]
 anyhow = { default-features = false, version = "1.0" }
