@@ -19,8 +19,11 @@ use futures::stream::{Fuse, Stream};
 pub use libp2p::core::{
     connection::ListenerId, multiaddr::Protocol, ConnectedPoint, Multiaddr, PeerId, PublicKey,
 };
-pub use libp2p::identity::Keypair;
 use libp2p::swarm::NetworkBehaviour;
+pub use libp2p::{
+    identity::Keypair,
+    kad::{record::Key, Quorum},
+};
 use std::path::PathBuf;
 use tracing::Span;
 use tracing_futures::Instrument;
@@ -273,6 +276,17 @@ enum IpfsEvent {
     GetProviders(Cid, OneshotSender<SubscriptionFuture<KadResult, String>>),
     Provide(
         Cid,
+        OneshotSender<Result<SubscriptionFuture<KadResult, String>, Error>>,
+    ),
+    DhtGet(
+        Key,
+        Quorum,
+        OneshotSender<SubscriptionFuture<KadResult, String>>,
+    ),
+    DhtPut(
+        Key,
+        Vec<u8>,
+        Quorum,
         OneshotSender<Result<SubscriptionFuture<KadResult, String>, Error>>,
     ),
     Exit,
@@ -966,6 +980,67 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         }
     }
 
+    /// Attempts to look a key up in the DHT and returns the values found in the records
+    /// containing that key.
+    pub async fn dht_get<T: Into<Key>>(
+        &self,
+        key: T,
+        quorum: Quorum,
+    ) -> Result<Vec<Vec<u8>>, Error> {
+        let kad_result = async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::DhtGet(key.into(), quorum, tx))
+                .await?;
+
+            Ok(rx.await?).map_err(|e: String| anyhow!(e))
+        }
+        .instrument(self.span.clone())
+        .await?
+        .await;
+
+        match kad_result {
+            Ok(KadResult::Records(recs)) => {
+                let values = recs.into_iter().map(|rec| rec.value).collect();
+                Ok(values)
+            }
+            Ok(_) => unreachable!(),
+            Err(e) => Err(anyhow!(e)),
+        }
+    }
+
+    /// Stores the given key + value record locally and replicates it in the DHT. It doesn't
+    /// expire locally and is periodically replicated in the DHT, as per the `KademliaConfig`
+    /// setup.
+    pub async fn dht_put<T: Into<Key>>(
+        &self,
+        key: T,
+        value: Vec<u8>,
+        quorum: Quorum,
+    ) -> Result<(), Error> {
+        let kad_result = async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::DhtPut(key.into(), value, quorum, tx))
+                .await?;
+
+            Ok(rx.await?).map_err(|e: String| anyhow!(e))
+        }
+        .instrument(self.span.clone())
+        .await??
+        .await;
+
+        match kad_result {
+            Ok(KadResult::Complete) => Ok(()),
+            Ok(_) => unreachable!(),
+            Err(e) => Err(anyhow!(e)),
+        }
+    }
+
     /// Walk the given Iplds' links up to `max_depth` (or indefinitely for `None`). Will return
     /// any duplicate trees unless `unique` is `true`.
     ///
@@ -1289,6 +1364,14 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     }
                     IpfsEvent::Provide(cid, ret) => {
                         let _ = ret.send(self.swarm.start_providing(cid));
+                    }
+                    IpfsEvent::DhtGet(key, quorum, ret) => {
+                        let future = self.swarm.dht_get(key, quorum);
+                        let _ = ret.send(future);
+                    }
+                    IpfsEvent::DhtPut(key, value, quorum, ret) => {
+                        let future = self.swarm.dht_put(key, value, quorum);
+                        let _ = ret.send(future);
                     }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
