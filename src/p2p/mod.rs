@@ -3,6 +3,7 @@ use crate::{Ipfs, IpfsOptions, IpfsTypes};
 use libp2p::identity::Keypair;
 use libp2p::Swarm;
 use libp2p::{Multiaddr, PeerId};
+use std::io;
 use tracing::Span;
 
 mod addr;
@@ -46,11 +47,11 @@ impl From<&IpfsOptions> for SwarmOptions {
 pub async fn create_swarm<TIpfsTypes: IpfsTypes>(
     options: SwarmOptions,
     ipfs: Ipfs<TIpfsTypes>,
-) -> TSwarm<TIpfsTypes> {
+) -> io::Result<TSwarm<TIpfsTypes>> {
     let peer_id = options.peer_id.clone();
 
     // Set up an encrypted TCP transport over the Mplex protocol.
-    let transport = transport::build_transport(options.keypair.clone());
+    let transport = transport::build_transport(options.keypair.clone())?;
 
     let swarm_span = ipfs.0.span.clone();
 
@@ -65,7 +66,7 @@ pub async fn create_swarm<TIpfsTypes: IpfsTypes>(
     // Listen on all interfaces and whatever port the OS assigns
     Swarm::listen_on(&mut swarm, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
-    swarm
+    Ok(swarm)
 }
 
 struct SpannedExecutor(Span);

@@ -1335,6 +1335,7 @@ dependencies = [
  "lazy_static",
  "libp2p-core",
  "libp2p-core-derive",
+ "libp2p-dns",
  "libp2p-floodsub",
  "libp2p-identify",
  "libp2p-kad",
@@ -1395,6 +1396,17 @@ checksum = "f753d9324cd3ec14bf04b8a8cd0d269c87f294153d6bf2a84497a63a5ad22213"
 dependencies = [
  "quote",
  "syn",
+]
+
+[[package]]
+name = "libp2p-dns"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fce8769cfe677a567d2677dc02a9e5be27a24acf1ff78a59cef425caae009a6a"
+dependencies = [
+ "futures",
+ "libp2p-core",
+ "log",
 ]
 
 [[package]]
