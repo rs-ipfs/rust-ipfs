@@ -7,7 +7,10 @@ use tokio::time::timeout;
 use std::{convert::TryInto, time::Duration};
 
 mod common;
-use common::interop::ForeignNode;
+#[cfg(feature = "test_go_interop")]
+use common::interop::go::ForeignNode;
+#[cfg(not(feature = "test_go_interop"))]
+use common::interop::none::ForeignNode;
 
 fn strip_peer_id(addr: Multiaddr) -> Multiaddr {
     let MultiaddrWithPeerId { multiaddr, .. } = addr.try_into().unwrap();
