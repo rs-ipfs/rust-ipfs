@@ -10,7 +10,7 @@ use thiserror::Error;
 // TODO: it might be useful to split this into CidPath and IpnsPath, then have Ipns resolve through
 // latter into CidPath (recursively) and have dag.rs support only CidPath. Keep IpfsPath as a
 // common abstraction which can be either.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IpfsPath {
     root: PathRoot,
     pub(crate) path: SlashedPath,
@@ -161,7 +161,7 @@ impl TryInto<PeerId> for IpfsPath {
 ///
 /// UTF-8 originates likely from UnixFS related protobuf descriptions, where dag-pb links have
 /// UTF-8 names, which equal to SlashedPath segments.
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
 pub struct SlashedPath {
     path: Vec<String>,
 }
@@ -241,7 +241,7 @@ impl<'a> PartialEq<[&'a str]> for SlashedPath {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum PathRoot {
     Ipld(Cid),
     Ipns(PeerId),
