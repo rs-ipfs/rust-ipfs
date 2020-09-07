@@ -7,7 +7,7 @@ use tokio::time::timeout;
 use std::{convert::TryInto, time::Duration};
 
 mod common;
-use common::interop_go::GoIpfsNode;
+use common::interop::ForeignNode;
 
 fn strip_peer_id(addr: Multiaddr) -> Multiaddr {
     let MultiaddrWithPeerId { multiaddr, .. } = addr.try_into().unwrap();
@@ -41,7 +41,7 @@ async fn find_peer_local() {
 #[cfg(not(feature = "test_go_interop"))]
 async fn start_nodes_in_chain(
     count: usize,
-) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<GoIpfsNode>) {
+) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<ForeignNode>) {
     // fire up count nodes and register their PeerIds and
     // Multiaddrs (without the PeerId) for add_peer purposes
     let mut nodes = Vec::with_capacity(count);
@@ -92,8 +92,8 @@ async fn start_nodes_in_chain(
 #[cfg(feature = "test_go_interop")]
 async fn start_nodes_in_chain(
     count: usize,
-) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<GoIpfsNode>) {
-    let go_node = GoIpfsNode::new();
+) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<ForeignNode>) {
+    let go_node = ForeignNode::new();
 
     let mut nodes = Vec::with_capacity(count - 1);
     let mut ids_and_addrs = Vec::with_capacity(count - 1);
@@ -109,8 +109,8 @@ async fn start_nodes_in_chain(
         ids_and_addrs.push((id, addr));
     }
 
-    let go_peer_id = go_node.id.id.parse::<PeerId>().unwrap();
-    let go_addr = strip_peer_id(go_node.id.addresses[0].parse::<Multiaddr>().unwrap());
+    let go_peer_id = go_node.id.clone();
+    let go_addr = strip_peer_id(go_node.addrs[0].clone());
 
     // skip the last index again, as there is a go node without one bound to it
     for i in 0..(count - 1) {

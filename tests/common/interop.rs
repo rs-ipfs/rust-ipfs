@@ -1,4 +1,6 @@
 #[cfg(feature = "test_go_interop")]
+use libp2p::{Multiaddr, PeerId};
+#[cfg(feature = "test_go_interop")]
 use rand::prelude::*;
 #[cfg(feature = "test_go_interop")]
 use serde::Deserialize;
@@ -28,15 +30,16 @@ pub struct GoNodeId {
 }
 
 #[cfg(feature = "test_go_interop")]
-pub struct GoIpfsNode {
-    daemon: Child,
-    pub id: GoNodeId,
+pub struct ForeignNode {
     dir: PathBuf,
+    daemon: Child,
+    pub id: PeerId,
+    pub addrs: Vec<Multiaddr>,
 }
 
-impl GoIpfsNode {
+impl ForeignNode {
     #[cfg(feature = "test_go_interop")]
-    fn new() -> GoIpfsNode {
+    pub fn new() -> ForeignNode {
         // GO_IPFS_PATH should point to the location of the go-ipfs binary
         let go_ipfs_path = env::vars()
             .find(|(key, _val)| key == "GO_IPFS_PATH")
@@ -59,7 +62,7 @@ impl GoIpfsNode {
             .status()
             .unwrap();
 
-        let go_daemon = Command::new(&go_ipfs_path)
+        let daemon = Command::new(&go_ipfs_path)
             .env("IPFS_PATH", &tmp_dir)
             .arg("daemon")
             .stdout(Stdio::null())
@@ -79,19 +82,27 @@ impl GoIpfsNode {
         let go_id_stdout = String::from_utf8_lossy(&go_id);
         let go_id: GoNodeId = serde_json::de::from_str(&go_id_stdout).unwrap();
 
-        GoIpfsNode {
-            daemon: go_daemon,
-            id: go_id,
+        let id = go_id.id.parse().unwrap();
+        let addrs = go_id
+            .addresses
+            .into_iter()
+            .map(|a| a.parse().unwrap())
+            .collect();
+
+        ForeignNode {
             dir: tmp_dir,
+            daemon,
+            id,
+            addrs,
         }
     }
 }
 
 #[cfg(not(feature = "test_go_interop"))]
-pub struct GoIpfsNode;
+pub struct ForeignNode;
 
 #[cfg(feature = "test_go_interop")]
-impl Drop for GoIpfsNode {
+impl Drop for ForeignNode {
     fn drop(&mut self) {
         let _ = self.daemon.kill();
         let _ = fs::remove_dir_all(&self.dir);
