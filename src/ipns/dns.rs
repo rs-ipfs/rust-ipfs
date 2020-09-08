@@ -64,18 +64,51 @@ impl Future for DnsLinkFuture {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
+fn create_resolver() -> Result<StubResolver, Error> {
+    Ok(StubResolver::default())
+}
+
+#[cfg(target_os = "windows")]
+fn create_resolver() -> Result<StubResolver, Error> {
+    use domain_resolv::stub::conf::ResolvConf;
+    use std::{collections::HashSet, io::Cursor};
+
+    let mut config = ResolvConf::new();
+    let mut name_servers = String::new();
+
+    let mut dns_servers = HashSet::new();
+    for adapter in ipconfig::get_adapters()? {
+        for dns in adapter.dns_servers() {
+            dns_servers.insert(dns.to_owned());
+        }
+    }
+
+    for dns in &dns_servers {
+        name_servers.push_str(&format!("nameserver {}\n", dns));
+    }
+
+    let mut name_servers = Cursor::new(name_servers.into_bytes());
+    config.parse(&mut name_servers)?;
+    config.finalize();
+
+    Ok(StubResolver::from_conf(config))
+}
+
 pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
     let mut dnslink = "_dnslink.".to_string();
     dnslink.push_str(domain);
+    let resolver = create_resolver()?;
+
     let qname = Dname::<Bytes>::from_str(&domain)?;
     let question = Question::new_in(qname, Rtype::Txt);
-    let resolver = StubResolver::new();
-    let query1 = Box::pin(async move { resolver.query(question).await });
+    let resolver1 = resolver.clone();
+    let query1 = Box::pin(async move { resolver1.query(question).await });
 
     let qname = Dname::<Bytes>::from_str(&dnslink)?;
     let question = Question::new_in(qname, Rtype::Txt);
-    let resolver = StubResolver::new();
-    let query2 = Box::pin(async move { resolver.query(question).await });
+    let resolver2 = resolver;
+    let query2 = Box::pin(async move { resolver2.query(question).await });
 
     Ok(DnsLinkFuture {
         query: select_ok(vec![query1 as FutureAnswer, query2]),
