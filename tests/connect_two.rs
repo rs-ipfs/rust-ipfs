@@ -3,11 +3,20 @@ use libp2p::{multiaddr::Protocol, Multiaddr};
 use std::time::Duration;
 use tokio::time::timeout;
 
+#[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
+mod common;
+#[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
+use common::interop::ForeignNode;
+
 // Make sure two instances of ipfs can be connected by `Multiaddr`.
 #[tokio::test(max_threads = 1)]
 async fn connect_two_nodes_by_addr() {
     let node_a = Node::new("a").await;
+
+    #[cfg(all(not(feature = "test_go_interop"), not(feature = "test_js_interop")))]
     let node_b = Node::new("b").await;
+    #[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
+    let node_b = ForeignNode::new();
 
     let (_, mut b_addrs) = node_b.identity().await.unwrap();
     let b_addr = b_addrs.pop().unwrap();
