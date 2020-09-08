@@ -29,7 +29,7 @@ use tracing::Span;
 use tracing_futures::Instrument;
 
 use std::borrow::Borrow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
 use std::ops::Range;
@@ -583,11 +583,27 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Resolves a ipns path to an ipld path.
-    pub async fn resolve_ipns(&self, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        self.ipns()
-            .resolve(path)
-            .instrument(self.span.clone())
-            .await
+    pub async fn resolve_ipns(&self, path: &IpfsPath, recursive: bool) -> Result<IpfsPath, Error> {
+        async move {
+            let ipns = self.ipns();
+            let mut resolved = ipns.resolve(path).await;
+
+            if recursive {
+                let mut seen = HashSet::with_capacity(1);
+                while let Ok(ref res) = resolved {
+                    if !seen.insert(res.clone()) {
+                        break;
+                    }
+                    resolved = ipns.resolve(&res).await;
+                }
+
+                resolved
+            } else {
+                resolved
+            }
+        }
+        .instrument(self.span.clone())
+        .await
     }
 
     /// Publishes an ipld path.

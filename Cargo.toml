@@ -39,6 +39,10 @@ tracing = { default-features = false, features = ["log"], version = "0.1" }
 tracing-futures = { default-features = false, features = ["std", "futures-03"], version = "0.2" }
 void = { default-features = false, version = "1.0" }
 
+[target.'cfg(windows)'.dependencies]
+# required for DNS resolution
+ipconfig = { default-features = false, version = "0.2" }
+
 [build-dependencies]
 prost-build = { default-features = false, version = "0.6" }
 

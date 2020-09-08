@@ -33,8 +33,16 @@ const factory = createFactory(options)
 // Phase 1.0-ish
 //
 tests.miscellaneous(factory, { skip: [
-  'dns',
-  'resolve',
+  // the cidBase param is not implemented yet
+  'should resolve an IPFS hash and return a base64url encoded CID in path',
+  // different Cid, the /path/to/testfile.txt suffix shouldn't be there
+  'should resolve an IPFS path link',
+  // different Cid, missing "/path/to" in the middle
+  'should resolve up to the last node across multiple nodes',
+  // expected "true", got "false"
+  'should resolve an IPNS DNS link',
+  // HTTP: not implemented
+  'should resolve IPNS link recursively',
   // these cause a hang 20% of time:
   'should respect timeout option when getting the node id',
   'should respect timeout option when getting the node version',
