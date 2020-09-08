@@ -327,7 +327,7 @@ pub enum Chunker {
     Size(usize),
 }
 
-impl core::default::Default for Chunker {
+impl Default for Chunker {
     /// Returns a default chunker which matches go-ipfs 0.6
     fn default() -> Self {
         Chunker::Size(256 * 1024)
@@ -367,7 +367,7 @@ pub enum Collector {
     Balanced(BalancedCollector),
 }
 
-impl core::default::Default for Collector {
+impl Default for Collector {
     fn default() -> Self {
         Collector::Balanced(Default::default())
     }
@@ -404,7 +404,7 @@ impl fmt::Debug for BalancedCollector {
     }
 }
 
-impl core::default::Default for BalancedCollector {
+impl Default for BalancedCollector {
     /// Returns a default collector which matches go-ipfs 0.6
     ///
     /// The origin for 174 is not described in the the [specs], but has likely to do something
