@@ -5,10 +5,8 @@ use tokio::time::timeout;
 
 #[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
 mod common;
-#[cfg(feature = "test_go_interop")]
-use common::interop::go::ForeignNode;
-#[cfg(feature = "test_js_interop")]
-use common::interop::js::ForeignNode;
+#[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
+use common::interop::ForeignNode;
 
 // Make sure two instances of ipfs can be connected by `Multiaddr`.
 #[tokio::test(max_threads = 1)]

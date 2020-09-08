@@ -1,17 +1,8 @@
-#[cfg(feature = "test_go_interop")]
-pub mod go {
-    pub use super::common::*;
-}
-
-#[cfg(feature = "test_js_interop")]
-pub mod js {
-    pub use super::common::*;
-}
+#[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
+pub use common::ForeignNode;
 
 #[cfg(all(not(feature = "test_go_interop"), not(feature = "test_js_interop")))]
-pub mod none {
-    pub struct ForeignNode;
-}
+pub struct ForeignNode;
 
 #[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
 pub mod common {
