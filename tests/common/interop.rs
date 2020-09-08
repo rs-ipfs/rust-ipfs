@@ -15,7 +15,8 @@ pub mod none {
 
 #[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
 pub mod common {
-    use libp2p::{Multiaddr, PeerId};
+    use anyhow;
+    use libp2p::{core::PublicKey, Multiaddr, PeerId};
     use rand::prelude::*;
     use serde::Deserialize;
     use std::time::Duration;
@@ -36,6 +37,7 @@ pub mod common {
         pub dir: PathBuf,
         pub daemon: Child,
         pub id: PeerId,
+        pub pk: PublicKey,
         pub addrs: Vec<Multiaddr>,
     }
 
@@ -82,21 +84,31 @@ pub mod common {
                 .stdout;
 
             let node_id_stdout = String::from_utf8_lossy(&node_id);
-            let node_id: ForeignNodeId = serde_json::de::from_str(&node_id_stdout).unwrap();
+            let ForeignNodeId {
+                id,
+                addresses,
+                public_key,
+                ..
+            } = serde_json::de::from_str(&node_id_stdout).unwrap();
 
-            let id = node_id.id.parse().unwrap();
-            let addrs = node_id
-                .addresses
-                .into_iter()
-                .map(|a| a.parse().unwrap())
-                .collect();
+            let id = id.parse().unwrap();
+            let pk = PublicKey::from_protobuf_encoding(
+                &base64::decode(public_key.into_bytes()).unwrap(),
+            )
+            .unwrap();
 
             ForeignNode {
                 dir: tmp_dir,
                 daemon,
                 id,
-                addrs,
+                pk,
+                addrs: addresses,
             }
+        }
+
+        #[allow(dead_code)]
+        pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), anyhow::Error> {
+            Ok((self.pk.clone(), self.addrs.clone()))
         }
     }
 
@@ -113,9 +125,8 @@ pub mod common {
     pub struct ForeignNodeId {
         #[cfg_attr(feature = "test_go_interop", serde(rename = "ID"))]
         pub id: String,
-        #[serde(skip)]
         pub public_key: String,
-        pub addresses: Vec<String>,
+        pub addresses: Vec<Multiaddr>,
         #[serde(skip)]
         agent_version: String,
         #[serde(skip)]
