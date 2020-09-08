@@ -1,5 +1,20 @@
 #[cfg(feature = "test_go_interop")]
 pub mod go {
+    pub use super::common::*;
+}
+
+#[cfg(feature = "test_js_interop")]
+pub mod js {
+    pub use super::common::*;
+}
+
+#[cfg(all(not(feature = "test_go_interop"), not(feature = "test_js_interop")))]
+pub mod none {
+    pub struct ForeignNode;
+}
+
+#[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
+pub mod common {
     use libp2p::{Multiaddr, PeerId};
     use rand::prelude::*;
     use serde::Deserialize;
@@ -11,33 +26,26 @@ pub mod go {
         thread,
     };
 
-    #[derive(Deserialize, Debug)]
-    #[serde(rename_all = "PascalCase")]
-    pub struct GoNodeId {
-        #[serde(rename = "ID")]
-        pub id: String,
-        #[serde(skip)]
-        pub public_key: String,
-        pub addresses: Vec<String>,
-        #[serde(skip)]
-        agent_version: String,
-        #[serde(skip)]
-        protocol_version: String,
-    }
+    // this environment variable should point to the location of the foreign ipfs binary
+    #[cfg(feature = "test_go_interop")]
+    pub const ENV_IPFS_PATH: &str = "GO_IPFS_PATH";
+    #[cfg(feature = "test_js_interop")]
+    pub const ENV_IPFS_PATH: &str = "JS_IPFS_PATH";
 
     pub struct ForeignNode {
-        dir: PathBuf,
-        daemon: Child,
+        pub dir: PathBuf,
+        pub daemon: Child,
         pub id: PeerId,
         pub addrs: Vec<Multiaddr>,
     }
 
     impl ForeignNode {
         pub fn new() -> ForeignNode {
-            // GO_IPFS_PATH should point to the location of the go-ipfs binary
-            let go_ipfs_path = env::vars()
-                .find(|(key, _val)| key == "GO_IPFS_PATH")
-                .expect("the GO_IPFS_PATH environment variable was not found")
+            let binary_path = env::vars()
+                .find(|(key, _val)| key == ENV_IPFS_PATH)
+                .unwrap_or_else(|| {
+                    panic!("the {} environment variable was not found", ENV_IPFS_PATH)
+                })
                 .1;
 
             let mut tmp_dir = env::temp_dir();
@@ -45,7 +53,7 @@ pub mod go {
             tmp_dir.push(&format!("ipfs_test_{}", rng.gen::<u64>()));
             let _ = fs::create_dir(&tmp_dir);
 
-            Command::new(&go_ipfs_path)
+            Command::new(&binary_path)
                 .env("IPFS_PATH", &tmp_dir)
                 .arg("init")
                 .arg("-p")
@@ -56,28 +64,28 @@ pub mod go {
                 .status()
                 .unwrap();
 
-            let daemon = Command::new(&go_ipfs_path)
+            let daemon = Command::new(&binary_path)
                 .env("IPFS_PATH", &tmp_dir)
                 .arg("daemon")
                 .stdout(Stdio::null())
                 .spawn()
                 .unwrap();
 
-            // give the go-ipfs daemon a little bit of time to start
+            // give the daemon a little bit of time to start
             thread::sleep(Duration::from_secs(1));
 
-            let go_id = Command::new(&go_ipfs_path)
+            let node_id = Command::new(&binary_path)
                 .env("IPFS_PATH", &tmp_dir)
                 .arg("id")
                 .output()
                 .unwrap()
                 .stdout;
 
-            let go_id_stdout = String::from_utf8_lossy(&go_id);
-            let go_id: GoNodeId = serde_json::de::from_str(&go_id_stdout).unwrap();
+            let node_id_stdout = String::from_utf8_lossy(&node_id);
+            let node_id: ForeignNodeId = serde_json::de::from_str(&node_id_stdout).unwrap();
 
-            let id = go_id.id.parse().unwrap();
-            let addrs = go_id
+            let id = node_id.id.parse().unwrap();
+            let addrs = node_id
                 .addresses
                 .into_iter()
                 .map(|a| a.parse().unwrap())
@@ -98,9 +106,19 @@ pub mod go {
             let _ = fs::remove_dir_all(&self.dir);
         }
     }
-}
 
-#[cfg(not(feature = "test_go_interop"))]
-pub mod none {
-    pub struct ForeignNode;
+    #[derive(Deserialize, Debug)]
+    #[cfg_attr(feature = "test_go_interop", serde(rename_all = "PascalCase"))]
+    #[cfg_attr(feature = "test_js_interop", serde(rename_all = "camelCase"))]
+    pub struct ForeignNodeId {
+        #[cfg_attr(feature = "test_go_interop", serde(rename = "ID"))]
+        pub id: String,
+        #[serde(skip)]
+        pub public_key: String,
+        pub addresses: Vec<String>,
+        #[serde(skip)]
+        agent_version: String,
+        #[serde(skip)]
+        protocol_version: String,
+    }
 }

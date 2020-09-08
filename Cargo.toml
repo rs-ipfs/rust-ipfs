@@ -9,6 +9,7 @@ version = "0.1.0"
 default = []
 nightly = []
 test_go_interop = []
+test_js_interop = []
 
 [dependencies]
 anyhow = { default-features = false, version = "1.0" }

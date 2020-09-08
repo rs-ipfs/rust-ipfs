@@ -9,7 +9,9 @@ use std::{convert::TryInto, time::Duration};
 mod common;
 #[cfg(feature = "test_go_interop")]
 use common::interop::go::ForeignNode;
-#[cfg(not(feature = "test_go_interop"))]
+#[cfg(feature = "test_js_interop")]
+use common::interop::js::ForeignNode;
+#[cfg(all(not(feature = "test_go_interop"), not(feature = "test_js_interop")))]
 use common::interop::none::ForeignNode;
 
 fn strip_peer_id(addr: Multiaddr) -> Multiaddr {
@@ -41,7 +43,7 @@ async fn find_peer_local() {
 }
 
 // starts the specified number of rust IPFS nodes connected in a chain.
-#[cfg(not(feature = "test_go_interop"))]
+#[cfg(all(not(feature = "test_go_interop"), not(feature = "test_js_interop")))]
 async fn start_nodes_in_chain(
     count: usize,
 ) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<ForeignNode>) {
@@ -87,20 +89,20 @@ async fn start_nodes_in_chain(
     (nodes, ids_and_addrs, None)
 }
 
-// most of the setup is the same as in the not(feature = "test_go_interop") case, with
-// the addition of a go-ipfs node in the middle of the chain; the first half of the chain
-// learns about the next peer, the go-ipfs node being the last one, and the second half
-// learns about the previous peer, the go-ipfs node being the first one; a visualization:
-// r[0] > r[1] > .. > go < .. < r[count - 3] < r[count - 2]
-#[cfg(feature = "test_go_interop")]
+// most of the setup is the same as in the not(feature = "test_X_interop") case, with
+// the addition of a foreign node in the middle of the chain; the first half of the chain
+// learns about the next peer, the foreign node being the last one, and the second half
+// learns about the previous peer, the foreign node being the first one; a visualization:
+// r[0] > r[1] > .. > foreign < .. < r[count - 3] < r[count - 2]
+#[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
 async fn start_nodes_in_chain(
     count: usize,
 ) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<ForeignNode>) {
-    let go_node = ForeignNode::new();
+    let foreign_node = ForeignNode::new();
 
     let mut nodes = Vec::with_capacity(count - 1);
     let mut ids_and_addrs = Vec::with_capacity(count - 1);
-    // exclude one node to make room for the intermediary go-ipfs node
+    // exclude one node to make room for the intermediary foreign node
     for i in 0..(count - 1) {
         let node = Node::new(i.to_string()).await;
 
@@ -112,14 +114,14 @@ async fn start_nodes_in_chain(
         ids_and_addrs.push((id, addr));
     }
 
-    let go_peer_id = go_node.id.clone();
-    let go_addr = strip_peer_id(go_node.addrs[0].clone());
+    let foreign_peer_id = foreign_node.id.clone();
+    let foreign_addr = strip_peer_id(foreign_node.addrs[0].clone());
 
-    // skip the last index again, as there is a go node without one bound to it
+    // skip the last index again, as there is a foreign node without one bound to it
     for i in 0..(count - 1) {
         let (next_id, next_addr) = if i == count / 2 - 1 || i == count / 2 {
-            println!("telling rust node {} about the go node", i);
-            (go_peer_id.clone(), go_addr.clone())
+            println!("telling rust node {} about the foreign node", i);
+            (foreign_peer_id.clone(), foreign_addr.clone())
         } else if i < count / 2 {
             println!("telling rust node {} about rust node {}", i, i + 1);
             ids_and_addrs[i + 1].clone()
@@ -136,7 +138,7 @@ async fn start_nodes_in_chain(
     // deal, since in reality this kind of extreme conditions are unlikely and we already test that
     // in the pure-rust setup
 
-    (nodes, ids_and_addrs, Some(go_node))
+    (nodes, ids_and_addrs, Some(foreign_node))
 }
 
 /// Check if `Ipfs::find_peer` works using DHT.
@@ -145,8 +147,8 @@ async fn dht_find_peer() {
     // works for numbers >=2, though 2 would essentially just
     // be the same as find_peer_local, so it should be higher
     const CHAIN_LEN: usize = 10;
-    let (nodes, ids_and_addrs, go_node) = start_nodes_in_chain(CHAIN_LEN).await;
-    let last_index = CHAIN_LEN - if go_node.is_none() { 1 } else { 2 };
+    let (nodes, ids_and_addrs, foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
+    let last_index = CHAIN_LEN - if foreign_node.is_none() { 1 } else { 2 };
 
     // node 0 now tries to find the address of the very last node in the
     // chain; the chain should be long enough for it not to automatically
@@ -162,7 +164,7 @@ async fn dht_find_peer() {
 #[tokio::test(max_threads = 1)]
 async fn dht_get_closest_peers() {
     const CHAIN_LEN: usize = 10;
-    let (nodes, ids_and_addrs, _go_node) = start_nodes_in_chain(CHAIN_LEN).await;
+    let (nodes, ids_and_addrs, _foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
 
     assert_eq!(
         nodes[0]
@@ -206,8 +208,8 @@ async fn dht_popular_content_discovery() {
 #[tokio::test(max_threads = 1)]
 async fn dht_providing() {
     const CHAIN_LEN: usize = 10;
-    let (nodes, ids_and_addrs, go_node) = start_nodes_in_chain(CHAIN_LEN).await;
-    let last_index = CHAIN_LEN - if go_node.is_none() { 1 } else { 2 };
+    let (nodes, ids_and_addrs, foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
+    let last_index = CHAIN_LEN - if foreign_node.is_none() { 1 } else { 2 };
 
     // the last node puts a block in order to have something to provide
     let data = b"hello block\n".to_vec().into_boxed_slice();
@@ -235,8 +237,8 @@ async fn dht_providing() {
 #[tokio::test(max_threads = 1)]
 async fn dht_get_put() {
     const CHAIN_LEN: usize = 10;
-    let (nodes, _ids_and_addrs, go_node) = start_nodes_in_chain(CHAIN_LEN).await;
-    let last_index = CHAIN_LEN - if go_node.is_none() { 1 } else { 2 };
+    let (nodes, _ids_and_addrs, foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
+    let last_index = CHAIN_LEN - if foreign_node.is_none() { 1 } else { 2 };
 
     let (key, value) = (b"key".to_vec(), b"value".to_vec());
     let quorum = Quorum::One;
