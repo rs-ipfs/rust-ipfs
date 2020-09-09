@@ -1203,7 +1203,7 @@ impl<TRepoTypes: RepoTypes> IpfsFuture<TRepoTypes> {
                 > 0
         {
             if let Some(sender) = ret {
-                let _ = sender.send(Err(format_err!("Cannot start listening to unspecified address when there are pending specified addresses awaiting")));
+                let _ = sender.send(Err(format_err!("Cannot start listening to an unspecified address when there are pending specified addresses")));
             }
             return;
         }
@@ -1211,7 +1211,7 @@ impl<TRepoTypes: RepoTypes> IpfsFuture<TRepoTypes> {
         match self.listening_addresses.entry(addr) {
             Entry::Occupied(oe) => {
                 if let Some(sender) = ret {
-                    let _ = sender.send(Err(format_err!("Already adding a possibly ephemeral multiaddr, wait first one to resolve before adding next: {}", oe.key())));
+                    let _ = sender.send(Err(format_err!("Already adding a possibly ephemeral Multiaddr; wait for the first one to resolve before adding others: {}", oe.key())));
                 }
             }
             Entry::Vacant(ve) => match Swarm::listen_on(&mut self.swarm, ve.key().to_owned()) {
