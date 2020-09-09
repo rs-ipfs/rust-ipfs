@@ -1,8 +1,11 @@
 use futures::future::pending;
 use futures::stream::StreamExt;
-use ipfs::{Node, PeerId};
+use ipfs::Node;
 use std::time::Duration;
 use tokio::time::timeout;
+
+mod common;
+use common::two_connected_nodes;
 
 #[tokio::test(max_threads = 1)]
 async fn subscribe_only_once() {
@@ -130,21 +133,4 @@ async fn publish_between_two_nodes() {
     }
 
     assert!(disappeared, "timed out before a saw b's unsubscription");
-}
-
-async fn two_connected_nodes() -> ((Node, PeerId), (Node, PeerId)) {
-    let a = Node::new("a").await;
-    let b = Node::new("b").await;
-
-    let (a_pk, _) = a.identity().await.unwrap();
-    let a_id = a_pk.into_peer_id();
-
-    let (b_pk, mut addrs) = b.identity().await.unwrap();
-    let b_id = b_pk.into_peer_id();
-
-    a.connect(addrs.pop().expect("b must have address to connect to"))
-        .await
-        .unwrap();
-
-    ((a, a_id), (b, b_id))
 }
