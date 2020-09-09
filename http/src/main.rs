@@ -137,7 +137,8 @@ fn main() {
     let mut rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
 
     rt.block_on(async move {
-        let opts: IpfsOptions = IpfsOptions::new(home.clone(), keypair, Vec::new(), false, None);
+        let opts: IpfsOptions =
+            IpfsOptions::new(home.clone(), keypair, Vec::new(), false, None, Vec::new());
 
         let (ipfs, task): (Ipfs<ipfs::Types>, _) = UninitializedIpfs::new(opts, None)
             .await
