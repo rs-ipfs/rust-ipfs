@@ -2,6 +2,7 @@
 pub use common::ForeignNode;
 
 #[cfg(all(not(feature = "test_go_interop"), not(feature = "test_js_interop")))]
+#[allow(dead_code)]
 pub struct ForeignNode;
 
 #[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]

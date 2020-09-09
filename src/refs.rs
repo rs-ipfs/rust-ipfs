@@ -369,7 +369,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn all_refs_from_root() {
-        let Node { ipfs, bg_task: _bt } = preloaded_testing_ipfs().await;
+        let Node { ipfs, .. } = preloaded_testing_ipfs().await;
 
         let (root, dag0, unixfs0, dag1, unixfs1) = (
             // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]
@@ -416,7 +416,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn all_unique_refs_from_root() {
-        let Node { ipfs, bg_task: _bt } = preloaded_testing_ipfs().await;
+        let Node { ipfs, .. } = preloaded_testing_ipfs().await;
 
         let (root, dag0, unixfs0, dag1, unixfs1) = (
             // this is the dag with content: [dag0, unixfs0, dag1, unixfs1]

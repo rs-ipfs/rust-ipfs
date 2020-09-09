@@ -1,8 +1,11 @@
 use cid::{Cid, Codec};
-use ipfs::{Block, Node};
+use ipfs::Block;
 use multihash::Sha2_256;
 use std::time::Duration;
 use tokio::time::timeout;
+
+mod common;
+use common::{spawn_connected_nodes, Topology};
 
 #[tokio::test(max_threads = 1)]
 async fn exchange_block() {
@@ -11,23 +14,17 @@ async fn exchange_block() {
     let data = b"hello block\n".to_vec().into_boxed_slice();
     let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
 
-    let a = Node::new("a").await;
-    let b = Node::new("b").await;
+    let nodes = spawn_connected_nodes(2, Topology::Line).await;
 
-    let (_, mut addrs) = b.identity().await.unwrap();
-
-    a.connect(addrs.pop().expect("b must have address to connect to"))
+    nodes[0]
+        .put_block(Block {
+            cid: cid.clone(),
+            data: data.clone(),
+        })
         .await
         .unwrap();
 
-    a.put_block(Block {
-        cid: cid.clone(),
-        data: data.clone(),
-    })
-    .await
-    .unwrap();
-
-    let f = timeout(Duration::from_secs(10), b.get_block(&cid));
+    let f = timeout(Duration::from_secs(10), nodes[1].get_block(&cid));
 
     let Block { data: data2, .. } = f
         .await

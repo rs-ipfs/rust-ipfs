@@ -1,8 +1,11 @@
 use futures::future::pending;
 use futures::stream::StreamExt;
-use ipfs::{Node, PeerId};
+use ipfs::Node;
 use std::time::Duration;
 use tokio::time::timeout;
+
+mod common;
+use common::{spawn_connected_nodes, Topology};
 
 #[tokio::test(max_threads = 1)]
 async fn subscribe_only_once() {
@@ -50,24 +53,26 @@ async fn publish_between_two_nodes() {
     use futures::stream::StreamExt;
     use std::collections::HashSet;
 
-    let ((a, a_id), (b, b_id)) = two_connected_nodes().await;
+    let nodes = spawn_connected_nodes(2, Topology::Line).await;
 
     let topic = "shared".to_owned();
 
-    let mut a_msgs = a.pubsub_subscribe(topic.clone()).await.unwrap();
-    let mut b_msgs = b.pubsub_subscribe(topic.clone()).await.unwrap();
+    let mut a_msgs = nodes[0].pubsub_subscribe(topic.clone()).await.unwrap();
+    let mut b_msgs = nodes[1].pubsub_subscribe(topic.clone()).await.unwrap();
 
     // need to wait to see both sides so that the messages will get through
     let mut appeared = false;
     for _ in 0..100usize {
-        if a.pubsub_peers(Some(topic.clone()))
+        if nodes[0]
+            .pubsub_peers(Some(topic.clone()))
             .await
             .unwrap()
-            .contains(&b_id)
-            && b.pubsub_peers(Some(topic.clone()))
+            .contains(&nodes[1].id)
+            && nodes[1]
+                .pubsub_peers(Some(topic.clone()))
                 .await
                 .unwrap()
-                .contains(&a_id)
+                .contains(&nodes[0].id)
         {
             appeared = true;
             break;
@@ -82,17 +87,19 @@ async fn publish_between_two_nodes() {
         "timed out before both nodes appeared as pubsub peers"
     );
 
-    a.pubsub_publish(topic.clone(), b"foobar".to_vec())
+    nodes[0]
+        .pubsub_publish(topic.clone(), b"foobar".to_vec())
         .await
         .unwrap();
-    b.pubsub_publish(topic.clone(), b"barfoo".to_vec())
+    nodes[1]
+        .pubsub_publish(topic.clone(), b"barfoo".to_vec())
         .await
         .unwrap();
 
     // the order is not defined, but both should see the other's message and the message they sent
     let expected = [
-        (&[topic.clone()], &a_id, b"foobar"),
-        (&[topic.clone()], &b_id, b"barfoo"),
+        (&[topic.clone()], &nodes[0].id, b"foobar"),
+        (&[topic.clone()], &nodes[1].id, b"barfoo"),
     ]
     .iter()
     .cloned()
@@ -115,11 +122,11 @@ async fn publish_between_two_nodes() {
 
     let mut disappeared = false;
     for _ in 0..100usize {
-        if !a
+        if !nodes[0]
             .pubsub_peers(Some(topic.clone()))
             .await
             .unwrap()
-            .contains(&b_id)
+            .contains(&nodes[1].id)
         {
             disappeared = true;
             break;
@@ -130,21 +137,4 @@ async fn publish_between_two_nodes() {
     }
 
     assert!(disappeared, "timed out before a saw b's unsubscription");
-}
-
-async fn two_connected_nodes() -> ((Node, PeerId), (Node, PeerId)) {
-    let a = Node::new("a").await;
-    let b = Node::new("b").await;
-
-    let (a_pk, _) = a.identity().await.unwrap();
-    let a_id = a_pk.into_peer_id();
-
-    let (b_pk, mut addrs) = b.identity().await.unwrap();
-    let b_id = b_pk.into_peer_id();
-
-    a.connect(addrs.pop().expect("b must have address to connect to"))
-        .await
-        .unwrap();
-
-    ((a, a_id), (b, b_id))
 }
