@@ -95,6 +95,8 @@ pub struct IpfsOptions {
     pub mdns: bool,
     /// Custom Kademlia protocol name.
     pub kad_protocol: Option<String>,
+    /// Custom listening addresses.
+    pub listening_addrs: Vec<Multiaddr>,
 }
 
 impl fmt::Debug for IpfsOptions {
@@ -107,6 +109,7 @@ impl fmt::Debug for IpfsOptions {
             .field("keypair", &DebuggableKeypair(&self.keypair))
             .field("mdns", &self.mdns)
             .field("kad_protocol", &self.kad_protocol)
+            .field("listening_addrs", &self.listening_addrs)
             .finish()
     }
 }
@@ -121,6 +124,7 @@ impl IpfsOptions {
             bootstrap: Default::default(),
             // default to lan kad for go-ipfs use in tests
             kad_protocol: Some("/ipfs/lan/kad/1.0.0".to_owned()),
+            listening_addrs: Vec::new(),
         }
     }
 }
@@ -155,6 +159,7 @@ impl IpfsOptions {
         bootstrap: Vec<(Multiaddr, PeerId)>,
         mdns: bool,
         kad_protocol: Option<String>,
+        listening_addrs: Vec<Multiaddr>,
     ) -> Self {
         Self {
             ipfs_path,
@@ -162,6 +167,7 @@ impl IpfsOptions {
             bootstrap,
             mdns,
             kad_protocol,
+            listening_addrs,
         }
     }
 }
@@ -211,6 +217,7 @@ impl Default for IpfsOptions {
             bootstrap,
             mdns: true,
             kad_protocol: None,
+            listening_addrs: Vec::new(),
         }
     }
 }
@@ -337,7 +344,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             span,
             keys,
             repo_events,
-            ..
+            options,
         } = self;
 
         repo.init().await?;
@@ -351,15 +358,23 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             to_task,
         }));
 
-        let swarm_options = SwarmOptions::from(&self.options);
+        let swarm_options = SwarmOptions::from(&options);
         let swarm = create_swarm(swarm_options, ipfs.clone()).await?;
 
-        let fut = IpfsFuture {
+        let IpfsOptions {
+            listening_addrs, ..
+        } = options;
+
+        let mut fut = IpfsFuture {
             repo_events: repo_events.fuse(),
             from_facade: receiver.fuse(),
             swarm,
-            listening_addresses: HashMap::new(),
+            listening_addresses: HashMap::with_capacity(listening_addrs.len()),
         };
+
+        for addr in listening_addrs.into_iter() {
+            fut.start_add_listener_address(addr, None);
+        }
 
         Ok((ipfs, fut))
     }
@@ -1175,7 +1190,7 @@ impl<TRepoTypes: RepoTypes> IpfsFuture<TRepoTypes> {
         }
     }
 
-    fn start_add_listener_address(&mut self, addr: Multiaddr, ret: Channel<Multiaddr>) {
+    fn start_add_listener_address(&mut self, addr: Multiaddr, ret: Option<Channel<Multiaddr>>) {
         use libp2p::Swarm;
         use std::collections::hash_map::Entry;
 
@@ -1187,20 +1202,26 @@ impl<TRepoTypes: RepoTypes> IpfsFuture<TRepoTypes> {
                 .count()
                 > 0
         {
-            let _ = ret.send(Err(format_err!("Cannot start listening to unspecified address when there are pending specified addresses awaiting")));
+            if let Some(sender) = ret {
+                let _ = sender.send(Err(format_err!("Cannot start listening to unspecified address when there are pending specified addresses awaiting")));
+            }
             return;
         }
 
         match self.listening_addresses.entry(addr) {
             Entry::Occupied(oe) => {
-                let _ = ret.send(Err(format_err!("Already adding a possibly ephemeral multiaddr, wait first one to resolve before adding next: {}", oe.key())));
+                if let Some(sender) = ret {
+                    let _ = sender.send(Err(format_err!("Already adding a possibly ephemeral multiaddr, wait first one to resolve before adding next: {}", oe.key())));
+                }
             }
             Entry::Vacant(ve) => match Swarm::listen_on(&mut self.swarm, ve.key().to_owned()) {
                 Ok(id) => {
-                    ve.insert((id, Some(ret)));
+                    ve.insert((id, ret));
                 }
                 Err(e) => {
-                    let _ = ret.send(Err(Error::from(e)));
+                    if let Some(sender) = ret {
+                        let _ = sender.send(Err(Error::from(e)));
+                    }
                 }
             },
         }
@@ -1322,7 +1343,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         let _ = ret.send((stats, peers, wantlist).into());
                     }
                     IpfsEvent::AddListeningAddress(addr, ret) => {
-                        self.start_add_listener_address(addr, ret);
+                        self.start_add_listener_address(addr, Some(ret));
                     }
                     IpfsEvent::RemoveListeningAddress(addr, ret) => {
                         let removed = if let Some((id, _)) = self.listening_addresses.remove(&addr)
@@ -1705,6 +1726,29 @@ mod tests {
         assert!(ipfs.is_pinned(&cid).await.unwrap());
         ipfs.remove_pin(&cid, false).await.unwrap();
         assert!(!ipfs.is_pinned(&cid).await.unwrap());
+    }
+
+    #[tokio::test(max_threads = 1)]
+    async fn pre_configured_listening_addrs() {
+        use std::convert::TryFrom;
+
+        let mut opts = IpfsOptions::inmemory_with_generated_keys();
+        let addr: Multiaddr = "/ip4/127.0.0.1/tcp/4001".parse().unwrap();
+        opts.listening_addrs.push(addr.clone());
+        let ipfs = Node::with_options(opts).await;
+
+        let (_id, addrs) = ipfs.identity().await.unwrap();
+        let addrs: Vec<MultiaddrWithoutPeerId> = addrs
+            .into_iter()
+            .map(|addr| MultiaddrWithPeerId::try_from(addr).unwrap().multiaddr)
+            .collect();
+        let addr = MultiaddrWithoutPeerId::try_from(addr).unwrap();
+
+        assert!(
+            addrs.contains(&addr),
+            "pre-configured listening addr not found; listening addrs: {:?}",
+            addrs
+        );
     }
 
     #[test]
