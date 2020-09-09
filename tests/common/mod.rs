@@ -1,21 +1,46 @@
 pub mod interop;
 
-use ipfs::{Node, PeerId};
+use ipfs::Node;
 
 #[allow(dead_code)]
-pub async fn two_connected_nodes() -> ((Node, PeerId), (Node, PeerId)) {
-    let a = Node::new("a").await;
-    let b = Node::new("b").await;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Topology {
+    Line,
+    Ring,
+    Mesh,
+}
 
-    let (a_pk, _) = a.identity().await.unwrap();
-    let a_id = a_pk.into_peer_id();
+#[allow(dead_code)]
+pub async fn spawn_connected_nodes(count: usize, topology: Topology) -> Vec<Node> {
+    let mut nodes = Vec::with_capacity(count);
 
-    let (b_pk, mut addrs) = b.identity().await.unwrap();
-    let b_id = b_pk.into_peer_id();
+    for i in 0..count {
+        let node = Node::new(i.to_string()).await;
+        nodes.push(node);
+    }
 
-    a.connect(addrs.pop().expect("b must have address to connect to"))
-        .await
-        .unwrap();
+    if topology != Topology::Mesh {
+        for i in 0..(count - 1) {
+            nodes[i]
+                .connect(nodes[i + 1].addrs[0].clone())
+                .await
+                .unwrap();
+        }
+        if topology == Topology::Ring {
+            nodes[count - 1]
+                .connect(nodes[0].addrs[0].clone())
+                .await
+                .unwrap();
+        }
+    } else {
+        for i in 0..count {
+            for (j, peer) in nodes.iter().enumerate() {
+                if i != j {
+                    nodes[i].connect(peer.addrs[0].clone()).await.unwrap();
+                }
+            }
+        }
+    }
 
-    ((a, a_id), (b, b_id))
+    nodes
 }
