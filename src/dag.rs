@@ -596,7 +596,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn test_resolve_root_cid() {
-        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let data = make_ipld!([1, 2, 3]);
         let cid = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
@@ -606,7 +606,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn test_resolve_array_elem() {
-        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let data = make_ipld!([1, 2, 3]);
         let cid = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
@@ -619,7 +619,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn test_resolve_nested_array_elem() {
-        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let data = make_ipld!([1, [2], 3,]);
         let cid = dag.put(data, Codec::DagCBOR).await.unwrap();
@@ -632,7 +632,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn test_resolve_object_elem() {
-        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let data = make_ipld!({
             "key": false,
@@ -647,7 +647,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn test_resolve_cid_elem() {
-        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let data1 = make_ipld!([1]);
         let cid1 = dag.put(data1, Codec::DagCBOR).await.unwrap();
@@ -841,7 +841,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn resolve_through_link() {
-        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let ipld = make_ipld!([1]);
         let cid1 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
@@ -870,7 +870,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn fail_resolving_first_segment() {
-        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let ipld = make_ipld!([1]);
         let cid1 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
@@ -886,7 +886,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn fail_resolving_last_segment() {
-        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
         let ipld = make_ipld!([1]);
         let cid1 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
@@ -902,7 +902,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn fail_resolving_through_file() {
-        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let Node { ipfs, .. } = Node::new("test_node").await;
 
         let mut adder = ipfs_unixfs::file::adder::FileAdder::default();
         let (mut blocks, _) = adder.push(b"foobar\n");
@@ -934,7 +934,7 @@ mod tests {
 
     #[tokio::test(max_threads = 1)]
     async fn fail_resolving_through_dir() {
-        let Node { ipfs, bg_task: _bt } = Node::new("test_node").await;
+        let Node { ipfs, .. } = Node::new("test_node").await;
 
         let mut adder = ipfs_unixfs::file::adder::FileAdder::default();
         let (mut blocks, _) = adder.push(b"foobar\n");

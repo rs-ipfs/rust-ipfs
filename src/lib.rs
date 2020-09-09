@@ -1463,6 +1463,8 @@ mod node {
     /// easier.
     pub struct Node {
         pub ipfs: Ipfs<TestTypes>,
+        pub id: PeerId,
+        pub addrs: Vec<Multiaddr>,
         pub bg_task: tokio::task::JoinHandle<()>,
     }
 
@@ -1481,6 +1483,7 @@ mod node {
 
         pub async fn with_options(opts: IpfsOptions) -> Self {
             let span = Some(Span::current());
+            let id = opts.keypair.public().into_peer_id();
 
             let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts, span)
                 .in_current_span()
@@ -1489,10 +1492,15 @@ mod node {
                 .in_current_span()
                 .await
                 .unwrap();
-
             let bg_task = tokio::task::spawn(fut.in_current_span());
+            let addrs = ipfs.identity().await.unwrap().1;
 
-            Node { ipfs, bg_task }
+            Node {
+                ipfs,
+                id,
+                addrs,
+                bg_task,
+            }
         }
 
         pub fn get_subscriptions(
