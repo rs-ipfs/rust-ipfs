@@ -116,3 +116,28 @@ fn remove_listening_address_before_completing() {
     // we can push a IpfsEvent::AddListenerAddress followed by an IpfsEvent::RemoveListenerAddress
     // "immediatedly".
 }
+
+#[tokio::test(max_threads = 1)]
+async fn pre_configured_listening_addrs() {
+    use ipfs::{IpfsOptions, MultiaddrWithPeerId, MultiaddrWithoutPeerId, Node};
+    use libp2p::Multiaddr;
+    use std::convert::TryFrom;
+
+    let mut opts = IpfsOptions::inmemory_with_generated_keys();
+    let addr: Multiaddr = "/ip4/127.0.0.1/tcp/4001".parse().unwrap();
+    opts.listening_addrs.push(addr.clone());
+    let ipfs = Node::with_options(opts).await;
+
+    let (_id, addrs) = ipfs.identity().await.unwrap();
+    let addrs: Vec<MultiaddrWithoutPeerId> = addrs
+        .into_iter()
+        .map(|addr| MultiaddrWithPeerId::try_from(addr).unwrap().multiaddr)
+        .collect();
+    let addr = MultiaddrWithoutPeerId::try_from(addr).unwrap();
+
+    assert!(
+        addrs.contains(&addr),
+        "pre-configured listening addr not found; listening addrs: {:?}",
+        addrs
+    );
+}
