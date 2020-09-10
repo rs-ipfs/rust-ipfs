@@ -6,7 +6,7 @@ use libp2p::{Multiaddr, PeerId};
 use std::io;
 use tracing::Span;
 
-mod addr;
+pub(crate) mod addr;
 mod behaviour;
 pub(crate) mod pubsub;
 mod swarm;

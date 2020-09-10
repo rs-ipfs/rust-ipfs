@@ -357,57 +357,6 @@ pub enum IpfsPathError {
 mod tests {
     use super::IpfsPath;
     use std::convert::TryFrom;
-    /*use super::*;
-    use bitswap::Block;
-
-    #[test]
-    fn test_from() {
-        let res = Block::from("hello").path("key/3").unwrap();
-
-        let cid = Cid::new_v1(Codec::Raw, b"hello");
-        let mut path = IpfsPath::new(PathRoot::Ipld(cid));
-        path.push("key");
-        path.push(3);
-
-        assert_eq!(path, res);
-    }
-
-    #[test]
-    fn test_from_errors() {
-        let block = Block::from("hello");
-        assert!(block.path("").is_ok());
-        assert!(block.path("/").is_err());
-        assert!(block.path("/abc").is_err());
-        assert!(block.path("abc/").is_err());
-        assert!(block.path("abc//de").is_err());
-    }
-
-    #[test]
-    fn test_from_str() {
-        let string = "/ipld/QmRN6wdp1S2A5EtjW9A3M1vKSBuQQGcgvuhoMUoEz4iiT5/key/3";
-        let res = IpfsPath::from_str(string).unwrap();
-
-        let cid = Block::from("hello").cid().to_owned();
-        let mut path = IpfsPath::new(PathRoot::Ipld(cid));
-        path.push("key");
-        path.push(3);
-
-        assert_eq!(path, res);
-    }
-
-    #[test]
-    fn test_from_str_errors() {
-        assert!(IpfsPath::from_str("").is_err());
-        assert!(IpfsPath::from_str("/").is_err());
-        assert!(IpfsPath::from_str("/QmRN").is_err());
-    }
-
-    #[test]
-    fn test_to_string() {
-        let path = Block::from("hello").path("key/3").unwrap();
-        let res = "/ipfs/QmRN6wdp1S2A5EtjW9A3M1vKSBuQQGcgvuhoMUoEz4iiT5/key/3";
-        assert_eq!(path.to_string(), res);
-    }*/
 
     #[test]
     fn display() {
