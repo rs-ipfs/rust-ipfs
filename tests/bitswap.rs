@@ -1,8 +1,8 @@
 use cid::{Cid, Codec};
 use ipfs::Block;
 use multihash::Sha2_256;
-use tokio::time;
 use std::time::Duration;
+use tokio::time;
 
 mod common;
 use common::{spawn_connected_nodes, Topology};
