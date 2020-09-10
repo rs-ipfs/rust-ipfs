@@ -290,14 +290,15 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub async fn put_block(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
         let cid = block.cid.clone();
         let (_cid, res) = self.block_store.put(block.clone()).await?;
-        self.subscriptions
-            .finish_subscription(cid.clone().into(), Ok(block));
 
         // FIXME: this doesn't cause actual DHT providing yet, only some
         // bitswap housekeeping; RepoEvent::ProvideBlock should probably
         // be renamed to ::NewBlock and we might want to not ignore the
         // channel errors when we actually start providing on the DHT
         if let BlockPut::NewBlock = res {
+            self.subscriptions
+                .finish_subscription(cid.clone().into(), Ok(block));
+
             // sending only fails if no one is listening anymore
             // and that is okay with us.
             let (tx, rx) = oneshot::channel();
