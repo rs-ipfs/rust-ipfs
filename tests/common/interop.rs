@@ -19,12 +19,6 @@ pub mod common {
         thread,
     };
 
-    // this environment variable should point to the location of the foreign ipfs binary
-    #[cfg(feature = "test_go_interop")]
-    pub const ENV_IPFS_PATH: &str = "GO_IPFS_PATH";
-    #[cfg(feature = "test_js_interop")]
-    pub const ENV_IPFS_PATH: &str = "JS_IPFS_PATH";
-
     pub struct ForeignNode {
         pub dir: PathBuf,
         pub daemon: Child,
@@ -34,7 +28,14 @@ pub mod common {
     }
 
     impl ForeignNode {
+        #[allow(dead_code)]
         pub fn new() -> ForeignNode {
+            // this environment variable should point to the location of the foreign ipfs binary
+            #[cfg(feature = "test_go_interop")]
+            const ENV_IPFS_PATH: &str = "GO_IPFS_PATH";
+            #[cfg(feature = "test_js_interop")]
+            const ENV_IPFS_PATH: &str = "JS_IPFS_PATH";
+
             let binary_path = env::vars()
                 .find(|(key, _val)| key == ENV_IPFS_PATH)
                 .unwrap_or_else(|| {
