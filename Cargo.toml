@@ -26,7 +26,7 @@ domain-resolv = { default-features = false, version = "0.5" }
 either = { default-features = false, version = "1.5" }
 futures = { default-features = false, version = "0.3.5", features = ["alloc", "std"] }
 ipfs-unixfs = { path = "unixfs" }
-libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-tokio", "mdns-tokio", "mplex", "noise", "ping", "yamux", "dns"], version = "0.24" }
+libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-tokio", "mdns-tokio", "mplex", "noise", "ping", "yamux", "dns"], version = "0.28" }
 multibase = { default-features = false, version = "0.8" }
 multihash = { default-features = false, version = "0.11" }
 prost = { default-features = false, version = "0.6" }
