@@ -138,3 +138,56 @@ async fn publish_between_two_nodes() {
 
     assert!(disappeared, "timed out before a saw b's unsubscription");
 }
+
+#[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
+#[tokio::test(max_threads = 1)]
+#[ignore = "doesn't work yet"]
+async fn pubsub_interop() {
+    use common::interop::{api_call, ForeignNode};
+    use futures::{future, pin_mut};
+
+    let rust_node = Node::new("rusty_boi").await;
+    let foreign_node = ForeignNode::new();
+    let foreign_api_port = foreign_node.api_port;
+
+    rust_node
+        .connect(foreign_node.addrs[0].clone())
+        .await
+        .unwrap();
+
+    const TOPIC: &str = "shared";
+
+    let _rust_sub_stream = rust_node.pubsub_subscribe(TOPIC.to_string()).await.unwrap();
+
+    let foreign_sub_answer = future::maybe_done(api_call(
+        foreign_api_port,
+        format!("pubsub/sub?arg={}", TOPIC),
+    ));
+    pin_mut!(foreign_sub_answer);
+    assert_eq!(foreign_sub_answer.as_mut().output_mut(), None);
+
+    // need to wait to see both sides so that the messages will get through
+    let mut appeared = false;
+    for _ in 0..100usize {
+        if rust_node
+            .pubsub_peers(Some(TOPIC.to_string()))
+            .await
+            .unwrap()
+            .contains(&foreign_node.id)
+            && api_call(foreign_api_port, &format!("pubsub/peers?arg={}", TOPIC))
+                .await
+                .contains(&rust_node.id.to_string())
+        {
+            appeared = true;
+            break;
+        }
+        timeout(Duration::from_millis(200), pending::<()>())
+            .await
+            .unwrap_err();
+    }
+
+    assert!(
+        appeared,
+        "timed out before both nodes appeared as pubsub peers"
+    );
+}
