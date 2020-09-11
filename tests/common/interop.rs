@@ -65,10 +65,15 @@ pub mod common {
                 .status()
                 .unwrap();
 
+            #[cfg(feature = "test_go_interop")]
+            let daemon_args = &["daemon", "--enable-pubsub-experiment"];
+            #[cfg(feature = "test_js_interop")]
+            let daemon_args = &["daemon"];
+
             // start the ipfs daemon
             let mut daemon = Command::new(&binary_path)
                 .env("IPFS_PATH", &tmp_dir)
-                .arg("daemon")
+                .args(daemon_args)
                 .stdout(Stdio::piped())
                 .spawn()
                 .unwrap();
