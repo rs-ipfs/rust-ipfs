@@ -134,6 +134,21 @@ pub mod common {
         pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), anyhow::Error> {
             Ok((self.pk.clone(), self.addrs.clone()))
         }
+
+        #[allow(dead_code)]
+        pub async fn api_call(&self, call: &str) -> String {
+            let bytes = Command::new("curl")
+                .arg("-X")
+                .arg("POST")
+                .arg(&format!(
+                    "http://127.0.0.1:{}/api/v0/{}",
+                    self.api_port, call
+                ))
+                .output()
+                .unwrap()
+                .stdout;
+            String::from_utf8(bytes).unwrap()
+        }
     }
 
     impl Drop for ForeignNode {
