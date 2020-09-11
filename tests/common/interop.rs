@@ -1,5 +1,5 @@
 #[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
-pub use common::ForeignNode;
+pub use common::{api_call, ForeignNode};
 
 #[cfg(all(not(feature = "test_go_interop"), not(feature = "test_js_interop")))]
 #[allow(dead_code)]
@@ -139,21 +139,6 @@ pub mod common {
         pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), anyhow::Error> {
             Ok((self.pk.clone(), self.addrs.clone()))
         }
-
-        #[allow(dead_code)]
-        pub async fn api_call(&self, call: &str) -> String {
-            let bytes = Command::new("curl")
-                .arg("-X")
-                .arg("POST")
-                .arg(&format!(
-                    "http://127.0.0.1:{}/api/v0/{}",
-                    self.api_port, call
-                ))
-                .output()
-                .unwrap()
-                .stdout;
-            String::from_utf8(bytes).unwrap()
-        }
     }
 
     impl Drop for ForeignNode {
@@ -161,6 +146,25 @@ pub mod common {
             let _ = self.daemon.kill();
             let _ = fs::remove_dir_all(&self.dir);
         }
+    }
+
+    // this one is not a method on ForeignNode, as only its port number is needed and we don't
+    // want to restrict ourselves from calling it from spawned tasks or threads (or to make the
+    // internals of ForeignNode complicated by making it Clone)
+    #[allow(dead_code)]
+    pub async fn api_call<T: AsRef<str>>(api_port: u16, call: T) -> String {
+        let bytes = Command::new("curl")
+            .arg("-X")
+            .arg("POST")
+            .arg(&format!(
+                "http://127.0.0.1:{}/api/v0/{}",
+                api_port,
+                call.as_ref()
+            ))
+            .output()
+            .unwrap()
+            .stdout;
+        String::from_utf8(bytes).unwrap()
     }
 
     #[derive(Deserialize, Debug)]
