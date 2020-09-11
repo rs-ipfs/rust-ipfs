@@ -25,6 +25,7 @@ pub mod common {
         pub id: PeerId,
         pub pk: PublicKey,
         pub addrs: Vec<Multiaddr>,
+        pub binary_path: String,
     }
 
     impl ForeignNode {
@@ -96,6 +97,7 @@ pub mod common {
                 id,
                 pk,
                 addrs: addresses,
+                binary_path,
             }
         }
 
