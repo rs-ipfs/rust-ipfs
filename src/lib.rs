@@ -3,40 +3,6 @@
 #![cfg_attr(feature = "nightly", feature(external_doc))]
 #![cfg_attr(feature = "nightly", doc(include = "../README.md"))]
 
-#[macro_use]
-extern crate tracing;
-
-pub use crate::ipld::Ipld;
-use anyhow::{anyhow, format_err};
-pub use bitswap::{BitswapEvent, Block, Stats};
-pub use cid::Cid;
-use cid::Codec;
-use either::Either;
-use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
-use futures::sink::SinkExt;
-use futures::stream::{Fuse, Stream};
-pub use libp2p::core::{
-    connection::ListenerId, multiaddr::Protocol, ConnectedPoint, Multiaddr, PeerId, PublicKey,
-};
-use libp2p::swarm::NetworkBehaviour;
-pub use libp2p::{
-    identity::Keypair,
-    kad::{record::Key, Quorum},
-};
-use std::path::PathBuf;
-use tracing::Span;
-use tracing_futures::Instrument;
-
-use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::future::Future;
-use std::ops::Range;
-use std::pin::Pin;
-use std::sync::{atomic::Ordering, Arc};
-use std::task::{Context, Poll};
-
 mod config;
 pub mod dag;
 pub mod error;
@@ -50,17 +16,66 @@ pub mod repo;
 mod subscription;
 pub mod unixfs;
 
-use self::dag::IpldDag;
-pub use self::error::Error;
-use self::ipns::Ipns;
-use self::p2p::addr::{could_be_bound_from_ephemeral, starts_unspecified};
-pub use self::p2p::pubsub::{PubsubMessage, SubscriptionStream};
-use self::p2p::{create_swarm, SwarmOptions, TSwarm};
-pub use self::p2p::{Connection, KadResult, MultiaddrWithPeerId, MultiaddrWithoutPeerId};
-pub use self::path::IpfsPath;
-use self::repo::{create_repo, Repo, RepoEvent, RepoOptions};
-pub use self::repo::{PinKind, PinMode, RepoTypes};
-use self::subscription::SubscriptionFuture;
+#[macro_use]
+extern crate tracing;
+
+use anyhow::{anyhow, format_err};
+use cid::Codec;
+use either::Either;
+use futures::{
+    channel::{
+        mpsc::{channel, Receiver, Sender},
+        oneshot::{channel as oneshot_channel, Sender as OneshotSender},
+    },
+    sink::SinkExt,
+    stream::{Fuse, Stream},
+};
+use libp2p::swarm::NetworkBehaviour;
+use tracing::Span;
+use tracing_futures::Instrument;
+
+use std::{
+    borrow::Borrow,
+    collections::{HashMap, HashSet},
+    env, fmt,
+    future::Future,
+    ops::{Deref, DerefMut, Range},
+    path::PathBuf,
+    pin::Pin,
+    sync::{atomic::Ordering, Arc},
+    task::{Context, Poll},
+};
+
+use self::{
+    dag::IpldDag,
+    ipns::Ipns,
+    p2p::{
+        addr::{could_be_bound_from_ephemeral, starts_unspecified},
+        create_swarm, SwarmOptions, TSwarm,
+    },
+    repo::{create_repo, Repo, RepoEvent, RepoOptions},
+    subscription::SubscriptionFuture,
+};
+
+pub use self::{
+    error::Error,
+    ipld::Ipld,
+    p2p::{
+        pubsub::{PubsubMessage, SubscriptionStream},
+        Connection, KadResult, MultiaddrWithPeerId, MultiaddrWithoutPeerId,
+    },
+    path::IpfsPath,
+    repo::{PinKind, PinMode, RepoTypes},
+};
+pub use bitswap::{BitswapEvent, Block, Stats};
+pub use cid::Cid;
+pub use libp2p::{
+    core::{
+        connection::ListenerId, multiaddr::Protocol, ConnectedPoint, Multiaddr, PeerId, PublicKey,
+    },
+    identity::Keypair,
+    kad::{record::Key, Quorum},
+};
 
 /// All types can be changed at compile time by implementing
 /// `IpfsTypes`.
@@ -119,7 +134,7 @@ impl IpfsOptions {
     /// Creates an inmemory store backed node for tests
     pub fn inmemory_with_generated_keys() -> Self {
         Self {
-            ipfs_path: std::env::temp_dir(),
+            ipfs_path: env::temp_dir(),
             keypair: Keypair::generate_ed25519(),
             mdns: Default::default(),
             bootstrap: Default::default(),
@@ -194,13 +209,13 @@ impl Default for IpfsOptions {
             );
         }
 
-        let ipfs_path = if let Ok(path) = std::env::var("IPFS_PATH") {
+        let ipfs_path = if let Ok(path) = env::var("IPFS_PATH") {
             PathBuf::from(path)
         } else {
             let root = if let Some(home) = dirs::home_dir() {
                 home
             } else {
-                std::env::current_dir().unwrap()
+                env::current_dir().unwrap()
             };
             root.join(".rust-ipfs")
         };
@@ -383,7 +398,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
     }
 }
 
-impl<Types: IpfsTypes> std::ops::Deref for Ipfs<Types> {
+impl<Types: IpfsTypes> Deref for Ipfs<Types> {
     type Target = IpfsInner<Types>;
 
     fn deref(&self) -> &Self::Target {
@@ -1676,7 +1691,7 @@ mod node {
         }
     }
 
-    impl std::ops::Deref for Node {
+    impl Deref for Node {
         type Target = Ipfs<TestTypes>;
 
         fn deref(&self) -> &Self::Target {
@@ -1684,8 +1699,8 @@ mod node {
         }
     }
 
-    impl std::ops::DerefMut for Node {
-        fn deref_mut(&mut self) -> &mut <Self as std::ops::Deref>::Target {
+    impl DerefMut for Node {
+        fn deref_mut(&mut self) -> &mut <Self as Deref>::Target {
             &mut self.ipfs
         }
     }
