@@ -593,10 +593,10 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.swarm.bootstrappers.drain().map(|a| a.into()).collect()
     }
 
-    pub fn restore_bootstrappers(&mut self) -> Vec<Multiaddr> {
-        let config_location = std::env::var("IPFS_PATH").expect("always expected to be set");
-        let mut config_reader = std::fs::File::open(config_location).expect("the config is there");
-        let config_file: serde_json::Value = serde_json::from_reader(&mut config_reader).unwrap();
+    pub fn restore_bootstrappers(&mut self) -> Result<Vec<Multiaddr>, anyhow::Error> {
+        let config_location = format!("{}/config", std::env::var("IPFS_PATH")?);
+        let mut config_reader = std::fs::File::open(config_location)?;
+        let config_file: serde_json::Value = serde_json::from_reader(&mut config_reader)?;
         let mut ret = std::collections::HashSet::new();
 
         if let Some(addrs) = config_file
@@ -620,7 +620,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             }
         }
 
-        ret.into_iter().collect()
+        Ok(ret.into_iter().collect())
     }
 }
 
