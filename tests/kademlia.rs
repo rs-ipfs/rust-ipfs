@@ -7,7 +7,7 @@ use tokio::time::timeout;
 use std::{convert::TryInto, time::Duration};
 
 mod common;
-use common::interop::ForeignNode;
+use common::{interop::ForeignNode, spawn_nodes, Topology};
 
 fn strip_peer_id(addr: Multiaddr) -> Multiaddr {
     let MultiaddrWithPeerId { multiaddr, .. } = addr.try_into().unwrap();
@@ -39,37 +39,24 @@ async fn find_peer_local() {
 
 // starts the specified number of rust IPFS nodes connected in a chain.
 #[cfg(all(not(feature = "test_go_interop"), not(feature = "test_js_interop")))]
-async fn start_nodes_in_chain(
-    count: usize,
-) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<ForeignNode>) {
-    // fire up count nodes and register their PeerIds and
-    // Multiaddrs (without the PeerId) for add_peer purposes
-    let mut nodes = Vec::with_capacity(count);
-    let mut ids_and_addrs = Vec::with_capacity(count);
-    for i in 0..count {
-        let node = Node::new(i.to_string()).await;
-
-        let (key, mut addrs) = node.identity().await.unwrap();
-        let id = key.into_peer_id();
-        let addr = strip_peer_id(addrs.pop().unwrap());
-
-        nodes.push(node);
-        ids_and_addrs.push((id, addr));
-    }
+async fn start_nodes_in_chain(n: usize) -> (Vec<Node>, Option<ForeignNode>) {
+    // fire up `n` nodes
+    let nodes = spawn_nodes(n, Topology::None).await;
 
     // register the nodes' addresses so they can bootstrap against
     // one another in a chain; node 0 is only aware of the existence
     // of node 1 and so on; bootstrap them eagerly/quickly, so that
     // they don't have a chance to form the full picture in the DHT
-    for i in 0..count {
-        let (next_id, next_addr) = if i < count - 1 {
-            ids_and_addrs[i + 1].clone()
+    for i in 0..n {
+        let (next_id, next_addr) = if i < n - 1 {
+            (nodes[i + 1].id.clone(), nodes[i + 1].addrs[0].clone())
         } else {
             // the last node in the chain also needs to know some address
             // in order to bootstrap, so give it its neighbour's information
             // and then bootstrap it as well
-            ids_and_addrs[count - 2].clone()
+            (nodes[n - 2].id.clone(), nodes[n - 2].addrs[0].clone())
         };
+        let next_addr = strip_peer_id(next_addr);
 
         nodes[i].add_peer(next_id, next_addr).await.unwrap();
         nodes[i].bootstrap().await.unwrap();
@@ -81,48 +68,37 @@ async fn start_nodes_in_chain(
         assert!([1usize, 2].contains(&node.peers().await.unwrap().len()));
     }
 
-    (nodes, ids_and_addrs, None)
+    (nodes, None)
 }
 
 // most of the setup is the same as in the not(feature = "test_X_interop") case, with
 // the addition of a foreign node in the middle of the chain; the first half of the chain
 // learns about the next peer, the foreign node being the last one, and the second half
 // learns about the previous peer, the foreign node being the first one; a visualization:
-// r[0] > r[1] > .. > foreign < .. < r[count - 3] < r[count - 2]
+// r[0] > r[1] > .. > foreign < .. < r[n - 3] < r[n - 2]
 #[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
-async fn start_nodes_in_chain(
-    count: usize,
-) -> (Vec<Node>, Vec<(PeerId, Multiaddr)>, Option<ForeignNode>) {
+async fn start_nodes_in_chain(n: usize) -> (Vec<Node>, Option<ForeignNode>) {
+    // start a foreign IPFS node
     let foreign_node = ForeignNode::new();
-
-    let mut nodes = Vec::with_capacity(count - 1);
-    let mut ids_and_addrs = Vec::with_capacity(count - 1);
-    // exclude one node to make room for the intermediary foreign node
-    for i in 0..(count - 1) {
-        let node = Node::new(i.to_string()).await;
-
-        let (key, mut addrs) = node.identity().await.unwrap();
-        let id = key.into_peer_id();
-        let addr = strip_peer_id(addrs.pop().unwrap());
-
-        nodes.push(node);
-        ids_and_addrs.push((id, addr));
-    }
-
     let foreign_peer_id = foreign_node.id.clone();
     let foreign_addr = strip_peer_id(foreign_node.addrs[0].clone());
 
+    // exclude one node to make room for the intermediary foreign node
+    let nodes = spawn_nodes(n - 1, Topology::None).await;
+
     // skip the last index again, as there is a foreign node without one bound to it
-    for i in 0..(count - 1) {
-        let (next_id, next_addr) = if i == count / 2 - 1 || i == count / 2 {
+    for i in 0..(n - 1) {
+        let (next_id, next_addr) = if i == n / 2 - 1 || i == n / 2 {
             println!("telling rust node {} about the foreign node", i);
             (foreign_peer_id.clone(), foreign_addr.clone())
-        } else if i < count / 2 {
+        } else if i < n / 2 {
             println!("telling rust node {} about rust node {}", i, i + 1);
-            ids_and_addrs[i + 1].clone()
+            let addr = strip_peer_id(nodes[i + 1].addrs[0].clone());
+            (nodes[i + 1].id.clone(), addr)
         } else {
             println!("telling rust node {} about rust node {}", i, i - 1);
-            ids_and_addrs[i - 1].clone()
+            let addr = strip_peer_id(nodes[i - 1].addrs[0].clone());
+            (nodes[i - 1].id.clone(), addr)
         };
 
         nodes[i].add_peer(next_id, next_addr).await.unwrap();
@@ -133,7 +109,7 @@ async fn start_nodes_in_chain(
     // deal, since in reality this kind of extreme conditions are unlikely and we already test that
     // in the pure-rust setup
 
-    (nodes, ids_and_addrs, Some(foreign_node))
+    (nodes, Some(foreign_node))
 }
 
 /// Check if `Ipfs::find_peer` works using DHT.
@@ -142,28 +118,31 @@ async fn dht_find_peer() {
     // works for numbers >=2, though 2 would essentially just
     // be the same as find_peer_local, so it should be higher
     const CHAIN_LEN: usize = 10;
-    let (nodes, ids_and_addrs, foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
+    let (nodes, foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
     let last_index = CHAIN_LEN - if foreign_node.is_none() { 1 } else { 2 };
 
     // node 0 now tries to find the address of the very last node in the
     // chain; the chain should be long enough for it not to automatically
     // be connected to it after the bootstrap
     let found_addrs = nodes[0]
-        .find_peer(ids_and_addrs[last_index].0.clone())
+        .find_peer(nodes[last_index].id.clone())
         .await
         .unwrap();
 
-    assert_eq!(found_addrs, vec![ids_and_addrs[last_index].1.clone()]);
+    assert_eq!(
+        found_addrs,
+        vec![strip_peer_id(nodes[last_index].addrs[0].clone())]
+    );
 }
 
 #[tokio::test(max_threads = 1)]
 async fn dht_get_closest_peers() {
     const CHAIN_LEN: usize = 10;
-    let (nodes, ids_and_addrs, _foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
+    let (nodes, _foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
 
     assert_eq!(
         nodes[0]
-            .get_closest_peers(ids_and_addrs[0].0.clone())
+            .get_closest_peers(nodes[0].id.clone())
             .await
             .unwrap()
             .len(),
@@ -203,7 +182,7 @@ async fn dht_popular_content_discovery() {
 #[tokio::test(max_threads = 1)]
 async fn dht_providing() {
     const CHAIN_LEN: usize = 10;
-    let (nodes, ids_and_addrs, foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
+    let (nodes, foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
     let last_index = CHAIN_LEN - if foreign_node.is_none() { 1 } else { 2 };
 
     // the last node puts a block in order to have something to provide
@@ -225,14 +204,14 @@ async fn dht_providing() {
         .get_providers(cid)
         .await
         .unwrap()
-        .contains(&ids_and_addrs[last_index].0.clone()));
+        .contains(&nodes[last_index].id.clone()));
 }
 
 /// Check if Ipfs::{get, put} does its job.
 #[tokio::test(max_threads = 1)]
 async fn dht_get_put() {
     const CHAIN_LEN: usize = 10;
-    let (nodes, _ids_and_addrs, foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
+    let (nodes, foreign_node) = start_nodes_in_chain(CHAIN_LEN).await;
     let last_index = CHAIN_LEN - if foreign_node.is_none() { 1 } else { 2 };
 
     let (key, value) = (b"key".to_vec(), b"value".to_vec());
