@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 mod common;
-use common::{spawn_connected_nodes, Topology};
+use common::{spawn_nodes, Topology};
 
 #[tokio::test(max_threads = 1)]
 async fn exchange_block() {
@@ -14,7 +14,7 @@ async fn exchange_block() {
     let data = b"hello block\n".to_vec().into_boxed_slice();
     let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
 
-    let nodes = spawn_connected_nodes(2, Topology::Line).await;
+    let nodes = spawn_nodes(2, Topology::Line).await;
 
     nodes[0]
         .put_block(Block {
