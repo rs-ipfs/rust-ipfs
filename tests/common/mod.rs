@@ -2,10 +2,12 @@ pub mod interop;
 
 use ipfs::Node;
 
-/// The way in which nodes are connected to each other; to be used with spawn_connected_nodes.
+/// The way in which nodes are connected to each other; to be used with spawn_nodes.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Topology {
+    /// no connections
+    None,
     /// a > b > c
     Line,
     /// a > b > c > a
@@ -17,7 +19,7 @@ pub enum Topology {
 }
 
 #[allow(dead_code)]
-pub async fn spawn_connected_nodes(count: usize, topology: Topology) -> Vec<Node> {
+pub async fn spawn_nodes(count: usize, topology: Topology) -> Vec<Node> {
     let mut nodes = Vec::with_capacity(count);
 
     for i in 0..count {
@@ -54,6 +56,7 @@ pub async fn spawn_connected_nodes(count: usize, topology: Topology) -> Vec<Node
                 nodes[0].connect(node.addrs[0].clone()).await.unwrap();
             }
         }
+        Topology::None => {}
     }
 
     nodes

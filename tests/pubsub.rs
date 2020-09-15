@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 mod common;
-use common::{spawn_connected_nodes, Topology};
+use common::{spawn_nodes, Topology};
 
 #[tokio::test(max_threads = 1)]
 async fn subscribe_only_once() {
@@ -53,7 +53,7 @@ async fn publish_between_two_nodes() {
     use futures::stream::StreamExt;
     use std::collections::HashSet;
 
-    let nodes = spawn_connected_nodes(2, Topology::Line).await;
+    let nodes = spawn_nodes(2, Topology::Line).await;
 
     let topic = "shared".to_owned();
 
