@@ -147,17 +147,7 @@ tests.pin.rm(factory, {
   ]
 })
 
-tests.bootstrap(factory, {
-  skip: [
-    // need to figure out the inner workings of clear()
-    'should prevent duplicate inserts of bootstrap peers',
-    'should return a list containing the peer removed when called with a valid arg (ip4)',
-    // need to figure out the inner workings of reset()
-    'should return a list of all peers removed when all option is passed',
-    'should return a list of bootstrap peers when resetting the bootstrap nodes',
-    'should return a list of all peers removed when all option is passed',
-  ]
-})
+tests.bootstrap(factory);
 
 // tests.name(factory)
 // tests.namePubsub(factory)
