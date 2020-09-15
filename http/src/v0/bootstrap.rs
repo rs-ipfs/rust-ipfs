@@ -43,22 +43,51 @@ pub fn bootstrap_list<T: IpfsTypes>(
 
 #[derive(Debug, Deserialize)]
 pub struct BootstrapAddQuery {
-    arg: StringSerialized<MultiaddrWithPeerId>,
+    arg: Option<StringSerialized<MultiaddrWithPeerId>>,
+    default: Option<bool>,
     timeout: Option<StringSerialized<humantime::Duration>>,
+}
+
+// used in both bootstrap_add_query and bootstrap_restore_query
+async fn restore_helper<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    timeout: &Option<StringSerialized<humantime::Duration>>,
+) -> Result<Vec<String>, Rejection> {
+    Ok(ipfs
+        .restore_bootstrappers()
+        .maybe_timeout(timeout.map(StringSerialized::into_inner))
+        .await
+        .map_err(StringError::from)?
+        .map_err(StringError::from)?
+        .into_iter()
+        .map(|addr| addr.to_string())
+        .collect())
 }
 
 async fn bootstrap_add_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: BootstrapAddQuery,
 ) -> Result<impl Reply, Rejection> {
-    let BootstrapAddQuery { arg, .. } = query;
-    let peers = vec![ipfs
-        .add_bootstrapper(arg.into_inner())
-        .maybe_timeout(query.timeout.map(StringSerialized::into_inner))
-        .await
-        .map_err(StringError::from)?
-        .map_err(StringError::from)?
-        .to_string()];
+    let BootstrapAddQuery {
+        arg,
+        default,
+        timeout,
+    } = query;
+    let peers = if let Some(arg) = arg {
+        vec![ipfs
+            .add_bootstrapper(arg.into_inner())
+            .maybe_timeout(timeout.map(StringSerialized::into_inner))
+            .await
+            .map_err(StringError::from)?
+            .map_err(StringError::from)?
+            .to_string()]
+    } else if default == Some(true) {
+        restore_helper(ipfs, &timeout).await?
+    } else {
+        return Err(warp::reject::custom(StringError::from(
+            "invalid query string",
+        )));
+    };
 
     let response = Response { peers };
 
@@ -78,20 +107,27 @@ pub struct BootstrapClearQuery {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-async fn bootstrap_clear_query<T: IpfsTypes>(
+// used in both bootstrap_clear_query and bootstrap_rm_query
+async fn clear_helper<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    query: BootstrapClearQuery,
-) -> Result<impl Reply, Rejection> {
-    let peers = ipfs
+    timeout: &Option<StringSerialized<humantime::Duration>>,
+) -> Result<Vec<String>, Rejection> {
+    Ok(ipfs
         .clear_bootstrappers()
-        .maybe_timeout(query.timeout.map(StringSerialized::into_inner))
+        .maybe_timeout(timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?
         .map_err(StringError::from)?
         .into_iter()
         .map(|addr| addr.to_string())
-        .collect();
+        .collect())
+}
 
+async fn bootstrap_clear_query<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    query: BootstrapClearQuery,
+) -> Result<impl Reply, Rejection> {
+    let peers = clear_helper(ipfs, &query.timeout).await?;
     let response = Response { peers };
 
     Ok(warp::reply::json(&response))
@@ -107,7 +143,8 @@ pub fn bootstrap_clear<T: IpfsTypes>(
 
 #[derive(Debug, Deserialize)]
 pub struct BootstrapRmQuery {
-    arg: StringSerialized<MultiaddrWithPeerId>,
+    arg: Option<StringSerialized<MultiaddrWithPeerId>>,
+    all: Option<bool>,
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
@@ -115,14 +152,23 @@ async fn bootstrap_rm_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: BootstrapRmQuery,
 ) -> Result<impl Reply, Rejection> {
-    let BootstrapRmQuery { arg, .. } = query;
-    let peers = vec![ipfs
-        .remove_bootstrapper(arg.into_inner())
-        .maybe_timeout(query.timeout.map(StringSerialized::into_inner))
-        .await
-        .map_err(StringError::from)?
-        .map_err(StringError::from)?
-        .to_string()];
+    let BootstrapRmQuery { arg, all, timeout } = query;
+
+    let peers = if let Some(arg) = arg {
+        vec![ipfs
+            .remove_bootstrapper(arg.into_inner())
+            .maybe_timeout(timeout.map(StringSerialized::into_inner))
+            .await
+            .map_err(StringError::from)?
+            .map_err(StringError::from)?
+            .to_string()]
+    } else if all == Some(true) {
+        clear_helper(ipfs, &timeout).await?
+    } else {
+        return Err(warp::reject::custom(StringError::from(
+            "invalid query string",
+        )));
+    };
 
     let response = Response { peers };
 
@@ -146,16 +192,7 @@ async fn bootstrap_restore_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: BootstrapRestoreQuery,
 ) -> Result<impl Reply, Rejection> {
-    let peers = ipfs
-        .restore_bootstrappers()
-        .maybe_timeout(query.timeout.map(StringSerialized::into_inner))
-        .await
-        .map_err(StringError::from)?
-        .map_err(StringError::from)?
-        .into_iter()
-        .map(|addr| addr.to_string())
-        .collect();
-
+    let peers = restore_helper(ipfs, &query.timeout).await?;
     let response = Response { peers };
 
     Ok(warp::reply::json(&response))

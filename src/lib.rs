@@ -298,7 +298,7 @@ enum IpfsEvent {
     AddBootstrapper(MultiaddrWithPeerId, Channel<Multiaddr>),
     RemoveBootstrapper(MultiaddrWithPeerId, Channel<Multiaddr>),
     ClearBootstrappers(OneshotSender<Vec<Multiaddr>>),
-    RestoreBootstrappers(OneshotSender<Vec<Multiaddr>>),
+    RestoreBootstrappers(Channel<Vec<Multiaddr>>),
     Exit,
 }
 
@@ -1149,7 +1149,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 .send(IpfsEvent::ClearBootstrappers(tx))
                 .await?;
 
-            Ok(rx.await?).map_err(|e: String| anyhow!(e))
+            Ok(rx.await?)
         }
         .instrument(self.span.clone())
         .await
@@ -1166,7 +1166,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 .send(IpfsEvent::RestoreBootstrappers(tx))
                 .await?;
 
-            Ok(rx.await?).map_err(|e: String| anyhow!(e))
+            rx.await?
         }
         .instrument(self.span.clone())
         .await

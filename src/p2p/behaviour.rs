@@ -17,7 +17,7 @@ use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
 use multibase::Base;
-use std::{convert::TryInto, sync::Arc};
+use std::{collections::HashSet, convert::TryInto, env, fs::File, path::PathBuf, sync::Arc};
 use tokio::task;
 
 /// Behaviour type.
@@ -593,11 +593,12 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         self.swarm.bootstrappers.drain().map(|a| a.into()).collect()
     }
 
-    pub fn restore_bootstrappers(&mut self) -> Vec<Multiaddr> {
-        let config_location = std::env::var("IPFS_PATH").expect("always expected to be set");
-        let mut config_reader = std::fs::File::open(config_location).expect("the config is there");
-        let config_file: serde_json::Value = serde_json::from_reader(&mut config_reader).unwrap();
-        let mut ret = std::collections::HashSet::new();
+    pub fn restore_bootstrappers(&mut self) -> Result<Vec<Multiaddr>, anyhow::Error> {
+        let mut config_location = PathBuf::from(env::var("IPFS_PATH")?);
+        config_location.push("config");
+        let mut config_reader = File::open(config_location)?;
+        let config_file: serde_json::Value = serde_json::from_reader(&mut config_reader)?;
+        let mut ret = HashSet::new();
 
         if let Some(addrs) = config_file
             .as_object()
@@ -620,7 +621,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             }
         }
 
-        ret.into_iter().collect()
+        Ok(ret.into_iter().collect())
     }
 }
 

@@ -1,0 +1,11 @@
+--- node_modules/interface-ipfs-core/src/bootstrap/reset.js
++++ node_modules/interface-ipfs-core/src/bootstrap/reset.js
+@@ -34,7 +34,7 @@ module.exports = (common, options) => {
+       const res = await ipfs.bootstrap.reset()
+
+       const peers = res.Peers
+-      expect(peers).to.have.property('length').that.is.gt(1)
++      expect(peers).to.have.property('length').that.is.eq(0)
+     })
+
+     it('should return a list of all peers removed when all option is passed', async () => {
