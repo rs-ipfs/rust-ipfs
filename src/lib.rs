@@ -297,6 +297,11 @@ enum IpfsEvent {
         Quorum,
         OneshotSender<Result<SubscriptionFuture<KadResult, String>, Error>>,
     ),
+    GetBootstrappers(OneshotSender<Vec<Multiaddr>>),
+    AddBootstrapper(MultiaddrWithPeerId, Channel<Multiaddr>),
+    RemoveBootstrapper(MultiaddrWithPeerId, Channel<Multiaddr>),
+    ClearBootstrappers(OneshotSender<Vec<Multiaddr>>),
+    RestoreBootstrappers(OneshotSender<Vec<Multiaddr>>),
     Exit,
 }
 
@@ -1089,6 +1094,87 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         refs::iplds_refs(self, iplds, max_depth, unique)
     }
 
+    /// Obtain the list of addresses of bootstrapper nodes that are currently used.
+    pub async fn get_bootstrappers(&self) -> Result<Vec<Multiaddr>, Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GetBootstrappers(tx))
+                .await?;
+
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Extend the list of used bootstrapper nodes with an additional address.
+    pub async fn add_bootstrapper(&self, addr: MultiaddrWithPeerId) -> Result<Multiaddr, Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::AddBootstrapper(addr, tx))
+                .await?;
+
+            rx.await?
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Remove an address from the currently used list of bootstrapper nodes.
+    pub async fn remove_bootstrapper(&self, addr: MultiaddrWithPeerId) -> Result<Multiaddr, Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::RemoveBootstrapper(addr, tx))
+                .await?;
+
+            rx.await?
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Clear the currently used list of bootstrapper nodes, returning the removed addresses.
+    pub async fn clear_bootstrappers(&self) -> Result<Vec<Multiaddr>, Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::ClearBootstrappers(tx))
+                .await?;
+
+            Ok(rx.await?).map_err(|e: String| anyhow!(e))
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Restore the originally configured bootstrapper node list by adding them to the list of the
+    /// currently used bootstrapper node address list; returns the restored addresses.
+    pub async fn restore_bootstrappers(&self) -> Result<Vec<Multiaddr>, Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::RestoreBootstrappers(tx))
+                .await?;
+
+            Ok(rx.await?).map_err(|e: String| anyhow!(e))
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
     /// Exit daemon.
     pub async fn exit_daemon(self) {
         // FIXME: this is a stopgap measure needed while repo is part of the struct Ipfs instead of
@@ -1410,6 +1496,26 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     IpfsEvent::DhtPut(key, value, quorum, ret) => {
                         let future = self.swarm.dht_put(key, value, quorum);
                         let _ = ret.send(future);
+                    }
+                    IpfsEvent::GetBootstrappers(ret) => {
+                        let list = self.swarm.get_bootstrappers();
+                        let _ = ret.send(list);
+                    }
+                    IpfsEvent::AddBootstrapper(addr, ret) => {
+                        let result = self.swarm.add_bootstrapper(addr);
+                        let _ = ret.send(result);
+                    }
+                    IpfsEvent::RemoveBootstrapper(addr, ret) => {
+                        let result = self.swarm.remove_bootstrapper(addr);
+                        let _ = ret.send(result);
+                    }
+                    IpfsEvent::ClearBootstrappers(ret) => {
+                        let list = self.swarm.clear_bootstrappers();
+                        let _ = ret.send(list);
+                    }
+                    IpfsEvent::RestoreBootstrappers(ret) => {
+                        let list = self.swarm.restore_bootstrappers();
+                        let _ = ret.send(list);
                     }
                     IpfsEvent::Exit => {
                         // FIXME: we could do a proper teardown
