@@ -48,6 +48,22 @@ pub struct BootstrapAddQuery {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
+// used in both bootstrap_add_query and bootstrap_restore_query
+async fn restore_helper<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    timeout: &Option<StringSerialized<humantime::Duration>>,
+) -> Result<Vec<String>, Rejection> {
+    Ok(ipfs
+        .restore_bootstrappers()
+        .maybe_timeout(timeout.map(StringSerialized::into_inner))
+        .await
+        .map_err(StringError::from)?
+        .map_err(StringError::from)?
+        .into_iter()
+        .map(|addr| addr.to_string())
+        .collect())
+}
+
 async fn bootstrap_add_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: BootstrapAddQuery,
@@ -66,14 +82,7 @@ async fn bootstrap_add_query<T: IpfsTypes>(
             .map_err(StringError::from)?
             .to_string()]
     } else if default == Some(true) {
-        ipfs.restore_bootstrappers()
-            .maybe_timeout(timeout.map(StringSerialized::into_inner))
-            .await
-            .map_err(StringError::from)?
-            .map_err(StringError::from)?
-            .into_iter()
-            .map(|addr| addr.to_string())
-            .collect()
+        restore_helper(ipfs, &timeout).await?
     } else {
         return Err(warp::reject::custom(StringError::from(
             "invalid query string",
@@ -98,20 +107,27 @@ pub struct BootstrapClearQuery {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-async fn bootstrap_clear_query<T: IpfsTypes>(
+// used in both bootstrap_clear_query and bootstrap_rm_query
+async fn clear_helper<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    query: BootstrapClearQuery,
-) -> Result<impl Reply, Rejection> {
-    let peers = ipfs
+    timeout: &Option<StringSerialized<humantime::Duration>>,
+) -> Result<Vec<String>, Rejection> {
+    Ok(ipfs
         .clear_bootstrappers()
-        .maybe_timeout(query.timeout.map(StringSerialized::into_inner))
+        .maybe_timeout(timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?
         .map_err(StringError::from)?
         .into_iter()
         .map(|addr| addr.to_string())
-        .collect();
+        .collect())
+}
 
+async fn bootstrap_clear_query<T: IpfsTypes>(
+    ipfs: Ipfs<T>,
+    query: BootstrapClearQuery,
+) -> Result<impl Reply, Rejection> {
+    let peers = clear_helper(ipfs, &query.timeout).await?;
     let response = Response { peers };
 
     Ok(warp::reply::json(&response))
@@ -147,14 +163,7 @@ async fn bootstrap_rm_query<T: IpfsTypes>(
             .map_err(StringError::from)?
             .to_string()]
     } else if all == Some(true) {
-        ipfs.clear_bootstrappers()
-            .maybe_timeout(timeout.map(StringSerialized::into_inner))
-            .await
-            .map_err(StringError::from)?
-            .map_err(StringError::from)?
-            .into_iter()
-            .map(|addr| addr.to_string())
-            .collect()
+        clear_helper(ipfs, &timeout).await?
     } else {
         return Err(warp::reject::custom(StringError::from(
             "invalid query string",
@@ -183,16 +192,7 @@ async fn bootstrap_restore_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: BootstrapRestoreQuery,
 ) -> Result<impl Reply, Rejection> {
-    let peers = ipfs
-        .restore_bootstrappers()
-        .maybe_timeout(query.timeout.map(StringSerialized::into_inner))
-        .await
-        .map_err(StringError::from)?
-        .map_err(StringError::from)?
-        .into_iter()
-        .map(|addr| addr.to_string())
-        .collect();
-
+    let peers = restore_helper(ipfs, &query.timeout).await?;
     let response = Response { peers };
 
     Ok(warp::reply::json(&response))
