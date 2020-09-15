@@ -92,6 +92,16 @@ impl From<(MultiaddrWithoutPeerId, PeerId)> for MultiaddrWithPeerId {
     }
 }
 
+impl From<MultiaddrWithPeerId> for Multiaddr {
+    fn from(addr: MultiaddrWithPeerId) -> Self {
+        let MultiaddrWithPeerId { multiaddr, peer_id } = addr;
+        let mut multiaddr: Multiaddr = multiaddr.into();
+        multiaddr.push(Protocol::P2p(peer_id.into()));
+
+        multiaddr
+    }
+}
+
 impl TryFrom<Multiaddr> for MultiaddrWithPeerId {
     type Error = MultiaddrWrapperError;
 
@@ -192,9 +202,13 @@ mod tests {
         let multiaddr_with_peer = format!("{}/p2p/{}", multiaddr_wo_peer, peer_id);
         let p2p_peer = format!("/p2p/{}", peer_id);
         // note: /ipfs/peer_id doesn't properly parse as a Multiaddr
+        let mwp = multiaddr_with_peer.parse::<MultiaddrWithPeerId>().unwrap();
 
         assert!(multiaddr_wo_peer.parse::<MultiaddrWithoutPeerId>().is_ok());
-        assert!(multiaddr_with_peer.parse::<MultiaddrWithPeerId>().is_ok());
+        assert_eq!(
+            Multiaddr::from(mwp),
+            multiaddr_with_peer.parse::<Multiaddr>().unwrap()
+        );
         assert!(p2p_peer.parse::<Multiaddr>().is_ok());
     }
 
