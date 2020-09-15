@@ -17,7 +17,7 @@ use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
 use multibase::Base;
-use std::sync::Arc;
+use std::{convert::TryInto, sync::Arc};
 use tokio::task;
 
 /// Behaviour type.
@@ -408,7 +408,13 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             options.keypair.public(),
         );
         let pubsub = Pubsub::new(options.peer_id);
-        let swarm = SwarmApi::default();
+        let mut swarm = SwarmApi::default();
+
+        for (addr, _peer_id) in &options.bootstrap {
+            if let Ok(addr) = addr.to_owned().try_into() {
+                swarm.bootstrappers.insert(addr);
+            }
+        }
 
         Behaviour {
             ipfs,
@@ -549,6 +555,72 @@ impl<Types: IpfsTypes> Behaviour<Types> {
                 Err(anyhow!("kad: can't provide the record: {:?}", e))
             }
         }
+    }
+
+    pub fn get_bootstrappers(&self) -> Vec<Multiaddr> {
+        self.swarm
+            .bootstrappers
+            .iter()
+            .cloned()
+            .map(|a| a.into())
+            .collect()
+    }
+
+    pub fn add_bootstrapper(
+        &mut self,
+        addr: MultiaddrWithPeerId,
+    ) -> Result<Multiaddr, anyhow::Error> {
+        let ret = addr.clone().into();
+        self.swarm.bootstrappers.insert(addr.clone());
+        let MultiaddrWithPeerId {
+            multiaddr: _,
+            peer_id,
+        } = addr.clone();
+        self.kademlia.add_address(&peer_id, addr.into());
+        Ok(ret)
+    }
+
+    pub fn remove_bootstrapper(
+        &mut self,
+        addr: MultiaddrWithPeerId,
+    ) -> Result<Multiaddr, anyhow::Error> {
+        let ret = addr.clone().into();
+        self.swarm.bootstrappers.remove(&addr);
+        Ok(ret)
+    }
+
+    pub fn clear_bootstrappers(&mut self) -> Vec<Multiaddr> {
+        self.swarm.bootstrappers.drain().map(|a| a.into()).collect()
+    }
+
+    pub fn restore_bootstrappers(&mut self) -> Vec<Multiaddr> {
+        let config_location = std::env::var("IPFS_PATH").expect("always expected to be set");
+        let mut config_reader = std::fs::File::open(config_location).expect("the config is there");
+        let config_file: serde_json::Value = serde_json::from_reader(&mut config_reader).unwrap();
+        let mut ret = std::collections::HashSet::new();
+
+        if let Some(addrs) = config_file
+            .as_object()
+            .expect("the config JSON is an object")
+            .get("Bootstrap")
+        {
+            let addrs = addrs
+                .as_array()
+                .expect("the Bootstrap key contains an array");
+
+            ret.reserve(addrs.len());
+            for addr in addrs {
+                let addr: MultiaddrWithPeerId = addr
+                    .as_str()
+                    .expect("the members of the Bootstrap array are strings")
+                    .parse()
+                    .expect("the config file had already been parsed on startup");
+                self.swarm.bootstrappers.insert(addr.clone());
+                ret.insert(addr.into());
+            }
+        }
+
+        ret.into_iter().collect()
     }
 }
 
