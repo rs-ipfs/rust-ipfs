@@ -3,6 +3,7 @@ use warp::{query, Filter};
 
 pub mod bitswap;
 pub mod block;
+pub mod bootstrap;
 pub mod dag;
 pub mod dht;
 pub mod id;
@@ -106,6 +107,16 @@ pub fn routes<T: IpfsTypes>(
             and_boxed!(warp::path!("rm"), block::rm(ipfs)),
             and_boxed!(warp::path!("stat"), block::stat(ipfs)),
         )),
+        warp::path("bootstrap").and(combine!(
+            and_boxed!(warp::path!("list"), bootstrap::bootstrap_list(ipfs)),
+            and_boxed!(warp::path!("add"), bootstrap::bootstrap_add(ipfs)),
+            and_boxed!(
+                warp::path!("add" / "default"),
+                bootstrap::bootstrap_restore(ipfs)
+            ),
+            and_boxed!(warp::path!("rm"), bootstrap::bootstrap_rm(ipfs)),
+            and_boxed!(warp::path!("rm" / "all"), bootstrap::bootstrap_clear(ipfs)),
+        )),
         warp::path("dag").and(combine!(
             and_boxed!(warp::path!("put"), dag::put(ipfs)),
             and_boxed!(warp::path!("resolve"), dag::resolve(ipfs)),
@@ -138,7 +149,6 @@ pub fn routes<T: IpfsTypes>(
             and_boxed!(warp::path!("rm"), pin::rm(ipfs)),
         )),
         combine_unify!(
-            warp::path!("bootstrap" / ..),
             warp::path!("config" / ..),
             warp::path!("dht" / "get"),
             warp::path!("dht" / "put"),
