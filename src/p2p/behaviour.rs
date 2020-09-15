@@ -17,7 +17,7 @@ use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
 use multibase::Base;
-use std::sync::Arc;
+use std::{convert::TryInto, sync::Arc};
 use tokio::task;
 
 /// Behaviour type.
@@ -408,7 +408,13 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             options.keypair.public(),
         );
         let pubsub = Pubsub::new(options.peer_id);
-        let swarm = SwarmApi::default();
+        let mut swarm = SwarmApi::default();
+
+        for (addr, _peer_id) in &options.bootstrap {
+            if let Ok(addr) = addr.to_owned().try_into() {
+                swarm.bootstrappers.insert(addr);
+            }
+        }
 
         Behaviour {
             ipfs,

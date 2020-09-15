@@ -45,6 +45,7 @@ pub struct SwarmApi {
     connections: HashMap<MultiaddrWithoutPeerId, PeerId>,
     roundtrip_times: HashMap<PeerId, Duration>,
     connected_peers: HashMap<PeerId, Vec<MultiaddrWithoutPeerId>>,
+    pub(crate) bootstrappers: HashSet<MultiaddrWithPeerId>,
 }
 
 impl SwarmApi {
