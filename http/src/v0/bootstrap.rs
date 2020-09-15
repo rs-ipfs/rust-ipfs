@@ -107,7 +107,8 @@ pub fn bootstrap_clear<T: IpfsTypes>(
 
 #[derive(Debug, Deserialize)]
 pub struct BootstrapRmQuery {
-    arg: StringSerialized<MultiaddrWithPeerId>,
+    arg: Option<StringSerialized<MultiaddrWithPeerId>>,
+    all: Option<bool>,
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
@@ -115,14 +116,30 @@ async fn bootstrap_rm_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: BootstrapRmQuery,
 ) -> Result<impl Reply, Rejection> {
-    let BootstrapRmQuery { arg, .. } = query;
-    let peers = vec![ipfs
-        .remove_bootstrapper(arg.into_inner())
-        .maybe_timeout(query.timeout.map(StringSerialized::into_inner))
-        .await
-        .map_err(StringError::from)?
-        .map_err(StringError::from)?
-        .to_string()];
+    let BootstrapRmQuery { arg, all, timeout } = query;
+
+    let peers = if let Some(arg) = arg {
+        vec![ipfs
+            .remove_bootstrapper(arg.into_inner())
+            .maybe_timeout(timeout.map(StringSerialized::into_inner))
+            .await
+            .map_err(StringError::from)?
+            .map_err(StringError::from)?
+            .to_string()]
+    } else if all == Some(true) {
+        ipfs.clear_bootstrappers()
+            .maybe_timeout(timeout.map(StringSerialized::into_inner))
+            .await
+            .map_err(StringError::from)?
+            .map_err(StringError::from)?
+            .into_iter()
+            .map(|addr| addr.to_string())
+            .collect()
+    } else {
+        return Err(warp::reject::custom(StringError::from(
+            "invalid query string",
+        )));
+    };
 
     let response = Response { peers };
 
