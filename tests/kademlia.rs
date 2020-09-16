@@ -17,24 +17,17 @@ fn strip_peer_id(addr: Multiaddr) -> Multiaddr {
 /// Check if `Ipfs::find_peer` works without DHT involvement.
 #[tokio::test(max_threads = 1)]
 async fn find_peer_local() {
-    let node_a = Node::new("a").await;
-    let node_b = Node::new("b").await;
+    let nodes = spawn_nodes(2, Topology::None).await;
+    nodes[0].connect(nodes[1].addrs[0].clone()).await.unwrap();
 
-    let (b_id, mut b_addrs) = node_b.identity().await.unwrap();
-    let b_id = b_id.into_peer_id();
+    // while nodes[0] is connected to nodes[1], they know each
+    // other's addresses and can find them without using the DHT
+    let mut found_addrs = nodes[0].find_peer(nodes[1].id.clone()).await.unwrap();
 
-    node_a.connect(b_addrs[0].clone()).await.unwrap();
-
-    // while node_a is connected to node_b, they know each other's
-    // addresses and can find them without using the DHT
-    let found_addrs = node_a.find_peer(b_id).await.unwrap();
-
-    // remove Protocol::P2p from b_addrs
-    for addr in &mut b_addrs {
-        assert!(matches!(addr.pop(), Some(Protocol::P2p(_))));
+    for addr in &mut found_addrs {
+        addr.push(Protocol::P2p(nodes[1].id.clone().into()));
+        assert!(nodes[1].addrs.contains(addr));
     }
-
-    assert_eq!(found_addrs, b_addrs);
 }
 
 // starts the specified number of rust IPFS nodes connected in a chain.
