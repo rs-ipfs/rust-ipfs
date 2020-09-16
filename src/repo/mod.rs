@@ -323,7 +323,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         // FIXME: here's a race: block_store might give Ok(None) and we get to create our
         // subscription after the put has completed. So maybe create the subscription first, then
         // cancel it?
-        if let Some(block) = self.block_store.get(&cid).await? {
+        if let Some(block) = self.get_block_now(&cid).await? {
             Ok(block)
         } else {
             let subscription = self
