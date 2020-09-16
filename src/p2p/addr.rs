@@ -112,7 +112,7 @@ impl TryFrom<Multiaddr> for MultiaddrWithPeerId {
             // is unexpected; it is hard to trigger, hence this debug-only assertion so we might be
             // able to catch it sometime during tests
             debug_assert!(
-                matches!(multiaddr.iter().last(), Some(Protocol::P2p(_))),
+                matches!(multiaddr.iter().last(), Some(Protocol::P2p(_)) | Some(Protocol::P2pCircuit)),
                 "unexpected Multiaddr format: {}",
                 multiaddr
             );
@@ -120,7 +120,7 @@ impl TryFrom<Multiaddr> for MultiaddrWithPeerId {
             let multiaddr = MultiaddrWithoutPeerId(
                 multiaddr
                     .into_iter()
-                    .filter(|p| !matches!(p, Protocol::P2p(_)))
+                    .filter(|p| !matches!(p, Protocol::P2p(_) | Protocol::P2pCircuit))
                     .collect(),
             );
             let peer_id =
