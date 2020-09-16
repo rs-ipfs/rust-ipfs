@@ -49,7 +49,6 @@ async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) 
             // and then bootstrap it as well
             (nodes[n - 2].id.clone(), nodes[n - 2].addrs[0].clone())
         };
-        let next_addr = strip_peer_id(next_addr);
 
         nodes[i].add_peer(next_id, next_addr).await.unwrap();
         nodes[i].bootstrap().await.unwrap();
@@ -73,8 +72,6 @@ async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) 
 async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) {
     // start a foreign IPFS node
     let foreign_node = ForeignNode::new();
-    let foreign_peer_id = foreign_node.id.clone();
-    let foreign_addr = strip_peer_id(foreign_node.addrs[0].clone());
 
     // exclude one node to make room for the intermediary foreign node
     let nodes = spawn_nodes(n - 1, Topology::None).await;
@@ -83,15 +80,13 @@ async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) 
     for i in 0..(n - 1) {
         let (next_id, next_addr) = if i == n / 2 - 1 || i == n / 2 {
             println!("telling rust node {} about the foreign node", i);
-            (foreign_peer_id.clone(), foreign_addr.clone())
+            (foreign_node.id.clone(), foreign_node.addrs[0].clone())
         } else if i < n / 2 {
             println!("telling rust node {} about rust node {}", i, i + 1);
-            let addr = strip_peer_id(nodes[i + 1].addrs[0].clone());
-            (nodes[i + 1].id.clone(), addr)
+            (nodes[i + 1].id.clone(), nodes[i + 1].addrs[0].clone())
         } else {
             println!("telling rust node {} about rust node {}", i, i - 1);
-            let addr = strip_peer_id(nodes[i - 1].addrs[0].clone());
-            (nodes[i - 1].id.clone(), addr)
+            (nodes[i - 1].id.clone(), nodes[i - 1].addrs[0].clone())
         };
 
         nodes[i].add_peer(next_id, next_addr).await.unwrap();
@@ -122,10 +117,8 @@ async fn dht_find_peer() {
         .await
         .unwrap();
 
-    assert_eq!(
-        found_addrs,
-        vec![strip_peer_id(nodes[last_index].addrs[0].clone())]
-    );
+    let to_be_found = strip_peer_id(nodes[last_index].addrs[0].clone());
+    assert_eq!(found_addrs, vec![to_be_found]);
 }
 
 #[tokio::test(max_threads = 1)]

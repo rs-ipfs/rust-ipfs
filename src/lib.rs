@@ -1665,7 +1665,12 @@ mod node {
         /// Add a known listen address of a peer participating in the DHT to the routing table.
         /// This is mandatory in order for the peer to be discoverable by other members of the
         /// DHT.
-        pub async fn add_peer(&self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {
+        pub async fn add_peer(&self, peer_id: PeerId, mut addr: Multiaddr) -> Result<(), Error> {
+            // Kademlia::add_address requires the address to not contain the PeerId
+            if matches!(addr.iter().last(), Some(Protocol::P2p(_))) {
+                addr.pop();
+            }
+
             self.to_task
                 .clone()
                 .send(IpfsEvent::AddPeer(peer_id, addr))
