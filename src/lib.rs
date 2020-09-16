@@ -1554,7 +1554,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                             let _ = ret.send(Err(anyhow!("not actively providing blocks yet")));
                         }
                     }
-                    RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
+                    RepoEvent::RemovedBlock(cid) => self.swarm.stop_providing_block(&cid),
                 }
             }
 

@@ -223,7 +223,7 @@ pub enum RepoEvent {
         Cid,
         oneshot::Sender<Result<SubscriptionFuture<KadResult, String>, anyhow::Error>>,
     ),
-    UnprovideBlock(Cid),
+    RemovedBlock(Cid),
 }
 
 impl TryFrom<RequestKind> for RepoEvent {
@@ -357,7 +357,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         // sending only fails if the background task has exited
         self.events
             .clone()
-            .send(RepoEvent::UnprovideBlock(cid.clone()))
+            .send(RepoEvent::RemovedBlock(cid.clone()))
             .await
             .ok();
 
