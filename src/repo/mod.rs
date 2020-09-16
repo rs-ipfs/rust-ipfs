@@ -342,11 +342,11 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Retrives a block from the block store if it's available locally.
     pub async fn get_block_now(&self, cid: &Cid) -> Result<Option<Block>, Error> {
-        Ok(self.block_store.get(&cid).await?)
+        self.block_store.get(&cid).await
     }
 
     pub async fn list_blocks(&self) -> Result<Vec<Cid>, Error> {
-        Ok(self.block_store.list().await?)
+        self.block_store.list().await
     }
 
     /// Remove block from the block store.
