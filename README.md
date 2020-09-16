@@ -125,22 +125,20 @@ Special thanks to the Web3 Foundation and Protocol Labs for their devgrant suppo
 * `/bitswap/{stat,wantlist}`
 * `/cat`
 * `/get`
+* `/resolve`
 
 ### Work in Progress
-* `/add`
-- `/pin`
-* DHT + Swarming
+- `/bootstrap`
+- `/dht`
+- interop testing
 
 ### Work still required
-- Interop testing
-- [/bootstrap](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/3)
-- [/dht](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/4)
-- [/name](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/5)
-- [/ping](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/6)
-- [/key](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/7)
-- [/config](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/8)
-- [/stats](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/9)
-- [/files](https://github.com/rs-ipfs/ipfs-rust-conformance/issues/10) (regular and mfs)
+- `/name`
+- `/ping`
+- `/key`
+- `/config`
+- `/stats`
+- `/files` (regular and mfs)
 - a few other miscellaneous endpoints not enumerated here
 
 ## Maintainers
