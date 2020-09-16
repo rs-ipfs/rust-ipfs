@@ -132,30 +132,6 @@ impl<T: Into<PathRoot>> From<T> for IpfsPath {
     }
 }
 
-// FIXME: get rid of this; it would mean that there must be a clone to retain the rest of the path.
-impl TryInto<Cid> for IpfsPath {
-    type Error = Error;
-
-    fn try_into(self) -> Result<Cid, Self::Error> {
-        match self.root().cid() {
-            Some(cid) => Ok(cid.to_owned()),
-            None => Err(anyhow::anyhow!("expected cid")),
-        }
-    }
-}
-
-// FIXME: get rid of this; it would mean that there must be a clone to retain the rest of the path.
-impl TryInto<PeerId> for IpfsPath {
-    type Error = Error;
-
-    fn try_into(self) -> Result<PeerId, Self::Error> {
-        match self.root().peer_id() {
-            Some(peer_id) => Ok(peer_id.to_owned()),
-            None => Err(anyhow::anyhow!("expected peer id")),
-        }
-    }
-}
-
 /// SlashedPath is internal to IpfsPath variants, and basically holds a unixfs-compatible path
 /// where segments do not contain slashes but can pretty much contain all other valid UTF-8.
 ///

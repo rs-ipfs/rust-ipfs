@@ -8,6 +8,8 @@ mod common;
 #[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
 use common::interop::ForeignNode;
 
+const TIMEOUT: Duration = Duration::from_secs(5);
+
 // Make sure two instances of ipfs can be connected by `Multiaddr`.
 #[tokio::test(max_threads = 1)]
 async fn connect_two_nodes_by_addr() {
@@ -18,13 +20,10 @@ async fn connect_two_nodes_by_addr() {
     #[cfg(any(feature = "test_go_interop", feature = "test_js_interop"))]
     let node_b = ForeignNode::new();
 
-    let (_, mut b_addrs) = node_b.identity().await.unwrap();
-    let b_addr = b_addrs.pop().unwrap();
-
-    timeout(Duration::from_secs(10), node_a.connect(b_addr))
+    timeout(TIMEOUT, node_a.connect(node_b.addrs[0].clone()))
         .await
         .expect("timeout")
-        .expect("should've connected");
+        .expect("should have connected");
 }
 
 // Make sure only a `Multiaddr` with `/p2p/` can be used to connect.
@@ -34,38 +33,33 @@ async fn dont_connect_without_p2p() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
 
-    let (_, mut b_addrs) = node_b.identity().await.unwrap();
-    let mut b_addr = b_addrs.pop().unwrap();
+    let mut b_addr = node_b.addrs[0].clone();
     // drop the /p2p/peer_id part
     b_addr.pop();
 
-    timeout(Duration::from_secs(10), node_a.connect(b_addr))
+    timeout(TIMEOUT, node_a.connect(b_addr))
         .await
         .expect("timeout")
         .expect_err("should not have connected");
 }
 
 // Make sure two instances of ipfs can be connected by `PeerId`.
-// Currently ignored, as Ipfs::add_peer (that is necessary in
-// order to connect by PeerId) already performs a dial to the
-// given peer within Pubsub::add_node_to_partial_view it calls
-#[ignore]
+#[ignore = "connecting just by PeerId is not currently supported"]
 #[tokio::test(max_threads = 1)]
 async fn connect_two_nodes_by_peer_id() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
 
-    let (b_key, mut b_addrs) = node_b.identity().await.unwrap();
-    let b_id = b_key.into_peer_id();
-    let b_id_multiaddr: Multiaddr = format!("/p2p/{}", b_id).parse().unwrap();
+    node_a
+        .add_peer(node_b.id.clone(), node_b.addrs[0].clone())
+        .await
+        .unwrap();
+    let b_id_multiaddr: Multiaddr = format!("/p2p/{}", &node_b.id).parse().unwrap();
 
-    while let Some(addr) = b_addrs.pop() {
-        node_a.add_peer(b_id.clone(), addr).await.unwrap();
-    }
-    timeout(Duration::from_secs(10), node_a.connect(b_id_multiaddr))
+    timeout(TIMEOUT, node_a.connect(b_id_multiaddr))
         .await
         .expect("timeout")
-        .expect("should've connected");
+        .expect("should have connected");
 }
 
 // Ensure that duplicate connection attempts don't cause hangs.
@@ -74,13 +68,10 @@ async fn connect_duplicate_multiaddr() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
 
-    let (_, mut b_addrs) = node_b.identity().await.unwrap();
-    let b_addr = b_addrs.pop().unwrap();
-
     // test duplicate connections by address
     for _ in 0..3 {
         // final success or failure doesn't matter, there should be no timeout
-        let _ = timeout(Duration::from_secs(1), node_a.connect(b_addr.clone()))
+        let _ = timeout(TIMEOUT, node_a.connect(node_b.addrs[0].clone()))
             .await
             .unwrap();
     }
@@ -94,37 +85,26 @@ async fn connect_two_nodes_with_two_connections_doesnt_panic() {
     let node_b = Node::new("b").await;
 
     node_a
-        .add_listening_address(libp2p::build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16)))
+        .add_listening_address("/ip4/127.0.0.1/tcp/0".parse().unwrap())
         .await
         .unwrap();
 
     let addresses = node_a.addrs_local().await.unwrap();
-    assert_eq!(
-        addresses.len(),
-        2,
-        "there should have been two local addresses, found {:?}",
-        addresses
-    );
-    let node_a_id = node_a.identity().await.unwrap().0.into_peer_id();
+    assert_eq!(addresses.len(), 2);
 
     for mut addr in addresses.into_iter() {
-        addr.push(Protocol::P2p(node_a_id.clone().into()));
+        addr.push(Protocol::P2p(node_a.id.clone().into()));
 
-        timeout(Duration::from_secs(10), node_b.connect(addr))
+        timeout(TIMEOUT, node_b.connect(addr))
             .await
             .expect("timeout")
-            .expect("should've connected");
+            .expect("should have connected");
     }
 
     // not too sure on this, since there'll be a single peer but two connections; the return
     // type is `Vec<Connection>` but it's peer with any connection.
     let mut peers = node_a.peers().await.unwrap();
-    assert_eq!(
-        peers.len(),
-        1,
-        "there should have been one peer, found {:?}",
-        peers
-    );
+    assert_eq!(peers.len(), 1);
 
     // sadly we are unable to currently verify that there exists two connections for the node_b
     // peer..

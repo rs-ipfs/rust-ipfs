@@ -1542,7 +1542,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                 match evt {
                     RepoEvent::WantBlock(cid) => self.swarm.want_block(cid),
                     RepoEvent::UnwantBlock(cid) => self.swarm.bitswap().cancel_block(&cid),
-                    RepoEvent::ProvideBlock(cid, ret) => {
+                    RepoEvent::NewBlock(cid, ret) => {
                         // TODO: consider if cancel is applicable in cases where we provide the
                         // associated Block ourselves
                         self.swarm.bitswap().cancel_block(&cid);
@@ -1554,7 +1554,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                             let _ = ret.send(Err(anyhow!("not actively providing blocks yet")));
                         }
                     }
-                    RepoEvent::UnprovideBlock(cid) => self.swarm.stop_providing_block(&cid),
+                    RepoEvent::RemovedBlock(cid) => self.swarm.stop_providing_block(&cid),
                 }
             }
 
@@ -1665,7 +1665,12 @@ mod node {
         /// Add a known listen address of a peer participating in the DHT to the routing table.
         /// This is mandatory in order for the peer to be discoverable by other members of the
         /// DHT.
-        pub async fn add_peer(&self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {
+        pub async fn add_peer(&self, peer_id: PeerId, mut addr: Multiaddr) -> Result<(), Error> {
+            // Kademlia::add_address requires the address to not contain the PeerId
+            if matches!(addr.iter().last(), Some(Protocol::P2p(_))) {
+                addr.pop();
+            }
+
             self.to_task
                 .clone()
                 .send(IpfsEvent::AddPeer(peer_id, addr))

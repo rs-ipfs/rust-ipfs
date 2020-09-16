@@ -17,24 +17,17 @@ fn strip_peer_id(addr: Multiaddr) -> Multiaddr {
 /// Check if `Ipfs::find_peer` works without DHT involvement.
 #[tokio::test(max_threads = 1)]
 async fn find_peer_local() {
-    let node_a = Node::new("a").await;
-    let node_b = Node::new("b").await;
+    let nodes = spawn_nodes(2, Topology::None).await;
+    nodes[0].connect(nodes[1].addrs[0].clone()).await.unwrap();
 
-    let (b_id, mut b_addrs) = node_b.identity().await.unwrap();
-    let b_id = b_id.into_peer_id();
+    // while nodes[0] is connected to nodes[1], they know each
+    // other's addresses and can find them without using the DHT
+    let mut found_addrs = nodes[0].find_peer(nodes[1].id.clone()).await.unwrap();
 
-    node_a.connect(b_addrs[0].clone()).await.unwrap();
-
-    // while node_a is connected to node_b, they know each other's
-    // addresses and can find them without using the DHT
-    let found_addrs = node_a.find_peer(b_id).await.unwrap();
-
-    // remove Protocol::P2p from b_addrs
-    for addr in &mut b_addrs {
-        assert!(matches!(addr.pop(), Some(Protocol::P2p(_))));
+    for addr in &mut found_addrs {
+        addr.push(Protocol::P2p(nodes[1].id.clone().into()));
+        assert!(nodes[1].addrs.contains(addr));
     }
-
-    assert_eq!(found_addrs, b_addrs);
 }
 
 // starts the specified number of rust IPFS nodes connected in a chain.
@@ -56,7 +49,6 @@ async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) 
             // and then bootstrap it as well
             (nodes[n - 2].id.clone(), nodes[n - 2].addrs[0].clone())
         };
-        let next_addr = strip_peer_id(next_addr);
 
         nodes[i].add_peer(next_id, next_addr).await.unwrap();
         nodes[i].bootstrap().await.unwrap();
@@ -80,8 +72,6 @@ async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) 
 async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) {
     // start a foreign IPFS node
     let foreign_node = ForeignNode::new();
-    let foreign_peer_id = foreign_node.id.clone();
-    let foreign_addr = strip_peer_id(foreign_node.addrs[0].clone());
 
     // exclude one node to make room for the intermediary foreign node
     let nodes = spawn_nodes(n - 1, Topology::None).await;
@@ -90,15 +80,13 @@ async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) 
     for i in 0..(n - 1) {
         let (next_id, next_addr) = if i == n / 2 - 1 || i == n / 2 {
             println!("telling rust node {} about the foreign node", i);
-            (foreign_peer_id.clone(), foreign_addr.clone())
+            (foreign_node.id.clone(), foreign_node.addrs[0].clone())
         } else if i < n / 2 {
             println!("telling rust node {} about rust node {}", i, i + 1);
-            let addr = strip_peer_id(nodes[i + 1].addrs[0].clone());
-            (nodes[i + 1].id.clone(), addr)
+            (nodes[i + 1].id.clone(), nodes[i + 1].addrs[0].clone())
         } else {
             println!("telling rust node {} about rust node {}", i, i - 1);
-            let addr = strip_peer_id(nodes[i - 1].addrs[0].clone());
-            (nodes[i - 1].id.clone(), addr)
+            (nodes[i - 1].id.clone(), nodes[i - 1].addrs[0].clone())
         };
 
         nodes[i].add_peer(next_id, next_addr).await.unwrap();
@@ -129,10 +117,8 @@ async fn dht_find_peer() {
         .await
         .unwrap();
 
-    assert_eq!(
-        found_addrs,
-        vec![strip_peer_id(nodes[last_index].addrs[0].clone())]
-    );
+    let to_be_found = strip_peer_id(nodes[last_index].addrs[0].clone());
+    assert_eq!(found_addrs, vec![to_be_found]);
 }
 
 #[tokio::test(max_threads = 1)]

@@ -219,11 +219,11 @@ pub struct Repo<TRepoTypes: RepoTypes> {
 pub enum RepoEvent {
     WantBlock(Cid),
     UnwantBlock(Cid),
-    ProvideBlock(
+    NewBlock(
         Cid,
         oneshot::Sender<Result<SubscriptionFuture<KadResult, String>, anyhow::Error>>,
     ),
-    UnprovideBlock(Cid),
+    RemovedBlock(Cid),
 }
 
 impl TryFrom<RequestKind> for RepoEvent {
@@ -292,9 +292,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let (_cid, res) = self.block_store.put(block.clone()).await?;
 
         // FIXME: this doesn't cause actual DHT providing yet, only some
-        // bitswap housekeeping; RepoEvent::ProvideBlock should probably
-        // be renamed to ::NewBlock and we might want to not ignore the
-        // channel errors when we actually start providing on the DHT
+        // bitswap housekeeping; we might want to not ignore the channel
+        // errors when we actually start providing on the DHT
         if let BlockPut::NewBlock = res {
             self.subscriptions
                 .finish_subscription(cid.clone().into(), Ok(block));
@@ -305,7 +304,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
             self.events
                 .clone()
-                .send(RepoEvent::ProvideBlock(cid.clone(), tx))
+                .send(RepoEvent::NewBlock(cid.clone(), tx))
                 .await
                 .ok();
 
@@ -323,7 +322,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         // FIXME: here's a race: block_store might give Ok(None) and we get to create our
         // subscription after the put has completed. So maybe create the subscription first, then
         // cancel it?
-        if let Some(block) = self.block_store.get(&cid).await? {
+        if let Some(block) = self.get_block_now(&cid).await? {
             Ok(block)
         } else {
             let subscription = self
@@ -342,11 +341,11 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Retrives a block from the block store if it's available locally.
     pub async fn get_block_now(&self, cid: &Cid) -> Result<Option<Block>, Error> {
-        Ok(self.block_store.get(&cid).await?)
+        self.block_store.get(&cid).await
     }
 
     pub async fn list_blocks(&self) -> Result<Vec<Cid>, Error> {
-        Ok(self.block_store.list().await?)
+        self.block_store.list().await
     }
 
     /// Remove block from the block store.
@@ -355,20 +354,21 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             return Err(anyhow::anyhow!("block to remove is pinned"));
         }
 
-        // sending only fails if the background task has exited
-        self.events
-            .clone()
-            .send(RepoEvent::UnprovideBlock(cid.clone()))
-            .await
-            .ok();
-
         // FIXME: Need to change location of pinning logic.
         // I like this pattern of the repo abstraction being some sort of
         // "clearing house" for the underlying result enums, but this
         // could potentially be pushed out out of here up to Ipfs, idk
         match self.block_store.remove(&cid).await? {
             Ok(success) => match success {
-                BlockRm::Removed(_cid) => Ok(cid.clone()),
+                BlockRm::Removed(_cid) => {
+                    // sending only fails if the background task has exited
+                    self.events
+                        .clone()
+                        .send(RepoEvent::RemovedBlock(cid.clone()))
+                        .await
+                        .ok();
+                    Ok(cid.clone())
+                }
             },
             Err(err) => match err {
                 BlockRmError::NotFound(_cid) => Err(anyhow::anyhow!("block not found")),
