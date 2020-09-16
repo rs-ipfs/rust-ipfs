@@ -354,20 +354,21 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
             return Err(anyhow::anyhow!("block to remove is pinned"));
         }
 
-        // sending only fails if the background task has exited
-        self.events
-            .clone()
-            .send(RepoEvent::RemovedBlock(cid.clone()))
-            .await
-            .ok();
-
         // FIXME: Need to change location of pinning logic.
         // I like this pattern of the repo abstraction being some sort of
         // "clearing house" for the underlying result enums, but this
         // could potentially be pushed out out of here up to Ipfs, idk
         match self.block_store.remove(&cid).await? {
             Ok(success) => match success {
-                BlockRm::Removed(_cid) => Ok(cid.clone()),
+                BlockRm::Removed(_cid) => {
+                    // sending only fails if the background task has exited
+                    self.events
+                        .clone()
+                        .send(RepoEvent::RemovedBlock(cid.clone()))
+                        .await
+                        .ok();
+                    Ok(cid.clone())
+                }
             },
             Err(err) => match err {
                 BlockRmError::NotFound(_cid) => Err(anyhow::anyhow!("block not found")),
