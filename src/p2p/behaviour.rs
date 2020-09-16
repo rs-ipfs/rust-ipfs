@@ -471,7 +471,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     // FIXME: it would be best if get_providers is called only in case the already connected
     // peers don't have it
     pub fn want_block(&mut self, cid: Cid) {
-        let key = cid.to_bytes();
+        let key = cid.hash().as_bytes().to_owned();
         self.kademlia.get_providers(key.into());
         self.bitswap.want_block(cid, 1);
     }
