@@ -219,7 +219,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
 pub enum RepoEvent {
     WantBlock(Cid),
     UnwantBlock(Cid),
-    ProvideBlock(
+    NewBlock(
         Cid,
         oneshot::Sender<Result<SubscriptionFuture<KadResult, String>, anyhow::Error>>,
     ),
@@ -292,9 +292,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         let (_cid, res) = self.block_store.put(block.clone()).await?;
 
         // FIXME: this doesn't cause actual DHT providing yet, only some
-        // bitswap housekeeping; RepoEvent::ProvideBlock should probably
-        // be renamed to ::NewBlock and we might want to not ignore the
-        // channel errors when we actually start providing on the DHT
+        // bitswap housekeeping; we might want to not ignore the channel
+        // errors when we actually start providing on the DHT
         if let BlockPut::NewBlock = res {
             self.subscriptions
                 .finish_subscription(cid.clone().into(), Ok(block));
@@ -305,7 +304,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
             self.events
                 .clone()
-                .send(RepoEvent::ProvideBlock(cid.clone(), tx))
+                .send(RepoEvent::NewBlock(cid.clone(), tx))
                 .await
                 .ok();
 
