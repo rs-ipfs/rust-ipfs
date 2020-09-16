@@ -173,7 +173,9 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
             }
         }
 
-        trace!("Cancelled {} subscriptions", cancelled);
+        if cancelled > 0 {
+            trace!("Cancelled {} subscriptions", cancelled);
+        }
     }
 }
 
