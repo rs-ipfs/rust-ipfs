@@ -376,10 +376,11 @@ impl<D: fmt::Display> serde::Serialize for Quoted<D> {
 #[cfg(test)]
 mod tests {
     use crate::v0::root_files::add;
+    use ipfs::Node;
 
     #[tokio::test(max_threads = 1)]
     async fn add_single_block_file() {
-        let ipfs = tokio_ipfs().await;
+        let ipfs = Node::new("0").await;
 
         // this is from interface-ipfs-core, pretty much simplest add a buffer test case
         // but the body content is from the pubsub test case I copied this from
@@ -406,17 +407,5 @@ mod tests {
             body,
             "{\"Hash\":\"Qma4hjFTnCasJ8PVp3mZbZK5g2vGDT4LByLJ7m8ciyRFZP\",\"Name\":\"testfile.txt\",\"Size\":\"20\"}\r\n"
         );
-    }
-
-    async fn tokio_ipfs() -> ipfs::Ipfs<ipfs::TestTypes> {
-        let options = ipfs::IpfsOptions::inmemory_with_generated_keys();
-        let (ipfs, fut) = ipfs::UninitializedIpfs::new(options, None)
-            .await
-            .start()
-            .await
-            .unwrap();
-
-        tokio::spawn(fut);
-        ipfs
     }
 }
