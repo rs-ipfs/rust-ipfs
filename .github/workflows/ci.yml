@@ -84,27 +84,17 @@ jobs:
 
     - name: Install dependencies ubuntu
       if: matrix.platform.host == 'ubuntu-latest'
-      run: sudo apt-get install llvm-dev libssl-dev pkg-config
+      run: sudo apt-get install llvm-dev pkg-config
 
     - name: Install dependencies macos
       if: matrix.platform.host == 'macos-latest'
-      run: brew install llvm openssl
+      run: brew install llvm
 
     - name: Download go-ipfs on Linux
       if: matrix.platform.host == 'ubuntu-latest'
       run: |
         curl -L https://github.com/ipfs/go-ipfs/releases/download/v0.6.0/go-ipfs_v0.6.0_linux-amd64.tar.gz --output go_ipfs.tar.gz
         tar -xf go_ipfs.tar.gz
-
-    - name: Install dependencies windows (openssl)
-      uses: lukka/run-vcpkg@v3.3
-      id: windows-runvcpkg
-      if: matrix.platform.host == 'windows-latest'
-      with:
-        vcpkgDirectory: '${{ runner.workspace }}/vcpkg'
-        vcpkgTriplet: 'x64-windows'
-        vcpkgArguments: 'openssl'
-        vcpkgGitCommitId: 'ffa41582f78478812c836a6e8ce315fb27431182'  # ok for openssl-sys v0.9.58
 
     - name: Install rust toolchain
       uses: hecrj/setup-rust-action@v1
@@ -132,13 +122,11 @@ jobs:
 
     - name: Build (android)
       if: contains(matrix.platform.target, 'android')
-      run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --locked --workspace --exclude ipfs-http
-      # exclude http on android because openssl
+      run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --locked --workspace
 
     - name: Build other cross compilations
       if: contains(matrix.platform.target, 'android') == false && matrix.platform.cross == true
-      run: cargo build --locked --workspace --exclude ipfs-http --target ${{ matrix.platform.target }}
-      # exclude http on other cross compilation targets because openssl
+      run: cargo build --locked --workspace --target ${{ matrix.platform.target }}
 
     - name: Rust tests (macos)
       if: matrix.platform.cross == false && matrix.platform.host == 'macos-latest'

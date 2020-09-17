@@ -1,4 +1,3 @@
-use std::num::NonZeroU16;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -11,11 +10,8 @@ extern crate tracing;
 #[derive(Debug, StructOpt)]
 enum Options {
     /// Should initialize the repository (create directories and such). `js-ipfsd-ctl` calls this
-    /// with two arguments by default, `--bits 1024` and `--profile test`.
+    /// with a `--profile test` argument by default.
     Init {
-        /// Generated key length
-        #[structopt(long)]
-        bits: NonZeroU16,
         /// List of configuration profiles to apply
         #[structopt(long, use_delimiter = true)]
         profile: Vec<String>,
@@ -60,7 +56,7 @@ fn main() {
     let config_path = home.join("config");
 
     let keypair = match opts {
-        Options::Init { bits, profile } => {
+        Options::Init { profile } => {
             println!("initializing IPFS node at {:?}", home);
 
             if config_path.is_file() {
@@ -69,7 +65,7 @@ fn main() {
                 std::process::exit(1);
             }
 
-            let result = config::initialize(&home, bits, profile);
+            let result = config::initialize(&home, profile);
 
             match result {
                 Ok(_) => {
@@ -94,11 +90,6 @@ fn main() {
                     // strings from go-ipfs
                     eprintln!("Error: ipfs configuration file already exists!");
                     eprintln!("Reinitializing would override your keys.");
-                    std::process::exit(1);
-                }
-                Err(config::InitializationError::InvalidRsaKeyLength(bits)) => {
-                    eprintln!("Error: --bits out of range [1024, 16384]: {}", bits);
-                    eprintln!("This is a fake version of ipfs cli which does not support much");
                     std::process::exit(1);
                 }
                 Err(config::InitializationError::InvalidProfiles(profiles)) => {

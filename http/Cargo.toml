@@ -18,12 +18,11 @@ futures = { default-features = false, version = "0.3" }
 humantime = { default-features = false, version = "2.0" }
 hyper = { default-features = false, version = "0.13" }
 ipfs = { path = "../" }
+libp2p-core = { default-features = false, version = "0.22" }
 mime = { default-features = false, version = "0.3" }
 mpart-async = { default-features = false, version = "0.4" }
 multibase = { default-features = false, version = "0.8" }
 multihash = { default-features = false, version = "0.11" }
-# openssl is required for rsa keygen but not used by the rust-ipfs or its dependencies
-openssl = { default-features = false, version = "0.10" }
 parity-multiaddr = { default-features = false, version = "0.9" }
 percent-encoding = { default-features = false, version = "2.1" }
 prost = { default-features = false, version = "0.6.1" }

@@ -1,0 +1,10 @@
+--- node_modules/ipfsd-ctl/src/ipfsd-daemon.js
++++ node_modules/ipfsd-ctl/src/ipfsd-daemon.js
+@@ -88,7 +88,6 @@ class Daemon {
+     const opts = merge(
+       {
+         emptyRepo: false,
+-        bits: this.opts.test ? 1024 : 2048,
+         profiles: this.opts.test ? ['test'] : []
+       },
+       typeof this.opts.ipfsOptions.init === 'boolean' ? {} : this.opts.ipfsOptions.init,
