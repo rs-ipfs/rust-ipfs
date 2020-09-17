@@ -40,4 +40,5 @@ warp = { default-features = false, version = "0.2" }
 
 [dev-dependencies]
 hex-literal = { default-features = false, version = "0.3" }
+rand = { default-features = false, version = "0.7" }
 tempfile = { default-features = false, version = "3.1" }
