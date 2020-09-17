@@ -67,7 +67,6 @@ tests.dag.put(factory)
 tests.block(factory, {
   skip: [
     // both are pinning related
-    'should error when removing pinned blocks',
     'should put a buffer, using options'
   ]
 })
