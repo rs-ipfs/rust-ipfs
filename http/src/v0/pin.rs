@@ -254,7 +254,7 @@ async fn list_inner<T: IpfsTypes>(
     }
 }
 
-fn format_json_newline<St, T, E>(st: St) -> warp::http::Response<hyper::body::Body>
+fn format_json_newline<St, T, E>(st: St) -> warp::http::Response<warp::hyper::Body>
 where
     St: futures::stream::Stream<Item = Result<T, E>> + Send + 'static,
     T: Serialize + Send + 'static,
