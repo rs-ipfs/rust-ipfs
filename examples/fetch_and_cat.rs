@@ -60,7 +60,7 @@ async fn main() {
     if let Some(target) = target {
         ipfs.connect(target).await.unwrap();
     } else {
-        let (_, addresses) = ipfs.identity().await.unwrap();
+        let (_, addresses, _) = ipfs.identity().await.unwrap();
         assert!(!addresses.is_empty(), "Zero listening addresses");
 
         eprintln!("Please connect an ipfs node having {} to:\n", path);

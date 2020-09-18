@@ -128,7 +128,7 @@ async fn pre_configured_listening_addrs() {
     opts.listening_addrs.push(addr.clone());
     let ipfs = Node::with_options(opts).await;
 
-    let (_id, addrs) = ipfs.identity().await.unwrap();
+    let (_id, addrs, _) = ipfs.identity().await.unwrap();
     let addrs: Vec<MultiaddrWithoutPeerId> = addrs
         .into_iter()
         .map(|addr| MultiaddrWithPeerId::try_from(addr).unwrap().multiaddr)

@@ -623,6 +623,14 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
         Ok(ret.into_iter().collect())
     }
+
+    pub fn protocols(&self) -> Vec<String> {
+        self.swarm
+            .protocols
+            .iter()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .collect()
+    }
 }
 
 /// Create a IPFS behaviour with the IPFS bootstrap nodes.

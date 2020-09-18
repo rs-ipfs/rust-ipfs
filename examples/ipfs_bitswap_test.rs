@@ -24,7 +24,7 @@ async fn main() {
     let data = b"block-want\n".to_vec().into_boxed_slice();
     let wanted = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
 
-    let (public_key, addresses) = ipfs.identity().await.unwrap();
+    let (public_key, addresses, _) = ipfs.identity().await.unwrap();
     assert!(!addresses.is_empty(), "Zero listening addresses");
 
     eprintln!("Please connect an ipfs node having {} to:\n", wanted);
