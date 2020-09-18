@@ -276,8 +276,8 @@ enum IpfsEvent {
     Connections(Channel<Vec<Connection>>),
     /// Disconnect
     Disconnect(MultiaddrWithPeerId, Channel<()>),
-    /// Request background task to return the listened and external addresses
-    GetAddresses(OneshotSender<Vec<Multiaddr>>),
+    /// Request background task to return the node's identity information
+    Indentify(OneshotSender<(Vec<Multiaddr>, Vec<String>)>),
     PubsubSubscribe(String, OneshotSender<Option<SubscriptionStream>>),
     PubsubUnsubscribe(String, OneshotSender<bool>),
     PubsubPublish(String, Vec<u8>, OneshotSender<()>),
@@ -721,15 +721,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// The addresses are suffixed with the P2p protocol containing the node's PeerId.
     ///
     /// Public key can be converted to [`PeerId`].
-    pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>), Error> {
+    pub async fn identity(&self) -> Result<(PublicKey, Vec<Multiaddr>, Vec<String>), Error> {
         async move {
             let (tx, rx) = oneshot_channel();
 
-            self.to_task
-                .clone()
-                .send(IpfsEvent::GetAddresses(tx))
-                .await?;
-            let mut addresses = rx.await?;
+            self.to_task.clone().send(IpfsEvent::Indentify(tx)).await?;
+            let (mut addresses, protocols) = rx.await?;
             let public_key = self.keys.get_ref().public();
             let peer_id = public_key.clone().into_peer_id();
 
@@ -737,7 +734,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 addr.push(Protocol::P2p(peer_id.clone().into()))
             }
 
-            Ok((public_key, addresses))
+            Ok((public_key, addresses, protocols))
         }
         .instrument(self.span.clone())
         .await
@@ -1396,13 +1393,16 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         }
                         ret.send(Ok(())).ok();
                     }
-                    IpfsEvent::GetAddresses(ret) => {
+                    IpfsEvent::Indentify(ret) => {
                         // perhaps this could be moved under `IpfsEvent` or free functions?
                         let mut addresses = Vec::new();
                         addresses.extend(Swarm::listeners(&self.swarm).cloned());
                         addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
+
+                        let protocols = self.swarm.protocols();
+
                         // ignore error, perhaps caller went away already
-                        let _ = ret.send(addresses);
+                        let _ = ret.send((addresses, protocols));
                     }
                     IpfsEvent::PubsubSubscribe(topic, ret) => {
                         let _ = ret.send(self.swarm.pubsub().subscribe(topic));

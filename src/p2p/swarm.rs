@@ -46,6 +46,7 @@ pub struct SwarmApi {
     roundtrip_times: HashMap<PeerId, Duration>,
     connected_peers: HashMap<PeerId, Vec<MultiaddrWithoutPeerId>>,
     pub(crate) bootstrappers: HashSet<MultiaddrWithPeerId>,
+    pub(crate) protocols: Vec<Vec<u8>>,
 }
 
 impl SwarmApi {
@@ -242,8 +243,12 @@ impl NetworkBehaviour for SwarmApi {
     fn poll(
         &mut self,
         _: &mut Context,
-        _: &mut impl PollParameters,
+        params: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction> {
+        if params.supported_protocols().len() != self.protocols.len() {
+            self.protocols = params.supported_protocols().collect();
+        }
+
         if let Some(event) = self.events.pop_front() {
             Poll::Ready(event)
         } else {

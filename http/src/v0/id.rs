@@ -38,7 +38,7 @@ async fn identity_query<T: IpfsTypes>(
     }
 
     match ipfs.identity().await {
-        Ok((public_key, addresses)) => {
+        Ok((public_key, addresses, protocols)) => {
             let peer_id = public_key.clone().into_peer_id();
             let id = peer_id.to_string();
             let public_key = Base64Pad.encode(public_key.into_protobuf_encoding());
@@ -51,6 +51,7 @@ async fn identity_query<T: IpfsTypes>(
                 addresses,
                 agent_version: "rust-ipfs/0.1.0",
                 protocol_version: "ipfs/0.1.0",
+                protocols,
             };
 
             Ok(warp::reply::json(&response))
@@ -82,4 +83,6 @@ struct Response {
     agent_version: &'static str,
     // Multiaddr alike ipfs/0.1.0 ... not sure if there are plans to bump this anytime soon
     protocol_version: &'static str,
+    // the list of supported libp2p protocols
+    protocols: Vec<String>,
 }
