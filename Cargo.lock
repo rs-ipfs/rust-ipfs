@@ -1239,7 +1239,6 @@ dependencies = [
  "futures",
  "hex-literal",
  "humantime",
- "hyper",
  "ipfs",
  "mime",
  "mpart-async",
