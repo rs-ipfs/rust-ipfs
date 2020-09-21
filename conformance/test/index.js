@@ -22,9 +22,7 @@ const options = {
   disposable: true,
   ipfsHttpModule: require('ipfs-http-client'),
   ipfsOptions: {
-    init: {
-      bits: 2048
-    }
+    init: true,
   }
 }
 
