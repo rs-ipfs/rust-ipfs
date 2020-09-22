@@ -36,9 +36,9 @@ async fn main() {
         }
     };
 
-    // Start daemon and initialize repo.
+    // Initialize the repo and start a daemon.
     //
-    // Here we are using the IpfsOptions::inmemory_with_generated_keys which creates a new random
+    // Here we are using the IpfsOptions::inmemory_with_generated_keys, which creates a new random
     // key and in-memory storage for blocks and pins.
     let mut opts = IpfsOptions::inmemory_with_generated_keys();
 
@@ -54,7 +54,7 @@ async fn main() {
         .await
         .unwrap();
 
-    // The background task must be spawned to use anything other than the repository most notably,
+    // The background task must be spawned to use anything other than the repository; most notably,
     // the libp2p.
     tokio::task::spawn(fut);
 
