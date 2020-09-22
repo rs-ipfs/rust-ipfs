@@ -86,7 +86,9 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     match result {
                         // these subscriptions return actual values
                         GetClosestPeers(_) | GetProviders(_) | GetRecord(_) => {}
-                        // and the rest just a general KadResult::Complete
+                        // we want to return specific errors for the following
+                        Bootstrap(Err(_)) | StartProviding(Err(_)) | PutRecord(Err(_)) => {}
+                        // and the rest can just return a general KadResult::Complete
                         _ => {
                             self.kad_subscriptions
                                 .finish_subscription(id.into(), Ok(KadResult::Complete));
@@ -105,7 +107,14 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         );
                     }
                     Bootstrap(Err(BootstrapError::Timeout { .. })) => {
-                        warn!("kad: failed to bootstrap");
+                        warn!("kad: timed out while trying to bootstrap");
+
+                        if self.kademlia.query(&id).is_none() {
+                            self.kad_subscriptions.finish_subscription(
+                                id.into(),
+                                Err("kad: timed out while trying to bootstrap".into()),
+                            );
+                        }
                     }
                     GetClosestPeers(Ok(GetClosestPeersOk { key: _, peers })) => {
                         if self.kademlia.query(&id).is_none() {
@@ -115,13 +124,13 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     }
                     GetClosestPeers(Err(GetClosestPeersError::Timeout { key: _, peers: _ })) => {
                         // don't mention the key here, as this is just the id of our node
-                        warn!("kad: timed out trying to find all closest peers");
+                        warn!("kad: timed out while trying to find all closest peers");
 
                         if self.kademlia.query(&id).is_none() {
                             self.kad_subscriptions.finish_subscription(
                                 id.into(),
-                                Err("timed out trying to obtain providers for the given key"
-                                    .to_string()),
+                                Err("timed out while trying to get providers for the given key"
+                                    .into()),
                             );
                         }
                     }
@@ -139,13 +148,13 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     }
                     GetProviders(Err(GetProvidersError::Timeout { key, .. })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        warn!("kad: timed out trying to get providers for {}", key);
+                        warn!("kad: timed out while trying to get providers for {}", key);
 
                         if self.kademlia.query(&id).is_none() {
                             self.kad_subscriptions.finish_subscription(
                                 id.into(),
-                                Err("timed out trying to obtain providers for the given key"
-                                    .to_string()),
+                                Err("timed out while trying to get providers for the given key"
+                                    .into()),
                             );
                         }
                     }
@@ -155,7 +164,14 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     }
                     StartProviding(Err(AddProviderError::Timeout { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        warn!("kad: timed out trying to provide {}", key);
+                        warn!("kad: timed out while trying to provide {}", key);
+
+                        if self.kademlia.query(&id).is_none() {
+                            self.kad_subscriptions.finish_subscription(
+                                id.into(),
+                                Err("kad: timed out while trying to provide the record".into()),
+                            );
+                        }
                     }
                     RepublishProvider(Ok(AddProviderOk { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
@@ -163,7 +179,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     }
                     RepublishProvider(Err(AddProviderError::Timeout { key })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        warn!("kad: timed out trying to republish provider {}", key);
+                        warn!("kad: timed out while trying to republish provider {}", key);
                     }
                     GetRecord(Ok(GetRecordOk { records })) => {
                         if self.kademlia.query(&id).is_none() {
@@ -182,7 +198,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         if self.kademlia.query(&id).is_none() {
                             self.kad_subscriptions.finish_subscription(
                                 id.into(),
-                                Err("couldn't find a record for the given key".to_string()),
+                                Err("couldn't find a record for the given key".into()),
                             );
                         }
                     }
@@ -192,13 +208,16 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         quorum,
                     })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        warn!("kad: quorum failed {} trying to get key {}", quorum, key);
+                        warn!(
+                            "kad: quorum failed {} when trying to get key {}",
+                            quorum, key
+                        );
 
                         if self.kademlia.query(&id).is_none() {
                             self.kad_subscriptions.finish_subscription(
                                 id.into(),
                                 Err("quorum failed when trying to obtain a record for the given key"
-                                    .to_string()),
+                                    .into()),
                             );
                         }
                     }
@@ -208,13 +227,13 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         quorum: _,
                     })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        warn!("kad: timed out trying to get key {}", key);
+                        warn!("kad: timed out while trying to get key {}", key);
 
                         if self.kademlia.query(&id).is_none() {
                             self.kad_subscriptions.finish_subscription(
                                 id.into(),
-                                Err("timed out trying to obtain a record for the given key"
-                                    .to_string()),
+                                Err("timed out while trying to get a record for the given key"
+                                    .into()),
                             );
                         }
                     }
@@ -235,22 +254,39 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                     })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
                         warn!(
-                            "kad: quorum failed ({}) trying to put record {}",
+                            "kad: quorum failed ({}) when trying to put record {}",
                             quorum, key
                         );
+
+                        if self.kademlia.query(&id).is_none() {
+                            self.kad_subscriptions.finish_subscription(
+                                id.into(),
+                                Err("kad: quorum failed when trying to put the record".into()),
+                            );
+                        }
                     }
                     PutRecord(Err(PutRecordError::Timeout {
                         key,
                         success: _,
                         quorum: _,
-                    }))
-                    | RepublishRecord(Err(PutRecordError::Timeout {
+                    })) => {
+                        let key = multibase::encode(Base::Base32Lower, key);
+                        warn!("kad: timed out while trying to put record {}", key);
+
+                        if self.kademlia.query(&id).is_none() {
+                            self.kad_subscriptions.finish_subscription(
+                                id.into(),
+                                Err("kad: timed out while trying to put the record".into()),
+                            );
+                        }
+                    }
+                    RepublishRecord(Err(PutRecordError::Timeout {
                         key,
                         success: _,
                         quorum: _,
                     })) => {
                         let key = multibase::encode(Base::Base32Lower, key);
-                        warn!("kad: timed out trying to put record {}", key);
+                        warn!("kad: timed out while trying to republish record {}", key);
                     }
                 }
             }
