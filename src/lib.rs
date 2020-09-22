@@ -249,9 +249,9 @@ impl<Types: IpfsTypes> Clone for Ipfs<Types> {
     }
 }
 
-/// Ipfs struct creates a new IPFS node and is the main entry point
-/// for interacting with IPFS.
+/// The internal shared implementation of [`Ipfs`].
 #[derive(Debug)]
+#[doc(hidden)]
 pub struct IpfsInner<Types: IpfsTypes> {
     pub span: Span,
     repo: Repo<Types>,
