@@ -68,9 +68,7 @@ pub use self::{
 pub use bitswap::Block;
 pub use cid::Cid;
 pub use libp2p::{
-    core::{
-        connection::ListenerId, multiaddr::Protocol, ConnectedPoint, Multiaddr, PeerId, PublicKey,
-    },
+    core::{connection::ListenerId, multiaddr::Protocol, Multiaddr, PeerId, PublicKey},
     identity::Keypair,
     kad::{record::Key, Quorum},
 };
