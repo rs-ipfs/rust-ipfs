@@ -37,12 +37,26 @@ pub struct FsBlockStore {
     written_bytes: AtomicU64,
 }
 
+/// A helper used to remove our key from `FsBlockStore::writes`. It is quite inefficient, some
+/// kind of reference counting would be great.
+///
+/// [`Drop`] is used to clean up the so that it is _safer_ to drop the future returned by
+/// `FsBlockStore::put`.
+///
+/// Without reference counting, there is a race condition with repeated multiple
+/// concurrent writers and dropping; this might lead to the first ones dropping the latter
+/// concurrent writes [`FsBlockStore::writes`] key.
 struct RemoveOnDrop<K: Eq + Hash, V>(ArcMutexMap<K, V>, Option<K>);
 
 impl<K: Eq + Hash, V> Drop for RemoveOnDrop<K, V> {
     fn drop(&mut self) {
         if let Some(key) = self.1.take() {
             let mut g = self.0.lock().unwrap();
+            // FIXME: there should be something here to make sure the value is of the expected
+            // "generation", not to remove any future channels. Or then, we could just use the
+            // tokio::sync::broadcast::Sender::receiver_count here to make sure we only remove an
+            // unused Sender. This would however wreak havoc on the FsBlockStore::put long match in
+            // the end, which has match arms which assume all of the senders have gone away.
             g.remove(&key);
         }
     }
@@ -169,7 +183,7 @@ impl BlockStore for FsBlockStore {
         let cid = block.cid;
         let data = block.data;
 
-        let inner_span = span.clone();
+        let inner_span = debug_span!(parent: &span, "blocking");
 
         async move {
             // why synchronize here? because when we lose the race we cant know if there was someone
@@ -198,12 +212,8 @@ impl BlockStore for FsBlockStore {
             // create this in case the winner is dropped while awaiting
             let cleanup = RemoveOnDrop(self.writes.clone(), Some(RepoCid(cid.to_owned())));
 
-            let span = tracing::Span::current();
-
             // launch a blocking task for the filesystem mutation.
-            // `tx` is moved into the task but `rx` stays in the async context.
             let je = tokio::task::spawn_blocking(move || {
-                let _entered = span.enter();
                 // pick winning writer with filesystem and create_new; this error will be the 1st
                 // nested level
 
@@ -227,10 +237,6 @@ impl BlockStore for FsBlockStore {
 
                 match write_through_tempfile(target, &target_path, temp_path, &data) {
                     Ok(()) => {
-                        let _ = tx
-                            .send(Ok(()))
-                            .expect("this cannot fail as we have at least one receiver on stack");
-
                         trace!("successfully wrote the block");
                         Ok::<_, std::io::Error>(Ok(data.len()))
                     }
@@ -242,9 +248,6 @@ impl BlockStore for FsBlockStore {
                                 target_path, removal
                             ),
                         }
-                        let _ = tx
-                            .send(Err(()))
-                            .expect("this cannot fail as we have at least one receiver on stack");
                         Ok(Err(e))
                     }
                 }
@@ -257,7 +260,13 @@ impl BlockStore for FsBlockStore {
 
             match je {
                 Ok(Ok(Ok(written))) => {
+                    trace!(bytes = written, "block writing succeeded");
+                    let _ = tx
+                        .send(Ok(()))
+                        .expect("this cannot fail as we have at least one receiver on stack");
+
                     drop(rx);
+                    drop(tx);
 
                     self.written_bytes
                         .fetch_add(written as u64, Ordering::SeqCst);
@@ -265,16 +274,24 @@ impl BlockStore for FsBlockStore {
                     Ok((cid, BlockPut::NewBlock))
                 }
                 Ok(Ok(Err(e))) => {
-                    // write failed but hopefully the target was removed
-                    // no point in trying to remove it now
-                    // ignore if no one is listening
+                    trace!("write failed but hopefully the target was removed");
+                    let _ = tx
+                        .send(Err(()))
+                        .expect("this cannot fail as we have at least one receiver on the stack");
+
+                    drop(rx);
+                    drop(tx);
+
                     Err(Error::new(e))
                 }
-                Ok(Err(_)) => {
+                Ok(Err(e)) => {
+                    trace!("lost block writing race: {}", e);
                     // At least the following cases:
                     // - the block existed already
                     // - the block is being written to and we should await for this to complete
                     // - readonly or full filesystem prevents file creation
+
+                    drop(tx);
 
                     let message = match rx.recv().await {
                         Ok(message) => {
@@ -301,9 +318,13 @@ impl BlockStore for FsBlockStore {
                         Ok((cid.to_owned(), BlockPut::Existed))
                     }
                 }
+                Err(e) if e.is_cancelled() => {
+                    trace!("runtime is shutting down: {}", e);
+                    Err(e.into())
+                }
                 Err(e) => {
-                    // blocking task panicked or the runtime is going down, but we don't know
-                    // if the thread has stopped or not (like not)
+                    // as of writing this, we didn't have panicking inside the task
+                    error!("blocking put task panicked or something else: {}", e);
                     Err(e.into())
                 }
             }
