@@ -75,12 +75,11 @@ pub use libp2p::{
     kad::{record::Key, Quorum},
 };
 
-/// All types can be changed at compile time by implementing
-/// `IpfsTypes`.
+/// Represents the configuration of the Ipfs node, its backing blockstore and datastore.
 pub trait IpfsTypes: RepoTypes {}
 impl<T: RepoTypes> IpfsTypes for T {}
 
-/// Default IPFS types.
+/// Default node configuration, currently with persistent block store and data store for pins.
 #[derive(Debug)]
 pub struct Types;
 impl RepoTypes for Types {
@@ -88,7 +87,7 @@ impl RepoTypes for Types {
     type TDataStore = repo::fs::FsDataStore;
 }
 
-/// Testing IPFS types
+/// In-memory testing configuration used in tests.
 #[derive(Debug)]
 pub struct TestTypes;
 impl RepoTypes for TestTypes {
@@ -96,7 +95,7 @@ impl RepoTypes for TestTypes {
     type TDataStore = repo::mem::MemDataStore;
 }
 
-/// Ipfs options
+/// Ipfs node options.
 #[derive(Clone)]
 pub struct IpfsOptions {
     /// The path of the ipfs repo.
@@ -129,7 +128,7 @@ impl fmt::Debug for IpfsOptions {
 }
 
 impl IpfsOptions {
-    /// Creates an inmemory store backed node for tests
+    /// Creates an in-memory store backed configuration
     pub fn inmemory_with_generated_keys() -> Self {
         Self {
             ipfs_path: env::temp_dir(),
@@ -236,6 +235,13 @@ impl Default for IpfsOptions {
     }
 }
 
+/// The facade for the Ipfs node.
+///
+/// The facade has most of the functionality either directly as a method or the functionality can
+/// be implemented using the provided methods. For more information, see examples or the HTTP
+/// endpoint implementations in `ipfs-http`.
+///
+/// The facade is created through [`UninitializedIpfs`] which is configured with [`IpfsOptions`].
 #[derive(Debug)]
 pub struct Ipfs<Types: IpfsTypes>(Arc<IpfsInner<Types>>);
 
@@ -315,7 +321,7 @@ enum IpfsEvent {
     Exit,
 }
 
-/// Configured Ipfs instace or value which can be only initialized.
+/// Configured Ipfs which can only be started.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
     repo: Repo<Types>,
     span: Span,
@@ -405,6 +411,7 @@ impl<Types: IpfsTypes> Deref for Ipfs<Types> {
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
+    /// Return an [`IpldDag`] for DAG operations
     pub fn dag(&self) -> IpldDag<Types> {
         IpldDag::new(self.clone())
     }
@@ -529,27 +536,28 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
-    /// Checks whether a given block is pinned. At the moment does not support incomplete recursive
-    /// pins.
+    /// Checks whether a given block is pinned.
     ///
     /// Returns true if the block is pinned, false if not. See Crash unsafety notes for the false
     /// response.
     ///
     /// # Crash unsafety
     ///
-    /// Cannot detect partially written recursive pins. Those can happen if `Ipfs::insert_pin(cid,
-    /// recursive: true)` is interrupted by a crash for example.
+    /// Cannot currently detect partially written recursive pins. Those can happen if
+    /// `Ipfs::insert_pin(cid, true)` is interrupted by a crash for example.
     ///
     /// Works correctly only under no-crash situations. Workaround for hitting a crash is to re-pin
     /// any existing recursive pins.
     ///
-    /// TODO: This operation could be provided as a `Ipfs::fix_pins()`.
+    // TODO: This operation could be provided as a `Ipfs::fix_pins()`.
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
         let span = debug_span!(parent: &self.span, "is_pinned", cid = %cid);
         self.repo.is_pinned(cid).instrument(span).await
     }
 
     /// Lists all pins, or the specific kind thereof.
+    ///
+    /// # Crash unsafety
     ///
     /// Does not currently recover from partial recursive pin insertions.
     pub async fn list_pins(
@@ -561,7 +569,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Read specific pins. When `requirement` is `Some`, all pins are required to be of the given
-    /// `PinMode`.
+    /// [`PinMode`].
+    ///
+    /// # Crash unsafety
     ///
     /// Does not currently recover from partial recursive pin insertions.
     pub async fn query_pins(
@@ -576,7 +586,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .await
     }
 
-    /// Puts an ipld dag node into the ipfs repo.
+    /// Puts an ipld node into the ipfs repo using `dag-cbor` codec and Sha2_256 hash.
+    ///
+    /// Returns Cid version 1 for the document
     pub async fn put_dag(&self, ipld: Ipld) -> Result<Cid, Error> {
         self.dag()
             .put(ipld, Codec::DagCBOR)
@@ -584,7 +596,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .await
     }
 
-    /// Gets an ipld dag node from the ipfs repo.
+    /// Gets an ipld node from the ipfs, fetching the block if necessary.
+    ///
+    /// See [`IpldDag::get`] for more information.
     pub async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
         self.dag()
             .get(path)
@@ -637,6 +651,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Connects to the peer at the given Multiaddress.
+    ///
+    /// Accepts only multiaddresses with the PeerId to authenticate the connection.
+    ///
+    /// Returns a future which will complete when the connection has been successfully made or
+    /// failed for whatever reason.
     pub async fn connect(&self, target: MultiaddrWithPeerId) -> Result<(), Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -656,6 +676,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Returns known peer addresses
     pub async fn addrs(&self) -> Result<Vec<(PeerId, Vec<Multiaddr>)>, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -666,6 +687,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Returns local listening addresses
     pub async fn addrs_local(&self) -> Result<Vec<Multiaddr>, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -676,6 +698,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Returns the connected peers
     pub async fn peers(&self) -> Result<Vec<Connection>, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -689,6 +712,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Disconnects a given peer.
+    ///
+    /// At the moment the peer is disconnected by temporarily banning the peer and unbanning it
+    /// right after. This should always disconnect all connections to the peer.
     pub async fn disconnect(&self, target: MultiaddrWithPeerId) -> Result<(), Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -763,6 +790,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Forcefully unsubscribes a previously made [`SubscriptionStream`], which could also be
+    /// unsubscribed by dropping the stream.
+    ///
     /// Returns true if unsubscription was successful
     pub async fn pubsub_unsubscribe(&self, topic: &str) -> Result<bool, Error> {
         async move {
@@ -811,6 +841,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Returns the known wantlist for the local node when `peer` is `None` or the given `peer`
     pub async fn bitswap_wantlist(
         &self,
         peer: Option<PeerId>,
@@ -829,10 +860,15 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Returns a list of local blocks
+    ///
+    /// This implementation is subject to change into a stream, which might only include the pinned
+    /// blocks.
     pub async fn refs_local(&self) -> Result<Vec<Cid>, Error> {
         self.repo.list_blocks().instrument(self.span.clone()).await
     }
 
+    /// Returns the accumulated bitswap stats
     pub async fn bitswap_stats(&self) -> Result<BitswapStats, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -933,6 +969,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Performs a DHT lookup for providers of a value to the given key.
+    ///
+    /// Returns a list of peers found providing the Cid.
     pub async fn get_providers(&self, cid: Cid) -> Result<Vec<PeerId>, Error> {
         let kad_result = async move {
             let (tx, rx) = oneshot_channel();
@@ -1580,6 +1618,7 @@ impl From<(bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>)> for Bits
 #[doc(hidden)]
 pub use node::Node;
 
+/// Node module provides an easy to use interface used in `tests/`.
 mod node {
     use super::*;
     use std::convert::TryFrom;
