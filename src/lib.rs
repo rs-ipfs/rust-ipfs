@@ -615,7 +615,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .await
     }
 
-    /// Resolves a ipns path to an ipld path.
+    /// Resolves a ipns path to an ipld path; currently only supports dnslink resolution.
     pub async fn resolve_ipns(&self, path: &IpfsPath, recursive: bool) -> Result<IpfsPath, Error> {
         async move {
             let ipns = self.ipns();
