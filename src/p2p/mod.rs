@@ -59,12 +59,9 @@ pub async fn create_swarm<TIpfsTypes: IpfsTypes>(
     let behaviour = behaviour::build_behaviour(options, ipfs).await;
 
     // Create a Swarm
-    let mut swarm = libp2p::swarm::SwarmBuilder::new(transport, behaviour, peer_id)
+    let swarm = libp2p::swarm::SwarmBuilder::new(transport, behaviour, peer_id)
         .executor(Box::new(SpannedExecutor(swarm_span)))
         .build();
-
-    // Listen on all interfaces and whatever port the OS assigns
-    Swarm::listen_on(&mut swarm, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
     Ok(swarm)
 }
