@@ -639,19 +639,6 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
-    /// Publishes an ipld path.
-    pub async fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        self.ipns()
-            .publish(key, path)
-            .instrument(self.span.clone())
-            .await
-    }
-
-    /// Cancel an ipns path.
-    pub async fn cancel_ipns(&self, key: &PeerId) -> Result<(), Error> {
-        self.ipns().cancel(key).instrument(self.span.clone()).await
-    }
-
     pub async fn connect(&self, target: MultiaddrWithPeerId) -> Result<(), Error> {
         async move {
             let (tx, rx) = oneshot_channel();
