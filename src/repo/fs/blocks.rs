@@ -318,9 +318,13 @@ impl BlockStore for FsBlockStore {
                         Ok((cid.to_owned(), BlockPut::Existed))
                     }
                 }
+                Err(e) if e.is_cancelled() => {
+                    trace!("runtime is shutting down: {}", e);
+                    Err(e.into())
+                }
                 Err(e) => {
-                    // blocking task panicked or the runtime is going down, but we don't know
-                    // if the thread has stopped or not (like not)
+                    // as of writing this, we didn't have panicking inside the task
+                    error!("blocking put task panicked or something else: {}", e);
                     Err(e.into())
                 }
             }
