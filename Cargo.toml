@@ -7,7 +7,6 @@ version = "0.1.0"
 
 [features]
 default = []
-nightly = []
 test_go_interop = []
 test_js_interop = []
 
