@@ -259,7 +259,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     /// Shutdowns the repo, cancelling any pending subscriptions; Likely going away after some
-    /// refactoring, see notes on [`Ipfs::exit_daemon`].
+    /// refactoring, see notes on [`crate::Ipfs::exit_daemon`].
     pub fn shutdown(&self) {
         self.subscriptions.shutdown();
     }

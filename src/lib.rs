@@ -730,7 +730,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
     /// The subscription can be unsubscribed by dropping the stream or calling
-    /// [`pubsub_unsubscribe`].
+    /// [`Ipfs::pubsub_unsubscribe`].
     pub async fn pubsub_subscribe(&self, topic: String) -> Result<SubscriptionStream, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
