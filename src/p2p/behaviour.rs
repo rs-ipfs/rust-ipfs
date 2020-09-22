@@ -1,5 +1,6 @@
 use super::pubsub::Pubsub;
 use super::swarm::{Connection, Disconnector, SwarmApi};
+use crate::config::BOOTSTRAP_NODES;
 use crate::p2p::{MultiaddrWithPeerId, SwarmOptions};
 use crate::repo::BlockPut;
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
@@ -17,7 +18,7 @@ use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use libp2p::NetworkBehaviour;
 use multibase::Base;
-use std::{collections::HashSet, convert::TryInto, env, fs::File, path::PathBuf, sync::Arc};
+use std::{convert::TryInto, sync::Arc};
 use tokio::task;
 
 /// Behaviour type.
@@ -594,34 +595,15 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     }
 
     pub fn restore_bootstrappers(&mut self) -> Result<Vec<Multiaddr>, anyhow::Error> {
-        let mut config_location = PathBuf::from(env::var("IPFS_PATH")?);
-        config_location.push("config");
-        let mut config_reader = File::open(config_location)?;
-        let config_file: serde_json::Value = serde_json::from_reader(&mut config_reader)?;
-        let mut ret = HashSet::new();
-
-        if let Some(addrs) = config_file
-            .as_object()
-            .expect("the config JSON is an object")
-            .get("Bootstrap")
-        {
-            let addrs = addrs
-                .as_array()
-                .expect("the Bootstrap key contains an array");
-
-            ret.reserve(addrs.len());
-            for addr in addrs {
-                let addr: MultiaddrWithPeerId = addr
-                    .as_str()
-                    .expect("the members of the Bootstrap array are strings")
-                    .parse()
-                    .expect("the config file had already been parsed on startup");
-                self.swarm.bootstrappers.insert(addr.clone());
-                ret.insert(addr.into());
-            }
+        for addr in BOOTSTRAP_NODES {
+            let addr = addr.parse::<MultiaddrWithPeerId>().unwrap();
+            self.swarm.bootstrappers.insert(addr);
         }
 
-        Ok(ret.into_iter().collect())
+        Ok(BOOTSTRAP_NODES
+            .iter()
+            .map(|addr| addr.parse().unwrap())
+            .collect())
     }
 }
 

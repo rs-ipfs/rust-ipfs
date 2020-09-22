@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 use thiserror::Error;
 
-const BOOTSTRAP_NODES: &[&str] =
+pub const BOOTSTRAP_NODES: &[&str] =
     &["/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"];
 
 /// See test cases for examples how to write such file.
