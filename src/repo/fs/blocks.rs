@@ -183,7 +183,7 @@ impl BlockStore for FsBlockStore {
         let cid = block.cid;
         let data = block.data;
 
-        let inner_span = span.clone();
+        let inner_span = debug_span!(parent: &span, "blocking");
 
         async move {
             // why synchronize here? because when we lose the race we cant know if there was someone
@@ -212,11 +212,8 @@ impl BlockStore for FsBlockStore {
             // create this in case the winner is dropped while awaiting
             let cleanup = RemoveOnDrop(self.writes.clone(), Some(RepoCid(cid.to_owned())));
 
-            let span = tracing::Span::current();
-
             // launch a blocking task for the filesystem mutation.
             let je = tokio::task::spawn_blocking(move || {
-                let _entered = span.enter();
                 // pick winning writer with filesystem and create_new; this error will be the 1st
                 // nested level
 
