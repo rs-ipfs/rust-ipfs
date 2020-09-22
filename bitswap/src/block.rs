@@ -1,8 +1,14 @@
 use cid::Cid;
 
+/// An Ipfs block consisting of a [`Cid`] and the bytes of the block.
+///
+/// Note: At the moment the equality is based on [`Cid`] equality, which is based on the triple
+/// `(cid::Version, cid::Codec, multihash)`.
 #[derive(Clone, Debug)]
 pub struct Block {
+    /// The content identifier for this block
     pub cid: Cid,
+    /// The data of this block
     pub data: Box<[u8]>,
 }
 
@@ -11,6 +17,7 @@ impl PartialEq for Block {
         self.cid.hash() == other.cid.hash()
     }
 }
+
 impl Eq for Block {}
 
 impl Block {
