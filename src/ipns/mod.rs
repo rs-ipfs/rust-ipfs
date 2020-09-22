@@ -1,14 +1,9 @@
-#![allow(dead_code)]
 use crate::error::Error;
 use crate::path::{IpfsPath, PathRoot};
 use crate::repo::RepoTypes;
 use crate::Ipfs;
 
 mod dnslink;
-mod entry;
-mod ipns_pb {
-    include!(concat!(env!("OUT_DIR"), "/ipns_pb.rs"));
-}
 
 #[derive(Clone, Debug)]
 pub struct Ipns<Types: RepoTypes> {
