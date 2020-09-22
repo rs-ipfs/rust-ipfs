@@ -5,7 +5,7 @@
 
        const peers = res.Peers
 -      expect(peers).to.have.property('length').that.is.gt(1)
-+      expect(peers).to.have.property('length').that.is.eq(0)
++      expect(peers).to.have.property('length').that.is.gt(0)
      })
 
      it('should return a list of all peers removed when all option is passed', async () => {
