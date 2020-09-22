@@ -615,7 +615,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .await
     }
 
-    /// Resolves a ipns path to an ipld path.
+    /// Resolves a ipns path to an ipld path; currently only supports dnslink resolution.
     pub async fn resolve_ipns(&self, path: &IpfsPath, recursive: bool) -> Result<IpfsPath, Error> {
         async move {
             let ipns = self.ipns();
@@ -637,19 +637,6 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         }
         .instrument(self.span.clone())
         .await
-    }
-
-    /// Publishes an ipld path.
-    pub async fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) -> Result<IpfsPath, Error> {
-        self.ipns()
-            .publish(key, path)
-            .instrument(self.span.clone())
-            .await
-    }
-
-    /// Cancel an ipns path.
-    pub async fn cancel_ipns(&self, key: &PeerId) -> Result<(), Error> {
-        self.ipns().cancel(key).instrument(self.span.clone()).await
     }
 
     pub async fn connect(&self, target: MultiaddrWithPeerId) -> Result<(), Error> {
