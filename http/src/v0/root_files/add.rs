@@ -143,15 +143,7 @@ where
             let content_type = field.content_type().map_err(AddError::Header)?;
 
             let next = match content_type {
-                "application/octet-stream" => {
-
-                    // files are of the form "file-{1,2,3,..}"
-                    let _ = if field_name != "file" && !field_name.starts_with("file-") {
-                        Err(AddError::UnsupportedField(field_name.to_string()))
-                    } else {
-                        Ok(())
-                    }?;
-
+                "application/octet-stream" | "text/plain" => {
                     let mut adder = FileAdder::default();
                     // how many bytes we have stored as blocks
                     let mut total_written = 0u64;
@@ -376,10 +368,14 @@ impl<D: fmt::Display> serde::Serialize for Quoted<D> {
 #[cfg(test)]
 mod tests {
     use crate::v0::root_files::add;
+    use ipfs::Node;
+    use rand::distributions::Alphanumeric;
+    use rand::Rng;
+    use std::iter;
 
     #[tokio::test(max_threads = 1)]
     async fn add_single_block_file() {
-        let ipfs = tokio_ipfs().await;
+        let ipfs = Node::new("0").await;
 
         // this is from interface-ipfs-core, pretty much simplest add a buffer test case
         // but the body content is from the pubsub test case I copied this from
@@ -408,15 +404,37 @@ mod tests {
         );
     }
 
-    async fn tokio_ipfs() -> ipfs::Ipfs<ipfs::TestTypes> {
-        let options = ipfs::IpfsOptions::inmemory_with_generated_keys();
-        let (ipfs, fut) = ipfs::UninitializedIpfs::new(options, None)
-            .await
-            .start()
-            .await
-            .unwrap();
+    // copied from js-ipfs/packages/ipfs/test/http-api/inject/files.js
+    #[tokio::test(max_threads = 1)]
+    async fn js_multipart_test() {
+        let ipfs = Node::new("0").await;
+        let mut rng = rand::thread_rng();
 
-        tokio::spawn(fut);
-        ipfs
+        let response = warp::test::request()
+            .path("/add")
+            .header(
+                "Content-Type",
+                "multipart/form-data; boundary=----------287032381131322",
+            )
+            .body(
+                format!(
+                    "\r\n\
+                    ------------287032381131322\r\n\
+                    Content-Disposition: form-data; name=\"test\"; filename=\"test.txt\"\r\n\
+                    Content-Type: text/plain\r\n\
+                    \r\n\
+                    {}\r\n\
+                    ------------287032381131322--",
+                    iter::repeat(())
+                        .map(|_| rng.sample(Alphanumeric))
+                        .take(1024 * 1024 * 2)
+                        .collect::<String>()
+                )
+                .into_bytes(),
+            )
+            .reply(&add(&ipfs))
+            .await;
+
+        assert_eq!(response.status(), 200);
     }
 }
