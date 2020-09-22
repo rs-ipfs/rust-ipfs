@@ -1,5 +1,6 @@
 //! go-ipfs compatible configuration file handling or at least setup.
 
+use parity_multiaddr::Multiaddr;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::num::NonZeroU16;
@@ -115,6 +116,9 @@ fn create(
             peer_id,
             private_key,
         },
+        addresses: Addresses {
+            swarm: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+        },
     };
 
     serde_json::to_writer_pretty(BufWriter::new(config), &config_contents)
@@ -140,12 +144,16 @@ pub enum LoadingError {
 
 /// Loads a `go-ipfs` compatible configuration file from the given file.
 ///
-/// Returns only the [`ipfs::KeyPair`] or [`LoadingError`] but this should be extended to contain
-/// the bootstrap nodes at least later when we need to support those for testing purposes.
-pub fn load(config: File) -> Result<ipfs::Keypair, LoadingError> {
+/// Returns only the keypair and listening addresses or [`LoadingError`] but this should be
+/// extended to contain the bootstrap nodes at least later when we need to support those for
+/// testing purposes.
+pub fn load(config: File) -> Result<(ipfs::Keypair, Vec<Multiaddr>), LoadingError> {
     use std::io::BufReader;
 
-    let CompatibleConfigFile { identity } = serde_json::from_reader(BufReader::new(config))
+    let CompatibleConfigFile {
+        identity,
+        addresses,
+    } = serde_json::from_reader(BufReader::new(config))
         .map_err(LoadingError::ConfigurationFileFormat)?;
 
     let kp = identity.load_keypair()?;
@@ -159,7 +167,7 @@ pub fn load(config: File) -> Result<ipfs::Keypair, LoadingError> {
         });
     }
 
-    Ok(kp)
+    Ok((kp, addresses.swarm))
 }
 
 /// Converts a PEM format to DER where PEM is a container for Base64 data with padding, starting on
@@ -230,6 +238,13 @@ fn pem_to_der(bytes: &[u8]) -> Vec<u8> {
 #[serde(rename_all = "PascalCase")]
 struct CompatibleConfigFile {
     identity: Identity,
+    addresses: Addresses,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct Addresses {
+    swarm: Vec<Multiaddr>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
