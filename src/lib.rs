@@ -65,7 +65,7 @@ pub use self::{
     path::IpfsPath,
     repo::{PinKind, PinMode, RepoTypes},
 };
-pub use bitswap::{Block, Stats};
+pub use bitswap::Block;
 pub use cid::Cid;
 pub use libp2p::{
     core::{
@@ -1586,15 +1586,24 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
     }
 }
 
+/// Bitswap statistics
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BitswapStats {
+    /// The number of IPFS blocks sent to other peers
     pub blocks_sent: u64,
+    /// The number of bytes sent in IPFS blocks to other peers
     pub data_sent: u64,
+    /// The number of IPFS blocks received from other peers
     pub blocks_received: u64,
+    /// The number of bytes received in IPFS blocks from other peers
     pub data_received: u64,
+    /// Duplicate blocks received (the block had already been received previously)
     pub dup_blks_received: u64,
+    /// The number of bytes in duplicate blocks received
     pub dup_data_received: u64,
+    /// The current peers
     pub peers: Vec<PeerId>,
+    /// The wantlist of the local node
     pub wantlist: Vec<(Cid, bitswap::Priority)>,
 }
 
