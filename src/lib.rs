@@ -140,7 +140,7 @@ impl IpfsOptions {
             bootstrap: Default::default(),
             // default to lan kad for go-ipfs use in tests
             kad_protocol: Some("/ipfs/lan/kad/1.0.0".to_owned()),
-            listening_addrs: Vec::new(),
+            listening_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
         }
     }
 }

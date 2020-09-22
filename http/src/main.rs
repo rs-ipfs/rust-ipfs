@@ -59,7 +59,7 @@ fn main() {
 
     let config_path = home.join("config");
 
-    let keypair = match opts {
+    let (keypair, listening_addrs) = match opts {
         Options::Init { bits, profile } => {
             println!("initializing IPFS node at {:?}", home);
 
@@ -73,7 +73,7 @@ fn main() {
 
             match result {
                 Ok(_) => {
-                    let kp = std::fs::File::open(config_path)
+                    let (kp, _) = std::fs::File::open(config_path)
                         .map_err(config::LoadingError::ConfigurationFileOpening)
                         .and_then(config::load)
                         .unwrap();
@@ -135,8 +135,14 @@ fn main() {
     let mut rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
 
     rt.block_on(async move {
-        let opts: IpfsOptions =
-            IpfsOptions::new(home.clone(), keypair, Vec::new(), false, None, Vec::new());
+        let opts: IpfsOptions = IpfsOptions::new(
+            home.clone(),
+            keypair,
+            Vec::new(),
+            false,
+            None,
+            listening_addrs,
+        );
 
         let (ipfs, task): (Ipfs<ipfs::Types>, _) = UninitializedIpfs::new(opts, None)
             .await
