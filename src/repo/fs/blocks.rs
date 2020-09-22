@@ -37,22 +37,22 @@ pub struct FsBlockStore {
     written_bytes: AtomicU64,
 }
 
-/// Helper is used to remove our key from `FsBlockStore::writes`. It is quite inefficient, some
+/// A helper used to remove our key from `FsBlockStore::writes`. It is quite inefficient, some
 /// kind of reference counting would be great.
 ///
 /// [`Drop`] is used to clean up the so that it is _safer_ to drop the future returned by
 /// `FsBlockStore::put`.
 ///
-/// Without reference counting, there is a race condition with repeat multiple
-/// concurrent writers and dropping; this might lead into the first ones dropping the latter
-/// concurrent writes key.
+/// Without reference counting, there is a race condition with repeated multiple
+/// concurrent writers and dropping; this might lead to the first ones dropping the latter
+/// concurrent writes [`FsBlockStore::writes`] key.
 struct RemoveOnDrop<K: Eq + Hash, V>(ArcMutexMap<K, V>, Option<K>);
 
 impl<K: Eq + Hash, V> Drop for RemoveOnDrop<K, V> {
     fn drop(&mut self) {
         if let Some(key) = self.1.take() {
             let mut g = self.0.lock().unwrap();
-            // FIXME: there should be something here to make sure the value is of expected
+            // FIXME: there should be something here to make sure the value is of the expected
             // "generation", not to remove any future channels. Or then, we could just use the
             // tokio::sync::broadcast::Sender::receiver_count here to make sure we only remove an
             // unused Sender. This would however wreak havoc on the FsBlockStore::put long match in
@@ -277,7 +277,7 @@ impl BlockStore for FsBlockStore {
                     trace!("write failed but hopefully the target was removed");
                     let _ = tx
                         .send(Err(()))
-                        .expect("this cannot fail as we have at least one receiver on stack");
+                        .expect("this cannot fail as we have at least one receiver on the stack");
 
                     drop(rx);
                     drop(tx);
