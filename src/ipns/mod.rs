@@ -5,7 +5,7 @@ use crate::repo::RepoTypes;
 use crate::Ipfs;
 use libp2p::PeerId;
 
-mod dns;
+mod dnslink;
 mod entry;
 mod ipns_pb {
     include!(concat!(env!("OUT_DIR"), "/ipns_pb.rs"));
@@ -30,7 +30,7 @@ impl<Types: RepoTypes> Ipns<Types> {
                 Some(path) => Ok(path),
                 None => Err(anyhow::anyhow!("unimplemented")),
             },
-            PathRoot::Dns(domain) => Ok(dns::resolve(domain).await?),
+            PathRoot::Dns(domain) => Ok(dnslink::resolve(domain).await?),
         }
     }
 
