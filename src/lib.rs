@@ -65,7 +65,7 @@ pub use self::{
     path::IpfsPath,
     repo::{PinKind, PinMode, RepoTypes},
 };
-pub use bitswap::{BitswapEvent, Block, Stats};
+pub use bitswap::{Block, Stats};
 pub use cid::Cid;
 pub use libp2p::{
     core::{
