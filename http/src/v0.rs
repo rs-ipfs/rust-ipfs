@@ -1,3 +1,7 @@
+//! Implementation of `/api/v0` HTTP endpoints.
+//!
+//! See https://docs.ipfs.io/reference/http/api/ for more information.
+
 use ipfs::{Ipfs, IpfsTypes};
 use warp::{query, Filter};
 
