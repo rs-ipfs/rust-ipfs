@@ -415,18 +415,22 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
         let (to_task, receiver) = channel::<IpfsEvent>(1);
 
+        let facade_span = options
+            .span
+            .take()
+            .unwrap_or_else(|| tracing::trace_span!("ipfs"));
+
+        let swarm_span = tracing::trace_span!(parent: facade_span.clone(), "swarm");
+
         let ipfs = Ipfs {
-            span: options
-                .span
-                .take()
-                .unwrap_or_else(|| tracing::trace_span!("ipfs")),
-            repo,
+            span: facade_span,
+            repo: repo.clone(),
             keys: DebuggableKeypair(keys),
             to_task,
         };
 
         let swarm_options = SwarmOptions::from(&options);
-        let swarm = create_swarm(swarm_options, ipfs.clone()).await?;
+        let swarm = create_swarm(swarm_options, swarm_span, repo).await?;
 
         let IpfsOptions {
             listening_addrs, ..
