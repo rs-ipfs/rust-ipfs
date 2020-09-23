@@ -5,7 +5,6 @@ use core::convert::{TryFrom, TryInto};
 use libp2p::PeerId;
 use std::fmt;
 use std::str::FromStr;
-use thiserror::Error;
 
 // TODO: it might be useful to split this into CidPath and IpnsPath, then have Ipns resolve through
 // latter into CidPath (recursively) and have dag.rs support only CidPath. Keep IpfsPath as a
@@ -170,7 +169,7 @@ impl SlashedPath {
             Ok(())
         } else {
             self.push_split(path.split('/'))
-                .map_err(|_| IpfsPathError::InvalidPath(path.to_owned()))
+                .map_err(|_| IpfsPathError::SegmentContainsSlash(path.to_owned()))
         }
     }
 
@@ -319,14 +318,17 @@ impl TryInto<PeerId> for PathRoot {
     }
 }
 
-#[derive(Debug, Error)]
+/// The path mutation or parsing errors.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum IpfsPathError {
+    /// The given path cannot be parsed as IpfsPath.
     #[error("Invalid path {0:?}")]
     InvalidPath(String),
-    #[error("Can't resolve {path:?}")]
-    ResolveError { ipld: Ipld, path: String },
-    #[error("Expected ipld path but found ipns path.")]
-    ExpectedIpldPath,
+
+    /// Path segment contains a slash, which is not allowed.
+    #[error("Invalid segment {0:?}")]
+    SegmentContainsSlash(String),
 }
 
 #[cfg(test)]
