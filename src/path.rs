@@ -8,7 +8,8 @@ use std::fmt;
 use std::str::FromStr;
 
 /// Abstraction over Ipfs paths, which are used to target sub-trees or sub-documents on top of
-/// content addressable ([`Cid`]) trees.
+/// content addressable ([`Cid`]) trees. The most common use case is to specify a file under an
+/// unixfs tree from underneath a [`Cid`] forest.
 ///
 /// In addition to being based on content addressing, IpfsPaths provide adaptation from other Ipfs
 /// (related) functionality which can be resolved to a [`Cid`] such as IPNS. IpfsPaths have similar
