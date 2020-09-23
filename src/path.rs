@@ -10,6 +10,28 @@ use thiserror::Error;
 // TODO: it might be useful to split this into CidPath and IpnsPath, then have Ipns resolve through
 // latter into CidPath (recursively) and have dag.rs support only CidPath. Keep IpfsPath as a
 // common abstraction which can be either.
+/// Abstraction over Ipfs paths, which are used to target sub-trees
+/// or sub-documents on top of content addressable ([`Cid`]) trees.
+///
+/// In addition to being based on content addressing, IpfsPaths provide adaptation from other Ipfs
+/// (related) functionality which can be resolved to a [`Cid`] such as IPNS. IpfsPaths have similar
+/// structure to and can start with a "protocol" as [Multiaddr], except the protocols are
+/// different, and at the moment there can be at most one protocol.
+///
+/// This implementation supports:
+///
+/// - synonymous `/ipfs` and `/ipld` prefixes to point to a [`Cid`]
+/// - `/ipns` to point to either:
+///    - [`PeerId`] to signify an [IPNS] DHT record
+///    - domain name to signify an [DNSLINK] reachable record
+///
+/// See [`crate::Ipfs::resolve_ipns`] for the current IPNS resolving capabilities.
+///
+/// `IpfsPath` is usually created through the [`FromStr`] or [`From`] conversions.
+///
+/// [Multiaddr]: https://github.com/multiformats/multiaddr
+/// [IPNS]: https://github.com/ipfs/specs/blob/master/IPNS.md
+/// [DNSLINK]: https://dnslink.io/
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IpfsPath {
     root: PathRoot,
@@ -172,15 +194,18 @@ impl SlashedPath {
         Ok(())
     }
 
+    /// Returns an iterator over the path segments
     pub fn iter(&self) -> impl Iterator<Item = &String> {
         self.path.iter()
     }
 
+    /// Returns the number of segments
     pub fn len(&self) -> usize {
         // intentionally try to hide the fact that this is based on Vec<String> right now
         self.path.len()
     }
 
+    /// Returns true if len is zero
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -217,10 +242,14 @@ impl<'a> PartialEq<[&'a str]> for SlashedPath {
     }
 }
 
+/// The "protocol" of [`IpfsPath`].
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum PathRoot {
+    /// [`Cid`] based path is the simplest path, and is stable.
     Ipld(Cid),
+    /// IPNS record based path which can point to different [`Cid`] based paths at different times.
     Ipns(PeerId),
+    /// DNSLINK based path which can point to different [`Cid`] based paths at different times.
     Dns(String),
 }
 
