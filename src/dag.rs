@@ -1,3 +1,5 @@
+//! `ipfs.dag` interface implementation around [`Ipfs`].
+
 use crate::error::Error;
 use crate::ipld::{decode_ipld, encode_ipld, Ipld};
 use crate::path::{IpfsPath, SlashedPath};

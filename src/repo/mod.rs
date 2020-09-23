@@ -1,4 +1,4 @@
-//! IPFS repo
+//! Storage implementation(s) backing the [`crate::Ipfs`].
 use crate::error::Error;
 use crate::p2p::KadResult;
 use crate::path::IpfsPath;

@@ -1,3 +1,5 @@
+//! [`IpfsPath`] related functionality for content addressed paths with links.
+
 use crate::error::{Error, TryError};
 use cid::Cid;
 use core::convert::{TryFrom, TryInto};

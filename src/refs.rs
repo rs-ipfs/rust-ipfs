@@ -1,3 +1,5 @@
+//! `refs` or the references of dag-pb and other supported IPLD formats functionality.
+
 use crate::ipld::{decode_ipld, Ipld};
 use crate::{Block, Ipfs, IpfsTypes};
 use async_stream::stream;

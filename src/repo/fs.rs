@@ -1,4 +1,7 @@
-//! Persistent fs backed repo
+//! Persistent fs backed repo.
+//!
+//! Consists of [`FsDataStore`] and [`FsBlockStore`].
+
 use crate::error::Error;
 use async_trait::async_trait;
 use std::path::PathBuf;
