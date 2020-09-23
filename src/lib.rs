@@ -806,7 +806,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
-    /// Forcefully unsubscribes a previously made [`SubscriptionStream`], which could also be
+    /// Forcibly unsubscribes a previously made [`SubscriptionStream`], which could also be
     /// unsubscribed by dropping the stream.
     ///
     /// Returns true if unsubscription was successful
@@ -857,7 +857,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
-    /// Returns the known wantlist for the local node when `peer` is `None` or the given `peer`
+    /// Returns the known wantlist for the local node when the `peer` is `None` or the wantlist of the given `peer`
     pub async fn bitswap_wantlist(
         &self,
         peer: Option<PeerId>,
