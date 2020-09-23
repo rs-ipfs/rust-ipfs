@@ -208,79 +208,6 @@ impl<I: Borrow<Keypair>> DebuggableKeypair<I> {
     }
 }
 
-impl IpfsOptions {
-    pub fn new(
-        ipfs_path: PathBuf,
-        keypair: Keypair,
-        bootstrap: Vec<(Multiaddr, PeerId)>,
-        mdns: bool,
-        kad_protocol: Option<String>,
-        listening_addrs: Vec<Multiaddr>,
-        span: Option<Span>,
-    ) -> Self {
-        Self {
-            ipfs_path,
-            keypair,
-            bootstrap,
-            mdns,
-            kad_protocol,
-            listening_addrs,
-            span,
-        }
-    }
-}
-
-impl Default for IpfsOptions {
-    /// Create `IpfsOptions` from environment.
-    ///
-    /// # Panics
-    ///
-    /// Can panic if two threads call this method at the same time due to race condition on
-    /// creating a configuration file under `IPFS_PATH` and other thread failing to read the just
-    /// created empty file. Because of this, the implementation has been disabled in tests.
-    fn default() -> Self {
-        use self::config::ConfigFile;
-
-        if cfg!(test) {
-            // making this implementation conditional on `not(test)` results in multiple dead_code
-            // lints on config.rs but for rustc 1.42.0 at least having this `cfg!(test)` branch
-            // does not result in the same.
-            panic!(
-                "This implementation must not be invoked when testing as it cannot be safely
-                used from multiple threads"
-            );
-        }
-
-        let ipfs_path = if let Ok(path) = env::var("IPFS_PATH") {
-            PathBuf::from(path)
-        } else {
-            let root = if let Some(home) = dirs::home_dir() {
-                home
-            } else {
-                env::current_dir().unwrap()
-            };
-            root.join(".rust-ipfs")
-        };
-        let config_path = dirs::config_dir()
-            .unwrap()
-            .join("rust-ipfs")
-            .join("config.json");
-        let config = ConfigFile::new(config_path).unwrap();
-        let keypair = config.identity_key_pair();
-        let bootstrap = config.bootstrap();
-
-        IpfsOptions {
-            ipfs_path,
-            keypair,
-            bootstrap,
-            mdns: true,
-            kad_protocol: None,
-            listening_addrs: Vec::new(),
-            span: None,
-        }
-    }
-}
-
 /// The facade for the Ipfs node.
 ///
 /// The facade has most of the functionality either directly as a method or the functionality can
@@ -393,10 +320,6 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             options,
             repo_events,
         }
-    }
-
-    pub fn default() -> Self {
-        Self::new(IpfsOptions::default())
     }
 
     /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
@@ -1821,11 +1744,5 @@ mod tests {
         assert!(ipfs.is_pinned(&cid).await.unwrap());
         ipfs.remove_pin(&cid, false).await.unwrap();
         assert!(!ipfs.is_pinned(&cid).await.unwrap());
-    }
-
-    #[test]
-    #[should_panic]
-    fn default_ipfs_options_disabled_when_testing() {
-        IpfsOptions::default();
     }
 }
