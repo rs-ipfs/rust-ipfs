@@ -4,8 +4,7 @@ use crate::error::Error;
 use crate::ipld::{decode_ipld, encode_ipld, Ipld};
 use crate::path::{IpfsPath, SlashedPath};
 use crate::repo::RepoTypes;
-use crate::Ipfs;
-use bitswap::Block;
+use crate::{Block, Ipfs};
 use cid::{Cid, Codec, Version};
 use ipfs_unixfs::{
     dagpb::{wrap_node_data, NodeData},

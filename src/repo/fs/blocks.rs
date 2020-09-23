@@ -2,8 +2,8 @@ use super::{block_path, filestem_to_block_cid};
 use super::{BlockRm, BlockRmError, RepoCid};
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore};
+use crate::Block;
 use async_trait::async_trait;
-use bitswap::Block;
 use cid::Cid;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -434,7 +434,7 @@ fn write_through_tempfile(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitswap::Block;
+    use crate::Block;
     use cid::{Cid, Codec};
     use hex_literal::hex;
     use multihash::Sha2_256;

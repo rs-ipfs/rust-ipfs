@@ -1,8 +1,8 @@
 //! Volatile memory backed repo
 use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore, Column, DataStore, PinKind, PinMode, PinStore};
+use crate::Block;
 use async_trait::async_trait;
-use bitswap::Block;
 use cid::Cid;
 use std::convert::TryFrom;
 use std::path::PathBuf;
@@ -654,7 +654,7 @@ crate::pinstore_interface_tests!(common_tests, crate::repo::mem::MemDataStore::n
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitswap::Block;
+    use crate::Block;
     use cid::{Cid, Codec};
     use multihash::Sha2_256;
     use std::env::temp_dir;

@@ -1,9 +1,8 @@
 use crate::{
     dag::{ResolveError, UnexpectedResolved},
-    Error, Ipfs, IpfsTypes,
+    Block, Error, Ipfs, IpfsTypes,
 };
 use async_stream::stream;
-use bitswap::Block;
 use cid::Cid;
 use futures::stream::Stream;
 use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
