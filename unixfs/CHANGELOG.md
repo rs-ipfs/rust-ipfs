@@ -1,3 +1,16 @@
+# 0.2.0
+
+Minor version bump due to ipfs 0.2.0 release.
+
+* Clippy future-proofing [#316]
+* Use core and alloc crates instead of std [#331]
+* `crate::dagpb::wrap_node_data`, part of [#332]
+* minor doc fix for `crate::dir::ResolveError::UnexpectedType`, part of [#332]
+
+[#316]: https://github.com/rs-ipfs/rust-ipfs/pull/316
+[#331]: https://github.com/rs-ipfs/rust-ipfs/pull/331
+[#332]: https://github.com/rs-ipfs/rust-ipfs/pull/332
+
 # 0.1.0
 
 Minor version bump due to many new features and broken API.
