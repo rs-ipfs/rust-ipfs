@@ -20,7 +20,7 @@ type ArcMutexMap<A, B> = Arc<Mutex<HashMap<A, B>>>;
 
 /// File system backed block store.
 ///
-/// For information on path mangling, please see [`block_path`] and [`filestem_to_block_cid`].
+/// For information on path mangling, please see `block_path` and `filestem_to_block_cid`.
 #[derive(Debug)]
 pub struct FsBlockStore {
     /// The base directory under which we have a sharded directory structure, and the individual

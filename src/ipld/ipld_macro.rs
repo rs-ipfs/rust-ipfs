@@ -1,3 +1,5 @@
+/// Easy to use nested [`crate::ipld::Ipld`] creation with syntax similar to
+/// [`serde_json::json`](https://docs.rs/serde_json/1.0/serde_json/macro.json.html) macro.
 #[macro_export(local_inner_macros)]
 macro_rules! make_ipld {
     // Hide distracting implementation details from the generated rustdoc.

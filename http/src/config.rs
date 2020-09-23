@@ -1,4 +1,4 @@
-//! go-ipfs compatible configuration file handling or at least setup.
+//! go-ipfs compatible configuration file handling and setup.
 
 use parity_multiaddr::Multiaddr;
 use serde::{Deserialize, Serialize};

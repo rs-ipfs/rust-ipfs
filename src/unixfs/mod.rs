@@ -1,3 +1,8 @@
+//! Adaptation for `ipfs-unixfs` crate functionality on top of [`crate::Ipfs`].
+//!
+//! Adding files and directory structures is supported but not exposed via an API. See examples and
+//! `ipfs-http`.
+
 pub use ipfs_unixfs as ll;
 
 mod cat;

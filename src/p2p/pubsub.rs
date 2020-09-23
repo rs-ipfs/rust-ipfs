@@ -169,8 +169,10 @@ impl Pubsub {
         }
     }
 
-    /// Unsubscribes from a topic.
-    /// Returns true if an existing subscription was dropped
+    /// Unsubscribes from a topic. Unsubscription is usually done through dropping the
+    /// SubscriptionStream.
+    ///
+    /// Returns true if an existing subscription was dropped, false otherwise
     pub fn unsubscribe(&mut self, topic: impl Into<String>) -> bool {
         let topic = Topic::new(topic);
         if self.streams.remove(&topic).is_some() {

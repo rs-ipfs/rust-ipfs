@@ -1,7 +1,9 @@
-// This code was adapted from https://github.com/ipfs-rust/rust-ipld, and most of
-// its code is the same as at revision b2286c53c13f3eeec2a3766387f2926838e8e4c9;
-// it used to be a direct dependency, but recent updates to cid and multihash crates
-// made it incompatible with them.
+//! IPLD dag-json, dag-cbor and some dag-pb functionality.
+//!
+//! This code was adapted from https://github.com/ipfs-rust/rust-ipld, and most of
+//! its code is the same as at revision b2286c53c13f3eeec2a3766387f2926838e8e4c9;
+//! it used to be a direct dependency, but recent updates to cid and multihash crates
+//! made it incompatible with them.
 
 pub mod dag_cbor;
 pub mod dag_json;

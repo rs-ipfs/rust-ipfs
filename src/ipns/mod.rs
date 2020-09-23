@@ -1,3 +1,5 @@
+//! IPNS functionality around [`Ipfs`].
+
 use crate::error::Error;
 use crate::path::{IpfsPath, PathRoot};
 use crate::repo::RepoTypes;
@@ -5,6 +7,7 @@ use crate::Ipfs;
 
 mod dnslink;
 
+/// IPNS facade around [`Ipns`].
 #[derive(Clone, Debug)]
 pub struct Ipns<Types: RepoTypes> {
     ipfs: Ipfs<Types>,

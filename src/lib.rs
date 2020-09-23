@@ -1,4 +1,20 @@
 //! IPFS node implementation
+//!
+//! [Ipfs](https://ipfs.io) is a peer-to-peer system with content addressed functionality. The main
+//! entry point for users of this crate is the [`Ipfs`] facade, which allows access to most of the
+//! implemented functionality.
+//!
+//! This crate passes a lot of the [interface-ipfs-core] test suite; most of that functionality is
+//! in `ipfs-http` crate. The crate has some interoperability with the [go-ipfs] and [js-ipfs]
+//! implementations.
+//!
+//! `ipfs` is an early alpha level crate: APIs and their implementation are subject to change in
+//! any upcoming release at least for now. The aim of the crate is to become a library-first
+//! production ready implementation of an Ipfs node.
+//!
+//! [interface-ipfs-core]: https://www.npmjs.com/package/interface-ipfs-core
+//! [go-ipfs]: https://github.com/ipfs/go-ipfs/
+//! [js-ipfs]: https://github.com/ipfs/js-ipfs/
 //#![deny(missing_docs)]
 
 mod config;
@@ -65,22 +81,19 @@ pub use self::{
     path::IpfsPath,
     repo::{PinKind, PinMode, RepoTypes},
 };
-pub use bitswap::{BitswapEvent, Block, Stats};
+pub use bitswap::Block;
 pub use cid::Cid;
 pub use libp2p::{
-    core::{
-        connection::ListenerId, multiaddr::Protocol, ConnectedPoint, Multiaddr, PeerId, PublicKey,
-    },
+    core::{connection::ListenerId, multiaddr::Protocol, Multiaddr, PeerId, PublicKey},
     identity::Keypair,
     kad::{record::Key, Quorum},
 };
 
-/// All types can be changed at compile time by implementing
-/// `IpfsTypes`.
+/// Represents the configuration of the Ipfs node, its backing blockstore and datastore.
 pub trait IpfsTypes: RepoTypes {}
 impl<T: RepoTypes> IpfsTypes for T {}
 
-/// Default IPFS types.
+/// Default node configuration, currently with persistent block store and data store for pins.
 #[derive(Debug)]
 pub struct Types;
 impl RepoTypes for Types {
@@ -88,7 +101,7 @@ impl RepoTypes for Types {
     type TDataStore = repo::fs::FsDataStore;
 }
 
-/// Testing IPFS types
+/// In-memory testing configuration used in tests.
 #[derive(Debug)]
 pub struct TestTypes;
 impl RepoTypes for TestTypes {
@@ -96,27 +109,43 @@ impl RepoTypes for TestTypes {
     type TDataStore = repo::mem::MemDataStore;
 }
 
-/// Ipfs options
+/// Ipfs node options used to configure the node to be created with [`UninitializedIpfs`].
 #[derive(Clone)]
 pub struct IpfsOptions {
-    /// The path of the ipfs repo.
+    /// The path of the ipfs repo (blockstore and datastore).
+    ///
+    /// This is always required but can be any path with in-memory backends. The filesystem backend
+    /// creates a directory structure alike but not compatible to other ipfs implementations.
+    ///
+    /// # Incompatiblity and interop warning
+    ///
+    /// It is **not** recommended to set this to IPFS_PATH without first at least backing up your
+    /// existing repository.
     pub ipfs_path: PathBuf,
-    /// The keypair used with libp2p.
+
+    /// The keypair used with libp2p, the identity of the node.
     pub keypair: Keypair,
-    /// Nodes dialed during startup.
+
+    /// Nodes used as bootstrap peers.
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
-    /// Enables mdns for peer discovery when true.
+
+    /// Enables mdns for peer discovery and announcement when true.
     pub mdns: bool,
+
     /// Custom Kademlia protocol name.
+    ///
+    /// The name given here is passed to [`libp2p_kad::KademliaConfig::set_protocol_name`].
+    ///
+    /// [`libp2p_kad::KademliaConfig::set_protocol_name`]: https://docs.rs/libp2p-kad/*/libp2p_kad/struct.KademliaConfig.html##method.set_protocol_name
     pub kad_protocol: Option<String>,
-    /// Custom listening addresses.
+    /// Bound listening addresses; by default the node will not listen on any address.
     pub listening_addrs: Vec<Multiaddr>,
 }
 
 impl fmt::Debug for IpfsOptions {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         // needed since libp2p::identity::Keypair does not have a Debug impl, and the IpfsOptions
-        // is a struct with all public fields, so don't enforce users to use this wrapper.
+        // is a struct with all public fields, don't enforce users to use this wrapper.
         fmt.debug_struct("IpfsOptions")
             .field("ipfs_path", &self.ipfs_path)
             .field("bootstrap", &self.bootstrap)
@@ -129,7 +158,9 @@ impl fmt::Debug for IpfsOptions {
 }
 
 impl IpfsOptions {
-    /// Creates an inmemory store backed node for tests
+    /// Creates an in-memory store backed configuration useful for any testing purposes.
+    ///
+    /// Also used from examples.
     pub fn inmemory_with_generated_keys() -> Self {
         Self {
             ipfs_path: env::temp_dir(),
@@ -236,6 +267,13 @@ impl Default for IpfsOptions {
     }
 }
 
+/// The facade for the Ipfs node.
+///
+/// The facade has most of the functionality either directly as a method or the functionality can
+/// be implemented using the provided methods. For more information, see examples or the HTTP
+/// endpoint implementations in `ipfs-http`.
+///
+/// The facade is created through [`UninitializedIpfs`] which is configured with [`IpfsOptions`].
 #[derive(Debug)]
 pub struct Ipfs<Types: IpfsTypes>(Arc<IpfsInner<Types>>);
 
@@ -245,9 +283,9 @@ impl<Types: IpfsTypes> Clone for Ipfs<Types> {
     }
 }
 
-/// Ipfs struct creates a new IPFS node and is the main entry point
-/// for interacting with IPFS.
+/// The internal shared implementation of [`Ipfs`].
 #[derive(Debug)]
+#[doc(hidden)]
 pub struct IpfsInner<Types: IpfsTypes> {
     pub span: Span,
     repo: Repo<Types>,
@@ -315,7 +353,7 @@ enum IpfsEvent {
     Exit,
 }
 
-/// Configured Ipfs instace or value which can be only initialized.
+/// Configured Ipfs which can only be started.
 pub struct UninitializedIpfs<Types: IpfsTypes> {
     repo: Repo<Types>,
     span: Span,
@@ -405,6 +443,7 @@ impl<Types: IpfsTypes> Deref for Ipfs<Types> {
 }
 
 impl<Types: IpfsTypes> Ipfs<Types> {
+    /// Return an [`IpldDag`] for DAG operations
     pub fn dag(&self) -> IpldDag<Types> {
         IpldDag::new(self.clone())
     }
@@ -529,27 +568,28 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
-    /// Checks whether a given block is pinned. At the moment does not support incomplete recursive
-    /// pins.
+    /// Checks whether a given block is pinned.
     ///
     /// Returns true if the block is pinned, false if not. See Crash unsafety notes for the false
     /// response.
     ///
     /// # Crash unsafety
     ///
-    /// Cannot detect partially written recursive pins. Those can happen if `Ipfs::insert_pin(cid,
-    /// recursive: true)` is interrupted by a crash for example.
+    /// Cannot currently detect partially written recursive pins. Those can happen if
+    /// `Ipfs::insert_pin(cid, true)` is interrupted by a crash for example.
     ///
     /// Works correctly only under no-crash situations. Workaround for hitting a crash is to re-pin
     /// any existing recursive pins.
     ///
-    /// TODO: This operation could be provided as a `Ipfs::fix_pins()`.
+    // TODO: This operation could be provided as a `Ipfs::fix_pins()`.
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
         let span = debug_span!(parent: &self.span, "is_pinned", cid = %cid);
         self.repo.is_pinned(cid).instrument(span).await
     }
 
     /// Lists all pins, or the specific kind thereof.
+    ///
+    /// # Crash unsafety
     ///
     /// Does not currently recover from partial recursive pin insertions.
     pub async fn list_pins(
@@ -561,7 +601,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Read specific pins. When `requirement` is `Some`, all pins are required to be of the given
-    /// `PinMode`.
+    /// [`PinMode`].
+    ///
+    /// # Crash unsafety
     ///
     /// Does not currently recover from partial recursive pin insertions.
     pub async fn query_pins(
@@ -576,7 +618,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .await
     }
 
-    /// Puts an ipld dag node into the ipfs repo.
+    /// Puts an ipld node into the ipfs repo using `dag-cbor` codec and Sha2_256 hash.
+    ///
+    /// Returns Cid version 1 for the document
     pub async fn put_dag(&self, ipld: Ipld) -> Result<Cid, Error> {
         self.dag()
             .put(ipld, Codec::DagCBOR)
@@ -584,7 +628,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             .await
     }
 
-    /// Gets an ipld dag node from the ipfs repo.
+    /// Gets an ipld node from the ipfs, fetching the block if necessary.
+    ///
+    /// See [`IpldDag::get`] for more information.
     pub async fn get_dag(&self, path: IpfsPath) -> Result<Ipld, Error> {
         self.dag()
             .get(path)
@@ -637,6 +683,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Connects to the peer at the given Multiaddress.
+    ///
+    /// Accepts only multiaddresses with the PeerId to authenticate the connection.
+    ///
+    /// Returns a future which will complete when the connection has been successfully made or
+    /// failed for whatever reason.
     pub async fn connect(&self, target: MultiaddrWithPeerId) -> Result<(), Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -656,6 +708,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Returns known peer addresses
     pub async fn addrs(&self) -> Result<Vec<(PeerId, Vec<Multiaddr>)>, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -666,6 +719,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Returns local listening addresses
     pub async fn addrs_local(&self) -> Result<Vec<Multiaddr>, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -676,6 +730,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Returns the connected peers
     pub async fn peers(&self) -> Result<Vec<Connection>, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -689,6 +744,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Disconnects a given peer.
+    ///
+    /// At the moment the peer is disconnected by temporarily banning the peer and unbanning it
+    /// right after. This should always disconnect all connections to the peer.
     pub async fn disconnect(&self, target: MultiaddrWithPeerId) -> Result<(), Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -730,7 +789,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
     /// The subscription can be unsubscribed by dropping the stream or calling
-    /// [`pubsub_unsubscribe`].
+    /// [`Ipfs::pubsub_unsubscribe`].
     pub async fn pubsub_subscribe(&self, topic: String) -> Result<SubscriptionStream, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -763,6 +822,9 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Forcibly unsubscribes a previously made [`SubscriptionStream`], which could also be
+    /// unsubscribed by dropping the stream.
+    ///
     /// Returns true if unsubscription was successful
     pub async fn pubsub_unsubscribe(&self, topic: &str) -> Result<bool, Error> {
         async move {
@@ -811,6 +873,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Returns the known wantlist for the local node when the `peer` is `None` or the wantlist of the given `peer`
     pub async fn bitswap_wantlist(
         &self,
         peer: Option<PeerId>,
@@ -829,10 +892,15 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         .await
     }
 
+    /// Returns a list of local blocks
+    ///
+    /// This implementation is subject to change into a stream, which might only include the pinned
+    /// blocks.
     pub async fn refs_local(&self) -> Result<Vec<Cid>, Error> {
         self.repo.list_blocks().instrument(self.span.clone()).await
     }
 
+    /// Returns the accumulated bitswap stats
     pub async fn bitswap_stats(&self) -> Result<BitswapStats, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -933,6 +1001,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Performs a DHT lookup for providers of a value to the given key.
+    ///
+    /// Returns a list of peers found providing the Cid.
     pub async fn get_providers(&self, cid: Cid) -> Result<Vec<PeerId>, Error> {
         let kad_result = async move {
             let (tx, rx) = oneshot_channel();
@@ -1548,15 +1618,24 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
     }
 }
 
+/// Bitswap statistics
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BitswapStats {
+    /// The number of IPFS blocks sent to other peers
     pub blocks_sent: u64,
+    /// The number of bytes sent in IPFS blocks to other peers
     pub data_sent: u64,
+    /// The number of IPFS blocks received from other peers
     pub blocks_received: u64,
+    /// The number of bytes received in IPFS blocks from other peers
     pub data_received: u64,
+    /// Duplicate blocks received (the block had already been received previously)
     pub dup_blks_received: u64,
+    /// The number of bytes in duplicate blocks received
     pub dup_data_received: u64,
+    /// The current peers
     pub peers: Vec<PeerId>,
+    /// The wantlist of the local node
     pub wantlist: Vec<(Cid, bitswap::Priority)>,
 }
 
@@ -1580,6 +1659,7 @@ impl From<(bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>)> for Bits
 #[doc(hidden)]
 pub use node::Node;
 
+/// Node module provides an easy to use interface used in `tests/`.
 mod node {
     use super::*;
     use std::convert::TryFrom;

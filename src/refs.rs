@@ -1,3 +1,5 @@
+//! `refs` or the references of dag-pb and other supported IPLD formats functionality.
+
 use crate::ipld::{decode_ipld, Ipld};
 use crate::{Block, Ipfs, IpfsTypes};
 use async_stream::stream;
@@ -11,7 +13,7 @@ use std::fmt;
 /// Represents a single link in an IPLD tree encountered during a `refs` walk.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Edge {
-    /// Source document which links to [`destination`]
+    /// Source document which links to [`Edge::destination`]
     pub source: Cid,
     /// The destination document
     pub destination: Cid,

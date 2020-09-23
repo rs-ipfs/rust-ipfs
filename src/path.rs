@@ -1,12 +1,35 @@
+//! [`IpfsPath`] related functionality for content addressed paths with links.
+
 use crate::error::{Error, TryError};
-use crate::ipld::Ipld;
 use cid::Cid;
 use core::convert::{TryFrom, TryInto};
 use libp2p::PeerId;
 use std::fmt;
 use std::str::FromStr;
-use thiserror::Error;
 
+/// Abstraction over Ipfs paths, which are used to target sub-trees or sub-documents on top of
+/// content addressable ([`Cid`]) trees. The most common use case is to specify a file under an
+/// unixfs tree from underneath a [`Cid`] forest.
+///
+/// In addition to being based on content addressing, IpfsPaths provide adaptation from other Ipfs
+/// (related) functionality which can be resolved to a [`Cid`] such as IPNS. IpfsPaths have similar
+/// structure to and can start with a "protocol" as [Multiaddr], except the protocols are
+/// different, and at the moment there can be at most one protocol.
+///
+/// This implementation supports:
+///
+/// - synonymous `/ipfs` and `/ipld` prefixes to point to a [`Cid`]
+/// - `/ipns` to point to either:
+///    - [`PeerId`] to signify an [IPNS] DHT record
+///    - domain name to signify an [DNSLINK] reachable record
+///
+/// See [`crate::Ipfs::resolve_ipns`] for the current IPNS resolving capabilities.
+///
+/// `IpfsPath` is usually created through the [`FromStr`] or [`From`] conversions.
+///
+/// [Multiaddr]: https://github.com/multiformats/multiaddr
+/// [IPNS]: https://github.com/ipfs/specs/blob/master/IPNS.md
+/// [DNSLINK]: https://dnslink.io/
 // TODO: it might be useful to split this into CidPath and IpnsPath, then have Ipns resolve through
 // latter into CidPath (recursively) and have dag.rs support only CidPath. Keep IpfsPath as a
 // common abstraction which can be either.
@@ -38,7 +61,6 @@ impl FromStr for IpfsPath {
                     None => PathRoot::Dns(key.to_string()),
                 },
                 _ => {
-                    //todo!("empty: {:?}, root: {:?}, key: {:?}", empty, root_type, key);
                     return Err(IpfsPathError::InvalidPath(string.to_owned()).into());
                 }
             }
@@ -64,24 +86,17 @@ impl IpfsPath {
         &self.root
     }
 
-    pub fn set_root(&mut self, root: PathRoot) {
-        self.root = root;
-    }
-
-    pub fn push_str(&mut self, string: &str) -> Result<(), Error> {
+    pub(crate) fn push_str(&mut self, string: &str) -> Result<(), Error> {
         self.path.push_path(string)?;
         Ok(())
     }
 
-    pub fn sub_path(&self, string: &str) -> Result<Self, Error> {
+    /// Returns a new [`IpfsPath`] with the given path segments appended, or an error, if a segment is
+    /// invalid.
+    pub fn sub_path(&self, segments: &str) -> Result<Self, Error> {
         let mut path = self.to_owned();
-        path.push_str(string)?;
+        path.push_str(segments)?;
         Ok(path)
-    }
-
-    pub fn into_sub_path(mut self, string: &str) -> Result<Self, Error> {
-        self.push_str(string)?;
-        Ok(self)
     }
 
     /// Returns an iterator over the path segments following the root
@@ -148,7 +163,7 @@ impl SlashedPath {
             Ok(())
         } else {
             self.push_split(path.split('/'))
-                .map_err(|_| IpfsPathError::InvalidPath(path.to_owned()))
+                .map_err(|_| IpfsPathError::SegmentContainsSlash(path.to_owned()))
         }
     }
 
@@ -172,15 +187,18 @@ impl SlashedPath {
         Ok(())
     }
 
+    /// Returns an iterator over the path segments
     pub fn iter(&self) -> impl Iterator<Item = &String> {
         self.path.iter()
     }
 
+    /// Returns the number of segments
     pub fn len(&self) -> usize {
         // intentionally try to hide the fact that this is based on Vec<String> right now
         self.path.len()
     }
 
+    /// Returns true if len is zero
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -217,10 +235,14 @@ impl<'a> PartialEq<[&'a str]> for SlashedPath {
     }
 }
 
+/// The "protocol" of [`IpfsPath`].
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum PathRoot {
+    /// [`Cid`] based path is the simplest path, and is stable.
     Ipld(Cid),
+    /// IPNS record based path which can point to different [`Cid`] based paths at different times.
     Ipns(PeerId),
+    /// DNSLINK based path which can point to different [`Cid`] based paths at different times.
     Dns(String),
 }
 
@@ -237,39 +259,10 @@ impl fmt::Debug for PathRoot {
 }
 
 impl PathRoot {
-    pub fn is_ipld(&self) -> bool {
-        matches!(self, PathRoot::Ipld(_))
-    }
-
-    pub fn is_ipns(&self) -> bool {
-        matches!(self, PathRoot::Ipns(_))
-    }
-
     pub fn cid(&self) -> Option<&Cid> {
         match self {
             PathRoot::Ipld(cid) => Some(cid),
             _ => None,
-        }
-    }
-
-    pub fn peer_id(&self) -> Option<&PeerId> {
-        match self {
-            PathRoot::Ipns(peer_id) => Some(peer_id),
-            _ => None,
-        }
-    }
-
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.into()
-    }
-}
-
-impl Into<Vec<u8>> for &PathRoot {
-    fn into(self) -> Vec<u8> {
-        match self {
-            PathRoot::Ipld(cid) => cid.to_bytes(),
-            PathRoot::Ipns(peer_id) => peer_id.as_bytes().to_vec(),
-            PathRoot::Dns(domain) => domain.as_bytes().to_vec(),
         }
     }
 }
@@ -319,14 +312,17 @@ impl TryInto<PeerId> for PathRoot {
     }
 }
 
-#[derive(Debug, Error)]
+/// The path mutation or parsing errors.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum IpfsPathError {
+    /// The given path cannot be parsed as IpfsPath.
     #[error("Invalid path {0:?}")]
     InvalidPath(String),
-    #[error("Can't resolve {path:?}")]
-    ResolveError { ipld: Ipld, path: String },
-    #[error("Expected ipld path but found ipns path.")]
-    ExpectedIpldPath,
+
+    /// Path segment contains a slash, which is not allowed.
+    #[error("Invalid segment {0:?}")]
+    SegmentContainsSlash(String),
 }
 
 #[cfg(test)]

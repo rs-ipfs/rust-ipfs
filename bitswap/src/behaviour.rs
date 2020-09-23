@@ -26,6 +26,7 @@ use std::{
     },
 };
 
+/// Event used to communicate with the swarm or the higher level behaviour.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BitswapEvent {
     ReceivedBlock(PeerId, Block),
@@ -33,6 +34,7 @@ pub enum BitswapEvent {
     ReceivedCancel(PeerId, Cid),
 }
 
+/// Bitswap statistics.
 #[derive(Debug, Default)]
 pub struct Stats {
     pub sent_blocks: AtomicU64,

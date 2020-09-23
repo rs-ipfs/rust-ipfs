@@ -1,3 +1,5 @@
+//! `ipfs.dag` interface implementation around [`Ipfs`].
+
 use crate::error::Error;
 use crate::ipld::{decode_ipld, encode_ipld, Ipld};
 use crate::path::{IpfsPath, SlashedPath};
@@ -854,7 +856,7 @@ mod tests {
         // FIXME: validate that go-ipfs still does this
         let equiv_paths = vec![
             prefix.sub_path("0/0").unwrap(),
-            prefix.into_sub_path("0/./0").unwrap(),
+            prefix.sub_path("0/./0").unwrap(),
         ];
 
         for p in equiv_paths {
