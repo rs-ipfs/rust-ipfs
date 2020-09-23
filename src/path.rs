@@ -5,11 +5,8 @@ use libp2p::PeerId;
 use std::fmt;
 use std::str::FromStr;
 
-// TODO: it might be useful to split this into CidPath and IpnsPath, then have Ipns resolve through
-// latter into CidPath (recursively) and have dag.rs support only CidPath. Keep IpfsPath as a
-// common abstraction which can be either.
-/// Abstraction over Ipfs paths, which are used to target sub-trees
-/// or sub-documents on top of content addressable ([`Cid`]) trees.
+/// Abstraction over Ipfs paths, which are used to target sub-trees or sub-documents on top of
+/// content addressable ([`Cid`]) trees.
 ///
 /// In addition to being based on content addressing, IpfsPaths provide adaptation from other Ipfs
 /// (related) functionality which can be resolved to a [`Cid`] such as IPNS. IpfsPaths have similar
@@ -30,6 +27,9 @@ use std::str::FromStr;
 /// [Multiaddr]: https://github.com/multiformats/multiaddr
 /// [IPNS]: https://github.com/ipfs/specs/blob/master/IPNS.md
 /// [DNSLINK]: https://dnslink.io/
+// TODO: it might be useful to split this into CidPath and IpnsPath, then have Ipns resolve through
+// latter into CidPath (recursively) and have dag.rs support only CidPath. Keep IpfsPath as a
+// common abstraction which can be either.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IpfsPath {
     root: PathRoot,
@@ -58,7 +58,6 @@ impl FromStr for IpfsPath {
                     None => PathRoot::Dns(key.to_string()),
                 },
                 _ => {
-                    //todo!("empty: {:?}, root: {:?}, key: {:?}", empty, root_type, key);
                     return Err(IpfsPathError::InvalidPath(string.to_owned()).into());
                 }
             }
