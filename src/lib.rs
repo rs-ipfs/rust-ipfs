@@ -81,8 +81,8 @@ pub use self::{
     path::IpfsPath,
     repo::{PinKind, PinMode, RepoTypes},
 };
-pub use bitswap::Block;
 pub use cid::Cid;
+pub use ipfs_bitswap::Block;
 pub use libp2p::{
     core::{connection::ListenerId, multiaddr::Protocol, Multiaddr, PeerId, PublicKey},
     identity::Keypair,
@@ -260,7 +260,10 @@ enum IpfsEvent {
     PubsubPublish(String, Vec<u8>, OneshotSender<()>),
     PubsubPeers(Option<String>, OneshotSender<Vec<PeerId>>),
     PubsubSubscribed(OneshotSender<Vec<String>>),
-    WantList(Option<PeerId>, OneshotSender<Vec<(Cid, bitswap::Priority)>>),
+    WantList(
+        Option<PeerId>,
+        OneshotSender<Vec<(Cid, ipfs_bitswap::Priority)>>,
+    ),
     BitswapStats(OneshotSender<BitswapStats>),
     AddListeningAddress(Multiaddr, Channel<Multiaddr>),
     RemoveListeningAddress(Multiaddr, Channel<()>),
@@ -809,7 +812,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     pub async fn bitswap_wantlist(
         &self,
         peer: Option<PeerId>,
-    ) -> Result<Vec<(Cid, bitswap::Priority)>, Error> {
+    ) -> Result<Vec<(Cid, ipfs_bitswap::Priority)>, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
 
@@ -1568,12 +1571,22 @@ pub struct BitswapStats {
     /// The current peers
     pub peers: Vec<PeerId>,
     /// The wantlist of the local node
-    pub wantlist: Vec<(Cid, bitswap::Priority)>,
+    pub wantlist: Vec<(Cid, ipfs_bitswap::Priority)>,
 }
 
-impl From<(bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>)> for BitswapStats {
+impl
+    From<(
+        ipfs_bitswap::Stats,
+        Vec<PeerId>,
+        Vec<(Cid, ipfs_bitswap::Priority)>,
+    )> for BitswapStats
+{
     fn from(
-        (stats, peers, wantlist): (bitswap::Stats, Vec<PeerId>, Vec<(Cid, bitswap::Priority)>),
+        (stats, peers, wantlist): (
+            ipfs_bitswap::Stats,
+            Vec<PeerId>,
+            Vec<(Cid, ipfs_bitswap::Priority)>,
+        ),
     ) -> Self {
         BitswapStats {
             blocks_sent: stats.sent_blocks.load(Ordering::Relaxed),

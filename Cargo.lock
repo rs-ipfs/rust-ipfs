@@ -174,24 +174,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
-name = "bitswap"
-version = "0.1.0"
-dependencies = [
- "cid",
- "fnv",
- "futures",
- "libp2p-core",
- "libp2p-swarm",
- "multihash",
- "prost",
- "prost-build",
- "thiserror",
- "tokio",
- "tracing",
- "unsigned-varint 0.3.3",
-]
-
-[[package]]
 name = "blake2"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1198,7 +1180,6 @@ dependencies = [
  "async-stream",
  "async-trait",
  "base64",
- "bitswap",
  "byteorder 1.3.4",
  "bytes",
  "cid",
@@ -1209,6 +1190,7 @@ dependencies = [
  "futures",
  "hex-literal",
  "ipconfig",
+ "ipfs-bitswap",
  "ipfs-unixfs",
  "libp2p",
  "multibase",
@@ -1226,6 +1208,24 @@ dependencies = [
  "tracing-futures",
  "tracing-subscriber",
  "void",
+]
+
+[[package]]
+name = "ipfs-bitswap"
+version = "0.1.0"
+dependencies = [
+ "cid",
+ "fnv",
+ "futures",
+ "libp2p-core",
+ "libp2p-swarm",
+ "multihash",
+ "prost",
+ "prost-build",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "unsigned-varint 0.3.3",
 ]
 
 [[package]]
