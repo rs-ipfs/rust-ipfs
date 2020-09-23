@@ -1,4 +1,4 @@
-//! Crate wide errors.
+//! Crate-wide errors.
 //!
 //! The error handling in `ipfs` is subject to change in the future.
 
