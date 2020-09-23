@@ -1,4 +1,20 @@
 //! IPFS node implementation
+//!
+//! [Ipfs](https://ipfs.io) is a peer-to-peer system with content addressed functionality. The main
+//! entry point for users of this crate is the [`Ipfs`] facade, which allows access to most of the
+//! implemented functionality.
+//!
+//! This crate passes a lot of the [interface-ipfs-core] test suite; most of that functionality is
+//! in `ipfs-http` crate. The crate has some interoperability with the [go-ipfs] and [js-ipfs]
+//! implementations.
+//!
+//! `ipfs` is an early alpha level crate: APIs and their implementation are subject to change in
+//! any upcoming release at least for now. The aim of the crate is to become a library-first
+//! production ready implementation of an Ipfs node.
+//!
+//! [interface-ipfs-core]: https://www.npmjs.com/package/interface-ipfs-core
+//! [go-ipfs]: https://github.com/ipfs/go-ipfs/
+//! [js-ipfs]: https://github.com/ipfs/js-ipfs/
 //#![deny(missing_docs)]
 
 mod config;
