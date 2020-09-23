@@ -1,5 +1,4 @@
 use crate::error::{Error, TryError};
-use crate::ipld::Ipld;
 use cid::Cid;
 use core::convert::{TryFrom, TryInto};
 use libp2p::PeerId;
