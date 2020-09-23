@@ -22,12 +22,12 @@ mod paths;
 use paths::{block_path, filestem_to_block_cid, filestem_to_pin_cid, pin_path};
 
 /// FsDataStore which uses the filesystem as a lockable key-value store. Maintains a similar to
-/// blockstore sharded two level storage. Direct have empty files, recursive pins record all of
+/// [`FsBlockStore`] sharded two level storage. Direct have empty files, recursive pins record all of
 /// their indirect descendants. Pin files are separated by their file extensions.
 ///
-/// When modifying, single write lock is used.
+/// When modifying, single lock is used.
 ///
-/// For the PinStore implementation, please see `fs/pinstore.rs`.
+/// For the [`PinStore`] implementation, please see `fs/pinstore.rs`.
 #[derive(Debug)]
 pub struct FsDataStore {
     /// The base directory under which we have a sharded directory structure, and the individual
