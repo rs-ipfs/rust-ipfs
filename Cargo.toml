@@ -3,7 +3,10 @@ authors = ["Rust-IPFS contributors"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
 name = "ipfs"
-version = "0.1.0"
+readme = "README.md"
+repository = "https://github.com/rs-ipfs/rust-ipfs"
+description = "IPFS node implementation"
+version = "0.2.0"
 
 [features]
 default = []
@@ -15,7 +18,7 @@ anyhow = { default-features = false, version = "1.0" }
 async-stream = { default-features = false, version = "0.3" }
 async-trait = { default-features = false, version = "0.1" }
 base64 = { default-features = false, features = ["alloc"], version = "0.12" }
-ipfs-bitswap = { path = "bitswap" }
+ipfs-bitswap = { version = "0.1", path = "bitswap" }
 byteorder = { default-features = false, version = "1.3" }
 bytes = { default-features = false, version = "0.5" }
 cid = { default-features = false, version = "0.5" }
@@ -24,7 +27,7 @@ domain = { default-features = false, version = "0.5" }
 domain-resolv = { default-features = false, version = "0.5" }
 either = { default-features = false, version = "1.5" }
 futures = { default-features = false, version = "0.3.5", features = ["alloc", "std"] }
-ipfs-unixfs = { path = "unixfs" }
+ipfs-unixfs = { version = "0.2", path = "unixfs" }
 libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-tokio", "mdns-tokio", "mplex", "noise", "ping", "yamux", "dns"], version = "0.28" }
 multibase = { default-features = false, version = "0.8" }
 multihash = { default-features = false, version = "0.11" }
