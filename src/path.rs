@@ -84,24 +84,17 @@ impl IpfsPath {
         &self.root
     }
 
-    pub fn set_root(&mut self, root: PathRoot) {
-        self.root = root;
-    }
-
-    pub fn push_str(&mut self, string: &str) -> Result<(), Error> {
+    pub(crate) fn push_str(&mut self, string: &str) -> Result<(), Error> {
         self.path.push_path(string)?;
         Ok(())
     }
 
-    pub fn sub_path(&self, string: &str) -> Result<Self, Error> {
+    /// Returns a new [`IpfsPath`] with the given path segments appended, or an error, if a segment is
+    /// invalid.
+    pub fn sub_path(&self, segments: &str) -> Result<Self, Error> {
         let mut path = self.to_owned();
-        path.push_str(string)?;
+        path.push_str(segments)?;
         Ok(path)
-    }
-
-    pub fn into_sub_path(mut self, string: &str) -> Result<Self, Error> {
-        self.push_str(string)?;
-        Ok(self)
     }
 
     /// Returns an iterator over the path segments following the root

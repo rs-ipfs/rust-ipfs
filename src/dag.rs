@@ -854,7 +854,7 @@ mod tests {
         // FIXME: validate that go-ipfs still does this
         let equiv_paths = vec![
             prefix.sub_path("0/0").unwrap(),
-            prefix.into_sub_path("0/./0").unwrap(),
+            prefix.sub_path("0/./0").unwrap(),
         ];
 
         for p in equiv_paths {
