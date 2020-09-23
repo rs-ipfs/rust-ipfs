@@ -15,7 +15,7 @@ anyhow = { default-features = false, version = "1.0" }
 async-stream = { default-features = false, version = "0.3" }
 async-trait = { default-features = false, version = "0.1" }
 base64 = { default-features = false, features = ["alloc"], version = "0.12" }
-bitswap = { path = "bitswap" }
+ipfs-bitswap = { path = "bitswap" }
 byteorder = { default-features = false, version = "1.3" }
 bytes = { default-features = false, version = "0.5" }
 cid = { default-features = false, version = "0.5" }

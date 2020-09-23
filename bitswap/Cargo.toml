@@ -1,7 +1,7 @@
 [package]
 authors = ["Rust-IPFS contributors"]
 edition = "2018"
-name = "bitswap"
+name = "ipfs-bitswap"
 version = "0.1.0"
 
 [build-dependencies]
