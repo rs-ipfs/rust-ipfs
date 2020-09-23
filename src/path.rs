@@ -266,39 +266,10 @@ impl fmt::Debug for PathRoot {
 }
 
 impl PathRoot {
-    pub fn is_ipld(&self) -> bool {
-        matches!(self, PathRoot::Ipld(_))
-    }
-
-    pub fn is_ipns(&self) -> bool {
-        matches!(self, PathRoot::Ipns(_))
-    }
-
     pub fn cid(&self) -> Option<&Cid> {
         match self {
             PathRoot::Ipld(cid) => Some(cid),
             _ => None,
-        }
-    }
-
-    pub fn peer_id(&self) -> Option<&PeerId> {
-        match self {
-            PathRoot::Ipns(peer_id) => Some(peer_id),
-            _ => None,
-        }
-    }
-
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.into()
-    }
-}
-
-impl Into<Vec<u8>> for &PathRoot {
-    fn into(self) -> Vec<u8> {
-        match self {
-            PathRoot::Ipld(cid) => cid.to_bytes(),
-            PathRoot::Ipns(peer_id) => peer_id.as_bytes().to_vec(),
-            PathRoot::Dns(domain) => domain.as_bytes().to_vec(),
         }
     }
 }
