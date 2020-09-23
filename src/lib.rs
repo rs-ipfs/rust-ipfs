@@ -93,27 +93,43 @@ impl RepoTypes for TestTypes {
     type TDataStore = repo::mem::MemDataStore;
 }
 
-/// Ipfs node options.
+/// Ipfs node options used to configure the node to be created with [`UninitializedIpfs`].
 #[derive(Clone)]
 pub struct IpfsOptions {
-    /// The path of the ipfs repo.
+    /// The path of the ipfs repo (blockstore and datastore).
+    ///
+    /// This is always required but can be any path with in-memory backends. The filesystem backend
+    /// creates a directory structure alike but not compatible to other ipfs implementations.
+    ///
+    /// # Incompatiblity and interop warning
+    ///
+    /// It is **not** recommended to set this to IPFS_PATH without first at least backing up your
+    /// existing repository.
     pub ipfs_path: PathBuf,
-    /// The keypair used with libp2p.
+
+    /// The keypair used with libp2p, the identity of the node.
     pub keypair: Keypair,
-    /// Nodes dialed during startup.
+
+    /// Nodes used as bootstrap peers.
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
-    /// Enables mdns for peer discovery when true.
+
+    /// Enables mdns for peer discovery and announcement when true.
     pub mdns: bool,
+
     /// Custom Kademlia protocol name.
+    ///
+    /// The name given here is passed to [`libp2p_kad::KademliaConfig::set_protocol_name`].
+    ///
+    /// [`libp2p_kad::KademliaConfig::set_protocol_name`]: https://docs.rs/libp2p-kad/*/libp2p_kad/struct.KademliaConfig.html##method.set_protocol_name
     pub kad_protocol: Option<String>,
-    /// Custom listening addresses.
+    /// Bound listening addresses; by default the node will not listen on any address.
     pub listening_addrs: Vec<Multiaddr>,
 }
 
 impl fmt::Debug for IpfsOptions {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         // needed since libp2p::identity::Keypair does not have a Debug impl, and the IpfsOptions
-        // is a struct with all public fields, so don't enforce users to use this wrapper.
+        // is a struct with all public fields, don't enforce users to use this wrapper.
         fmt.debug_struct("IpfsOptions")
             .field("ipfs_path", &self.ipfs_path)
             .field("bootstrap", &self.bootstrap)
@@ -126,7 +142,9 @@ impl fmt::Debug for IpfsOptions {
 }
 
 impl IpfsOptions {
-    /// Creates an in-memory store backed configuration
+    /// Creates an in-memory store backed configuration useful for any testing purposes.
+    ///
+    /// Also used from examples.
     pub fn inmemory_with_generated_keys() -> Self {
         Self {
             ipfs_path: env::temp_dir(),
