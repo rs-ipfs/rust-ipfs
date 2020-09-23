@@ -1,5 +1,5 @@
 use futures::join;
-use ipfs::{make_ipld, Ipfs, IpfsPath, Types, UninitializedIpfs};
+use ipfs::{make_ipld, Ipfs, IpfsOptions, IpfsPath, TestTypes, UninitializedIpfs};
 use tokio::task;
 
 #[tokio::main]
@@ -7,7 +7,8 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     // Initialize the repo and start a daemon
-    let (ipfs, fut): (Ipfs<Types>, _) = UninitializedIpfs::default().await.start().await.unwrap();
+    let opts = IpfsOptions::inmemory_with_generated_keys();
+    let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts).start().await.unwrap();
     task::spawn(fut);
 
     // Create a DAG
