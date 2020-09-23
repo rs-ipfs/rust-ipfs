@@ -27,7 +27,7 @@ use paths::{block_path, filestem_to_block_cid, filestem_to_pin_cid, pin_path};
 ///
 /// When modifying, single lock is used.
 ///
-/// For the [`PinStore`] implementation, please see `fs/pinstore.rs`.
+/// For the [`crate::repo::PinStore`] implementation see `fs/pinstore.rs`.
 #[derive(Debug)]
 pub struct FsDataStore {
     /// The base directory under which we have a sharded directory structure, and the individual
