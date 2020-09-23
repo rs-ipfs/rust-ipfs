@@ -132,7 +132,8 @@ pub struct IpfsOptions {
     /// Enables mdns for peer discovery and announcement when true.
     pub mdns: bool,
 
-    /// Custom Kademlia protocol name.
+    /// Custom Kademlia protocol name. When set to `None`, the global DHT name is used instead of
+    /// the LAN dht name.
     ///
     /// The name given here is passed to [`libp2p_kad::KademliaConfig::set_protocol_name`].
     ///
