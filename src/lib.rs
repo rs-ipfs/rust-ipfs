@@ -142,8 +142,9 @@ pub struct IpfsOptions {
     /// Bound listening addresses; by default the node will not listen on any address.
     pub listening_addrs: Vec<Multiaddr>,
 
-    /// The span for tracing purposes.
-    span: Option<Span>,
+    /// The span for tracing purposes. All futures returned by `Ipfs`, background task actions and
+    /// swarm actions are instrumented with this span or spans referring to this as their parent.
+    pub span: Option<Span>,
 }
 
 impl fmt::Debug for IpfsOptions {
