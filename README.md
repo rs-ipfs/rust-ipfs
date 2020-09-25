@@ -111,7 +111,7 @@ Special thanks to the Web3 Foundation and Protocol Labs for their devgrant suppo
 
 ## Maintainers
 
-Rust IPFS was originally authored by @dvc94ch and now actively maintained by @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol), [Equilibrium](https://github.com/eqlabs), and [MRH.io](https://mrh.io).
+Rust IPFS was originally authored by @dvc94ch and now actively maintained by @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol), [Equilibrium](https://github.com/eqlabs).
 
 ## Alternatives and other cool, related projects
 
