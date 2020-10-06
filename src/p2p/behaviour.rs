@@ -623,11 +623,13 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     ) -> Result<Multiaddr, anyhow::Error> {
         let ret = addr.clone().into();
         self.swarm.bootstrappers.remove(&addr);
+        // FIXME: why not kademlia.remove_address?
         Ok(ret)
     }
 
     pub fn clear_bootstrappers(&mut self) -> Vec<Multiaddr> {
         self.swarm.bootstrappers.drain().map(|a| a.into()).collect()
+        // FIXME: why not kademlia.remove_address?
     }
 
     pub fn restore_bootstrappers(&mut self) -> Result<Vec<Multiaddr>, anyhow::Error> {
