@@ -1,6 +1,6 @@
 use cid::{Cid, Codec};
 use ipfs::{p2p::MultiaddrWithPeerId, Block, Node};
-use libp2p::{kad::Quorum, multiaddr::Protocol, Multiaddr, PeerId};
+use libp2p::{kad::Quorum, multiaddr::Protocol, Multiaddr};
 use multihash::Sha2_256;
 use tokio::time::timeout;
 
@@ -139,20 +139,9 @@ async fn dht_get_closest_peers() {
 #[ignore = "targets an actual bootstrapper, so random failures can happen"]
 #[tokio::test(max_threads = 1)]
 async fn dht_popular_content_discovery() {
-    let (bootstrapper_id, bootstrapper_addr): (PeerId, Multiaddr) = (
-        "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
-            .parse()
-            .unwrap(),
-        "/ip4/104.131.131.82/tcp/4001".parse().unwrap(),
-    );
-
     let peer = Node::new("a").await;
 
-    // connect it to one of the well-known bootstrappers
-    assert!(peer
-        .add_peer(bootstrapper_id, bootstrapper_addr)
-        .await
-        .is_ok());
+    peer.restore_bootstrappers().await.unwrap();
 
     // the Cid of the IPFS logo
     let cid: Cid = "bafkreicncneocapbypwwe3gl47bzvr3pkpxmmobzn7zr2iaz67df4kjeiq"
