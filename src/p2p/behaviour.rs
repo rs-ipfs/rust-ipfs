@@ -607,12 +607,13 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         addr: MultiaddrWithPeerId,
     ) -> Result<Multiaddr, anyhow::Error> {
         let ret = addr.clone().into();
-        self.swarm.bootstrappers.insert(addr.clone());
-        let MultiaddrWithPeerId {
-            multiaddr: _,
-            peer_id,
-        } = addr.clone();
-        self.kademlia.add_address(&peer_id, addr.into());
+        if self.swarm.bootstrappers.insert(addr.clone()) {
+            let MultiaddrWithPeerId {
+                multiaddr: ma,
+                peer_id,
+            } = addr.clone();
+            self.kademlia.add_address(&peer_id, ma.into());
+        }
         Ok(ret)
     }
 
