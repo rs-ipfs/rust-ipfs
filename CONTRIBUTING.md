@@ -6,7 +6,7 @@ are encouraged. You can make a difference by tackling any of the following items
 * Bug reports and feature requests in the form of issues
 * Implementing the remaining features and corresponding HTTP endpoints not yet covered. See https://areweipfsyet.rs for info on which those are.
 * Additional tests (unit, functional, conformance) and CI for existing functionality
-* Examples, particularly those that showcase Rust's unique capaibilities or performance
+* Examples, particularly those that showcase Rust's unique capabilities or performance
 * Any advancements toward `no_std` support
 * PRs for issues marked as [help wanted](https://github.com/rs-ipfs/rust-ipfs/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) or [good first issue](https://github.com/rs-ipfs/rust-ipfs/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22)
 * Other issues that are not marked as help wanted or good first issue ;)
