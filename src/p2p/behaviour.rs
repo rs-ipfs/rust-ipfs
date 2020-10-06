@@ -630,15 +630,24 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     }
 
     pub fn restore_bootstrappers(&mut self) -> Result<Vec<Multiaddr>, anyhow::Error> {
+        let mut ret = Vec::new();
+
         for addr in BOOTSTRAP_NODES {
             let addr = addr.parse::<MultiaddrWithPeerId>().unwrap();
-            self.swarm.bootstrappers.insert(addr);
+            if self.swarm.bootstrappers.insert(addr.clone()) {
+                let MultiaddrWithPeerId {
+                    multiaddr: ma,
+                    peer_id,
+                } = addr;
+
+                let ma: Multiaddr = ma.into();
+
+                self.kademlia.add_address(&peer_id, ma.clone());
+                ret.push(ma);
+            }
         }
 
-        Ok(BOOTSTRAP_NODES
-            .iter()
-            .map(|addr| addr.parse().unwrap())
-            .collect())
+        Ok(ret)
     }
 }
 
