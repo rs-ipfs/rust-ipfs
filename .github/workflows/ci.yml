@@ -163,10 +163,11 @@ jobs:
 
     - name: Upload crashes (macos)
       uses: actions/upload-artifact@v2
-      if: matrix.platform.host == 'macos-latest' && ${{ always() }}
+      if: ${{ always() }}
       with:
         name: macos.crashes
         path: /cores
+        if-no-files-found: ignore
 
   lint-rust:
     runs-on: ubuntu-latest
