@@ -19,10 +19,48 @@ Following these principles in your PRs will greatly increase your chances of a s
 
 1. Keep the patch size minimal
 2. Aim for high (but not absolute) code coverage in testing
+3. Add a note in the changelog(s)
 
 By keeping the patch size minimal we hope to avoid difficult to review situations where there are lot of lines changed with only a few necessary changes. If you wish to submit a pull request for reorganizing something, please keep all unnecessary changes out.
 
 For example, if you wanted to change the wording of this CONTRIBUTING.md file and dislike the fact that there is no static word wrap used, please push two separate pull requests to first change the wording, and finally to reformat the file.
+
+### Changelogs and their format
+
+We currently maintain two CHANGELOG files:
+
+* [`CHANGELOG.md`](./CHANGELOG.md)
+* [`unixfs/CHANGELOG.md`](./unixfs/CHANGELOG.md)
+
+If your PR includes changes to `unixfs/`, include a note in the
+`unixfs/CHANGELOG.md`. If your PR includes changes elsewhere, include a note in
+the root `CHANGELOG.md`.
+
+The changelog format we've used so far in `unixfs/CHANGELOG.md` is:
+
+```
+# {release version}
+
+Short overview.
+
+* Short overview [#PR_NUMBER]
+
+[#PR_NUMBER]: PR_URL
+```
+
+If you find yourself writing list of things, just make it multiple items in the
+list, like:
+
+```
+* Short overview, part of [#PR_NUMBER]
+* Another thing, part of [#PR_NUMBER]
+
+[#PR_NUMBER]: PR_URL
+```
+
+In the changelog the most recently released version should be first. This
+changelog format is more free-form than the more familiar separation of fixes
+and features. We will probably later migrate to more detailed changelogs.
 
 ## Target Build
 

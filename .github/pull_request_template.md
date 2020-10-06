@@ -9,3 +9,4 @@
     - [ ] Each command has a usage example and API specification
     - [ ] Rustdoc tests are passing on all code-level comments
     - [ ] Differences between Rust’s IPFS implementation and the Go or JS implementations are explained
+- [ ] Additions to CHANGELOG.md files
