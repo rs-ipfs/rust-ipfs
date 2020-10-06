@@ -15,7 +15,7 @@ use std::time::Duration;
 pub struct Connection {
     /// The connected peer along with its address.
     pub addr: MultiaddrWithPeerId,
-    /// Latest ping report on any of the connections
+    /// Latest ping report on any of the connections.
     pub rtt: Option<Duration>,
 }
 
