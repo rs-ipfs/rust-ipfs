@@ -82,7 +82,9 @@ impl FromStr for MultiaddrWithoutPeerId {
 /// don't support it being contained within the `Multiaddr`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MultiaddrWithPeerId {
+    /// The peer without its address.
     pub multiaddr: MultiaddrWithoutPeerId,
+    /// The address of the peer.
     pub peer_id: PeerId,
 }
 

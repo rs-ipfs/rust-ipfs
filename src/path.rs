@@ -83,7 +83,7 @@ impl IpfsPath {
         }
     }
 
-    /// Returns the [`PathRoot`] "protocol" configured for the [`IpfsPath`]. 
+    /// Returns the [`PathRoot`] "protocol" configured for the [`IpfsPath`].
     pub fn root(&self) -> &PathRoot {
         &self.root
     }
