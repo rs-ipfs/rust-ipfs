@@ -611,7 +611,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             let MultiaddrWithPeerId {
                 multiaddr: ma,
                 peer_id,
-            } = addr.clone();
+            } = addr;
             self.kademlia.add_address(&peer_id, ma.into());
         }
         Ok(ret)
