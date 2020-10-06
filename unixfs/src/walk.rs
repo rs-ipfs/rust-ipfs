@@ -407,7 +407,7 @@ impl InnerEntry {
             self.depth = self
                 .depth
                 .checked_sub(1)
-                .expect("undeflowed path components");
+                .expect("underflowed path components");
         }
 
         self.path.push(name);
@@ -474,7 +474,7 @@ impl InnerEntry {
                     self.depth = self
                         .depth
                         .checked_sub(1)
-                        .expect("underlowed depth calculation during bucket->bucket");
+                        .expect("underflowed depth calculation during bucket->bucket");
                 }
 
                 assert_eq!(self.depth, depth, "{:?}", self.path);

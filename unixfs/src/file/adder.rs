@@ -22,7 +22,7 @@ pub struct FileAdder {
     block_buffer: Vec<u8>,
     // all unflushed links as a flat vec; this is compacted as we grow and need to create a link
     // block for the last N blocks, as decided by the collector.
-    // FIXME: this is a cause of likely "accidentially quadratic" behaviour visible when adding a
+    // FIXME: this is a cause of likely "accidentally quadratic" behavior visible when adding a
     // large file and using a minimal chunk size. Could be that this must be moved to Collector to
     // help collector (or layout) to decide how this should be persisted.
     unflushed_links: Vec<Link>,
@@ -109,7 +109,7 @@ impl fmt::Debug for Link {
     }
 }
 
-/// Convinience type to facilitate configuring [`FileAdder`]s.
+/// Convenience type to facilitate configuring [`FileAdder`]s.
 #[derive(Default)]
 pub struct FileAdderBuilder {
     chunker: Chunker,

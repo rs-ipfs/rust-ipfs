@@ -48,7 +48,7 @@ fn subslice_to_range(full: &[u8], sub: &[u8]) -> Option<Range<usize>> {
     sub.checked_sub(full)
         // not needed as it would divide by one: .map(|diff| diff / mem::size_of::<T>())
         //
-        // if there are two slices of a continious chunk, [A|B] we need to make sure B will not be
+        // if there are two slices of a continuous chunk, [A|B] we need to make sure B will not be
         // calculated as subslice of A
         .and_then(|start| if start >= max { None } else { Some(start) })
         .map(|start| start..(start + amt))
