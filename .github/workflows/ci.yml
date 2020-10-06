@@ -107,7 +107,7 @@ jobs:
         vcpkgGitCommitId: 'ffa41582f78478812c836a6e8ce315fb27431182'  # ok for openssl-sys v0.9.58
 
     - name: Install rust toolchain
-      uses: hecrj/setup-rust-action@v1
+      uses: hecrj/setup-rust-action@v1.3.4
       with:
         rust-version: ${{ matrix.toolchain.rust }}
         targets: ${{ matrix.platform.target }}
@@ -182,7 +182,7 @@ jobs:
         key: lint-cargo-${{ hashFiles('Cargo.lock') }}
 
     - name: Install rust toolchain
-      uses: hecrj/setup-rust-action@v1
+      uses: hecrj/setup-rust-action@v1.3.4
       with:
         rust-version: stable
         components: clippy, rustfmt
