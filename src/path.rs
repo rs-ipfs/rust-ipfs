@@ -75,6 +75,7 @@ impl FromStr for IpfsPath {
 }
 
 impl IpfsPath {
+    /// Creates a new [`IpfsPath`] from a [`PathRoot`].
     pub fn new(root: PathRoot) -> Self {
         IpfsPath {
             root,
@@ -82,6 +83,7 @@ impl IpfsPath {
         }
     }
 
+    /// Returns the [`PathRoot`] "protocol" configured for the [`IpfsPath`]. 
     pub fn root(&self) -> &PathRoot {
         &self.root
     }
@@ -99,7 +101,7 @@ impl IpfsPath {
         Ok(path)
     }
 
-    /// Returns an iterator over the path segments following the root
+    /// Returns an iterator over the path segments following the root.
     pub fn iter(&self) -> impl Iterator<Item = &str> {
         self.path.iter().map(|s| s.as_str())
     }
@@ -259,6 +261,7 @@ impl fmt::Debug for PathRoot {
 }
 
 impl PathRoot {
+    /// Returns the `Some(Cid)` if the [`Cid`] based path is present or `None`.
     pub fn cid(&self) -> Option<&Cid> {
         match self {
             PathRoot::Ipld(cid) => Some(cid),
