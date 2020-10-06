@@ -636,13 +636,17 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         let mut ret = Vec::new();
 
         for addr in BOOTSTRAP_NODES {
-            let addr = addr.parse::<MultiaddrWithPeerId>().unwrap();
+            let addr = addr
+                .parse::<MultiaddrWithPeerId>()
+                .expect("see test bootstrap_nodes_are_multiaddr_with_peerid");
             if self.swarm.bootstrappers.insert(addr.clone()) {
                 let MultiaddrWithPeerId {
                     multiaddr: ma,
                     peer_id,
                 } = addr;
 
+                // this is intentionally the multiaddr without peerid turned into plain multiaddr:
+                // libp2p cannot dial addresses which include peerids.
                 let ma: Multiaddr = ma.into();
 
                 self.kademlia.add_address(&peer_id, ma.clone());
