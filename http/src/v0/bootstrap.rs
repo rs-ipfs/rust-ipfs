@@ -5,8 +5,8 @@ use warp::{query, Filter, Rejection, Reply};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
-struct Response {
-    peers: Vec<String>,
+struct Response<S: AsRef<str>> {
+    peers: Vec<S>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,7 +48,8 @@ pub struct BootstrapAddQuery {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-// used in both bootstrap_add_query and bootstrap_restore_query
+// optionally timed-out wrapper around [`Ipfs::restore_bootstrappers`] with stringified errors, used
+// in both bootstrap_add_query and bootstrap_restore_query
 async fn restore_helper<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     timeout: &Option<StringSerialized<humantime::Duration>>,
@@ -82,7 +83,14 @@ async fn bootstrap_add_query<T: IpfsTypes>(
             .map_err(StringError::from)?
             .to_string()]
     } else if default == Some(true) {
-        restore_helper(ipfs, &timeout).await?
+        // HTTP api documents `?default=true` as deprecated
+        let _ = restore_helper(ipfs, &timeout).await?;
+
+        // return a list of all known bootstrap nodes as js-ipfs does
+        ipfs::config::BOOTSTRAP_NODES
+            .iter()
+            .map(|&s| String::from(s))
+            .collect()
     } else {
         return Err(warp::reject::custom(StringError::from(
             "invalid query string",
@@ -94,6 +102,7 @@ async fn bootstrap_add_query<T: IpfsTypes>(
     Ok(warp::reply::json(&response))
 }
 
+/// https://docs.ipfs.io/reference/http/api/#api-v0-bootstrap-add
 pub fn bootstrap_add<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
@@ -107,7 +116,8 @@ pub struct BootstrapClearQuery {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-// used in both bootstrap_clear_query and bootstrap_rm_query
+// optionally timed-out wrapper over [`Ipfs::clear_bootstrappers`] used in both
+// `bootstrap_clear_query` and `bootstrap_rm_query`.
 async fn clear_helper<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     timeout: &Option<StringSerialized<humantime::Duration>>,
@@ -192,12 +202,17 @@ async fn bootstrap_restore_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: BootstrapRestoreQuery,
 ) -> Result<impl Reply, Rejection> {
-    let peers = restore_helper(ipfs, &query.timeout).await?;
+    let _ = restore_helper(ipfs, &query.timeout).await?;
+
+    // similar to add?default=true; returns a list of all bootstrap nodes, not only the added ones
+    let peers = ipfs::config::BOOTSTRAP_NODES.to_vec();
     let response = Response { peers };
 
     Ok(warp::reply::json(&response))
 }
 
+/// https://docs.ipfs.io/reference/http/api/#api-v0-bootstrap-add-default, similar functionality
+/// also available via /bootstrap/add?default=true through [`bootstrap_add`].
 pub fn bootstrap_restore<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
