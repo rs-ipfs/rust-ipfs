@@ -1113,6 +1113,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Extend the list of used bootstrapper nodes with an additional address.
+    /// Return value cannot be used to determine if the `addr` was a new bootstrapper, subject to
+    /// change.
     pub async fn add_bootstrapper(&self, addr: MultiaddrWithPeerId) -> Result<Multiaddr, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -1129,6 +1131,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Remove an address from the currently used list of bootstrapper nodes.
+    /// Return value cannot be used to determine if the `addr` was an actual bootstrapper, subject to
+    /// change.
     pub async fn remove_bootstrapper(&self, addr: MultiaddrWithPeerId) -> Result<Multiaddr, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
