@@ -26,7 +26,7 @@ async fn main() {
             );
             eprintln!();
             eprintln!(
-                "Example will try to find the file by the given IPFS_PATH and print it's contents to stdout."
+                "Example will try to find the file by the given IPFS_PATH and print its contents to stdout."
             );
             eprintln!();
             eprintln!("The example has three modes in the order of precedence:");
@@ -37,7 +37,7 @@ async fn main() {
                 "2. When IPFS_PATH and MULTIADDR are given, connect to MULTIADDR to get the file"
             );
             eprintln!(
-                "3. When only IPFS_PATH is given, await to be connected by another ipfs node"
+                "3. When only IPFS_PATH is given, wait to be connected to by another ipfs node"
             );
             exit(0);
         }

@@ -48,7 +48,7 @@ pub struct BootstrapAddQuery {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-// optionally timedout wrapper around [`Ipfs::restore_bootstrappers`] with stringified errors, used
+// optionally timed-out wrapper around [`Ipfs::restore_bootstrappers`] with stringified errors, used
 // in both bootstrap_add_query and bootstrap_restore_query
 async fn restore_helper<T: IpfsTypes>(
     ipfs: Ipfs<T>,
@@ -83,7 +83,7 @@ async fn bootstrap_add_query<T: IpfsTypes>(
             .map_err(StringError::from)?
             .to_string()]
     } else if default == Some(true) {
-        // HTTP api documents the ?default=true as the deprecated way
+        // HTTP api documents `?default=true` as deprecated
         let _ = restore_helper(ipfs, &timeout).await?;
 
         // return a list of all known bootstrap nodes as js-ipfs does
@@ -116,7 +116,7 @@ pub struct BootstrapClearQuery {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-// optionally timeouted wrapper over [`Ipfs::clear_bootstrappers`] used in both
+// optionally timed-out wrapper over [`Ipfs::clear_bootstrappers`] used in both
 // `bootstrap_clear_query` and `bootstrap_rm_query`.
 async fn clear_helper<T: IpfsTypes>(
     ipfs: Ipfs<T>,
@@ -204,7 +204,7 @@ async fn bootstrap_restore_query<T: IpfsTypes>(
 ) -> Result<impl Reply, Rejection> {
     let _ = restore_helper(ipfs, &query.timeout).await?;
 
-    // similar to add?default=true return a list of all bootstrap nodes, not only the added ones
+    // similar to add?default=true; returns a list of all bootstrap nodes, not only the added ones
     let peers = ipfs::config::BOOTSTRAP_NODES.to_vec();
     let response = Response { peers };
 
