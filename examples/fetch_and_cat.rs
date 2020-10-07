@@ -18,16 +18,27 @@ async fn main() {
     // The other connecting or connected peer must be providing the requested CID or this will hang
     // forever.
 
-    let (path, target) = match parse_options() {
+    let (bootstrappers, path, target) = match parse_options() {
         Ok(Some(tuple)) => tuple,
         Ok(None) => {
-            eprintln!("Usage: fetch_and_cat <IPFS_PATH | CID> [MULTIADDR]");
             eprintln!(
-                "Example will accept connections and print all bytes of the unixfs file to \
-                stdout."
+                "Usage: fetch_and_cat [--default-bootstrappers] <IPFS_PATH | CID> [MULTIADDR]"
             );
-            eprintln!("If second argument is present, it is expected to be a Multiaddr with \
-                peer_id. The given Multiaddr will be connected to instead of awaiting an incoming connection.");
+            eprintln!();
+            eprintln!(
+                "Example will try to find the file by the given IPFS_PATH and print it's contents to stdout."
+            );
+            eprintln!();
+            eprintln!("The example has three modes in the order of precedence:");
+            eprintln!(
+                "1. When --default-bootstrappers is given, use default bootstrappers to find the content"
+            );
+            eprintln!(
+                "2. When IPFS_PATH and MULTIADDR are given, connect to MULTIADDR to get the file"
+            );
+            eprintln!(
+                "3. When only IPFS_PATH is given, await to be connected by another ipfs node"
+            );
             exit(0);
         }
         Err(e) => {
@@ -54,7 +65,11 @@ async fn main() {
     // the libp2p.
     tokio::task::spawn(fut);
 
-    if let Some(target) = target {
+    if bootstrappers == BootstrapperOption::RestoreDefault {
+        // applications wishing to find content on the global IPFS swarm should restore the latest
+        // bootstrappers which are hopefully updated between releases
+        ipfs.restore_bootstrappers().await.unwrap();
+    } else if let Some(target) = target {
         ipfs.connect(target).await.unwrap();
     } else {
         let (_, addresses) = ipfs.identity().await.unwrap();
@@ -81,20 +96,12 @@ async fn main() {
     pin_mut!(stream);
 
     let mut stdout = tokio::io::stdout();
-    let mut total = 0;
 
     loop {
         // This could be made more performant by polling the stream while writing to stdout.
         match stream.next().await {
             Some(Ok(bytes)) => {
-                total += bytes.len();
                 stdout.write_all(&bytes).await.unwrap();
-
-                eprintln!(
-                    "Received: {:>12} bytes, Total: {:>12} bytes",
-                    bytes.len(),
-                    total
-                );
             }
             Some(Err(e)) => {
                 eprintln!("Error: {}", e);
@@ -103,12 +110,34 @@ async fn main() {
             None => break,
         }
     }
-
-    eprintln!("Total received: {} bytes", total);
 }
 
-fn parse_options() -> Result<Option<(IpfsPath, Option<MultiaddrWithPeerId>)>, Error> {
-    let mut args = env::args().skip(1);
+#[derive(PartialEq)]
+enum BootstrapperOption {
+    RestoreDefault,
+    ConnectionsOnly,
+}
+
+fn parse_options(
+) -> Result<Option<(BootstrapperOption, IpfsPath, Option<MultiaddrWithPeerId>)>, Error> {
+    let mut args = env::args().skip(1).peekable();
+
+    // by default use only the manual connections
+    let mut bootstrappers = BootstrapperOption::ConnectionsOnly;
+
+    while let Some(option) = args.peek() {
+        if !option.starts_with("--") {
+            break;
+        }
+
+        let option = args.next().expect("already checked when peeking");
+
+        if option == "--default-bootstrappers" {
+            bootstrappers = BootstrapperOption::RestoreDefault;
+        } else {
+            return Err(anyhow::format_err!("unknown option: {}", option));
+        }
+    }
 
     let path = if let Some(path) = args.next() {
         path.parse::<IpfsPath>()
@@ -129,5 +158,5 @@ fn parse_options() -> Result<Option<(IpfsPath, Option<MultiaddrWithPeerId>)>, Er
         None
     };
 
-    Ok(Some((path, target)))
+    Ok(Some((bootstrappers, path, target)))
 }
