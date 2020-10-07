@@ -613,6 +613,8 @@ impl<Types: IpfsTypes> Behaviour<Types> {
                 peer_id,
             } = addr;
             self.kademlia.add_address(&peer_id, ma.into());
+            // the return value of add_address doesn't implement Debug
+            trace!(peer_id=%peer_id, "tried to add a bootstrapper");
         }
         Ok(ret)
     }
@@ -622,14 +624,36 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         addr: MultiaddrWithPeerId,
     ) -> Result<Multiaddr, anyhow::Error> {
         let ret = addr.clone().into();
-        self.swarm.bootstrappers.remove(&addr);
-        // FIXME: why not kademlia.remove_address?
+        if self.swarm.bootstrappers.remove(&addr) {
+            let peer_id = addr.peer_id;
+            let prefix: Multiaddr = addr.multiaddr.into();
+
+            if let Some(e) = self.kademlia.remove_address(&peer_id, &prefix) {
+                info!(peer_id=%peer_id, status=?e.status, "removed bootstrapper");
+            } else {
+                warn!(peer_id=%peer_id, "attempted to remove an unknown bootstrapper");
+            }
+        }
         Ok(ret)
     }
 
     pub fn clear_bootstrappers(&mut self) -> Vec<Multiaddr> {
-        self.swarm.bootstrappers.drain().map(|a| a.into()).collect()
-        // FIXME: why not kademlia.remove_address?
+        let removed = self.swarm.bootstrappers.drain();
+        let mut ret = Vec::with_capacity(removed.len());
+
+        for addr_with_peer_id in removed {
+            let peer_id = &addr_with_peer_id.peer_id;
+            let prefix: Multiaddr = addr_with_peer_id.multiaddr.clone().into();
+
+            if let Some(e) = self.kademlia.remove_address(peer_id, &prefix) {
+                info!(peer_id=%peer_id, status=?e.status, "cleared bootstrapper");
+                ret.push(addr_with_peer_id.into());
+            } else {
+                error!(peer_id=%peer_id, "attempted to clear an unknown bootstrapper");
+            }
+        }
+
+        ret
     }
 
     pub fn restore_bootstrappers(&mut self) -> Result<Vec<Multiaddr>, anyhow::Error> {
@@ -649,7 +673,10 @@ impl<Types: IpfsTypes> Behaviour<Types> {
                 // libp2p cannot dial addresses which include peerids.
                 let ma: Multiaddr = ma.into();
 
+                // same as with add_bootstrapper: the return value from kademlia.add_address
+                // doesn't implement Debug
                 self.kademlia.add_address(&peer_id, ma.clone());
+                trace!(peer_id=%peer_id, "tried to restore a bootstrapper");
 
                 // report with the peerid
                 let reported: Multiaddr = addr.into();
