@@ -48,7 +48,8 @@ pub struct BootstrapAddQuery {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-// used in both bootstrap_add_query and bootstrap_restore_query
+// optionally timedout wrapper around [`Ipfs::restore_bootstrappers`] with stringified errors, used
+// in both bootstrap_add_query and bootstrap_restore_query
 async fn restore_helper<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     timeout: &Option<StringSerialized<humantime::Duration>>,
@@ -101,6 +102,7 @@ async fn bootstrap_add_query<T: IpfsTypes>(
     Ok(warp::reply::json(&response))
 }
 
+/// https://docs.ipfs.io/reference/http/api/#api-v0-bootstrap-add
 pub fn bootstrap_add<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
@@ -114,7 +116,8 @@ pub struct BootstrapClearQuery {
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
 
-// used in both bootstrap_clear_query and bootstrap_rm_query
+// optionally timeouted wrapper over [`Ipfs::clear_bootstrappers`] used in both
+// `bootstrap_clear_query` and `bootstrap_rm_query`.
 async fn clear_helper<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     timeout: &Option<StringSerialized<humantime::Duration>>,
@@ -208,6 +211,8 @@ async fn bootstrap_restore_query<T: IpfsTypes>(
     Ok(warp::reply::json(&response))
 }
 
+/// https://docs.ipfs.io/reference/http/api/#api-v0-bootstrap-add-default, similar functionality
+/// also available via /bootstrap/add?default=true through [`bootstrap_add`].
 pub fn bootstrap_restore<T: IpfsTypes>(
     ipfs: &Ipfs<T>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
