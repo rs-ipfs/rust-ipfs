@@ -643,14 +643,17 @@ impl<Types: IpfsTypes> Behaviour<Types> {
                 let MultiaddrWithPeerId {
                     multiaddr: ma,
                     peer_id,
-                } = addr;
+                } = addr.clone();
 
                 // this is intentionally the multiaddr without peerid turned into plain multiaddr:
                 // libp2p cannot dial addresses which include peerids.
                 let ma: Multiaddr = ma.into();
 
                 self.kademlia.add_address(&peer_id, ma.clone());
-                ret.push(ma);
+
+                // report with the peerid
+                let reported: Multiaddr = addr.into();
+                ret.push(reported);
             }
         }
 
