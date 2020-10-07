@@ -5,8 +5,8 @@ use warp::{query, Filter, Rejection, Reply};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
-struct Response {
-    peers: Vec<String>,
+struct Response<S: AsRef<str>> {
+    peers: Vec<S>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,7 +82,14 @@ async fn bootstrap_add_query<T: IpfsTypes>(
             .map_err(StringError::from)?
             .to_string()]
     } else if default == Some(true) {
-        restore_helper(ipfs, &timeout).await?
+        // HTTP api documents the ?default=true as the deprecated way
+        let _ = restore_helper(ipfs, &timeout).await?;
+
+        // return a list of all known bootstrap nodes as js-ipfs does
+        ipfs::config::BOOTSTRAP_NODES
+            .iter()
+            .map(|&s| String::from(s))
+            .collect()
     } else {
         return Err(warp::reject::custom(StringError::from(
             "invalid query string",
@@ -192,7 +199,10 @@ async fn bootstrap_restore_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     query: BootstrapRestoreQuery,
 ) -> Result<impl Reply, Rejection> {
-    let peers = restore_helper(ipfs, &query.timeout).await?;
+    let _ = restore_helper(ipfs, &query.timeout).await?;
+
+    // similar to add?default=true return a list of all bootstrap nodes, not only the added ones
+    let peers = ipfs::config::BOOTSTRAP_NODES.to_vec();
     let response = Response { peers };
 
     Ok(warp::reply::json(&response))
