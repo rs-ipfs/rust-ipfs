@@ -17,7 +17,7 @@
 //! [js-ipfs]: https://github.com/ipfs/js-ipfs/
 //#![deny(missing_docs)]
 
-mod config;
+pub mod config;
 pub mod dag;
 pub mod error;
 #[macro_use]
