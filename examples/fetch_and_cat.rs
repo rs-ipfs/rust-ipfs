@@ -9,15 +9,6 @@ use tokio::io::AsyncWriteExt;
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    // This example attempts to fetch a CID provided at command line. It is expected to be used by
-    // either:
-    //
-    //  - connecting another ipfs peer to it
-    //  - be given the other peers address as the last argument
-    //
-    // The other connecting or connected peer must be providing the requested CID or this will hang
-    // forever.
-
     let (bootstrappers, path, target) = match parse_options() {
         Ok(Some(tuple)) => tuple,
         Ok(None) => {

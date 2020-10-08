@@ -1,5 +1,7 @@
 # Next
 
+# 0.2.1
+
 * fix: restore_bootstrappers doesn't enable content discovery [#406]
 
 [#406]: https://github.com/rs-ipfs/rust-ipfs/pull/406

@@ -6,7 +6,7 @@ name = "ipfs"
 readme = "README.md"
 repository = "https://github.com/rs-ipfs/rust-ipfs"
 description = "IPFS node implementation"
-version = "0.2.0"
+version = "0.2.1"
 
 [features]
 default = []
