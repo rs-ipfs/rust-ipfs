@@ -17,13 +17,20 @@ mod transport;
 pub use addr::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 pub use {behaviour::KadResult, swarm::Connection};
 
+/// Type alias for [`libp2p::Swarm`] running the [`behaviour::Behaviour`] with the given [`IpfsTypes`].
 pub type TSwarm<T> = Swarm<behaviour::Behaviour<T>>;
 
+/// Defines the configuration for an IPFS swarm.
 pub struct SwarmOptions {
+    /// The keypair for the PKI based identity of the local node.
     pub keypair: Keypair,
+    /// The peer address of the local node created from the keypair.
     pub peer_id: PeerId,
+    /// The peers to connect to on startup.
     pub bootstrap: Vec<(Multiaddr, PeerId)>,
+    /// Enables mdns for peer discovery and announcement when true.
     pub mdns: bool,
+    /// Custom Kademlia protocol name, see [`IpfsOptions::kad_protocol`].
     pub kad_protocol: Option<String>,
 }
 

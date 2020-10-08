@@ -82,7 +82,9 @@ impl FromStr for MultiaddrWithoutPeerId {
 /// don't support it being contained within the `Multiaddr`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MultiaddrWithPeerId {
+    /// The [`Multiaddr`] without the [`Protocol::P2p`] suffix.
     pub multiaddr: MultiaddrWithoutPeerId,
+    /// The peer id from the [`Protocol::P2p`] suffix.
     pub peer_id: PeerId,
 }
 
