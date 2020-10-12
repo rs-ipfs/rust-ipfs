@@ -97,7 +97,7 @@ jobs:
         tar -xf go_ipfs.tar.gz
 
     - name: Install dependencies windows (openssl)
-      uses: lukka/run-vcpkg@v3.3
+      uses: lukka/run-vcpkg@v4.1
       id: windows-runvcpkg
       if: matrix.platform.host == 'windows-latest'
       with:
@@ -107,7 +107,7 @@ jobs:
         vcpkgGitCommitId: 'ffa41582f78478812c836a6e8ce315fb27431182'  # ok for openssl-sys v0.9.58
 
     - name: Install rust toolchain
-      uses: hecrj/setup-rust-action@v1
+      uses: hecrj/setup-rust-action@v1.3.4
       with:
         rust-version: ${{ matrix.toolchain.rust }}
         targets: ${{ matrix.platform.target }}
@@ -163,10 +163,11 @@ jobs:
 
     - name: Upload crashes (macos)
       uses: actions/upload-artifact@v2
-      if: matrix.platform.host == 'macos-latest' && ${{ always() }}
+      if: ${{ always() }}
       with:
         name: macos.crashes
         path: /cores
+        if-no-files-found: ignore
 
   lint-rust:
     runs-on: ubuntu-latest
@@ -181,7 +182,7 @@ jobs:
         key: lint-cargo-${{ hashFiles('Cargo.lock') }}
 
     - name: Install rust toolchain
-      uses: hecrj/setup-rust-action@v1
+      uses: hecrj/setup-rust-action@v1.3.4
       with:
         rust-version: stable
         components: clippy, rustfmt

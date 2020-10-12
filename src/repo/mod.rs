@@ -172,13 +172,11 @@ pub enum PinMode {
 
 impl<B: Borrow<Cid>> PartialEq<PinMode> for PinKind<B> {
     fn eq(&self, other: &PinMode) -> bool {
-        match (self, other) {
+        matches!((self, other),
             (PinKind::IndirectFrom(_), PinMode::Indirect)
             | (PinKind::Direct, PinMode::Direct)
             | (PinKind::Recursive(_), PinMode::Recursive)
-            | (PinKind::RecursiveIntention, PinMode::Recursive) => true,
-            _ => false,
-        }
+            | (PinKind::RecursiveIntention, PinMode::Recursive))
     }
 }
 
