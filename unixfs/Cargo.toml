@@ -29,3 +29,7 @@ criterion = { default-features = false, version = "0.3" }
 [[bench]]
 name = "ingest-tar"
 harness = false
+
+[[bench]]
+name = "quad"
+harness = false
