@@ -16,7 +16,7 @@
 //! [go-ipfs]: https://github.com/ipfs/go-ipfs/
 //! [js-ipfs]: https://github.com/ipfs/js-ipfs/
 // We are not done yet, but uncommenting this makes it easier to hunt down for missing docs.
-//#![deny(missing_docs)]
+#![deny(missing_docs)]
 //
 // This isn't recognized in stable yet, but we should disregard any nags on these to keep making
 // the docs better.

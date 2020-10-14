@@ -165,10 +165,14 @@ pub struct IpldDag<Types: RepoTypes> {
 }
 
 impl<Types: RepoTypes> IpldDag<Types> {
+    /// Creates a new `IpldDag` for DAG operations.
     pub fn new(ipfs: Ipfs<Types>) -> Self {
         IpldDag { ipfs }
     }
 
+    /// Returns the `Cid` of a newly inserted block.
+    ///
+    /// The block is created from the `data`, encoded with the `codec` and inserted into the repo.
     pub async fn put(&self, data: Ipld, codec: Codec) -> Result<Cid, Error> {
         let bytes = encode_ipld(&data, codec)?;
         let hash = multihash::Sha2_256::digest(&bytes);
