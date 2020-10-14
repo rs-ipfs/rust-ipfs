@@ -31,5 +31,5 @@ name = "ingest-tar"
 harness = false
 
 [[bench]]
-name = "quad"
+name = "adder"
 harness = false
