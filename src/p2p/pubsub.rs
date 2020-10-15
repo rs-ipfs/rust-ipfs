@@ -19,7 +19,9 @@ use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, Pr
 /// to different topics. The messages in the streams are wrapped in `Arc` as they technically could
 /// be sent to multiple topics, but this api is not provided.
 pub struct Pubsub {
+    // Tracks the topic subscriptions.
     streams: HashMap<Topic, channel::UnboundedSender<Arc<PubsubMessage>>>,
+    // A collection of peers and the topics they are subscribed to.
     peers: HashMap<PeerId, Vec<Topic>>,
     floodsub: Floodsub,
     // the subscription streams implement Drop and will send out their topic name through the
@@ -30,14 +32,18 @@ pub struct Pubsub {
     ),
 }
 
-/// Adaptation hopefully supporting somehow both Floodsub and Gossipsub Messages in the future
+/// Adaptation hopefully supporting both Floodsub and Gossipsub Messages in the future
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PubsubMessage {
+    /// Peer address of the message sender.
     pub source: PeerId,
+    /// The message data.  
     pub data: Vec<u8>,
+    /// The sequence number of the message.
     // this could be an enum for gossipsub message compat, it uses u64, though the floodsub
     // sequence numbers looked like 8 bytes in testing..
     pub sequence_number: Vec<u8>,
+    /// The recepients of the message (topic IDs).
     // TODO: gossipsub uses topichashes, haven't checked if we could have some unifying abstraction
     // or if we should have a hash to name mapping internally?
     pub topics: Vec<String>,
@@ -138,8 +144,9 @@ impl Pubsub {
         }
     }
 
-    /// Subscribes to an currently unsubscribed topic.
-    /// Returns a receiver for messages sent to the topic or `None` if subscription existed already
+    /// Subscribes to a currently unsubscribed topic.
+    /// Returns a receiver for messages sent to the topic or `None` if subscription existed
+    /// already.
     pub fn subscribe(&mut self, topic: impl Into<String>) -> Option<SubscriptionStream> {
         use std::collections::hash_map::Entry;
 
