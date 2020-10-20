@@ -29,7 +29,7 @@ pub mod mem;
 pub trait RepoTypes: Send + Sync + 'static {
     /// Describes a blockstore.
     type TBlockStore: BlockStore;
-    /// Describres a datastore.
+    /// Describes a datastore.
     type TDataStore: DataStore;
 }
 
@@ -104,23 +104,35 @@ pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
+    /// Returns whether a block is present in the blockstore.
     async fn contains(&self, cid: &Cid) -> Result<bool, Error>;
+    /// Returns a block from the blockstore.
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error>;
+    /// Inserts a block in the blockstore.
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error>;
+    /// Removes a block from the blockstore.
     async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error>;
+    /// Returns a list of the blocks (Cids), in the blockstore.
     async fn list(&self) -> Result<Vec<Cid>, Error>;
+    /// Wipes the blockstore.
     async fn wipe(&self);
 }
 
 #[async_trait]
+/// Generic layer of abstraction for a key-value data store.
 pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
     async fn open(&self) -> Result<(), Error>;
+    /// Checks if a key is present in the datastore.
     async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error>;
+    /// Returns the value associated with a key from the datastore.
     async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
+    /// Puts the value under the key in the datastore.
     async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error>;
+    /// Removes a key-value pair from the datastore.
     async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error>;
+    /// Wipes the datastore.
     async fn wipe(&self);
 }
 
@@ -211,6 +223,9 @@ impl<C: Borrow<Cid>> PinKind<C> {
     }
 }
 
+/// Describes a repo.
+///
+/// Consolidates a blockstore, a datastore and a subscription registry.
 #[derive(Debug)]
 pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
@@ -222,12 +237,16 @@ pub struct Repo<TRepoTypes: RepoTypes> {
 /// Events used to communicate to the swarm on repo changes.
 #[derive(Debug)]
 pub enum RepoEvent {
+    /// Signals a desired block.
     WantBlock(Cid),
+    /// Signals a desired block is no longer wanted.
     UnwantBlock(Cid),
+    /// Signals the posession of a new block.
     NewBlock(
         Cid,
         oneshot::Sender<Result<SubscriptionFuture<KadResult, String>, anyhow::Error>>,
     ),
+    /// Signals the removal of a block.
     RemovedBlock(Cid),
 }
 
@@ -344,11 +363,12 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         }
     }
 
-    /// Retrives a block from the block store if it's available locally.
+    /// Retrieves a block from the block store if it's available locally.
     pub async fn get_block_now(&self, cid: &Cid) -> Result<Option<Block>, Error> {
         self.block_store.get(&cid).await
     }
 
+    /// Lists the blocks in the blockstore.
     pub async fn list_blocks(&self) -> Result<Vec<Cid>, Error> {
         self.block_store.list().await
     }
@@ -412,23 +432,28 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         self.data_store.remove(Column::Ipns, ipns.as_bytes()).await
     }
 
+    /// Inserts a direct pin for a `Cid`.
     pub async fn insert_direct_pin(&self, cid: &Cid) -> Result<(), Error> {
         self.data_store.insert_direct_pin(cid).await
     }
 
+    /// Inserts a recursive pin for a `Cid`.
     pub async fn insert_recursive_pin(&self, cid: &Cid, refs: References<'_>) -> Result<(), Error> {
         self.data_store.insert_recursive_pin(cid, refs).await
     }
 
+    /// Removes a direct pin for a `Cid`.
     pub async fn remove_direct_pin(&self, cid: &Cid) -> Result<(), Error> {
         self.data_store.remove_direct_pin(cid).await
     }
 
+    /// Removes a recursive pin for a `Cid`.
     pub async fn remove_recursive_pin(&self, cid: &Cid, refs: References<'_>) -> Result<(), Error> {
         // FIXME: not really sure why is there not an easier way to to transfer control
         self.data_store.remove_recursive_pin(cid, refs).await
     }
 
+    /// Checks if a `Cid` is pinned.
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
         self.data_store.is_pinned(&cid).await
     }
