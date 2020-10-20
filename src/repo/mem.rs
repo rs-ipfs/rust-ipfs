@@ -617,7 +617,7 @@ impl PinDocument {
                 PinMode::Recursive => match self.recursive {
                     Recursive::Intent => PinKind::RecursiveIntention,
                     Recursive::Count(total) => PinKind::Recursive(total),
-                    _ => unreachable!("mode shuold not have returned PinKind::Recursive"),
+                    _ => unreachable!("mode should not have returned PinKind::Recursive"),
                 },
                 PinMode::Indirect => {
                     // go-ipfs does seem to be doing a fifo looking, perhaps this is a list there, or
