@@ -25,11 +25,15 @@ mod common_tests;
 pub mod fs;
 pub mod mem;
 
+/// Consolidates `BlockStore` and `DataStore` into a representation of storage.
 pub trait RepoTypes: Send + Sync + 'static {
+    /// Describes a blockstore.
     type TBlockStore: BlockStore;
+    /// Describres a datastore.
     type TDataStore: DataStore;
 }
 
+/// Configuration for a repo.
 #[derive(Clone, Debug)]
 pub struct RepoOptions {
     path: PathBuf,
@@ -43,13 +47,14 @@ impl From<&IpfsOptions> for RepoOptions {
     }
 }
 
+/// Convenience for creating a new `Repo` from the `RepoOptions`.
 pub fn create_repo<TRepoTypes: RepoTypes>(
     options: RepoOptions,
 ) -> (Repo<TRepoTypes>, Receiver<RepoEvent>) {
     Repo::new(options)
 }
 
-/// A wrapper for `Cid` that has a `Multihash`-based equality check
+/// A wrapper for `Cid` that has a `Multihash`-based equality check.
 #[derive(Debug)]
 pub struct RepoCid(Cid);
 
@@ -66,26 +71,29 @@ impl Hash for RepoCid {
     }
 }
 
-/// Describes the outcome of `BlockStore::put_block`
+/// Describes the outcome of `BlockStore::put_block`.
 #[derive(Debug, PartialEq, Eq)]
 pub enum BlockPut {
-    /// A new block was written
+    /// A new block was written to the blockstore.
     NewBlock,
-    /// The block existed already
+    /// The block already exists.
     Existed,
 }
 
+/// Describes the outcome of `BlockStore::remove`.
 #[derive(Debug)]
 pub enum BlockRm {
+    /// A block was successfully removed from the blockstore.
     Removed(Cid),
     // TODO: DownloadCancelled(Cid, Duration),
 }
 
 // pub struct BlockNotFound(Cid);
-
+/// Describes the error variants for `BlockStore::remove`.
 #[derive(Debug)]
 pub enum BlockRmError {
     // TODO: Pinned(Cid),
+    /// The `Cid` doesn't correspond to a block in the blockstore.
     NotFound(Cid),
 }
 
