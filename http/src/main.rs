@@ -44,7 +44,7 @@ fn main() {
         .or_else(|| {
             std::env::var_os("HOME").map(|tilde| {
                 let mut path = PathBuf::from(tilde);
-                path.push(".ipfs");
+                path.push(".rust-ipfs");
                 path
             })
         });
