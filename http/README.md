@@ -16,3 +16,97 @@ HTTP specs:
 
 Status: Pre-alpha, most of the functionality is missing or `501 Not
 Implemented`. See the repository level README for more information.
+
+## Getting started
+
+This tutorial will demonstrate how to run a rust-ipfs node using the ipfs-http
+crate. If you haven't already, you'll need to [install
+Rust](https://doc.rust-lang.org/stable/book/ch01-01-installation.html). You
+should also [install the go-ipfs
+CLI](https://docs.ipfs.io/install/command-line/) as this will make it easier to
+interact with the node. 
+
+By default ipfs-http stores the configuration for the node in the `.rust-ipfs`
+directory. Should you want to override this, you can do so by setting the
+`IPFS_PATH` environment variable. For this example it's a good idea to set the
+path to `.rust-ipfs` so that the go-ipfs CLI knows to use that directory as
+well (default is `.ipfs`). 
+
+You can initialise the directory with: 
+
+```
+cargo run -p ipfs-http -- init --profile test --bits 2048
+```
+
+The output should return a peer id and confirm the path of the newly
+initialised node is either the default or the `IPFS_PATH`.
+
+The `.rust-ipfs` directory now contains a configuration file, `config`:
+
+```
+{
+  "Identity": {
+    "PeerID": "QmTETy4bmL44fwkvbkMzXMVmiUDTvEcupsfpM8BCgNERUe",
+    "PrivKey": "CAASpgkwggSiAgEAAoIBAQCyFR6pKSRt62WLJ6fi2MeG0pn [...]" 
+  },
+  "Addresses": {
+    "Swarm": [
+      "/ip4/127.0.0.1/tcp/0"
+    ]
+  }
+}
+```
+
+It stores the peer id, private key (shortened for brevity) and swarm addresses
+for the node. Let's run the node as a daemon:
+
+```
+cargo run -p ipfs-http -- daemon
+```
+
+This exposes the node as an HTTP API. The config directory has also grown to
+include a `blockstore`, a `datastore` and an `api` file:
+
+```
+.ipfs
+├── api
+├── blockstore
+├── config
+└── datastore
+    └── pins
+```
+
+The `blockstore` and `datastore` are empty, as we haven't yet added any data to
+the ipfs node. The `api` file keeps track of the node's address (uses ephemeral
+ports). 
+
+The node can now be queried using the go-ipfs CLI. In another terminal window
+run:
+
+```
+ipfs id
+```
+
+This returns the information about the node. 
+
+```
+{
+	"ID": "QmTETy4bmL44fwkvbkMzXMVmiUDTvEcupsfpM8BCgNERUe",
+	"PublicKey": "CAASpgIwggEiMA0GCSqGSIb3D [...]",
+	"Addresses": [
+		"/ip4/127.0.0.1/tcp/58807/p2p/QmTETy4bmL44fwkvbkMzXMVmiUDTvEcupsfpM8BCgNERUe"
+	],
+	"AgentVersion": "rust-ipfs/0.1.0",
+	"ProtocolVersion": "ipfs/0.1.0",
+	"Protocols": null
+}
+```
+
+The query is shown in the node's log showing the `/api/v0/id` endpoint was
+queried:
+
+```
+INFO ipfs-http: 127.0.0.1:58811 "POST /api/v0/id HTTP/1.1" 200 "-" "go-ipfs-cmds/http" 2.795971ms
+```
+
+
