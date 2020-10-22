@@ -17,8 +17,8 @@ enum Options {
         #[structopt(long)]
         bits: NonZeroU16,
         /// List of configuration profiles to apply
-        #[structopt(long, use_delimiter = true)]
-        profile: Vec<String>,
+        #[structopt(long)]
+        profile: config::Profile,
     },
     /// Start the IPFS node in the foreground (not detaching from parent process).
     Daemon,
@@ -59,7 +59,7 @@ fn main() {
 
     let config_path = home.join("config");
 
-    let (keypair, listening_addrs) = match opts {
+    let (keypair, listening_addrs, api_listening_addrs) = match opts {
         Options::Init { bits, profile } => {
             println!("initializing IPFS node at {:?}", home);
 
@@ -73,7 +73,7 @@ fn main() {
 
             match result {
                 Ok(_) => {
-                    let (kp, _) = std::fs::File::open(config_path)
+                    let (kp, _, _) = std::fs::File::open(config_path)
                         .map_err(config::LoadingError::ConfigurationFileOpening)
                         .and_then(config::load)
                         .unwrap();
@@ -101,8 +101,8 @@ fn main() {
                     eprintln!("This is a fake version of ipfs cli which does not support much");
                     std::process::exit(1);
                 }
-                Err(config::InitializationError::InvalidProfiles(profiles)) => {
-                    eprintln!("Error: unsupported profile selection: {:?}", profiles);
+                Err(config::InitializationError::InvalidProfile(profile)) => {
+                    eprintln!("Error: unsupported profile selection: {:?}", profile);
                     eprintln!("This is a fake version of ipfs cli which does not support much");
                     std::process::exit(1);
                 }
@@ -153,7 +153,13 @@ fn main() {
         tokio::spawn(task);
 
         let api_link_file = home.join("api");
-        let (addr, server) = serve(&ipfs);
+
+        // If the port is specified, use that to start the server, if it isn't use ephemeral ports,
+        // i.e.:
+        //
+        // port => port
+        // none => 0
+        let (addr, server) = serve(&ipfs, api_listening_addrs);
 
         // shutdown future will handle signalling the exit
         drop(ipfs);
@@ -185,6 +191,7 @@ fn main() {
 
 fn serve<Types: IpfsTypes>(
     ipfs: &Ipfs<Types>,
+    listening_addrs: std::net::SocketAddr,
 ) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
     use tokio::stream::StreamExt;
     use warp::Filter;
@@ -195,7 +202,9 @@ fn serve<Types: IpfsTypes>(
 
     let ipfs = ipfs.clone();
 
-    warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 0), async move {
+    println!("SOCKET_ADDR: {:?}", listening_addrs);
+
+    warp::serve(routes).bind_with_graceful_shutdown(listening_addrs, async move {
         shutdown_rx.next().await;
         info!("Shutdown trigger received; starting shutdown");
         ipfs.exit_daemon().await;
