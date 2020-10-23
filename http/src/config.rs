@@ -58,7 +58,7 @@ pub enum InitializationError {
 pub fn initialize(
     ipfs_path: &Path,
     bits: NonZeroU16,
-    profile: Profile,
+    profiles: Vec<Profile>,
 ) -> Result<(), InitializationError> {
     let config_path = ipfs_path.join("config");
 
@@ -67,10 +67,14 @@ pub fn initialize(
         .and_then(|_| {
             fs::File::create(&config_path).map_err(InitializationError::ConfigCreationFailed)
         })
-        .and_then(|config_file| create(config_file, bits, profile))
+        .and_then(|config_file| create(config_file, bits, profiles))
 }
 
-fn create(config: File, bits: NonZeroU16, profile: Profile) -> Result<(), InitializationError> {
+fn create(
+    config: File,
+    bits: NonZeroU16,
+    profiles: Vec<Profile>,
+) -> Result<(), InitializationError> {
     use multibase::Base::Base64Pad;
     use prost::Message;
     use std::io::BufWriter;
@@ -81,19 +85,6 @@ fn create(config: File, bits: NonZeroU16, profile: Profile) -> Result<(), Initia
         // ring will not accept a less than 2048 key
         return Err(InitializationError::InvalidRsaKeyLength(bits));
     }
-
-    // if profiles.len() != 1 || profiles[0] != "test" || profiles[0] != "default" {
-    //     // profiles are expected to be (comma separated) "test" as there are no bootstrap peer
-    //     // handling yet. the conformance test cases seem to init `go-ipfs` in this profile where
-    //     // it does not have any bootstrap nodes, and multi node tests later call swarm apis to
-    //     // dial the nodes together.
-    //     return Err(InitializationError::InvalidProfile(profiles));
-    // }
-
-    let api_addrs = match profile {
-        Profile::Test => "127.0.0.1:0",
-        Profile::Default => "127.0.0.1:4004",
-    };
 
     let pk = openssl::rsa::Rsa::generate(bits as u32)
         .map_err(|e| InitializationError::KeyGeneration(Box::new(e)))?;
@@ -132,6 +123,19 @@ fn create(config: File, bits: NonZeroU16, profile: Profile) -> Result<(), Initia
     };
 
     let private_key = Base64Pad.encode(&private_key);
+
+    if profiles.len() != 1 {
+        // profiles are expected to be (comma separated) "test" as there are no bootstrap peer
+        // handling yet. the conformance test cases seem to init `go-ipfs` in this profile where
+        // it does not have any bootstrap nodes, and multi node tests later call swarm apis to
+        // dial the nodes together.
+        unimplemented!("Multiple profiles are currently unsupported!")
+    }
+
+    let api_addrs = match profiles[0] {
+        Profile::Test => "127.0.0.1:0",
+        Profile::Default => "127.0.0.1:4004",
+    };
 
     let config_contents = CompatibleConfigFile {
         identity: Identity {

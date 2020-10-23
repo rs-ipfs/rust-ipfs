@@ -16,9 +16,12 @@ enum Options {
         /// Generated key length
         #[structopt(long)]
         bits: NonZeroU16,
-        /// List of configuration profiles to apply
-        #[structopt(long)]
-        profile: config::Profile,
+        /// List of configuration profiles to apply. Currently only the `Test` and `Default`
+        /// profiles are supported.  
+        ///
+        /// `Test` uses ephemeral ports, `Default` uses `4004`.
+        #[structopt(long, use_delimiter = true)]
+        profile: Vec<config::Profile>,
     },
     /// Start the IPFS node in the foreground (not detaching from parent process).
     Daemon,
@@ -201,8 +204,6 @@ fn serve<Types: IpfsTypes>(
     let routes = routes.with(warp::log(env!("CARGO_PKG_NAME")));
 
     let ipfs = ipfs.clone();
-
-    println!("SOCKET_ADDR: {:?}", listening_addrs);
 
     warp::serve(routes).bind_with_graceful_shutdown(listening_addrs, async move {
         shutdown_rx.next().await;
