@@ -22,6 +22,7 @@ pub enum Profile {
     Default,
 }
 
+// Required for structopt.
 impl FromStr for Profile {
     type Err = InitializationError;
 
@@ -60,6 +61,16 @@ pub fn initialize(
     bits: NonZeroU16,
     profiles: Vec<Profile>,
 ) -> Result<(), InitializationError> {
+    // This check is done here to avoid an empty config file being created in the case of an
+    // unsupported input.
+    if profiles.len() != 1 {
+        // profiles are expected to be (comma separated) "test" as there are no bootstrap peer
+        // handling yet. the conformance test cases seem to init `go-ipfs` in this profile where
+        // it does not have any bootstrap nodes, and multi node tests later call swarm apis to
+        // dial the nodes together.
+        unimplemented!("Multiple profiles are currently unsupported!");
+    }
+
     let config_path = ipfs_path.join("config");
 
     fs::create_dir_all(&ipfs_path)
@@ -78,6 +89,11 @@ fn create(
     use multibase::Base::Base64Pad;
     use prost::Message;
     use std::io::BufWriter;
+
+    let api_addrs = match profiles[0] {
+        Profile::Test => "127.0.0.1:0",
+        Profile::Default => "127.0.0.1:4004",
+    };
 
     let bits = bits.get();
 
@@ -123,19 +139,6 @@ fn create(
     };
 
     let private_key = Base64Pad.encode(&private_key);
-
-    if profiles.len() != 1 {
-        // profiles are expected to be (comma separated) "test" as there are no bootstrap peer
-        // handling yet. the conformance test cases seem to init `go-ipfs` in this profile where
-        // it does not have any bootstrap nodes, and multi node tests later call swarm apis to
-        // dial the nodes together.
-        unimplemented!("Multiple profiles are currently unsupported!")
-    }
-
-    let api_addrs = match profiles[0] {
-        Profile::Test => "127.0.0.1:0",
-        Profile::Default => "127.0.0.1:4004",
-    };
 
     let config_contents = CompatibleConfigFile {
         identity: Identity {

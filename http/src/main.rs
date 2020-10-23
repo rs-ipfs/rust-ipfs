@@ -19,7 +19,7 @@ enum Options {
         /// List of configuration profiles to apply. Currently only the `Test` and `Default`
         /// profiles are supported.  
         ///
-        /// `Test` uses ephemeral ports, `Default` uses `4004`.
+        /// `Test` uses ephemeral ports (necessary for conformance tests), `Default` uses `4004`.
         #[structopt(long, use_delimiter = true)]
         profile: Vec<config::Profile>,
     },
@@ -157,11 +157,6 @@ fn main() {
 
         let api_link_file = home.join("api");
 
-        // If the port is specified, use that to start the server, if it isn't use ephemeral ports,
-        // i.e.:
-        //
-        // port => port
-        // none => 0
         let (addr, server) = serve(&ipfs, api_listening_addrs);
 
         // shutdown future will handle signalling the exit
