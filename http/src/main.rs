@@ -62,7 +62,7 @@ fn main() {
 
     let config_path = home.join("config");
 
-    let (keypair, listening_addrs, api_listening_addrs) = match opts {
+    let (keypair, listening_addrs, api_listening_addr) = match opts {
         Options::Init { bits, profile } => {
             println!("initializing IPFS node at {:?}", home);
 
@@ -157,7 +157,7 @@ fn main() {
 
         let api_link_file = home.join("api");
 
-        let (addr, server) = serve(&ipfs, api_listening_addrs);
+        let (addr, server) = serve(&ipfs, api_listening_addr);
 
         // shutdown future will handle signalling the exit
         drop(ipfs);
@@ -189,7 +189,7 @@ fn main() {
 
 fn serve<Types: IpfsTypes>(
     ipfs: &Ipfs<Types>,
-    listening_addrs: std::net::SocketAddr,
+    listening_addr: std::net::SocketAddr,
 ) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
     use tokio::stream::StreamExt;
     use warp::Filter;
@@ -200,7 +200,7 @@ fn serve<Types: IpfsTypes>(
 
     let ipfs = ipfs.clone();
 
-    warp::serve(routes).bind_with_graceful_shutdown(listening_addrs, async move {
+    warp::serve(routes).bind_with_graceful_shutdown(listening_addr, async move {
         shutdown_rx.next().await;
         info!("Shutdown trigger received; starting shutdown");
         ipfs.exit_daemon().await;

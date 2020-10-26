@@ -86,7 +86,7 @@ fn create(
     use prost::Message;
     use std::io::BufWriter;
 
-    let api_addrs = match profiles[0] {
+    let api_addr = match profiles[0] {
         Profile::Test => "127.0.0.1:0",
         Profile::Default => "127.0.0.1:4004",
     };
@@ -143,7 +143,7 @@ fn create(
         },
         addresses: Addresses {
             swarm: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
-            api: api_addrs.parse().unwrap(),
+            api: api_addr.parse().unwrap(),
         },
     };
 
