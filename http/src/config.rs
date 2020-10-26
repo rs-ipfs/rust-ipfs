@@ -64,10 +64,6 @@ pub fn initialize(
     // This check is done here to avoid an empty config file being created in the case of an
     // unsupported input.
     if profiles.len() != 1 {
-        // profiles are expected to be (comma separated) "test" as there are no bootstrap peer
-        // handling yet. the conformance test cases seem to init `go-ipfs` in this profile where
-        // it does not have any bootstrap nodes, and multi node tests later call swarm apis to
-        // dial the nodes together.
         unimplemented!("Multiple profiles are currently unsupported!");
     }
 
@@ -275,6 +271,7 @@ struct CompatibleConfigFile {
 #[serde(rename_all = "PascalCase")]
 struct Addresses {
     swarm: Vec<Multiaddr>,
+    #[serde(rename = "API")]
     api: SocketAddr,
 }
 
