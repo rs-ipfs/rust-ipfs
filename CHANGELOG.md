@@ -1,6 +1,6 @@
 # Next
 
-* fix(http): create `Profile` abstraction [#421]
+* feat(http): create `Profile` abstraction [#421]
 
 [#421]: https://github.com/rs-ipfs/rust-ipfs/pull/421
 
