@@ -4,6 +4,7 @@ use structopt::StructOpt;
 
 use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
 use ipfs_http::{config, v0};
+use parity_multiaddr::{Multiaddr, Protocol};
 
 #[macro_use]
 extern crate tracing;
@@ -189,10 +190,11 @@ fn main() {
 
 fn serve<Types: IpfsTypes>(
     ipfs: &Ipfs<Types>,
-    listening_addr: std::net::SocketAddr,
+    listening_addr: Multiaddr,
 ) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
     use tokio::stream::StreamExt;
     use warp::Filter;
+
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
 
     let routes = v0::routes(ipfs, shutdown_tx);
@@ -200,7 +202,17 @@ fn serve<Types: IpfsTypes>(
 
     let ipfs = ipfs.clone();
 
-    warp::serve(routes).bind_with_graceful_shutdown(listening_addr, async move {
+    let components = listening_addr.iter().collect::<Vec<_>>();
+
+    use std::net::SocketAddr;
+    let socket_addr =
+        if let (Protocol::Ip4(ip), Protocol::Tcp(port)) = (&components[0], &components[1]) {
+            SocketAddr::new(ip.clone().into(), *port)
+        } else {
+            panic!("Couldn't convert MultiAddr into SocketAddr")
+        };
+
+    warp::serve(routes).bind_with_graceful_shutdown(socket_addr, async move {
         shutdown_rx.next().await;
         info!("Shutdown trigger received; starting shutdown");
         ipfs.exit_daemon().await;

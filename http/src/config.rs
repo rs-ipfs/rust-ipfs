@@ -1,9 +1,8 @@
 //! go-ipfs compatible configuration file handling and setup.
 
-use parity_multiaddr::Multiaddr;
+use parity_multiaddr::{multiaddr, Multiaddr};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
-use std::net::SocketAddr;
 use std::num::NonZeroU16;
 use std::path::Path;
 use std::str::FromStr;
@@ -87,8 +86,8 @@ fn create(
     use std::io::BufWriter;
 
     let api_addr = match profiles[0] {
-        Profile::Test => "127.0.0.1:0",
-        Profile::Default => "127.0.0.1:4004",
+        Profile::Test => multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16)),
+        Profile::Default => multiaddr!(Ip4([127, 0, 0, 1]), Tcp(4004u16)),
     };
 
     let bits = bits.get();
@@ -143,7 +142,7 @@ fn create(
         },
         addresses: Addresses {
             swarm: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
-            api: api_addr.parse().unwrap(),
+            api: api_addr,
         },
     };
 
@@ -173,7 +172,7 @@ pub enum LoadingError {
 /// Returns only the keypair and listening addresses or [`LoadingError`] but this should be
 /// extended to contain the bootstrap nodes at least later when we need to support those for
 /// testing purposes.
-pub fn load(config: File) -> Result<(ipfs::Keypair, Vec<Multiaddr>, SocketAddr), LoadingError> {
+pub fn load(config: File) -> Result<(ipfs::Keypair, Vec<Multiaddr>, Multiaddr), LoadingError> {
     use std::io::BufReader;
 
     let CompatibleConfigFile {
@@ -272,7 +271,7 @@ struct CompatibleConfigFile {
 struct Addresses {
     swarm: Vec<Multiaddr>,
     #[serde(rename = "API")]
-    api: SocketAddr,
+    api: Multiaddr,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
