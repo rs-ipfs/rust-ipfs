@@ -96,8 +96,8 @@ This returns the information about the node.
 	"Addresses": [
 		"/ip4/127.0.0.1/tcp/58807/p2p/QmTETy4bmL44fwkvbkMzXMVmiUDTvEcupsfpM8BCgNERUe"
 	],
-	"AgentVersion": "rust-ipfs/0.1.0",
-	"ProtocolVersion": "ipfs/0.1.0",
+	"AgentVersion": "rust-ipfs/version",
+	"ProtocolVersion": "ipfs/version",
 	"Protocols": null
 }
 ```
