@@ -38,8 +38,10 @@ You can initialise the directory with:
 cargo run -p ipfs-http -- init --profile test --bits 2048
 ```
 
-The output should return a peer id and confirm the path of the newly
-initialised node is either the default or the `IPFS_PATH`.
+The `--profile` option allows the user to use a set of defaults. Currently
+only `test` is supported. The `--bits` option specifies the length of the RSA
+keys to be used. The output should return a peer id and confirm the path of the
+newly initialised node is either the default or the `IPFS_PATH`.
 
 The `.rust-ipfs` directory now contains a configuration file, `config`:
 
