@@ -70,7 +70,7 @@ This exposes the node as an HTTP API. The config directory has also grown to
 include a `blockstore`, a `datastore` and an `api` file:
 
 ```
-.ipfs
+.rust-ipfs
 ├── api
 ├── blockstore
 ├── config
@@ -104,8 +104,7 @@ This returns the information about the node.
 }
 ```
 
-The query is shown in the node's log showing the `/api/v0/id` endpoint was
-queried:
+The query is logged by the node and shows the `/api/v0/id` endpoint handled the request:
 
 ```
 INFO ipfs-http: 127.0.0.1:58811 "POST /api/v0/id HTTP/1.1" 200 "-" "go-ipfs-cmds/http" 2.795971ms
