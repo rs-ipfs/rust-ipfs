@@ -38,10 +38,15 @@ You can initialise the directory with:
 cargo run -p ipfs-http -- init --profile test --bits 2048
 ```
 
-The `--profile` option allows the user to use a set of defaults. Currently
-only `test` is supported. The `--bits` option specifies the length of the RSA
-keys to be used. The output should return a peer id and confirm the path of the
-newly initialised node is either the default or the `IPFS_PATH`.
+The `--profile` option allows the user to use a set of defaults. Currently two
+profiles are supported:
+
+- `test`: runs the daemon using ephemeral ports
+- `default` runs the daemon on port `4004`
+
+The `--bits` option specifies the length of the RSA keys to be used. The output
+should return a peer id and confirm the path of the newly initialised node is
+either the default or the `IPFS_PATH`.
 
 The `.rust-ipfs` directory now contains a configuration file, `config`:
 
@@ -79,8 +84,7 @@ include a `blockstore`, a `datastore` and an `api` file:
 ```
 
 The `blockstore` and `datastore` are empty, as we haven't yet added any data to
-the ipfs node. The `api` file keeps track of the node's address (uses ephemeral
-ports). 
+the ipfs node. The `api` file keeps track of the node's address.
 
 The node can now be queried using the go-ipfs CLI. In another terminal window
 run:
