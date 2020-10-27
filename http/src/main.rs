@@ -4,6 +4,7 @@ use structopt::StructOpt;
 
 use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
 use ipfs_http::{config, v0};
+use parity_multiaddr::{Multiaddr, Protocol};
 
 #[macro_use]
 extern crate tracing;
@@ -16,9 +17,12 @@ enum Options {
         /// Generated key length
         #[structopt(long)]
         bits: NonZeroU16,
-        /// List of configuration profiles to apply
+        /// List of configuration profiles to apply. Currently only the `Test` and `Default`
+        /// profiles are supported.  
+        ///
+        /// `Test` uses ephemeral ports (necessary for conformance tests), `Default` uses `4004`.
         #[structopt(long, use_delimiter = true)]
-        profile: Vec<String>,
+        profile: Vec<config::Profile>,
     },
     /// Start the IPFS node in the foreground (not detaching from parent process).
     Daemon,
@@ -59,7 +63,7 @@ fn main() {
 
     let config_path = home.join("config");
 
-    let (keypair, listening_addrs) = match opts {
+    let (keypair, listening_addrs, api_listening_addr) = match opts {
         Options::Init { bits, profile } => {
             println!("initializing IPFS node at {:?}", home);
 
@@ -73,7 +77,7 @@ fn main() {
 
             match result {
                 Ok(_) => {
-                    let (kp, _) = std::fs::File::open(config_path)
+                    let (kp, _, _) = std::fs::File::open(config_path)
                         .map_err(config::LoadingError::ConfigurationFileOpening)
                         .and_then(config::load)
                         .unwrap();
@@ -101,8 +105,8 @@ fn main() {
                     eprintln!("This is a fake version of ipfs cli which does not support much");
                     std::process::exit(1);
                 }
-                Err(config::InitializationError::InvalidProfiles(profiles)) => {
-                    eprintln!("Error: unsupported profile selection: {:?}", profiles);
+                Err(config::InitializationError::InvalidProfile(profile)) => {
+                    eprintln!("Error: unsupported profile selection: {:?}", profile);
                     eprintln!("This is a fake version of ipfs cli which does not support much");
                     std::process::exit(1);
                 }
@@ -153,7 +157,8 @@ fn main() {
         tokio::spawn(task);
 
         let api_link_file = home.join("api");
-        let (addr, server) = serve(&ipfs);
+
+        let (addr, server) = serve(&ipfs, api_listening_addr);
 
         // shutdown future will handle signalling the exit
         drop(ipfs);
@@ -185,9 +190,12 @@ fn main() {
 
 fn serve<Types: IpfsTypes>(
     ipfs: &Ipfs<Types>,
+    listening_addr: Multiaddr,
 ) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
+    use std::net::SocketAddr;
     use tokio::stream::StreamExt;
     use warp::Filter;
+
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
 
     let routes = v0::routes(ipfs, shutdown_tx);
@@ -195,7 +203,17 @@ fn serve<Types: IpfsTypes>(
 
     let ipfs = ipfs.clone();
 
-    warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 0), async move {
+    let components = listening_addr.iter().collect::<Vec<_>>();
+
+    let socket_addr = match components.as_slice() {
+        [Protocol::Ip4(ip), Protocol::Tcp(port)] => SocketAddr::new(ip.clone().into(), *port),
+        _ => panic!(
+            "Couldn't convert MultiAddr into SocketAddr: {}",
+            listening_addr
+        ),
+    };
+
+    warp::serve(routes).bind_with_graceful_shutdown(socket_addr, async move {
         shutdown_rx.next().await;
         info!("Shutdown trigger received; starting shutdown");
         ipfs.exit_daemon().await;

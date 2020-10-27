@@ -1,16 +1,37 @@
 //! go-ipfs compatible configuration file handling and setup.
 
-use parity_multiaddr::Multiaddr;
+use parity_multiaddr::{multiaddr, Multiaddr};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::num::NonZeroU16;
 use std::path::Path;
+use std::str::FromStr;
+use structopt::StructOpt;
 use thiserror::Error;
 
 /// Temporary module required to de/ser config files base64'd protobuf rsa private key format.
 /// Temporary until the private key import/export can be PR'd into rust-libp2p.
 mod keys_proto {
     include!(concat!(env!("OUT_DIR"), "/keys_proto.rs"));
+}
+
+#[derive(Debug, StructOpt)]
+pub enum Profile {
+    Test,
+    Default,
+}
+
+// Required for structopt.
+impl FromStr for Profile {
+    type Err = InitializationError;
+
+    fn from_str(profile: &str) -> Result<Self, Self::Err> {
+        match profile {
+            "test" => Ok(Profile::Test),
+            "default" => Ok(Profile::Default),
+            _ => Err(InitializationError::InvalidProfile(profile.to_string())),
+        }
+    }
 }
 
 /// The way things can go wrong when calling [`initialize`].
@@ -23,7 +44,7 @@ pub enum InitializationError {
     #[error("invalid RSA key length given: {0}")]
     InvalidRsaKeyLength(u16),
     #[error("unsupported profiles selected: {0:?}")]
-    InvalidProfiles(Vec<String>),
+    InvalidProfile(String),
     #[error("key generation failed: {0}")]
     KeyGeneration(Box<dyn std::error::Error + 'static>),
     #[error("key encoding failed: {0}")]
@@ -37,8 +58,14 @@ pub enum InitializationError {
 pub fn initialize(
     ipfs_path: &Path,
     bits: NonZeroU16,
-    profiles: Vec<String>,
+    profiles: Vec<Profile>,
 ) -> Result<(), InitializationError> {
+    // This check is done here to avoid an empty config file being created in the case of an
+    // unsupported input.
+    if profiles.len() != 1 {
+        unimplemented!("Multiple profiles are currently unsupported!");
+    }
+
     let config_path = ipfs_path.join("config");
 
     fs::create_dir_all(&ipfs_path)
@@ -52,25 +79,22 @@ pub fn initialize(
 fn create(
     config: File,
     bits: NonZeroU16,
-    profiles: Vec<String>,
+    profiles: Vec<Profile>,
 ) -> Result<(), InitializationError> {
     use multibase::Base::Base64Pad;
     use prost::Message;
     use std::io::BufWriter;
+
+    let api_addr = match profiles[0] {
+        Profile::Test => multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16)),
+        Profile::Default => multiaddr!(Ip4([127, 0, 0, 1]), Tcp(4004u16)),
+    };
 
     let bits = bits.get();
 
     if bits < 2048 || bits > 16 * 1024 {
         // ring will not accept a less than 2048 key
         return Err(InitializationError::InvalidRsaKeyLength(bits));
-    }
-
-    if profiles.len() != 1 || profiles[0] != "test" {
-        // profiles are expected to be (comma separated) "test" as there are no bootstrap peer
-        // handling yet. the conformance test cases seem to init `go-ipfs` in this profile where
-        // it does not have any bootstrap nodes, and multi node tests later call swarm apis to
-        // dial the nodes together.
-        return Err(InitializationError::InvalidProfiles(profiles));
     }
 
     let pk = openssl::rsa::Rsa::generate(bits as u32)
@@ -118,6 +142,7 @@ fn create(
         },
         addresses: Addresses {
             swarm: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+            api: api_addr,
         },
     };
 
@@ -147,7 +172,7 @@ pub enum LoadingError {
 /// Returns only the keypair and listening addresses or [`LoadingError`] but this should be
 /// extended to contain the bootstrap nodes at least later when we need to support those for
 /// testing purposes.
-pub fn load(config: File) -> Result<(ipfs::Keypair, Vec<Multiaddr>), LoadingError> {
+pub fn load(config: File) -> Result<(ipfs::Keypair, Vec<Multiaddr>, Multiaddr), LoadingError> {
     use std::io::BufReader;
 
     let CompatibleConfigFile {
@@ -167,7 +192,7 @@ pub fn load(config: File) -> Result<(ipfs::Keypair, Vec<Multiaddr>), LoadingErro
         });
     }
 
-    Ok((kp, addresses.swarm))
+    Ok((kp, addresses.swarm, addresses.api))
 }
 
 /// Converts a PEM format to DER where PEM is a container for Base64 data with padding, starting on
@@ -245,6 +270,8 @@ struct CompatibleConfigFile {
 #[serde(rename_all = "PascalCase")]
 struct Addresses {
     swarm: Vec<Multiaddr>,
+    #[serde(rename = "API")]
+    api: Multiaddr,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
