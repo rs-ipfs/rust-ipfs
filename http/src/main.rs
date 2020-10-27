@@ -192,6 +192,7 @@ fn serve<Types: IpfsTypes>(
     ipfs: &Ipfs<Types>,
     listening_addr: Multiaddr,
 ) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
+    use std::net::SocketAddr;
     use tokio::stream::StreamExt;
     use warp::Filter;
 
@@ -204,13 +205,13 @@ fn serve<Types: IpfsTypes>(
 
     let components = listening_addr.iter().collect::<Vec<_>>();
 
-    use std::net::SocketAddr;
-    let socket_addr =
-        if let (Protocol::Ip4(ip), Protocol::Tcp(port)) = (&components[0], &components[1]) {
-            SocketAddr::new(ip.clone().into(), *port)
-        } else {
-            panic!("Couldn't convert MultiAddr into SocketAddr")
-        };
+    let socket_addr = match components.as_slice() {
+        [Protocol::Ip4(ip), Protocol::Tcp(port)] => SocketAddr::new(ip.clone().into(), *port),
+        _ => panic!(
+            "Couldn't convert MultiAddr into SocketAddr: {}",
+            listening_addr
+        ),
+    };
 
     warp::serve(routes).bind_with_graceful_shutdown(socket_addr, async move {
         shutdown_rx.next().await;
