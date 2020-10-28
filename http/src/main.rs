@@ -73,20 +73,21 @@ fn main() {
                 std::process::exit(1);
             }
 
-            let result = config::initialize(&home, bits, profile);
+            // let result = config::initialize(&home, bits, profile);
+            let result = config::init(&home, bits, profile);
 
             match result {
-                Ok(_) => {
-                    let (kp, _, _) = std::fs::File::open(config_path)
-                        .map_err(config::LoadingError::ConfigurationFileOpening)
-                        .and_then(config::load)
-                        .unwrap();
+                Ok(config) => {
+                    //  let (kp, _, _) = std::fs::File::open(config_path)
+                    //      .map_err(config::LoadingError::ConfigurationFileOpening)
+                    //      .and_then(config::load)
+                    //      .unwrap();
 
                     // go-ipfs prints here (in addition to earlier "initializing ..."):
                     //
                     // generating {}-bit RSA keypair...done
 
-                    println!("peer identity: {}", kp.public().into_peer_id());
+                    println!("peer identity: {}", config.identity.peer_id);
                     std::process::exit(0);
                 }
                 Err(config::InitializationError::DirectoryCreationFailed(e)) => {
