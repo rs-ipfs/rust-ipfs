@@ -63,6 +63,8 @@ pub enum InitializationError {
 // 4. When loading the config, CompatibleConfigFile should be passed around instead of the tuples
 //    currently used.
 
+/// Creates the IPFS_PATH directory structure and creates a new compatible configuration file with
+/// RSA key of length `bits`.
 pub fn init(
     ipfs_path: &Path,
     bits: NonZeroU16,
@@ -155,109 +157,6 @@ pub fn init(
     Ok(config_contents)
 }
 
-pub fn ld(config: File) -> Result<CompatibleConfigFile, LoadingError> {
-    unimplemented!();
-}
-
-/// Creates the IPFS_PATH directory structure and creates a new compatible configuration file with
-/// RSA key of length `bits`.
-// pub fn initialize(
-//     ipfs_path: &Path,
-//     bits: NonZeroU16,
-//     profiles: Vec<Profile>,
-// ) -> Result<(), InitializationError> {
-//     // This check is done here to avoid an empty config file being created in the case of an
-//     // unsupported input.
-//     if profiles.len() != 1 {
-//         unimplemented!("Multiple profiles are currently unsupported!");
-//     }
-//
-//     let config_path = ipfs_path.join("config");
-//
-//     fs::create_dir_all(&ipfs_path)
-//         .map_err(InitializationError::DirectoryCreationFailed)
-//         .and_then(|_| {
-//             fs::File::create(&config_path).map_err(InitializationError::ConfigCreationFailed)
-//         })
-//         .and_then(|config_file| create(config_file, bits, profiles))
-// }
-//
-// fn create(
-//     config: File,
-//     bits: NonZeroU16,
-//     profiles: Vec<Profile>,
-// ) -> Result<(), InitializationError> {
-//     use multibase::Base::Base64Pad;
-//     use prost::Message;
-//     use std::io::BufWriter;
-//
-//     let api_addr = match profiles[0] {
-//         Profile::Test => multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16)),
-//         Profile::Default => multiaddr!(Ip4([127, 0, 0, 1]), Tcp(4004u16)),
-//     };
-//
-//     let bits = bits.get();
-//
-//     if bits < 2048 || bits > 16 * 1024 {
-//         // ring will not accept a less than 2048 key
-//         return Err(InitializationError::InvalidRsaKeyLength(bits));
-//     }
-//
-//     let pk = openssl::rsa::Rsa::generate(bits as u32)
-//         .map_err(|e| InitializationError::KeyGeneration(Box::new(e)))?;
-//
-//     // sadly the pkcs8 to der functions are not yet exposed via the nicer interface
-//     // https://github.com/sfackler/rust-openssl/issues/880
-//     let pkcs8 = openssl::pkey::PKey::from_rsa(pk.clone())
-//         .and_then(|pk| pk.private_key_to_pem_pkcs8())
-//         .map_err(|e| InitializationError::KeyGeneration(Box::new(e)))?;
-//
-//     let mut pkcs8 = pem_to_der(&pkcs8);
-//
-//     let kp = ipfs::Keypair::rsa_from_pkcs8(&mut pkcs8)
-//         .expect("Failed to turn pkcs#8 into libp2p::identity::Keypair");
-//
-//     let peer_id = kp.public().into_peer_id().to_string();
-//
-//     // TODO: this part could be PR'd to rust-libp2p as they already have some public key
-//     // import/export but probably not if ring does not support these required conversions.
-//
-//     let pkcs1 = pk
-//         .private_key_to_der()
-//         .map_err(|e| InitializationError::KeyGeneration(Box::new(e)))?;
-//
-//     let key_desc = keys_proto::PrivateKey {
-//         r#type: keys_proto::KeyType::Rsa as i32,
-//         data: pkcs1,
-//     };
-//
-//     let private_key = {
-//         let mut buf = Vec::with_capacity(key_desc.encoded_len());
-//         key_desc
-//             .encode(&mut buf)
-//             .map_err(InitializationError::PrivateKeyEncodingFailed)?;
-//         buf
-//     };
-//
-//     let private_key = Base64Pad.encode(&private_key);
-//
-//     let config_contents = CompatibleConfigFile {
-//         identity: Identity {
-//             peer_id,
-//             private_key,
-//         },
-//         addresses: Addresses {
-//             swarm: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
-//             api: api_addr,
-//         },
-//     };
-//
-//     serde_json::to_writer_pretty(BufWriter::new(config), &config_contents)
-//         .map_err(InitializationError::ConfigWritingFailed)?;
-//
-//     Ok(())
-// }
-
 /// Things which can go wrong when loading a `go-ipfs` compatible configuration file.
 #[derive(Error, Debug)]
 pub enum LoadingError {
@@ -278,27 +177,26 @@ pub enum LoadingError {
 /// Returns only the keypair and listening addresses or [`LoadingError`] but this should be
 /// extended to contain the bootstrap nodes at least later when we need to support those for
 /// testing purposes.
-pub fn load(config: File) -> Result<(ipfs::Keypair, Vec<Multiaddr>, Multiaddr), LoadingError> {
+pub fn load(config: File) -> Result<CompatibleConfigFile, LoadingError> {
     use std::io::BufReader;
 
-    let CompatibleConfigFile {
-        identity,
-        addresses,
-    } = serde_json::from_reader(BufReader::new(config))
+    let config: CompatibleConfigFile = serde_json::from_reader(BufReader::new(config))
         .map_err(LoadingError::ConfigurationFileFormat)?;
 
-    let kp = identity.load_keypair()?;
+    let kp = config.identity.load_keypair()?;
 
     let peer_id = kp.public().into_peer_id().to_string();
 
-    if peer_id != identity.peer_id {
+    if peer_id != config.identity.peer_id {
         return Err(LoadingError::PeerIdMismatch {
             loaded: peer_id,
-            stored: identity.peer_id,
+            stored: config.identity.peer_id,
         });
     }
 
-    Ok((kp, addresses.swarm, addresses.api))
+    Ok(config)
+
+    // Ok((kp, addresses.swarm, addresses.api))
 }
 
 /// Converts a PEM format to DER where PEM is a container for Base64 data with padding, starting on
@@ -325,7 +223,7 @@ fn pem_to_der(bytes: &[u8]) -> Vec<u8> {
     use multibase::Base::Base64Pad;
 
     // Initially tried this with `pem` crate but it will give back bytes for the ascii, but we need
-    // the ascii for multibase's base64pad decoding.
+    // the ascii for multibase',s base64pad decoding.
     let mut base64_encoded = String::new();
 
     let pem = std::str::from_utf8(&bytes).expect("PEM should be utf8");
@@ -375,9 +273,9 @@ pub struct CompatibleConfigFile {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Addresses {
-    swarm: Vec<Multiaddr>,
+    pub swarm: Vec<Multiaddr>,
     #[serde(rename = "API")]
-    api: Multiaddr,
+    pub api: Multiaddr,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

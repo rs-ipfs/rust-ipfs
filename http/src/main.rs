@@ -63,7 +63,7 @@ fn main() {
 
     let config_path = home.join("config");
 
-    let (keypair, listening_addrs, api_listening_addr) = match opts {
+    let config = match opts {
         Options::Init { bits, profile } => {
             println!("initializing IPFS node at {:?}", home);
 
@@ -138,6 +138,11 @@ fn main() {
     // NOTE: sigkill ... well surely it will stop the process right away
 
     let mut rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
+
+    // Probably want to panic if something isn't right at this point...
+    let keypair = config.identity.load_keypair().unwrap();
+    let listening_addrs = config.addresses.swarm;
+    let api_listening_addr = config.addresses.api;
 
     rt.block_on(async move {
         let opts = IpfsOptions {
