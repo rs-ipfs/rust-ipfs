@@ -77,17 +77,11 @@ fn main() {
             let result = config::init(&home, bits, profile);
 
             match result {
-                Ok(config) => {
-                    //  let (kp, _, _) = std::fs::File::open(config_path)
-                    //      .map_err(config::LoadingError::ConfigurationFileOpening)
-                    //      .and_then(config::load)
-                    //      .unwrap();
-
+                Ok(peer_id) => {
                     // go-ipfs prints here (in addition to earlier "initializing ..."):
                     //
                     // generating {}-bit RSA keypair...done
-
-                    println!("peer identity: {}", config.identity.peer_id);
+                    println!("peer identity: {}", peer_id);
                     std::process::exit(0);
                 }
                 Err(config::InitializationError::DirectoryCreationFailed(e)) => {
@@ -139,19 +133,14 @@ fn main() {
 
     let mut rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
 
-    // Probably want to panic if something isn't right at this point...
-    let keypair = config.identity.load_keypair().unwrap();
-    let listening_addrs = config.addresses.swarm;
-    let api_listening_addr = config.addresses.api;
-
     rt.block_on(async move {
         let opts = IpfsOptions {
             ipfs_path: home.clone(),
-            keypair,
+            keypair: config.keypair,
             bootstrap: Vec::new(),
             mdns: false,
             kad_protocol: None,
-            listening_addrs,
+            listening_addrs: config.swarm,
             span: None,
         };
 
@@ -164,11 +153,13 @@ fn main() {
 
         let api_link_file = home.join("api");
 
-        let (addr, server) = serve(&ipfs, api_listening_addr);
+        let (addr, server) = serve(&ipfs, config.api_addr);
 
         // shutdown future will handle signalling the exit
         drop(ipfs);
 
+        // We can't simply reuse the address from the config as the test profile uses ephemeral
+        // ports.
         let api_multiaddr = format!("/ip4/{}/tcp/{}", addr.ip(), addr.port());
 
         // this file is looked for when js-ipfsd-ctl checks optimistically if the IPFS_PATH has a

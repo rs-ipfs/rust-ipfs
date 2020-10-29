@@ -15,6 +15,7 @@ mod keys_proto {
     include!(concat!(env!("OUT_DIR"), "/keys_proto.rs"));
 }
 
+/// Defines the configuration types supported by the API.
 #[derive(Debug, StructOpt)]
 pub enum Profile {
     Test,
@@ -34,7 +35,7 @@ impl FromStr for Profile {
     }
 }
 
-/// The way things can go wrong when calling [`initialize`].
+/// The way things can go wrong when calling [`init`].
 #[derive(Error, Debug)]
 pub enum InitializationError {
     #[error("repository creation failed: {0}")]
@@ -53,27 +54,13 @@ pub enum InitializationError {
     ConfigWritingFailed(serde_json::Error),
 }
 
-// Thoughts on config refactor:
-//
-// 1. The CompatibleConfigFile should be written to the file only once all values have been
-//    generated (keys, etc...)
-// 2. The config API is probably going to just include initialize, though smaller functions could
-//    be helpers on CompatibleConfigFile.
-// 3. Error handling needs to be consitent and well defined.
-// 4. When loading the config, CompatibleConfigFile should be passed around instead of the tuples
-//    currently used.
-
 /// Creates the IPFS_PATH directory structure and creates a new compatible configuration file with
-/// RSA key of length `bits`.
+/// RSA key of length `bits`. Returns the Peer ID.
 pub fn init(
     ipfs_path: &Path,
     bits: NonZeroU16,
     profiles: Vec<Profile>,
-) -> Result<CompatibleConfigFile, InitializationError> {
-    // 1. Create CompatibleConfigFile
-    // 2. Create file
-    // 3. Return file?
-
+) -> Result<String, InitializationError> {
     use multibase::Base::Base64Pad;
     use prost::Message;
     use std::io::BufWriter;
@@ -134,7 +121,7 @@ pub fn init(
 
     let config_contents = CompatibleConfigFile {
         identity: Identity {
-            peer_id,
+            peer_id: peer_id.clone(),
             private_key,
         },
         addresses: Addresses {
@@ -154,7 +141,17 @@ pub fn init(
     serde_json::to_writer_pretty(BufWriter::new(config_file), &config_contents)
         .map_err(InitializationError::ConfigWritingFailed)?;
 
-    Ok(config_contents)
+    Ok(peer_id)
+}
+
+/// The facade for the configuration of the API.
+pub struct Config {
+    /// Keypair for the ipfs node
+    pub keypair: ipfs::Keypair,
+    /// Peer addresses for the ipfs node
+    pub swarm: Vec<Multiaddr>,
+    /// Address to run the API daemon on.
+    pub api_addr: Multiaddr,
 }
 
 /// Things which can go wrong when loading a `go-ipfs` compatible configuration file.
@@ -177,26 +174,30 @@ pub enum LoadingError {
 /// Returns only the keypair and listening addresses or [`LoadingError`] but this should be
 /// extended to contain the bootstrap nodes at least later when we need to support those for
 /// testing purposes.
-pub fn load(config: File) -> Result<CompatibleConfigFile, LoadingError> {
+pub fn load(config: File) -> Result<Config, LoadingError> {
     use std::io::BufReader;
 
-    let config: CompatibleConfigFile = serde_json::from_reader(BufReader::new(config))
+    let config_file: CompatibleConfigFile = serde_json::from_reader(BufReader::new(config))
         .map_err(LoadingError::ConfigurationFileFormat)?;
 
-    let kp = config.identity.load_keypair()?;
+    let kp = config_file.identity.load_keypair()?;
 
     let peer_id = kp.public().into_peer_id().to_string();
 
-    if peer_id != config.identity.peer_id {
+    if peer_id != config_file.identity.peer_id {
         return Err(LoadingError::PeerIdMismatch {
             loaded: peer_id,
-            stored: config.identity.peer_id,
+            stored: config_file.identity.peer_id,
         });
     }
 
-    Ok(config)
+    let config = Config {
+        keypair: kp,
+        swarm: config_file.addresses.swarm,
+        api_addr: config_file.addresses.api,
+    };
 
-    // Ok((kp, addresses.swarm, addresses.api))
+    Ok(config)
 }
 
 /// Converts a PEM format to DER where PEM is a container for Base64 data with padding, starting on
@@ -265,30 +266,30 @@ fn pem_to_der(bytes: &[u8]) -> Vec<u8> {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct CompatibleConfigFile {
-    pub identity: Identity,
-    pub addresses: Addresses,
+struct CompatibleConfigFile {
+    identity: Identity,
+    addresses: Addresses,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct Addresses {
-    pub swarm: Vec<Multiaddr>,
+struct Addresses {
+    swarm: Vec<Multiaddr>,
     #[serde(rename = "API")]
-    pub api: Multiaddr,
+    api: Multiaddr,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct Identity {
+struct Identity {
     #[serde(rename = "PeerID")]
-    pub peer_id: String,
+    peer_id: String,
     #[serde(rename = "PrivKey")]
     private_key: String,
 }
 
 impl Identity {
-    pub fn load_keypair(&self) -> Result<ipfs::Keypair, LoadingError> {
+    fn load_keypair(&self) -> Result<ipfs::Keypair, LoadingError> {
         use keys_proto::KeyType;
         use multibase::Base::Base64Pad;
         use prost::Message;
