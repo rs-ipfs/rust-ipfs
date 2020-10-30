@@ -63,7 +63,8 @@ pub fn init(
 ) -> Result<String, InitializationError> {
     use multibase::Base::Base64Pad;
     use prost::Message;
-    use std::io::BufWriter;
+    use std::fs::OpenOptions;
+    use std::io::{BufWriter, Write};
 
     if profiles.len() != 1 {
         unimplemented!("Multiple profiles are currently unsupported!")
@@ -135,11 +136,19 @@ pub fn init(
     let config_file = fs::create_dir_all(&ipfs_path)
         .map_err(InitializationError::DirectoryCreationFailed)
         .and_then(|_| {
-            fs::File::create(&config_path).map_err(InitializationError::ConfigCreationFailed)
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&config_path)
+                .map_err(InitializationError::ConfigCreationFailed)
         })?;
 
-    serde_json::to_writer_pretty(BufWriter::new(config_file), &config_contents)
+    let mut writer = BufWriter::new(config_file);
+
+    serde_json::to_writer_pretty(&mut writer, &config_contents)
         .map_err(InitializationError::ConfigWritingFailed)?;
+
+    writer.flush().unwrap();
 
     Ok(peer_id)
 }
