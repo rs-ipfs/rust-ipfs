@@ -15,6 +15,7 @@ mod keys_proto {
     include!(concat!(env!("OUT_DIR"), "/keys_proto.rs"));
 }
 
+/// Defines the configuration types supported by the API.
 #[derive(Debug, StructOpt)]
 pub enum Profile {
     Test,
@@ -34,7 +35,7 @@ impl FromStr for Profile {
     }
 }
 
-/// The way things can go wrong when calling [`initialize`].
+/// The way things can go wrong when calling [`init`].
 #[derive(Error, Debug)]
 pub enum InitializationError {
     #[error("repository creation failed: {0}")]
@@ -50,50 +51,29 @@ pub enum InitializationError {
     #[error("key encoding failed: {0}")]
     PrivateKeyEncodingFailed(prost::EncodeError),
     #[error("config serialization failed: {0}")]
-    ConfigWritingFailed(serde_json::Error),
+    ConfigWritingFailed(Box<dyn std::error::Error + 'static>),
 }
 
 /// Creates the IPFS_PATH directory structure and creates a new compatible configuration file with
-/// RSA key of length `bits`.
-pub fn initialize(
+/// RSA key of length `bits`. Returns the Peer ID.
+pub fn init(
     ipfs_path: &Path,
     bits: NonZeroU16,
     profiles: Vec<Profile>,
-) -> Result<(), InitializationError> {
-    // This check is done here to avoid an empty config file being created in the case of an
-    // unsupported input.
-    if profiles.len() != 1 {
-        unimplemented!("Multiple profiles are currently unsupported!");
-    }
-
-    let config_path = ipfs_path.join("config");
-
-    fs::create_dir_all(&ipfs_path)
-        .map_err(InitializationError::DirectoryCreationFailed)
-        .and_then(|_| {
-            fs::File::create(&config_path).map_err(InitializationError::ConfigCreationFailed)
-        })
-        .and_then(|config_file| create(config_file, bits, profiles))
-}
-
-fn create(
-    config: File,
-    bits: NonZeroU16,
-    profiles: Vec<Profile>,
-) -> Result<(), InitializationError> {
+) -> Result<String, InitializationError> {
     use multibase::Base::Base64Pad;
     use prost::Message;
-    use std::io::BufWriter;
+    use std::fs::OpenOptions;
+    use std::io::{BufWriter, Write};
 
-    let api_addr = match profiles[0] {
-        Profile::Test => multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16)),
-        Profile::Default => multiaddr!(Ip4([127, 0, 0, 1]), Tcp(4004u16)),
-    };
+    if profiles.len() != 1 {
+        unimplemented!("Multiple profiles are currently unsupported!")
+    }
 
     let bits = bits.get();
 
     if bits < 2048 || bits > 16 * 1024 {
-        // ring will not accept a less than 2048 key
+        // Ring won't accept less than a 2048 bit key.
         return Err(InitializationError::InvalidRsaKeyLength(bits));
     }
 
@@ -135,9 +115,14 @@ fn create(
 
     let private_key = Base64Pad.encode(&private_key);
 
+    let api_addr = match profiles[0] {
+        Profile::Test => multiaddr!(Ip4([127, 0, 0, 1]), Tcp(0u16)),
+        Profile::Default => multiaddr!(Ip4([127, 0, 0, 1]), Tcp(4004u16)),
+    };
+
     let config_contents = CompatibleConfigFile {
         identity: Identity {
-            peer_id,
+            peer_id: peer_id.clone(),
             private_key,
         },
         addresses: Addresses {
@@ -146,10 +131,38 @@ fn create(
         },
     };
 
-    serde_json::to_writer_pretty(BufWriter::new(config), &config_contents)
-        .map_err(InitializationError::ConfigWritingFailed)?;
+    let config_path = ipfs_path.join("config");
 
-    Ok(())
+    let config_file = fs::create_dir_all(&ipfs_path)
+        .map_err(InitializationError::DirectoryCreationFailed)
+        .and_then(|_| {
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&config_path)
+                .map_err(InitializationError::ConfigCreationFailed)
+        })?;
+
+    let mut writer = BufWriter::new(config_file);
+
+    serde_json::to_writer_pretty(&mut writer, &config_contents)
+        .map_err(|e| InitializationError::ConfigWritingFailed(Box::new(e)))?;
+
+    writer
+        .flush()
+        .map_err(|e| InitializationError::ConfigWritingFailed(Box::new(e)))?;
+
+    Ok(peer_id)
+}
+
+/// The facade for the configuration of the API.
+pub struct Config {
+    /// Keypair for the ipfs node.
+    pub keypair: ipfs::Keypair,
+    /// Peer addresses for the ipfs node.
+    pub swarm: Vec<Multiaddr>,
+    /// Address to run the API daemon on.
+    pub api_addr: Multiaddr,
 }
 
 /// Things which can go wrong when loading a `go-ipfs` compatible configuration file.
@@ -172,27 +185,30 @@ pub enum LoadingError {
 /// Returns only the keypair and listening addresses or [`LoadingError`] but this should be
 /// extended to contain the bootstrap nodes at least later when we need to support those for
 /// testing purposes.
-pub fn load(config: File) -> Result<(ipfs::Keypair, Vec<Multiaddr>, Multiaddr), LoadingError> {
+pub fn load(config: File) -> Result<Config, LoadingError> {
     use std::io::BufReader;
 
-    let CompatibleConfigFile {
-        identity,
-        addresses,
-    } = serde_json::from_reader(BufReader::new(config))
+    let config_file: CompatibleConfigFile = serde_json::from_reader(BufReader::new(config))
         .map_err(LoadingError::ConfigurationFileFormat)?;
 
-    let kp = identity.load_keypair()?;
+    let kp = config_file.identity.load_keypair()?;
 
     let peer_id = kp.public().into_peer_id().to_string();
 
-    if peer_id != identity.peer_id {
+    if peer_id != config_file.identity.peer_id {
         return Err(LoadingError::PeerIdMismatch {
             loaded: peer_id,
-            stored: identity.peer_id,
+            stored: config_file.identity.peer_id,
         });
     }
 
-    Ok((kp, addresses.swarm, addresses.api))
+    let config = Config {
+        keypair: kp,
+        swarm: config_file.addresses.swarm,
+        api_addr: config_file.addresses.api,
+    };
+
+    Ok(config)
 }
 
 /// Converts a PEM format to DER where PEM is a container for Base64 data with padding, starting on
