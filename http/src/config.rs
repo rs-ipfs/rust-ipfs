@@ -146,9 +146,9 @@ pub fn init(
 
 /// The facade for the configuration of the API.
 pub struct Config {
-    /// Keypair for the ipfs node
+    /// Keypair for the ipfs node.
     pub keypair: ipfs::Keypair,
-    /// Peer addresses for the ipfs node
+    /// Peer addresses for the ipfs node.
     pub swarm: Vec<Multiaddr>,
     /// Address to run the API daemon on.
     pub api_addr: Multiaddr,
@@ -224,7 +224,7 @@ fn pem_to_der(bytes: &[u8]) -> Vec<u8> {
     use multibase::Base::Base64Pad;
 
     // Initially tried this with `pem` crate but it will give back bytes for the ascii, but we need
-    // the ascii for multibase',s base64pad decoding.
+    // the ascii for multibase's base64pad decoding.
     let mut base64_encoded = String::new();
 
     let pem = std::str::from_utf8(&bytes).expect("PEM should be utf8");

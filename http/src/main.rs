@@ -73,7 +73,6 @@ fn main() {
                 std::process::exit(1);
             }
 
-            // let result = config::initialize(&home, bits, profile);
             let result = config::init(&home, bits, profile);
 
             match result {
