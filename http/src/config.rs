@@ -51,7 +51,7 @@ pub enum InitializationError {
     #[error("key encoding failed: {0}")]
     PrivateKeyEncodingFailed(prost::EncodeError),
     #[error("config serialization failed: {0}")]
-    ConfigWritingFailed(serde_json::Error),
+    ConfigWritingFailed(Box<dyn std::error::Error + 'static>),
 }
 
 /// Creates the IPFS_PATH directory structure and creates a new compatible configuration file with
@@ -146,9 +146,11 @@ pub fn init(
     let mut writer = BufWriter::new(config_file);
 
     serde_json::to_writer_pretty(&mut writer, &config_contents)
-        .map_err(InitializationError::ConfigWritingFailed)?;
+        .map_err(|e| InitializationError::ConfigWritingFailed(Box::new(e)))?;
 
-    writer.flush().unwrap();
+    writer
+        .flush()
+        .map_err(|e| InitializationError::ConfigWritingFailed(Box::new(e)))?;
 
     Ok(peer_id)
 }
