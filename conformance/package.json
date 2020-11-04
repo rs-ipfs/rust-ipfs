@@ -11,7 +11,7 @@
   "dependencies": {
     "aegir": "^21.3.0",
     "interface-ipfs-core": "0.139.0",
-    "ipfsd-ctl": "github:koivunej/js-ipfsd-ctl#add_rust_ipfs_http_on_7",
+    "ipfsd-ctl": "github:koivunej/js-ipfsd-ctl#add_rust_ipfs_http_on_7_wip",
     "mocha": "^7.1.0",
     "ipfs-http-client": "46.0.0",
     "why-is-node-running": "2.2.0"
