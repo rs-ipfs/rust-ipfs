@@ -18,7 +18,7 @@ enum Options {
         #[structopt(long)]
         bits: NonZeroU16,
         /// List of configuration profiles to apply. Currently only the `Test` and `Default`
-        /// profiles are supported.  
+        /// profiles are supported.
         ///
         /// `Test` uses ephemeral ports (necessary for conformance tests), `Default` uses `4004`.
         #[structopt(long, use_delimiter = true)]

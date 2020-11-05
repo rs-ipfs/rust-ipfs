@@ -1203,6 +1203,7 @@ dependencies = [
  "ipconfig",
  "ipfs-bitswap",
  "ipfs-unixfs",
+ "libc",
  "libp2p",
  "multibase",
  "multihash",

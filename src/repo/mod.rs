@@ -209,6 +209,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
     pub(crate) subscriptions: SubscriptionRegistry<Block, String>,
+    lock: Lock,
 }
 
 /// Events used to communicate to the swarm on repo changes.
@@ -237,6 +238,11 @@ impl TryFrom<RequestKind> for RepoEvent {
 
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub fn new(options: RepoOptions) -> (Self, Receiver<RepoEvent>) {
+        let lockfile_path = options.path.join("repo_lock");
+        let create = !lockfile_path.is_file();
+
+        let lock = Lock::new(&lockfile_path as &Path, create).unwrap();
+
         let mut blockstore_path = options.path.clone();
         let mut datastore_path = options.path;
         blockstore_path.push("blockstore");
@@ -250,6 +256,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 data_store,
                 events: sender,
                 subscriptions: Default::default(),
+                lock,
             },
             receiver,
         )
@@ -438,5 +445,66 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         requirement: Option<PinMode>,
     ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
         self.data_store.query(cids, requirement).await
+    }
+}
+
+use std::fs::{File, OpenOptions};
+use std::io;
+use std::os::unix::prelude::*;
+use std::path::Path;
+
+#[derive(Debug)]
+struct Lock {
+    file: File,
+}
+
+impl Lock {
+    fn new(path: &Path, create: bool) -> io::Result<Lock> {
+        // S_IRWXU is equivalent to (S_IRUSR | S_IWUSR | S_IXUSR), i.e. read, write, execute.
+        // See: https://www.gnu.org/software/libc/manual/html_mono/libc.html#Permission-Bits
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(create)
+            .mode(libc::S_IRWXU as u32)
+            .open(path)?;
+
+        // F_WRLCK is used to specify a write (or exclusive) lock.
+        let lock_type = libc::F_WRLCK;
+
+        let mut flock: libc::flock = unsafe { std::mem::zeroed() };
+        flock.l_type = lock_type as libc::c_short;
+        flock.l_whence = libc::SEEK_SET as libc::c_short;
+        flock.l_start = 0;
+        flock.l_len = 0;
+
+        // Gets a raw file descriptor for the lock file and sets the lock with SETLK.
+        //
+        // This call will return -1 in case of an error, i.e. when the lock cannot be set because
+        // it is blocked by an existing lock on the file (EACCESS).
+        // See: https://www.gnu.org/software/libc/manual/html_mono/libc.html#File-Locks
+        let ret = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETLK, &flock) };
+
+        if ret == -1 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(Lock { file })
+        }
+    }
+}
+
+impl Drop for Lock {
+    // We hold the lock in the Repo struct, as soon as it is dropped (when the node exits) this
+    // destructor will clear the lock.
+    fn drop(&mut self) {
+        let mut flock: libc::flock = unsafe { std::mem::zeroed() };
+        flock.l_type = libc::F_UNLCK as libc::c_short;
+        flock.l_whence = libc::SEEK_SET as libc::c_short;
+        flock.l_start = 0;
+        flock.l_len = 0;
+
+        unsafe {
+            libc::fcntl(self.file.as_raw_fd(), libc::F_SETLK, &flock);
+        }
     }
 }
