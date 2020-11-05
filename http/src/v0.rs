@@ -25,30 +25,18 @@ pub(crate) use support::{with_ipfs, InvalidPeerId, NotImplemented, StringError};
 
 /// Helper to combine multiple filters together with Filter::or, possibly boxing the types in
 /// the process. This greatly helps the build times for `ipfs-http`.
+/// Source: https://github.com/seanmonstar/warp/issues/619#issuecomment-662716377
 macro_rules! combine {
-    ($x:expr, $($y:expr),+ $(,)?) => {
-        {
-            let filter = $x;
-            $(
-                let filter = filter.or($y);
-            )+
-            filter
-        }
-    }
-}
-
-/// Helper to combine multiple filters together with Filter::or. The filters are never boxed but
-/// the output is assumed to be equal and so the output is unified.
-macro_rules! combine_unify {
-    ($x:expr, $($y:expr),+ $(,)?) => {
-        {
-            let filter = $x;
-            $(
-                let filter = filter.or($y).unify();
-            )+
-            filter
-        }
-    }
+    ($x:expr $(,)?) => { boxed_on_debug!($x) };
+    ($($x:expr),+ $(,)?) => {
+        combine!(@internal ; $($x),+; $($x),+)
+    };
+    (@internal $($left:expr),*; $head:expr, $($tail:expr),+; $a:expr $(,$b:expr)?) => {
+        (combine!($($left,)* $head)).or(combine!($($tail),+))
+    };
+    (@internal $($left:expr),*; $head:expr, $($tail:expr),+; $a:expr, $b:expr, $($more:expr),+) => {
+        combine!(@internal $($left,)* $head; $($tail),+; $($more),+)
+    };
 }
 
 /// Macro will cause boxing on debug builds. Might be a good idea to explore how much boxing always
@@ -152,18 +140,15 @@ pub fn routes<T: IpfsTypes>(
             and_boxed!(warp::path!("ls"), pin::list(ipfs)),
             and_boxed!(warp::path!("rm"), pin::rm(ipfs)),
         )),
-        combine_unify!(
-            warp::path!("config" / ..),
-            warp::path!("dht" / "get"),
-            warp::path!("dht" / "put"),
-            warp::path!("key" / ..),
-            warp::path!("name" / ..),
-            warp::path!("object" / ..),
-            warp::path!("ping" / ..),
-            warp::path!("repo" / ..),
-            warp::path!("stats" / ..),
-        )
-        .and_then(not_implemented),
+        warp::path!("config" / ..).and_then(not_implemented),
+        warp::path!("dht" / "get").and_then(not_implemented),
+        warp::path!("dht" / "put").and_then(not_implemented),
+        warp::path!("key" / ..).and_then(not_implemented),
+        warp::path!("name" / ..).and_then(not_implemented),
+        warp::path!("object" / ..).and_then(not_implemented),
+        warp::path!("ping" / ..).and_then(not_implemented),
+        warp::path!("repo" / ..).and_then(not_implemented),
+        warp::path!("stats" / ..).and_then(not_implemented),
     ));
 
     api.recover(recover_as_message_response)
