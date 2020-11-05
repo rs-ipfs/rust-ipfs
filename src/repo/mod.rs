@@ -506,8 +506,8 @@ impl Lock {
 
         // Places an exclusive lock, only one process may hold the file at any given time.
         // Nonblocking is passed here as well to make sure the process returns immediatly.
-        let lock_Type = libc::LOCK_EX | libc::LOCK_NB;
-        let ret = unsafe { libc::flock(file.as_raw_fd(), lock_Type) };
+        let lock_type = libc::LOCK_EX | libc::LOCK_NB;
+        let ret = unsafe { libc::flock(file.as_raw_fd(), lock_type) };
 
         if ret < 0 {
             Err(io::Error::last_os_error())
@@ -517,11 +517,12 @@ impl Lock {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "linux")))]
 impl Drop for Lock {
     // We hold the lock in the Repo struct, as soon as it is dropped (when the node exits) this
-    // destructor will clear the lock.
-    #[cfg(not(target_os = "linux"))]
+    // destructor will clear the lock. Note: the lock is automatically cleared on Linux and Windows
+    // when the file is closed.
+    // #[cfg(not(target_os = "linux"))]
     fn drop(&mut self) {
         let mut flock: libc::flock = unsafe { std::mem::zeroed() };
         flock.l_type = libc::F_UNLCK as libc::c_short;
