@@ -59,8 +59,6 @@ pub mod common {
                 .arg("init")
                 .arg("-p")
                 .arg("test")
-                .arg("--bits")
-                .arg("2048")
                 .stdout(Stdio::null())
                 .status()
                 .unwrap();

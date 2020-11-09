@@ -93,7 +93,7 @@ jobs:
     - name: Download go-ipfs on Linux
       if: matrix.platform.host == 'ubuntu-latest'
       run: |
-        curl -L https://github.com/ipfs/go-ipfs/releases/download/v0.6.0/go-ipfs_v0.6.0_linux-amd64.tar.gz --output go_ipfs.tar.gz
+        curl -L https://github.com/ipfs/go-ipfs/releases/download/v0.7.0/go-ipfs_v0.7.0_linux-amd64.tar.gz --output go_ipfs.tar.gz
         tar -xf go_ipfs.tar.gz
 
     - name: Install dependencies windows (openssl)
