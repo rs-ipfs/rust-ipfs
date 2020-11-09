@@ -517,12 +517,12 @@ impl Lock {
     }
 }
 
-#[cfg(all(unix, not(target_os = "linux")))]
+#[cfg(unix)]
 impl Drop for Lock {
     // We hold the lock in the Repo struct, as soon as it is dropped (when the node exits) this
     // destructor will clear the lock. Note: the lock is automatically cleared on Linux and Windows
     // when the file is closed.
-    // #[cfg(not(target_os = "linux"))]
+    #[cfg(not(target_os = "linux"))]
     fn drop(&mut self) {
         let mut flock: libc::flock = unsafe { std::mem::zeroed() };
         flock.l_type = libc::F_UNLCK as libc::c_short;
@@ -533,5 +533,10 @@ impl Drop for Lock {
         unsafe {
             libc::fcntl(self.file.as_raw_fd(), libc::F_SETLK, &flock);
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn drop(&mut self) {
+        unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
     }
 }
