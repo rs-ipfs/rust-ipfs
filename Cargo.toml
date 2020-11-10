@@ -40,6 +40,7 @@ tokio = { default-features = false, features = ["fs", "rt-threaded", "stream", "
 tracing = { default-features = false, features = ["log"], version = "0.1" }
 tracing-futures = { default-features = false, features = ["std", "futures-03"], version = "0.2" }
 void = { default-features = false, version = "1.0" }
+fs2 = "0.4.3"
 
 [target.'cfg(windows)'.dependencies]
 # required for DNS resolution

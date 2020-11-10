@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use cid::{self, Cid};
 use core::convert::TryFrom;
 use core::fmt::Debug;
+use fs2::FileExt;
 use futures::channel::{
     mpsc::{channel, Receiver, Sender},
     oneshot,
@@ -15,8 +16,9 @@ use futures::channel::{
 use futures::sink::SinkExt;
 use libp2p::core::PeerId;
 use std::borrow::Borrow;
+use std::fs::File;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[macro_use]
 #[cfg(test)]
@@ -209,6 +211,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
     pub(crate) subscriptions: SubscriptionRegistry<Block, String>,
+    lockfile: Lock,
 }
 
 /// Events used to communicate to the swarm on repo changes.
@@ -235,8 +238,34 @@ impl TryFrom<RequestKind> for RepoEvent {
     }
 }
 
+#[derive(Debug)]
+struct Lock {
+    file: File,
+}
+
+impl Lock {
+    fn new(path: &Path, create: bool) -> std::io::Result<Lock> {
+        use std::fs::OpenOptions;
+
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(create)
+            .open(path)
+            .unwrap();
+
+        FileExt::try_lock_exclusive(&file).unwrap();
+
+        Ok(Lock { file })
+    }
+}
+
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub fn new(options: RepoOptions) -> (Self, Receiver<RepoEvent>) {
+        let lockfile_path = options.path.join("repo_lock");
+        let create = !lockfile_path.is_file();
+        let lockfile = Lock::new(&lockfile_path, create).unwrap();
+
         let mut blockstore_path = options.path.clone();
         let mut datastore_path = options.path;
         blockstore_path.push("blockstore");
@@ -250,6 +279,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 data_store,
                 events: sender,
                 subscriptions: Default::default(),
+                lockfile,
             },
             receiver,
         )
