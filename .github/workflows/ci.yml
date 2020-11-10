@@ -120,16 +120,6 @@ jobs:
       if: matrix.platform.cross == false
       run: cargo build --locked --workspace --all-targets
 
-    - name: Run interop DHT tests with go-ipfs
-      if: matrix.platform.host == 'ubuntu-latest'
-      run: cargo test --features=test_go_interop dht
-
-    - name: Setup conformance tests (non-cross targets)
-      if: matrix.platform.cross == false
-      run: ./setup.sh
-      shell: bash
-      working-directory: ./conformance
-
     - name: Build (android)
       if: contains(matrix.platform.target, 'android')
       run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --locked --workspace --exclude ipfs-http
