@@ -56,7 +56,7 @@ use tracing_futures::Instrument;
 use std::{
     borrow::Borrow,
     collections::{HashMap, HashSet},
-    env, fmt,
+    fmt,
     future::Future,
     ops::{Deref, DerefMut, Range},
     path::PathBuf,
@@ -177,8 +177,12 @@ impl IpfsOptions {
     ///
     /// Also used from examples.
     pub fn inmemory_with_generated_keys() -> Self {
+        use tempfile::TempDir;
+
+        let tempdir = TempDir::new().expect("tempdir creation failed").into_path();
+
         Self {
-            ipfs_path: env::temp_dir(),
+            ipfs_path: tempdir,
             keypair: Keypair::generate_ed25519(),
             mdns: Default::default(),
             bootstrap: Default::default(),
