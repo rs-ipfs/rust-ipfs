@@ -254,7 +254,7 @@ impl Lock {
             .open(path)
             .unwrap();
 
-        FileExt::try_lock_exclusive(&file).unwrap();
+        FileExt::try_lock_exclusive(&file).expect("repo lock creation failed");
 
         Ok(Lock { file })
     }
