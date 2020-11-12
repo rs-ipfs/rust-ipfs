@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use cid::{self, Cid};
 use core::convert::TryFrom;
 use core::fmt::Debug;
-use fs2::FileExt;
 use futures::channel::{
     mpsc::{channel, Receiver, Sender},
     oneshot,
@@ -16,7 +15,6 @@ use futures::channel::{
 use futures::sink::SinkExt;
 use libp2p::core::PeerId;
 use std::borrow::Borrow;
-use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
@@ -30,6 +28,7 @@ pub mod mem;
 pub trait RepoTypes: Send + Sync + 'static {
     type TBlockStore: BlockStore;
     type TDataStore: DataStore;
+    type TLock: Lock;
 }
 
 #[derive(Clone, Debug)]
@@ -116,6 +115,13 @@ pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
     async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error>;
     async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error>;
     async fn wipe(&self);
+}
+
+#[async_trait]
+pub trait Lock: Debug + Send + Sync {
+    fn new(path: &Path) -> std::io::Result<Self>
+    where
+        Self: std::marker::Sized;
 }
 
 type References<'a> = futures::stream::BoxStream<'a, Result<Cid, crate::refs::IpldRefsError>>;
@@ -211,7 +217,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
     pub(crate) subscriptions: SubscriptionRegistry<Block, String>,
-    lockfile: Lock,
+    lockfile: TRepoTypes::TLock,
 }
 
 /// Events used to communicate to the swarm on repo changes.
@@ -238,40 +244,20 @@ impl TryFrom<RequestKind> for RepoEvent {
     }
 }
 
-#[derive(Debug)]
-struct Lock {
-    file: File,
-}
-
-impl Lock {
-    fn new(path: &Path) -> std::io::Result<Lock> {
-        use std::fs::OpenOptions;
-
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(path)
-            .unwrap();
-
-        file.try_lock_exclusive()?;
-
-        Ok(Lock { file })
-    }
-}
-
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub fn new(options: RepoOptions) -> (Self, Receiver<RepoEvent>) {
-        let lockfile_path = options.path.join("repo_lock");
-        let lockfile = Lock::new(&lockfile_path).expect("lock creation failed");
-
         let mut blockstore_path = options.path.clone();
-        let mut datastore_path = options.path;
+        let mut datastore_path = options.path.clone();
+        let mut lockfile_path = options.path;
         blockstore_path.push("blockstore");
         datastore_path.push("datastore");
+        lockfile_path.push("repo_lock");
+
         let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
         let data_store = TRepoTypes::TDataStore::new(datastore_path);
+        let lockfile = TRepoTypes::TLock::new(&lockfile_path).expect("lock creation failed");
         let (sender, receiver) = channel(1);
+
         (
             Repo {
                 block_store,
@@ -467,22 +453,5 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         requirement: Option<PinMode>,
     ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
         self.data_store.query(cids, requirement).await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Lock;
-
-    #[test]
-    fn creates_an_exclusive_repo_lock() {
-        let temp_dir = std::env::temp_dir();
-        let lockfile_path = temp_dir.join("repo_lock");
-
-        let lock = Lock::new(&lockfile_path);
-        assert_eq!(lock.is_ok(), true);
-
-        let failing_lock = Lock::new(&lockfile_path);
-        assert_eq!(failing_lock.is_err(), true);
     }
 }

@@ -56,7 +56,7 @@ use tracing_futures::Instrument;
 use std::{
     borrow::Borrow,
     collections::{HashMap, HashSet},
-    fmt,
+    env, fmt,
     future::Future,
     ops::{Deref, DerefMut, Range},
     path::PathBuf,
@@ -104,6 +104,7 @@ pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
     type TDataStore = repo::fs::FsDataStore;
+    type TLock = repo::fs::FsLock;
 }
 
 /// In-memory testing configuration used in tests.
@@ -112,6 +113,7 @@ pub struct TestTypes;
 impl RepoTypes for TestTypes {
     type TBlockStore = repo::mem::MemBlockStore;
     type TDataStore = repo::mem::MemDataStore;
+    type TLock = repo::mem::MemLock;
 }
 
 /// Ipfs node options used to configure the node to be created with [`UninitializedIpfs`].
@@ -177,12 +179,8 @@ impl IpfsOptions {
     ///
     /// Also used from examples.
     pub fn inmemory_with_generated_keys() -> Self {
-        use tempfile::TempDir;
-
-        let tempdir = TempDir::new().expect("tempdir creation failed").into_path();
-
         Self {
-            ipfs_path: tempdir,
+            ipfs_path: env::temp_dir(),
             keypair: Keypair::generate_ed25519(),
             mdns: Default::default(),
             bootstrap: Default::default(),

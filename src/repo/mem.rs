@@ -1,6 +1,6 @@
 //! Volatile memory backed repo
 use crate::error::Error;
-use crate::repo::{BlockPut, BlockStore, Column, DataStore, PinKind, PinMode, PinStore};
+use crate::repo::{BlockPut, BlockStore, Column, DataStore, Lock, PinKind, PinMode, PinStore};
 use crate::Block;
 use async_trait::async_trait;
 use cid::Cid;
@@ -646,6 +646,17 @@ pub enum PinUpdateError {
     // go-ipfs prepends the ipfspath here
     #[error("is pinned recursively")]
     CannotUnpinDirectOnRecursivelyPinned,
+}
+
+use std::path::Path;
+
+#[derive(Debug)]
+pub struct MemLock;
+
+impl Lock for MemLock {
+    fn new(_path: &Path) -> std::io::Result<Self> {
+        Ok(Self)
+    }
 }
 
 #[cfg(test)]
