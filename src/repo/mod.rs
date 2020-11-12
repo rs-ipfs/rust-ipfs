@@ -254,7 +254,7 @@ impl Lock {
             .open(path)
             .unwrap();
 
-        FileExt::try_lock_exclusive(&file).expect("repo lock creation failed");
+        FileExt::try_lock_exclusive(&file)?;
 
         Ok(Lock { file })
     }
@@ -264,7 +264,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub fn new(options: RepoOptions) -> (Self, Receiver<RepoEvent>) {
         let lockfile_path = options.path.join("repo_lock");
         let create = !lockfile_path.is_file();
-        let lockfile = Lock::new(&lockfile_path, create).unwrap();
+        let lockfile = Lock::new(&lockfile_path, create).expect("lock creation failed");
 
         let mut blockstore_path = options.path.clone();
         let mut datastore_path = options.path;
@@ -468,5 +468,22 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         requirement: Option<PinMode>,
     ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
         self.data_store.query(cids, requirement).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Lock;
+
+    #[test]
+    fn creates_an_exclusive_repo_lock() {
+        let temp_dir = std::env::temp_dir();
+        let lockfile_path = temp_dir.join("repo_lock");
+
+        let lock = Lock::new(&lockfile_path, true);
+        assert_eq!(lock.is_ok(), true);
+
+        let failing_lock = Lock::new(&lockfile_path, false);
+        assert_eq!(failing_lock.is_err(), true);
     }
 }
