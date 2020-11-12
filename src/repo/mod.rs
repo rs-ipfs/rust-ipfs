@@ -244,17 +244,17 @@ struct Lock {
 }
 
 impl Lock {
-    fn new(path: &Path, create: bool) -> std::io::Result<Lock> {
+    fn new(path: &Path) -> std::io::Result<Lock> {
         use std::fs::OpenOptions;
 
         let file = OpenOptions::new()
             .read(true)
             .write(true)
-            .create(create)
+            .create(true)
             .open(path)
             .unwrap();
 
-        FileExt::try_lock_exclusive(&file)?;
+        file.try_lock_exclusive()?;
 
         Ok(Lock { file })
     }
@@ -263,8 +263,7 @@ impl Lock {
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub fn new(options: RepoOptions) -> (Self, Receiver<RepoEvent>) {
         let lockfile_path = options.path.join("repo_lock");
-        let create = !lockfile_path.is_file();
-        let lockfile = Lock::new(&lockfile_path, create).expect("lock creation failed");
+        let lockfile = Lock::new(&lockfile_path).expect("lock creation failed");
 
         let mut blockstore_path = options.path.clone();
         let mut datastore_path = options.path;
@@ -480,10 +479,10 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let lockfile_path = temp_dir.join("repo_lock");
 
-        let lock = Lock::new(&lockfile_path, true);
+        let lock = Lock::new(&lockfile_path);
         assert_eq!(lock.is_ok(), true);
 
-        let failing_lock = Lock::new(&lockfile_path, false);
+        let failing_lock = Lock::new(&lockfile_path);
         assert_eq!(failing_lock.is_err(), true);
     }
 }
