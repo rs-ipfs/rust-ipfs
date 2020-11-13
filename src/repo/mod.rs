@@ -117,7 +117,6 @@ pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
     async fn wipe(&self);
 }
 
-#[async_trait]
 pub trait Lock: Debug + Send + Sync {
     fn new(path: &Path) -> std::io::Result<Self>
     where
