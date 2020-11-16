@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::{atomic::AtomicU64, Arc};
 use tokio::sync::Semaphore;
 
-use super::{BlockRm, BlockRmError, Column, DataStore, Lock, RepoCid};
+use super::{BlockRm, BlockRmError, Column, DataStore, Lock, LockError, RepoCid};
 
 /// The PinStore implementation for FsDataStore
 mod pinstore;
@@ -113,15 +113,14 @@ impl Lock for FsLock {
         }
     }
 
-    fn try_exclusive(&mut self) -> Result<(), Error> {
+    fn try_exclusive(&mut self) -> Result<(), LockError> {
         use std::fs::OpenOptions;
 
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .open(&self.path)
-            .unwrap();
+            .open(&self.path)?;
 
         file.try_lock_exclusive()?;
 

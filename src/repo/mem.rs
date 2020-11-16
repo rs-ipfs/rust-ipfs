@@ -1,6 +1,8 @@
 //! Volatile memory backed repo
 use crate::error::Error;
-use crate::repo::{BlockPut, BlockStore, Column, DataStore, Lock, PinKind, PinMode, PinStore};
+use crate::repo::{
+    BlockPut, BlockStore, Column, DataStore, Lock, LockError, PinKind, PinMode, PinStore,
+};
 use crate::Block;
 use async_trait::async_trait;
 use cid::Cid;
@@ -657,7 +659,7 @@ impl Lock for MemLock {
         Self
     }
 
-    fn try_exclusive(&mut self) -> Result<(), Error> {
+    fn try_exclusive(&mut self) -> Result<(), LockError> {
         Ok(())
     }
 }

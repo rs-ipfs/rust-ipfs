@@ -118,9 +118,40 @@ pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
     async fn wipe(&self);
 }
 
+use std::error;
+use std::fmt;
+use std::io;
+
+#[derive(Debug)]
+pub enum LockError {
+    RepoInUse(io::Error),
+}
+
+impl fmt::Display for LockError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "The repository is already being used by an IPFS instance."
+        )
+    }
+}
+
+impl From<io::Error> for LockError {
+    fn from(error: io::Error) -> Self {
+        LockError::RepoInUse(error)
+    }
+}
+
+impl error::Error for LockError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        let Self::RepoInUse(error) = self;
+        Some(error)
+    }
+}
+
 pub trait Lock: Debug + Send + Sync {
     fn new(path: PathBuf) -> Self;
-    fn try_exclusive(&mut self) -> Result<(), Error>;
+    fn try_exclusive(&mut self) -> Result<(), LockError>;
 }
 
 type References<'a> = futures::stream::BoxStream<'a, Result<Cid, crate::refs::IpldRefsError>>;
@@ -278,7 +309,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub async fn init(&self) -> Result<(), Error> {
         // TODO: figure out how to handle these errors.
         let mut lock = self.lock.lock().unwrap();
-        lock.try_exclusive().unwrap();
+        lock.try_exclusive()?;
 
         let f1 = self.block_store.init();
         let f2 = self.data_store.init();
