@@ -90,27 +90,45 @@ impl DataStore for FsDataStore {
 
 use fs2::FileExt;
 use std::fs::File;
-use std::path::Path;
 
 #[derive(Debug)]
 pub struct FsLock {
-    file: File,
+    file: Option<File>,
+    path: PathBuf,
+    state: State,
+}
+
+#[derive(Debug)]
+enum State {
+    Unlocked,
+    Exclusive,
 }
 
 impl Lock for FsLock {
-    fn new(path: &Path) -> std::io::Result<Self> {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            file: None,
+            path,
+            state: State::Unlocked,
+        }
+    }
+
+    fn try_exclusive(&mut self) -> Result<(), Error> {
         use std::fs::OpenOptions;
 
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .open(path)
+            .open(&self.path)
             .unwrap();
 
         file.try_lock_exclusive()?;
 
-        Ok(Self { file })
+        self.state = State::Exclusive;
+        self.file = Some(file);
+
+        Ok(())
     }
 }
 
@@ -126,11 +144,13 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let lockfile_path = temp_dir.join("repo_lock");
 
-        let lock = FsLock::new(&lockfile_path);
-        assert_eq!(lock.is_ok(), true);
+        let mut lock = FsLock::new(lockfile_path.clone());
+        let result = lock.try_exclusive();
+        assert_eq!(result.is_ok(), true);
 
-        let failing_lock = FsLock::new(&lockfile_path);
-        assert_eq!(failing_lock.is_err(), true);
+        let mut failing_lock = FsLock::new(lockfile_path.clone());
+        let result = failing_lock.try_exclusive();
+        assert_eq!(result.is_err(), true);
 
         // Clean-up.
         std::fs::remove_file(lockfile_path).unwrap();

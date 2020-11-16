@@ -648,14 +648,17 @@ pub enum PinUpdateError {
     CannotUnpinDirectOnRecursivelyPinned,
 }
 
-use std::path::Path;
-
+// Used for in memory repos, currently not implementing any true locking.
 #[derive(Debug)]
 pub struct MemLock;
 
 impl Lock for MemLock {
-    fn new(_path: &Path) -> std::io::Result<Self> {
-        Ok(Self)
+    fn new(_path: PathBuf) -> Self {
+        Self
+    }
+
+    fn try_exclusive(&mut self) -> Result<(), Error> {
+        Ok(())
     }
 }
 

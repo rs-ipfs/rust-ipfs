@@ -16,7 +16,8 @@ use futures::sink::SinkExt;
 use libp2p::core::PeerId;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 #[macro_use]
 #[cfg(test)]
@@ -118,9 +119,8 @@ pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
 }
 
 pub trait Lock: Debug + Send + Sync {
-    fn new(path: &Path) -> std::io::Result<Self>
-    where
-        Self: std::marker::Sized;
+    fn new(path: PathBuf) -> Self;
+    fn try_exclusive(&mut self) -> Result<(), Error>;
 }
 
 type References<'a> = futures::stream::BoxStream<'a, Result<Cid, crate::refs::IpldRefsError>>;
@@ -216,7 +216,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
     pub(crate) subscriptions: SubscriptionRegistry<Block, String>,
-    lockfile: TRepoTypes::TLock,
+    lock: Arc<Mutex<TRepoTypes::TLock>>,
 }
 
 /// Events used to communicate to the swarm on repo changes.
@@ -254,7 +254,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
         let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
         let data_store = TRepoTypes::TDataStore::new(datastore_path);
-        let lockfile = TRepoTypes::TLock::new(&lockfile_path).expect("lock creation failed");
+        let lockfile = TRepoTypes::TLock::new(lockfile_path);
         let (sender, receiver) = channel(1);
 
         (
@@ -263,7 +263,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 data_store,
                 events: sender,
                 subscriptions: Default::default(),
-                lockfile,
+                lock: Arc::new(Mutex::new(lockfile)),
             },
             receiver,
         )
@@ -276,6 +276,10 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn init(&self) -> Result<(), Error> {
+        // TODO: figure out how to handle these errors.
+        let mut lock = self.lock.lock().unwrap();
+        lock.try_exclusive().unwrap();
+
         let f1 = self.block_store.init();
         let f2 = self.data_store.init();
         let (r1, r2) = futures::future::join(f1, f2).await;
