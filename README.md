@@ -79,15 +79,18 @@ We recommend browsing the [examples](https://github.com/rs-ipfs/rust-ipfs/tree/m
 The project currently features unit, integration, conformance and interoperability tests. Unit and integation tests can be run with:
 
 ```bash
-$ cargo test
+$ cargo test --workspace
 ```
 
-Explanations on how to run the conformance tests can be found [here](https://github.com/rs-ipfs/rust-ipfs/tree/master/conformance). The Go and JS interoperability tests are behind a feature flag and can be run with:
+The `--workspace` flag ensures the tests from the http and unixfs crates are also run.
 
+Explanations on how to run the conformance tests can be found [here](https://github.com/rs-ipfs/rust-ipfs/tree/master/conformance). The Go and JS interoperability tests are behind a feature flag and can be run with:
 ```bash
 $ cargo test --feature=test_go_interop
 $ cargo test --feature=test_js_interop
 ```
+
+These are mutually exclusive, i.e. `--all-features` won't work as expected.
 
 Note: you will need to set the `GO_IPFS_PATH` and the `JS_IPFS_PATH` environment variables to point to the relevant IPFS binary.
 
