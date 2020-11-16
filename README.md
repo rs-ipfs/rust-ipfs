@@ -10,15 +10,20 @@
 ## Table of Contents
 
 - [Description](#description)
-    - [Project Status](#project-status---pre-alpha)
-    - [You can help](#you-can-help)
-    - [What is IPFS?](#what-is-ipfs)
+    - [Project Status](#project-status---alpha)
 - [Install](#install)
+    - [Dependencies](#dependencies)
+    - [Rust IPFS](#install-rust-ipfs-itself)
 - [Getting Started](#getting-started)
+    - [Running the tests](#running-the-tests)
+    - [Contributing](#contributing)
 - [Roadmap](#roadmap)
+    - [Completed](#completed-work)
+    - [In progress](#work-in-progress)
+    - [Still required](#work-still-required)
 - [Maintainers](#maintainers)
 - [Alternatives](#alternatives-and-other-cool-related-projects)
-- [Contributing](#contributing)
+- [Contributors](#contributors)
 - [License](#license)
 - [Trademarks](#trademarks)
 
@@ -43,13 +48,13 @@ First, install the dependencies.
 With apt:
 
 ```bash
-# apt-get install protobuf-compiler libssl-dev zlib1g-dev
+$ apt-get install protobuf-compiler libssl-dev zlib1g-dev
 ```
 
-With yum
+With yum:
 
 ```bash
-# yum install protobuf-compiler libssl-dev zlib1g-dev
+$ yum install protobuf-compiler libssl-dev zlib1g-dev
 ```
 
 ### Install `rust-ipfs` itself
@@ -67,9 +72,33 @@ _Note: binaries available via `cargo install` is coming soon._
 
 ## Getting started
 
-We recommend to browse the [examples](https://github.com/rs-ipfs/rust-ipfs/tree/master/examples) and
-[tests](https://github.com/rs-ipfs/rust-ipfs/tree/master/tests) in order to see how to use Rust-IPFS
-in different scenarios.
+We recommend browsing the [examples](https://github.com/rs-ipfs/rust-ipfs/tree/master/examples), the [http crate tutorial](https://github.com/rs-ipfs/rust-ipfs/tree/master/http#getting-started) and [tests](https://github.com/rs-ipfs/rust-ipfs/tree/master/tests) in order to see how to use Rust-IPFS in different scenarios.
+
+### Running the tests
+
+The project currently features unit, integration, conformance and interoperability tests. Unit and integation tests can be run with:
+
+```bash
+$ cargo test --workspace
+```
+
+The `--workspace` flag ensures the tests from the http and unixfs crates are also run.
+
+Explanations on how to run the conformance tests can be found [here](https://github.com/rs-ipfs/rust-ipfs/tree/master/conformance). The Go and JS interoperability tests are behind a feature flag and can be run with:
+```bash
+$ cargo test --feature=test_go_interop
+$ cargo test --feature=test_js_interop
+```
+
+These are mutually exclusive, i.e. `--all-features` won't work as expected.
+
+Note: you will need to set the `GO_IPFS_PATH` and the `JS_IPFS_PATH` environment variables to point to the relevant IPFS binary.
+
+### Contributing
+
+See [the contributing docs](./CONTRIBUTING.md) for more info.
+
+You can also back the project financially by reaching out or by becoming a backer on [OpenCollective](https://opencollective.com/rs-ipfs)
 
 ## Roadmap
 
@@ -124,12 +153,6 @@ It’s been noted that the Rust-IPFS name and popularity may serve its organizat
 - Parity's [`rust-libp2p`](https://github.com/libp2p/rust-libp2p), which does a lot the of heavy lifting here
 
 If you know of another implementation or another cool project adjacent to these efforts, let us know!
-
-### Contributing
-
-See [the contributing docs](./CONTRIBUTING.md) for more info.
-
-You can also back the project financially by reaching out or by becoming a backer on [OpenCollective](https://opencollective.com/rs-ipfs)
 
 ## Contributors
 
