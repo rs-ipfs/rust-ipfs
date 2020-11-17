@@ -1628,6 +1628,7 @@ mod node {
         /// The listened to and externally visible addresses. The addresses are suffixed with the
         /// P2p protocol containing the node's PeerID.
         pub addrs: Vec<Multiaddr>,
+        /// Stores the single background task spawned for the node.
         pub bg_task: tokio::task::JoinHandle<()>,
     }
 

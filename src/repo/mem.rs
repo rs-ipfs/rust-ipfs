@@ -639,6 +639,7 @@ impl PinDocument {
 /// Describes the error variants for updates to object pinning.
 #[derive(Debug, thiserror::Error)]
 pub enum PinUpdateError {
+    /// The current and expected descendants of an already recursively pinned object don't match.
     #[error("unexpected number of descendants ({}), found {}", .1, .0)]
     UnexpectedNumberOfDescendants(u64, u64),
     /// Recursive update fails as it wasn't pinned recursively.

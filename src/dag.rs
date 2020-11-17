@@ -166,6 +166,7 @@ pub struct IpldDag<Types: RepoTypes> {
 
 impl<Types: RepoTypes> IpldDag<Types> {
     /// Creates a new `IpldDag` for DAG operations.
+    // FIXME: duplicates Ipfs::dag(), having both is redundant.
     pub fn new(ipfs: Ipfs<Types>) -> Self {
         IpldDag { ipfs }
     }

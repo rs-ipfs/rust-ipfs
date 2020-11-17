@@ -103,6 +103,7 @@ pub enum BlockRmError {
 pub trait BlockStore: Debug + Send + Sync + Unpin + 'static {
     fn new(path: PathBuf) -> Self;
     async fn init(&self) -> Result<(), Error>;
+    /// FIXME: redundant and never called during initialization, which is expected to happen during [`init`].
     async fn open(&self) -> Result<(), Error>;
     /// Returns whether a block is present in the blockstore.
     async fn contains(&self, cid: &Cid) -> Result<bool, Error>;
