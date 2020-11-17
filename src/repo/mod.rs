@@ -18,6 +18,7 @@ use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::{error, fmt, io};
 
 #[macro_use]
 #[cfg(test)]
@@ -118,37 +119,49 @@ pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
     async fn wipe(&self);
 }
 
-use std::error;
-use std::fmt;
-use std::io;
-
+/// Errors variants describing the possible failures for `Lock::try_exclusive`.
 #[derive(Debug)]
 pub enum LockError {
-    RepoInUse(io::Error),
+    RepoInUse,
+    FileOpenFailed(io::Error),
 }
 
 impl fmt::Display for LockError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "The repository is already being used by an IPFS instance."
-        )
+        let msg = match self {
+            LockError::RepoInUse => "The repository is already being used by an IPFS instance.",
+            LockError::FileOpenFailed(_) => "Failed to open repository lock file.",
+        };
+
+        write!(f, "{}", msg)
     }
 }
 
 impl From<io::Error> for LockError {
     fn from(error: io::Error) -> Self {
-        LockError::RepoInUse(error)
+        match error.kind() {
+            // `WouldBlock` is not used by `OpenOptions` (this could change), and can therefore be
+            // matched on for the fs2 error in `FsLock::try_exclusive`.
+            io::ErrorKind::WouldBlock => LockError::RepoInUse,
+            _ => LockError::FileOpenFailed(error),
+        }
     }
 }
 
 impl error::Error for LockError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        let Self::RepoInUse(error) = self;
-        Some(error)
+        if let Self::FileOpenFailed(error) = self {
+            Some(error)
+        } else {
+            None
+        }
     }
 }
 
+/// A trait for describing repository locking.
+///
+/// This ensures no two IPFS nodes can be started with the same peer ID, as exclusive access to the
+/// repository is guarenteed. This is most useful when using an fs backed repo.
 pub trait Lock: Debug + Send + Sync {
     fn new(path: PathBuf) -> Self;
     fn try_exclusive(&mut self) -> Result<(), LockError>;
