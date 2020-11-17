@@ -106,7 +106,7 @@ fn add_stream<St, E>(
 ) -> impl Stream<Item = Result<Bytes, AddError>> + Send + 'static
 where
     St: Stream<Item = Result<Bytes, E>> + Send + Unpin + 'static,
-    E: Into<anyhow::Error> + Send + 'static,
+    E: Into<anyhow::Error> + Send + Sync + 'static + std::error::Error,
 {
     async_stream::try_stream! {
 
