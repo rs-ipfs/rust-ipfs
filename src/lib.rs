@@ -1751,7 +1751,7 @@ mod tests {
     use crate::make_ipld;
     use multihash::Sha2_256;
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_put_and_get_block() {
         let ipfs = Node::new("test_node").await;
 
@@ -1764,7 +1764,7 @@ mod tests {
         assert_eq!(block, new_block);
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_put_and_get_dag() {
         let ipfs = Node::new("test_node").await;
 
@@ -1774,7 +1774,7 @@ mod tests {
         assert_eq!(data, new_data);
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_pin_and_unpin() {
         let ipfs = Node::new("test_node").await;
 

@@ -377,7 +377,7 @@ impl<D: fmt::Display> serde::Serialize for Quoted<D> {
 mod tests {
     use crate::v0::root_files::add;
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn add_single_block_file() {
         let ipfs = tokio_ipfs().await;
 

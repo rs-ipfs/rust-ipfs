@@ -267,7 +267,7 @@ mod tests {
     use libp2p::{multiaddr::Protocol, multihash::Multihash, swarm::Swarm};
     use std::convert::TryInto;
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn swarm_api() {
         let (peer1_id, trans) = mk_transport();
         let mut swarm1 = Swarm::new(trans, SwarmApi::default(), peer1_id.clone());

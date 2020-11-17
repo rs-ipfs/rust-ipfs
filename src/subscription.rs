@@ -429,7 +429,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn subscription_basics() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -441,7 +441,7 @@ mod tests {
         assert_eq!(s3.await.unwrap(), 10);
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn subscription_cancelled_on_dropping_registry() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -449,7 +449,7 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn subscription_cancelled_on_shutdown() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -457,7 +457,7 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn new_subscriptions_cancelled_after_shutdown() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         registry.shutdown();
@@ -465,7 +465,7 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn dropping_subscription_future_after_registering() {
         use std::time::Duration;
         use tokio::time::timeout;
@@ -488,12 +488,12 @@ mod tests {
 
     // this test is designed to verify that the subscription registry is working properly
     // and doesn't break even under extreme conditions
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     #[ignore]
     async fn subscription_stress_test() {
         use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
         use std::time::Duration;
-        use tokio::{task, time::delay_for};
+        use tokio::{task, time::sleep};
 
         // optional
         tracing_subscriber::fmt::init();
@@ -527,7 +527,7 @@ mod tests {
             let (mut kind, mut count);
 
             loop {
-                delay_for(Duration::from_millis(CREATE_WAIT_TIME)).await;
+                sleep(Duration::from_millis(CREATE_WAIT_TIME)).await;
 
                 // the id of the object that will gain subscriptions
                 kind = rng_clone.gen_range(0, KIND_COUNT);
@@ -553,7 +553,7 @@ mod tests {
             let (mut kinds, mut count);
 
             loop {
-                delay_for(Duration::from_millis(FINISH_WAIT_TIME)).await;
+                sleep(Duration::from_millis(FINISH_WAIT_TIME)).await;
 
                 kinds = reg_clone
                     .subscriptions
@@ -576,7 +576,7 @@ mod tests {
             let (mut count, mut idx);
 
             loop {
-                delay_for(Duration::from_millis(CANCEL_WAIT_TIME)).await;
+                sleep(Duration::from_millis(CANCEL_WAIT_TIME)).await;
 
                 let subs_unlocked = &mut *subs.lock().unwrap();
                 count = rng.gen_range(0, subs_unlocked.len());

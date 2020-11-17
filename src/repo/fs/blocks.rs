@@ -93,9 +93,9 @@ impl FsBlockStore {
 
         match rx.recv().await {
             Ok(Ok(())) => WriteCompletion::KnownGood,
-            Err(broadcast::RecvError::Closed) => WriteCompletion::NotObserved,
+            Err(broadcast::error::RecvError::Closed) => WriteCompletion::NotObserved,
             Ok(Err(_)) => WriteCompletion::KnownBad,
-            Err(broadcast::RecvError::Lagged(_)) => {
+            Err(broadcast::error::RecvError::Lagged(_)) => {
                 unreachable!("sending at most one message to the channel with capacity of one")
             }
         }
@@ -298,12 +298,12 @@ impl BlockStore for FsBlockStore {
                             trace!("synchronized with writer, write outcome: {:?}", message);
                             message
                         }
-                        Err(broadcast::RecvError::Closed) => {
+                        Err(broadcast::error::RecvError::Closed) => {
                             // there was never any write intention by any party, and we may have just
                             // closed the last sender above, or we were late for the one message.
                             Ok(())
                         }
-                        Err(broadcast::RecvError::Lagged(_)) => {
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
                             unreachable!("broadcast channel should only be messaged once here")
                         }
                     };
@@ -442,7 +442,7 @@ mod tests {
     use std::env::temp_dir;
     use std::sync::Arc;
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_fs_blockstore() {
         let mut tmp = temp_dir();
         tmp.push("blockstore1");
@@ -480,7 +480,7 @@ mod tests {
         std::fs::remove_dir_all(tmp).ok();
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_fs_blockstore_open() {
         let mut tmp = temp_dir();
         tmp.push("blockstore2");
@@ -505,7 +505,7 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_fs_blockstore_list() {
         let mut tmp = temp_dir();
         tmp.push("blockstore_list");
@@ -529,7 +529,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn race_to_insert_new() {
         // FIXME: why not tempdir?
         let mut tmp = temp_dir();
@@ -560,7 +560,7 @@ mod tests {
         assert_eq!(existing, count - 1);
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn race_to_insert_with_existing() {
         // FIXME: why not tempdir?
         let mut tmp = temp_dir();
@@ -633,7 +633,7 @@ mod tests {
         (writes, existing)
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn remove() {
         // FIXME: why not tempdir?
         let mut tmp = temp_dir();

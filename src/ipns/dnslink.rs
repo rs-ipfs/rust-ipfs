@@ -120,14 +120,14 @@ pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
 mod tests {
     use super::*;
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     #[ignore]
     async fn test_resolve1() {
         let res = resolve("ipfs.io").await.unwrap().to_string();
         assert_eq!(res, "/ipns/website.ipfs.io");
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     #[ignore]
     async fn test_resolve2() {
         let res = resolve("website.ipfs.io").await.unwrap().to_string();

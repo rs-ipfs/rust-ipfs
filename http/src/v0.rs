@@ -155,7 +155,7 @@ pub fn routes<T: IpfsTypes>(
 }
 
 pub(crate) async fn handle_shutdown(
-    mut tx: tokio::sync::mpsc::Sender<()>,
+    tx: tokio::sync::mpsc::Sender<()>,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
     Ok(match tx.send(()).await {
         Ok(_) => warp::http::StatusCode::OK,
@@ -185,7 +185,7 @@ mod tests {
         routes(&ipfs, shutdown_tx)
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn not_found_as_plaintext() {
         let routes = testing_routes().await;
         let resp = warp::test::request()
@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(resp.body(), "404 page not found");
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn invalid_peer_id_as_messageresponse() {
         let routes = testing_routes().await;
         let resp = warp::test::request()
