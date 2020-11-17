@@ -123,14 +123,14 @@ pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
 #[derive(Debug)]
 pub enum LockError {
     RepoInUse,
-    FileOpenFailed(io::Error),
+    LockFileOpenFailed(io::Error),
 }
 
 impl fmt::Display for LockError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = match self {
             LockError::RepoInUse => "The repository is already being used by an IPFS instance.",
-            LockError::FileOpenFailed(_) => "Failed to open repository lock file.",
+            LockError::LockFileOpenFailed(_) => "Failed to open repository lock file.",
         };
 
         write!(f, "{}", msg)
@@ -143,14 +143,14 @@ impl From<io::Error> for LockError {
             // `WouldBlock` is not used by `OpenOptions` (this could change), and can therefore be
             // matched on for the fs2 error in `FsLock::try_exclusive`.
             io::ErrorKind::WouldBlock => LockError::RepoInUse,
-            _ => LockError::FileOpenFailed(error),
+            _ => LockError::LockFileOpenFailed(error),
         }
     }
 }
 
 impl error::Error for LockError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        if let Self::FileOpenFailed(error) = self {
+        if let Self::LockFileOpenFailed(error) = self {
             Some(error)
         } else {
             None
@@ -260,7 +260,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
     pub(crate) subscriptions: SubscriptionRegistry<Block, String>,
-    lock: Arc<Mutex<TRepoTypes::TLock>>,
+    lockfile: Arc<Mutex<TRepoTypes::TLock>>,
 }
 
 /// Events used to communicate to the swarm on repo changes.
@@ -307,7 +307,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
                 data_store,
                 events: sender,
                 subscriptions: Default::default(),
-                lock: Arc::new(Mutex::new(lockfile)),
+                lockfile: Arc::new(Mutex::new(lockfile)),
             },
             receiver,
         )
@@ -320,8 +320,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn init(&self) -> Result<(), Error> {
-        // TODO: figure out how to handle these errors.
-        let mut lock = self.lock.lock().unwrap();
+        let mut lock = self.lockfile.lock().unwrap();
         lock.try_exclusive()?;
 
         let f1 = self.block_store.init();

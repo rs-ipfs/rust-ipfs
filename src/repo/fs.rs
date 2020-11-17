@@ -4,6 +4,7 @@
 
 use crate::error::Error;
 use async_trait::async_trait;
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{atomic::AtomicU64, Arc};
 use tokio::sync::Semaphore;
@@ -88,9 +89,6 @@ impl DataStore for FsDataStore {
     }
 }
 
-use fs2::FileExt;
-use std::fs::File;
-
 #[derive(Debug)]
 pub struct FsLock {
     file: Option<File>,
@@ -114,6 +112,7 @@ impl Lock for FsLock {
     }
 
     fn try_exclusive(&mut self) -> Result<(), LockError> {
+        use fs2::FileExt;
         use std::fs::OpenOptions;
 
         let file = OpenOptions::new()
