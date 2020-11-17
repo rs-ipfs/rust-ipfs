@@ -1623,24 +1623,35 @@ mod node {
     /// Node encapsulates everything to setup a testing instance so that multi-node tests become
     /// easier.
     pub struct Node {
+        /// The Ipfs facade.
         pub ipfs: Ipfs<TestTypes>,
+        /// The peer identifier on the network.
         pub id: PeerId,
+        /// The listened to and externally visible addresses. The addresses are suffixed with the
+        /// P2p protocol containing the node's PeerID.
         pub addrs: Vec<Multiaddr>,
+        /// Stores the single background task spawned for the node.
         pub bg_task: tokio::task::JoinHandle<()>,
     }
 
     impl Node {
+        /// Initialises a new `Node` with an in-memory store backed configuration.
+        ///
+        /// This will use the testing defaults for the `IpfsOptions`. If `IpfsOptions` has been
+        /// initialised manually, use `Node::with_options` instead.
         pub async fn new<T: AsRef<str>>(name: T) -> Self {
             let mut opts = IpfsOptions::inmemory_with_generated_keys();
             opts.span = Some(trace_span!("ipfs", node = name.as_ref()));
             Self::with_options(opts).await
         }
 
+        /// Connects to a peer at the given address.
         pub async fn connect(&self, addr: Multiaddr) -> Result<(), Error> {
             let addr = MultiaddrWithPeerId::try_from(addr).unwrap();
             self.ipfs.connect(addr).await
         }
 
+        /// Returns a new `Node` based on `IpfsOptions`.
         pub async fn with_options(opts: IpfsOptions) -> Self {
             let id = opts.keypair.public().into_peer_id();
 
@@ -1660,6 +1671,7 @@ mod node {
             }
         }
 
+        /// Returns the subscriptions for a `Node`.
         pub fn get_subscriptions(
             &self,
         ) -> &std::sync::Mutex<subscription::Subscriptions<Block, String>> {
@@ -1696,6 +1708,7 @@ mod node {
             Ok(())
         }
 
+        /// Returns the Bitswap peers for the a `Node`.
         pub async fn get_bitswap_peers(&self) -> Result<Vec<PeerId>, Error> {
             let (tx, rx) = oneshot_channel();
 
@@ -1707,6 +1720,7 @@ mod node {
             rx.await.map_err(|e| anyhow!(e))
         }
 
+        /// Shuts down the `Node`.
         pub async fn shutdown(self) {
             self.ipfs.exit_daemon().await;
             let _ = self.bg_task.await;

@@ -39,8 +39,11 @@ pub struct Behaviour<Types: IpfsTypes> {
 /// Represents the result of a Kademlia query.
 #[derive(Debug, Clone, PartialEq)]
 pub enum KadResult {
+    /// The query has been exhausted.
     Complete,
+    /// The query successfully returns `GetClosestPeers` or `GetProviders` results.  
     Peers(Vec<PeerId>),
+    /// The query successfully returns a `GetRecord` result.
     Records(Vec<Record>),
 }
 
