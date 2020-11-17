@@ -1,6 +1,8 @@
 //! Volatile memory backed repo
 use crate::error::Error;
-use crate::repo::{BlockPut, BlockStore, Column, DataStore, PinKind, PinMode, PinStore};
+use crate::repo::{
+    BlockPut, BlockStore, Column, DataStore, Lock, LockError, PinKind, PinMode, PinStore,
+};
 use crate::Block;
 use async_trait::async_trait;
 use cid::Cid;
@@ -646,6 +648,20 @@ pub enum PinUpdateError {
     // go-ipfs prepends the ipfspath here
     #[error("is pinned recursively")]
     CannotUnpinDirectOnRecursivelyPinned,
+}
+
+// Used for in memory repos, currently not implementing any true locking.
+#[derive(Debug)]
+pub struct MemLock;
+
+impl Lock for MemLock {
+    fn new(_path: PathBuf) -> Self {
+        Self
+    }
+
+    fn try_exclusive(&mut self) -> Result<(), LockError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

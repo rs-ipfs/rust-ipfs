@@ -17,6 +17,8 @@ use libp2p::core::PeerId;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::{error, fmt, io};
 
 #[macro_use]
 #[cfg(test)]
@@ -28,6 +30,7 @@ pub mod mem;
 pub trait RepoTypes: Send + Sync + 'static {
     type TBlockStore: BlockStore;
     type TDataStore: DataStore;
+    type TLock: Lock;
 }
 
 #[derive(Clone, Debug)]
@@ -114,6 +117,54 @@ pub trait DataStore: PinStore + Debug + Send + Sync + Unpin + 'static {
     async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error>;
     async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error>;
     async fn wipe(&self);
+}
+
+/// Errors variants describing the possible failures for `Lock::try_exclusive`.
+#[derive(Debug)]
+pub enum LockError {
+    RepoInUse,
+    LockFileOpenFailed(io::Error),
+}
+
+impl fmt::Display for LockError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let msg = match self {
+            LockError::RepoInUse => "The repository is already being used by an IPFS instance.",
+            LockError::LockFileOpenFailed(_) => "Failed to open repository lock file.",
+        };
+
+        write!(f, "{}", msg)
+    }
+}
+
+impl From<io::Error> for LockError {
+    fn from(error: io::Error) -> Self {
+        match error.kind() {
+            // `WouldBlock` is not used by `OpenOptions` (this could change), and can therefore be
+            // matched on for the fs2 error in `FsLock::try_exclusive`.
+            io::ErrorKind::WouldBlock => LockError::RepoInUse,
+            _ => LockError::LockFileOpenFailed(error),
+        }
+    }
+}
+
+impl error::Error for LockError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        if let Self::LockFileOpenFailed(error) = self {
+            Some(error)
+        } else {
+            None
+        }
+    }
+}
+
+/// A trait for describing repository locking.
+///
+/// This ensures no two IPFS nodes can be started with the same peer ID, as exclusive access to the
+/// repository is guarenteed. This is most useful when using an fs backed repo.
+pub trait Lock: Debug + Send + Sync {
+    fn new(path: PathBuf) -> Self;
+    fn try_exclusive(&mut self) -> Result<(), LockError>;
 }
 
 type References<'a> = futures::stream::BoxStream<'a, Result<Cid, crate::refs::IpldRefsError>>;
@@ -209,6 +260,7 @@ pub struct Repo<TRepoTypes: RepoTypes> {
     data_store: TRepoTypes::TDataStore,
     events: Sender<RepoEvent>,
     pub(crate) subscriptions: SubscriptionRegistry<Block, String>,
+    lockfile: Arc<Mutex<TRepoTypes::TLock>>,
 }
 
 /// Events used to communicate to the swarm on repo changes.
@@ -238,18 +290,24 @@ impl TryFrom<RequestKind> for RepoEvent {
 impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub fn new(options: RepoOptions) -> (Self, Receiver<RepoEvent>) {
         let mut blockstore_path = options.path.clone();
-        let mut datastore_path = options.path;
+        let mut datastore_path = options.path.clone();
+        let mut lockfile_path = options.path;
         blockstore_path.push("blockstore");
         datastore_path.push("datastore");
+        lockfile_path.push("repo_lock");
+
         let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
         let data_store = TRepoTypes::TDataStore::new(datastore_path);
+        let lockfile = TRepoTypes::TLock::new(lockfile_path);
         let (sender, receiver) = channel(1);
+
         (
             Repo {
                 block_store,
                 data_store,
                 events: sender,
                 subscriptions: Default::default(),
+                lockfile: Arc::new(Mutex::new(lockfile)),
             },
             receiver,
         )
@@ -262,6 +320,13 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn init(&self) -> Result<(), Error> {
+        // Dropping the guard (even though not strictly necessary to compile) to avoid potential
+        // deadlocks if `block_store` or `data_store` were to try to access `Repo.lockfile`.
+        {
+            let mut guard = self.lockfile.lock().unwrap();
+            guard.try_exclusive()?;
+        }
+
         let f1 = self.block_store.init();
         let f2 = self.data_store.init();
         let (r1, r2) = futures::future::join(f1, f2).await;

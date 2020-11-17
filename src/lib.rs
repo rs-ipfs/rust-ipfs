@@ -104,6 +104,7 @@ pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
     type TDataStore = repo::fs::FsDataStore;
+    type TLock = repo::fs::FsLock;
 }
 
 /// In-memory testing configuration used in tests.
@@ -112,6 +113,7 @@ pub struct TestTypes;
 impl RepoTypes for TestTypes {
     type TBlockStore = repo::mem::MemBlockStore;
     type TDataStore = repo::mem::MemDataStore;
+    type TLock = repo::mem::MemLock;
 }
 
 /// Ipfs node options used to configure the node to be created with [`UninitializedIpfs`].

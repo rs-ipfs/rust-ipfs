@@ -4,11 +4,12 @@
 
 use crate::error::Error;
 use async_trait::async_trait;
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{atomic::AtomicU64, Arc};
 use tokio::sync::Semaphore;
 
-use super::{BlockRm, BlockRmError, Column, DataStore, RepoCid};
+use super::{BlockRm, BlockRmError, Column, DataStore, Lock, LockError, RepoCid};
 
 /// The PinStore implementation for FsDataStore
 mod pinstore;
@@ -88,5 +89,68 @@ impl DataStore for FsDataStore {
     }
 }
 
+#[derive(Debug)]
+pub struct FsLock {
+    file: Option<File>,
+    path: PathBuf,
+    state: State,
+}
+
+#[derive(Debug)]
+enum State {
+    Unlocked,
+    Exclusive,
+}
+
+impl Lock for FsLock {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            file: None,
+            path,
+            state: State::Unlocked,
+        }
+    }
+
+    fn try_exclusive(&mut self) -> Result<(), LockError> {
+        use fs2::FileExt;
+        use std::fs::OpenOptions;
+
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&self.path)?;
+
+        file.try_lock_exclusive()?;
+
+        self.state = State::Exclusive;
+        self.file = Some(file);
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 crate::pinstore_interface_tests!(common_tests, crate::repo::fs::FsDataStore::new);
+
+#[cfg(test)]
+mod tests {
+    use super::{FsLock, Lock};
+
+    #[test]
+    fn creates_an_exclusive_repo_lock() {
+        let temp_dir = std::env::temp_dir();
+        let lockfile_path = temp_dir.join("repo_lock");
+
+        let mut lock = FsLock::new(lockfile_path.clone());
+        let result = lock.try_exclusive();
+        assert_eq!(result.is_ok(), true);
+
+        let mut failing_lock = FsLock::new(lockfile_path.clone());
+        let result = failing_lock.try_exclusive();
+        assert_eq!(result.is_err(), true);
+
+        // Clean-up.
+        std::fs::remove_file(lockfile_path).unwrap();
+    }
+}
