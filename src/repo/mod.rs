@@ -320,8 +320,12 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     }
 
     pub async fn init(&self) -> Result<(), Error> {
-        let mut lock = self.lockfile.lock().unwrap();
-        lock.try_exclusive()?;
+        // Dropping the guard (even though not strictly necessary to compile) to avoid potential
+        // deadlocks if `block_store` or `data_store` were to try to access `Repo.lockfile`.
+        {
+            let mut guard = self.lockfile.lock().unwrap();
+            guard.try_exclusive()?;
+        }
 
         let f1 = self.block_store.init();
         let f2 = self.data_store.init();
