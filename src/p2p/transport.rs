@@ -1,19 +1,19 @@
 use libp2p::core::muxing::StreamMuxerBox;
-use libp2p::core::transport::boxed::Boxed;
 use libp2p::core::transport::upgrade::Version;
+use libp2p::core::transport::Boxed;
 use libp2p::core::upgrade::SelectUpgrade;
 use libp2p::dns::DnsConfig;
 use libp2p::identity;
 use libp2p::mplex::MplexConfig;
 use libp2p::noise::{self, NoiseConfig};
 use libp2p::tcp::TokioTcpConfig;
-use libp2p::yamux::Config as YamuxConfig;
+use libp2p::yamux::YamuxConfig;
 use libp2p::{PeerId, Transport};
 use std::io::{self, Error, ErrorKind};
 use std::time::Duration;
 
 /// Transport type.
-pub(crate) type TTransport = Boxed<(PeerId, StreamMuxerBox), Error>;
+pub(crate) type TTransport = Boxed<(PeerId, StreamMuxerBox)>;
 
 /// Builds the transport that serves as a common ground for all connections.
 ///
