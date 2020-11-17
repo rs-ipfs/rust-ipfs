@@ -659,7 +659,7 @@ mod tests {
     use multihash::Sha2_256;
     use std::env::temp_dir;
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_mem_blockstore() {
         let tmp = temp_dir();
         let store = MemBlockStore::new(tmp);
@@ -692,7 +692,7 @@ mod tests {
         assert_eq!(get.await.unwrap(), None);
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_mem_blockstore_list() {
         let tmp = temp_dir();
         let mem_store = MemBlockStore::new(tmp);
@@ -715,7 +715,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_mem_datastore() {
         let tmp = temp_dir();
         let store = MemDataStore::new(tmp);

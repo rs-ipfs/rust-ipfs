@@ -5,7 +5,7 @@
 use futures::future::{Either, Map};
 use std::future::Future;
 use std::time::Duration;
-use tokio::time::{timeout, Elapsed, Timeout};
+use tokio::time::{error::Elapsed, timeout, Timeout};
 
 pub type MaybeTimeout<F> =
     Either<Timeout<F>, Map<F, fn(<F as Future>::Output) -> Result<<F as Future>::Output, Elapsed>>>;

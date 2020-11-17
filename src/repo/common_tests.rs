@@ -56,7 +56,7 @@ macro_rules! pinstore_interface_tests {
             use std::collections::HashMap;
             use std::convert::TryFrom;
 
-            #[tokio::test(max_threads = 1)]
+            #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
             async fn pin_direct_twice_is_good() {
                 let repo = DSTestContext::with($factory).await;
 
@@ -70,7 +70,7 @@ macro_rules! pinstore_interface_tests {
                 assert_eq!(repo.is_pinned(&empty).await.unwrap(), true);
             }
 
-            #[tokio::test(max_threads = 1)]
+            #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
             async fn cannot_recursively_unpin_unpinned() {
                 let repo = DSTestContext::with($factory).await;
                 // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
@@ -89,7 +89,7 @@ macro_rules! pinstore_interface_tests {
                 assert_eq!(e.to_string(), "not pinned or pinned indirectly");
             }
 
-            #[tokio::test(max_threads = 1)]
+            #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
             async fn cannot_unpin_indirect() {
                 let repo = DSTestContext::with($factory).await;
                 // root/nested/deeper: QmX5S2xLu32K6WxWnyLeChQFbDHy79ULV9feJYH2Hy9bgp
@@ -132,7 +132,7 @@ macro_rules! pinstore_interface_tests {
                 assert_eq!(e.to_string(), "not pinned or pinned indirectly");
             }
 
-            #[tokio::test(max_threads = 1)]
+            #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
             async fn can_pin_direct_as_recursive() {
                 // the other way around doesn't work
                 let repo = DSTestContext::with($factory).await;
@@ -170,7 +170,7 @@ macro_rules! pinstore_interface_tests {
                 assert!(both.is_empty(), "{:?}", both);
             }
 
-            #[tokio::test(max_threads = 1)]
+            #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
             async fn pin_recursive_pins_all_blocks() {
                 let repo = DSTestContext::with($factory).await;
 
@@ -203,7 +203,7 @@ macro_rules! pinstore_interface_tests {
                 assert!(both.is_empty(), "{:?}", both);
             }
 
-            #[tokio::test(max_threads = 1)]
+            #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
             async fn indirect_can_be_pinned_directly() {
                 let repo = DSTestContext::with($factory).await;
 
@@ -243,7 +243,7 @@ macro_rules! pinstore_interface_tests {
                 assert!(both.is_empty(), "{:?}", both);
             }
 
-            #[tokio::test(max_threads = 1)]
+            #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
             async fn direct_and_indirect_when_parent_unpinned() {
                 let repo = DSTestContext::with($factory).await;
 
@@ -293,7 +293,7 @@ macro_rules! pinstore_interface_tests {
                 assert!(one.is_empty(), "{:?}", one);
             }
 
-            #[tokio::test(max_threads = 1)]
+            #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
             async fn cannot_pin_recursively_pinned_directly() {
                 // this is a bit of odd as other ops are additive
                 let repo = DSTestContext::with($factory).await;

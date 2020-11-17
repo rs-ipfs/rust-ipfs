@@ -11,7 +11,7 @@ use common::interop::ForeignNode;
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 // Make sure two instances of ipfs can be connected by `Multiaddr`.
-#[tokio::test(max_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn connect_two_nodes_by_addr() {
     let node_a = Node::new("a").await;
 
@@ -27,7 +27,7 @@ async fn connect_two_nodes_by_addr() {
 }
 
 // Make sure only a `Multiaddr` with `/p2p/` can be used to connect.
-#[tokio::test(max_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[should_panic(expected = "called `Result::unwrap()` on an `Err` value: MissingProtocolP2p")]
 async fn dont_connect_without_p2p() {
     let node_a = Node::new("a").await;
@@ -45,7 +45,7 @@ async fn dont_connect_without_p2p() {
 
 // Make sure two instances of ipfs can be connected by `PeerId`.
 #[ignore = "connecting just by PeerId is not currently supported"]
-#[tokio::test(max_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn connect_two_nodes_by_peer_id() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
@@ -63,7 +63,7 @@ async fn connect_two_nodes_by_peer_id() {
 }
 
 // Ensure that duplicate connection attempts don't cause hangs.
-#[tokio::test(max_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn connect_duplicate_multiaddr() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;
@@ -79,7 +79,7 @@ async fn connect_duplicate_multiaddr() {
 
 // More complicated one to the above; first node will have two listening addresses and the second
 // one should dial both of the addresses, resulting in two connections.
-#[tokio::test(max_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn connect_two_nodes_with_two_connections_doesnt_panic() {
     let node_a = Node::new("a").await;
     let node_b = Node::new("b").await;

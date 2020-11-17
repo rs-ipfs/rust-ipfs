@@ -8,7 +8,7 @@ mod common;
 use common::{spawn_nodes, Topology};
 
 // Ensure that the Bitswap object doesn't leak.
-#[tokio::test(max_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn check_bitswap_cleanups() {
     // create a few nodes and connect the first one to others
     let mut nodes = spawn_nodes(3, Topology::Star).await;
@@ -19,7 +19,7 @@ async fn check_bitswap_cleanups() {
     // last node says goodbye; check the number of bitswap peers
     if let Some(node) = nodes.pop() {
         node.shutdown().await;
-        time::delay_for(Duration::from_millis(200)).await;
+        time::sleep(Duration::from_millis(200)).await;
     }
 
     let bitswap_peers = nodes[0].get_bitswap_peers().await.unwrap();
@@ -28,7 +28,7 @@ async fn check_bitswap_cleanups() {
     // another node says goodbye; check the number of bitswap peers
     if let Some(node) = nodes.pop() {
         node.shutdown().await;
-        time::delay_for(Duration::from_millis(200)).await;
+        time::sleep(Duration::from_millis(200)).await;
     }
 
     let bitswap_peers = nodes[0].get_bitswap_peers().await.unwrap();
@@ -41,7 +41,7 @@ async fn check_bitswap_cleanups() {
 // testing the bitswap protocol (though it would be advised to uncomment
 // the tracing_subscriber for stress-testing purposes)
 #[ignore]
-#[tokio::test(max_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn bitswap_stress_test() {
     fn filter(i: usize) -> bool {
         i % 2 == 0

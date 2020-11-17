@@ -19,6 +19,6 @@ libp2p-swarm = { default-features = false, version = "0.24" }
 multihash = { default-features = false, version = "0.11" }
 prost = { default-features = false, version = "0.6" }
 thiserror = { default-features = false, version = "1.0" }
-tokio = { default-features = false, version = "0.2" }
+tokio = { default-features = false, version = "0.3" }
 tracing = { default-features = false, version = "0.1" }
 unsigned-varint = { default-features = false, version = "0.3" }
