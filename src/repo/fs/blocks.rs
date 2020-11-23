@@ -415,7 +415,7 @@ fn write_through_tempfile(
         .truncate(true)
         .open(&temp_path)?;
 
-    temp.write_all(&*data)?;
+    temp.write_all(data)?;
     temp.flush()?;
 
     // safe default
