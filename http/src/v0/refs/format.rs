@@ -136,7 +136,7 @@ fn parse_format(s: &str) -> Result<Vec<FormattedPart>, FormatError> {
                 let remaining = chars.as_str();
                 let end = remaining
                     .find('>')
-                    .ok_or_else(|| FormatError::UnterminatedTag(index))?;
+                    .ok_or(FormatError::UnterminatedTag(index))?;
 
                 // the use of string indices here is ok as the angle brackets are ascii and
                 // cannot be in the middle of multibyte char boundaries
