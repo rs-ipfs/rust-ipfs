@@ -129,13 +129,13 @@ where
                 .decode_utf8()
                 .map_err(AddError::InvalidFilename)?;
 
-            let filename = if filename.starts_with('/') {
+            let filename = if let Some(relative) = filename.strip_prefix('/') {
                 // normalize single first slash; seems similar to what js-ipfs does: filesystem
                 // test cases post with paths '/some-directory/...' and others post with
                 // 'some-directory/...'.
 
                 // since slash is a single code point, we can just do
-                filename[1..].to_owned()
+                relative.to_owned()
             } else {
                 filename.into_owned()
             };

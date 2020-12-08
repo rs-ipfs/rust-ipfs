@@ -44,8 +44,8 @@ impl Future for DnsLinkFuture {
                         let txt = record?;
                         let bytes: &[u8] = txt.data().as_flat_slice().unwrap_or(b"");
                         let string = String::from_utf8_lossy(&bytes).to_string();
-                        if string.starts_with("dnslink=") {
-                            let path = IpfsPath::from_str(&string[8..])?;
+                        if let Some(path) = string.strip_prefix("dnslink=") {
+                            let path = IpfsPath::from_str(path)?;
                             return Poll::Ready(Ok(path));
                         }
                     }
