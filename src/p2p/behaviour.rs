@@ -333,7 +333,6 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
                                 peer_id.to_base58(),
                                 e
                             );
-                            return;
                         }
                     };
                 });
