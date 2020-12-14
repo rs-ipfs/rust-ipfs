@@ -41,7 +41,7 @@ pub struct Behaviour<Types: IpfsTypes> {
 pub enum KadResult {
     /// The query has been exhausted.
     Complete,
-    /// The query successfully returns `GetClosestPeers` or `GetProviders` results.  
+    /// The query successfully returns `GetClosestPeers` or `GetProviders` results.
     Peers(Vec<PeerId>),
     /// The query successfully returns a `GetRecord` result.
     Records(Vec<Record>),
@@ -333,7 +333,6 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
                                 peer_id.to_base58(),
                                 e
                             );
-                            return;
                         }
                     };
                 });

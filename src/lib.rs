@@ -919,7 +919,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 .await?;
 
             match rx.await? {
-                Either::Left(addrs) if !addrs.is_empty() => return Ok(addrs),
+                Either::Left(addrs) if !addrs.is_empty() => Ok(addrs),
                 Either::Left(_) => unreachable!(),
                 Either::Right(future) => {
                     future.await?;
@@ -932,8 +932,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                         .await?;
 
                     match rx.await? {
-                        Either::Left(addrs) if !addrs.is_empty() => return Ok(addrs),
-                        _ => return Err(anyhow!("couldn't find peer {}", peer_id)),
+                        Either::Left(addrs) if !addrs.is_empty() => Ok(addrs),
+                        _ => Err(anyhow!("couldn't find peer {}", peer_id)),
                     }
                 }
             }

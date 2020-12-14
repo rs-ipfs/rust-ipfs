@@ -393,7 +393,7 @@ fn update_full_path(
 
     if let Some(name) = name {
         if !full_path.is_empty() {
-            full_path.push_str("/");
+            full_path.push('/');
         }
         full_path.push_str(name);
         *old_depth += 1;
