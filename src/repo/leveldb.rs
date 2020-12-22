@@ -1,7 +1,3 @@
-#![allow(unused_variables)]
-#![allow(unused_imports)]
-#![allow(dead_code)]
-
 use leveldb::database::Database;
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use leveldb::batch::{WriteBatch, Batch};
@@ -10,8 +6,6 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 use std::str::FromStr;
 use cid::{self, Cid};
-use std::sync::{Mutex, Arc};
-use std::cell::{RefCell, Ref};
 use futures::stream::{StreamExt, TryStreamExt};
 use crate::error::Error;
 use crate::repo::{PinStore, References, PinMode, PinKind};
@@ -35,7 +29,7 @@ impl LeveldbStore {
         Ok(value)
     }
 
-    fn put_u8(&self, key: &[u8], value: &[u8]) -> Result<(), Error> {
+    fn _put_u8(&self, key: &[u8], value: &[u8]) -> Result<(), Error> {
         let db = self.get_database();
 
         match db.put_u8(&self.write_options, key, value) {
@@ -105,28 +99,29 @@ impl DataStore for LeveldbStore {
     }
 
     /// Checks if a key is present in the datastore.
-    async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
-        unimplemented!("")
+    async fn contains(&self, _col: Column, _key: &[u8]) -> Result<bool, Error> {
+        Err(anyhow::anyhow!("not implemented"))
+
     }
 
     /// Returns the value associated with a key from the datastore.
-    async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        unimplemented!("")
+    async fn get(&self, _col: Column, _key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        Err(anyhow::anyhow!("not implemented"))
     }
 
     /// Puts the value under the key in the datastore.
-    async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error> {
-        unimplemented!("")
+    async fn put(&self, _col: Column, _key: &[u8], _value: &[u8]) -> Result<(), Error> {
+        Err(anyhow::anyhow!("not implemented"))
     }
 
     /// Removes a key-value pair from the datastore.
-    async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error> {
-        unimplemented!("")
+    async fn remove(&self, _col: Column, _key: &[u8]) -> Result<(), Error> {
+        Err(anyhow::anyhow!("not implemented"))
     }
 
     /// Wipes the datastore.
     async fn wipe(&self) {
-        unimplemented!("")
+        todo!()
     }
 }
 
@@ -267,15 +262,15 @@ impl PinStore for LeveldbStore {
                     let cid_str_with_prefix = &key[4..];
 
                     let (cid_str, pin_mode) = match cid_str_with_prefix {
-                        direct_str if cid_str_with_prefix.starts_with("direct") => {
+                        _ if cid_str_with_prefix.starts_with("direct") => {
                             (&cid_str_with_prefix["direct".len() + 1..], PinMode::Direct)
                         },
 
-                        recursive_str if cid_str_with_prefix.starts_with("recursive") => {
+                        _ if cid_str_with_prefix.starts_with("recursive") => {
                             (&cid_str_with_prefix["recursive".len() + 1..], PinMode::Recursive)
                         }
 
-                        indirect_str if cid_str_with_prefix.starts_with("indirect") => {
+                        _ if cid_str_with_prefix.starts_with("indirect") => {
                             (&cid_str_with_prefix["indirect".len() + 1..], PinMode::Indirect)
                         }
 
@@ -304,7 +299,7 @@ impl PinStore for LeveldbStore {
     async fn query(&self, ids: Vec<Cid>, requirement: Option<PinMode>) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
         let mut res = Vec::<(Cid, PinKind<Cid>)>::new();
 
-        let pin_mode_matches = |cid: &Cid, pin_mode: &PinMode| {
+        let pin_mode_matches = |pin_mode: &PinMode| {
             match requirement {
                 Some(ref expected) => *expected == *pin_mode,
                 None => true
@@ -314,7 +309,7 @@ impl PinStore for LeveldbStore {
         for id in ids.iter() {
             match get_pinned_mode(self, id) {
                 Ok(Some(pin_mode)) => {
-                    if !pin_mode_matches(id, &pin_mode) {
+                    if !pin_mode_matches(&pin_mode) {
                         continue
                     }
 
