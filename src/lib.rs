@@ -103,7 +103,7 @@ impl<T: RepoTypes> IpfsTypes for T {}
 pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
-    type TDataStore = repo::fs::FsDataStore;
+    type TDataStore = repo::leveldb::LeveldbStore;
     type TLock = repo::fs::FsLock;
 }
 
