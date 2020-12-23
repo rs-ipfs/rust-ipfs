@@ -103,7 +103,7 @@ impl<T: RepoTypes> IpfsTypes for T {}
 pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
-    type TDataStore = repo::fs::FsDataStore;
+    type TDataStore = repo::kv::KvDbStore;
     type TLock = repo::fs::FsLock;
 }
 
@@ -112,7 +112,7 @@ impl RepoTypes for Types {
 pub struct TestTypes;
 impl RepoTypes for TestTypes {
     type TBlockStore = repo::mem::MemBlockStore;
-    type TDataStore = repo::kv::KvDbStore;
+    type TDataStore = repo::mem::MemDataStore;
     type TLock = repo::mem::MemLock;
 }
 
