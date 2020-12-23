@@ -19,10 +19,6 @@ async fn main() {
     let cid = ipfs.put_dag(root).await.unwrap();
     let path = IpfsPath::from(cid);
 
-    for p in path.iter() {
-        println!("path: {}", p);
-    }
-
     // Query the DAG
     let path1 = path.sub_path("0").unwrap();
     let path2 = path.sub_path("1").unwrap();

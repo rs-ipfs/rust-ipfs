@@ -1,94 +1,66 @@
-use leveldb::database::Database;
-use leveldb::options::{Options, ReadOptions, WriteOptions};
-use leveldb::batch::{WriteBatch, Batch};
-use leveldb::iterator::{Iterable, KeyIterator};
+use sled::{self, Db};
 use async_trait::async_trait;
 use std::path::PathBuf;
-use std::str::FromStr;
+use std::str::{self, FromStr};
+use std::convert::Into;
 use cid::{self, Cid};
-use futures::stream::{StreamExt, TryStreamExt};
 use crate::error::Error;
 use crate::repo::{PinStore, References, PinMode, PinKind};
 use super::{Column, DataStore};
+use futures::stream::{StreamExt, TryStreamExt};
 use tracing_futures::Instrument;
 
-
 #[derive(Debug)]
-pub struct LeveldbStore {
+pub struct KvDbStore {
     path: PathBuf,
-    database: Option<Database>,
-    read_options: ReadOptions,
-    write_options: WriteOptions,
+    db: Option<Db>,
 }
 
-impl LeveldbStore {
-    fn get_u8(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        let db = self.get_database();
-        let value = db.get_u8(&self.read_options, key)?;
+impl KvDbStore {
+    fn _put(&self, key: &str, value: &str) -> Result<(), Error> {
+        let db = self.get_db();
 
-        Ok(value)
+        let _ = db.insert(key, value)?;
+
+        Ok(())
     }
 
-    fn _put_u8(&self, key: &[u8], value: &[u8]) -> Result<(), Error> {
-        let db = self.get_database();
+    fn _remove(&self, key: &str) -> Result<(), Error> {
+        let db = self.get_db();
 
-        match db.put_u8(&self.write_options, key, value) {
+        match db.remove(key) {
             Ok(_) => Ok(()),
-            Err(e) => Err(e.into())
+            Err(e) => Err(e.into()),
         }
     }
 
-    fn write_batch(&self, batch: &WriteBatch) -> Result<(), Error> {
-        let db = self.get_database();
+    fn _apply_batch(&self, batch: sled::Batch) -> Result<(), Error> {
+        let db = self.get_db();
 
-        match db.write(&self.write_options, batch) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.into())
-        }
+        Ok(db.apply_batch(batch)?)
     }
 
-    fn delete(&self, key: &[u8]) -> Result<(), Error> {
-        let db = self.get_database();
-
-        match db.delete_u8(&self.write_options, key) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.into())
-        }
+    fn get_db(&self) -> &Db {
+        self.db.as_ref().unwrap()
     }
-
-    fn get_database(&self) -> &Database {
-        self.database.as_ref().unwrap()
-    }
-
-    fn key_iter(&self) -> KeyIterator {
-        let db = self.get_database();
-
-        db.keys_iter(&self.read_options)
-    }
-
 }
 
 #[async_trait]
-impl DataStore for LeveldbStore {
-    fn new(root: PathBuf) -> LeveldbStore {
-        LeveldbStore {
+impl DataStore for KvDbStore {
+    fn new(root: PathBuf) -> KvDbStore {
+        KvDbStore {
             path: root,
-            database: None,
-            read_options: ReadOptions::new(),
-            write_options: WriteOptions::new(),
+            db: None,
         }
     }
 
     async fn init(&self) -> Result<(), Error> {
-        let mut options = Options::new();
-        options.create_if_missing = true;
-
-        let database = Database::open(self.path.as_path(), &options)?;
+        let db = sled::open(self.path.as_path())?;
 
         unsafe {
-            let db_ref = self as * const LeveldbStore;
-            let db_mut = db_ref as * mut LeveldbStore;
-            (*db_mut).database = Some(database);
+            let kv_ref = self as * const KvDbStore;
+            let kv_mut = kv_ref as * mut KvDbStore;
+            (*kv_mut).db = Some(db);
         }
 
         Ok(())
@@ -127,7 +99,7 @@ impl DataStore for LeveldbStore {
 
 
 #[async_trait]
-impl PinStore for LeveldbStore {
+impl PinStore for KvDbStore {
     async fn is_pinned(&self, block: &Cid) -> Result<bool, Error> {
         is_pinned(self, block)
     }
@@ -135,23 +107,23 @@ impl PinStore for LeveldbStore {
     async fn insert_direct_pin(&self, target: &Cid) -> Result<(), Error> {
         let already_pinned = get_pinned_mode(self, target)?;
 
-        let batch = WriteBatch::new();
+        let mut batch = sled::Batch::default();
 
         match already_pinned {
             Some(PinMode::Direct) => return Ok(()),
             Some(PinMode::Recursive) => return Err(anyhow::anyhow!("pin: {} already pinned recursively", target.to_string())),
-            Some(PinMode::Indirect) => batch.delete_u8(get_pin_key(target, &PinMode::Indirect).as_bytes()),
+            Some(PinMode::Indirect) => {
+                let pin_key = get_pin_key(target, &PinMode::Indirect);
+                batch.remove(pin_key.as_str());
+            },
             _ => {}
         }
 
         let direct_key = get_pin_key(target, &PinMode::Direct);
 
-        batch.put_u8(direct_key.as_bytes(), &[][..]);
+        batch.insert(direct_key.as_str(), "");
 
-        match self.write_batch(&batch) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.into())
-        }
+        Ok(self._apply_batch(batch)?)
     }
 
     async fn insert_recursive_pin(&self, target: &Cid, referenced: References<'_>, )
@@ -161,21 +133,21 @@ impl PinStore for LeveldbStore {
         let set = referenced.try_collect::<std::collections::BTreeSet<_>>()
             .await?;
 
-        let batch = WriteBatch::new();
+        let mut batch = sled::Batch::default();
         let already_pinned = get_pinned_mode(self, target)?;
 
         match already_pinned {
             Some(PinMode::Recursive) => return Ok(()),
             Some(mode@PinMode::Direct) | Some(mode@PinMode::Indirect) => {
                 let key = get_pin_key(target, &mode);
-                batch.delete_u8(key.as_bytes());
+                batch.remove(key.as_str());
             }
             _ => {}
         }
 
 
         let recursive_key = get_pin_key(target, &PinMode::Recursive);
-        batch.put_u8(recursive_key.as_bytes(), &[][..]);
+        batch.insert(recursive_key.as_str(), "");
 
         for cid in &set {
             let indirect_key = get_pin_key(cid, &PinMode::Indirect);
@@ -187,109 +159,97 @@ impl PinStore for LeveldbStore {
                 _ => {},
             }
 
-            // value is for get information like Qmd9WDTA2Kph4MKiDDiaZdiB4HJQpKcxjnJQfQmM5rHhYK indirect through QmXr1XZBg1CQv17BPvSWRmM7916R6NLL7jt19rhCPdVhc5
-            batch.put_u8(indirect_key.as_bytes(), target.to_string().as_bytes());
+            // value is for get information like "Qmd9WDTA2Kph4MKiDDiaZdiB4HJQpKcxjnJQfQmM5rHhYK indirect through QmXr1XZBg1CQv17BPvSWRmM7916R6NLL7jt19rhCPdVhc5"
+            batch.insert(indirect_key.as_str(), target.to_string().as_str());
         }
 
-        match self.write_batch(&batch) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.into()),
-        }
+        Ok(self._apply_batch(batch)?)
     }
 
     async fn remove_direct_pin(&self, target: &Cid) -> Result<(), Error> {
         let key = get_pin_key(target, &PinMode::Direct);
 
-        match self.delete(key.as_bytes()) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.into()),
-        }
+        Ok(self._remove(&key)?)
     }
 
     async fn remove_recursive_pin(&self, target: &Cid, referenced: References<'_>, ) -> Result<(), Error> {
         let set = referenced.try_collect::<std::collections::BTreeSet<_>>()
             .await?;
-        let cid_str = target.to_string();
 
-        let batch = WriteBatch::new();
+        let mut batch = sled::Batch::default();
 
-        batch.delete_u8(get_pin_key(target, &PinMode::Recursive).as_bytes());
+        let recursive_key = get_pin_key(target, &PinMode::Recursive);
+        batch.remove(recursive_key.as_str());
 
         for cid in &set {
             let already_pinned = get_pinned_mode(self, cid)?;
 
             match already_pinned {
-                Some(PinMode::Recursive) | Some(PinMode::Direct) => continue,
+                Some(PinMode::Recursive) | Some(PinMode::Direct) => continue, // this should be unreachable
                 Some(PinMode::Indirect) => {
                     let indirect_key = get_pin_key(cid, &PinMode::Indirect);
-
-                    // cid is used by other block
-                    match self.get_u8(indirect_key.as_bytes()) {
-                        Ok(Some(value)) => {
-                            let value = String::from_utf8_lossy(value.as_slice());
-
-                            if cid_str == value {
-                                batch.delete_u8(get_pin_key(cid, &PinMode::Indirect).as_bytes());
-                            }
-                        }
-                        _ => {}
-                    }
+                    batch.remove(indirect_key.as_str());
                 }
                 _ => {}
             }
         }
 
-        match self.write_batch(&batch) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.into()),
-        }
+        Ok(self._apply_batch(batch)?)
     }
 
     async fn list(&self, expected_mode: Option<PinMode>) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
-        let iter = self.key_iter();
 
-        let mut all_keys = vec![];
-
-        for item in iter {
-            all_keys.push(item);
-        }
+        let db = self.get_db();
+        // the minimum cid of version 0
+        let min_key = "pin.0.0000000000000000000000000000000000000000";
+        assert_eq!(min_key.len(), 52);
+        let iter = db.range(min_key..);
 
         let st = async_stream::try_stream! {
-            for raw_key in all_keys.iter() {
-                let key = String::from_utf8_lossy(raw_key.as_slice());
-
-                if key.starts_with("pin.") {
-                    let cid_str_with_prefix = &key[4..];
-
-                    let (cid_str, pin_mode) = match cid_str_with_prefix {
-                        _ if cid_str_with_prefix.starts_with("direct") => {
-                            (&cid_str_with_prefix["direct".len() + 1..], PinMode::Direct)
-                        },
-
-                        _ if cid_str_with_prefix.starts_with("recursive") => {
-                            (&cid_str_with_prefix["recursive".len() + 1..], PinMode::Recursive)
-                        }
-
-                        _ if cid_str_with_prefix.starts_with("indirect") => {
-                            (&cid_str_with_prefix["indirect".len() + 1..], PinMode::Indirect)
-                        }
-
-                        _ =>  continue,
-                    };
-
-                    match Cid::from_str(cid_str) {
-                        Ok(cid) =>  {
-                            match expected_mode {
-                                Some(ref expected) => if pin_mode == *expected {
-                                    yield (cid, pin_mode);
-                                }
-                                _ => yield (cid, pin_mode),
-                            }
-                        }
-                        Err(_) => {}
-                    }
+            for item in iter {
+                if item.is_err() {
+                    continue;
                 }
-           }
+
+                let (key, _) = item.unwrap();
+
+                let key = str::from_utf8(key.as_ref())?;
+
+                if ! key.starts_with("pin.") {
+                    continue;
+                }
+
+                let cid_str_with_prefix = &key[4..];
+
+                let (cid_str, pin_mode) = match cid_str_with_prefix {
+                    _ if cid_str_with_prefix.starts_with("direct") => {
+                        (&cid_str_with_prefix["direct".len() + 1..], PinMode::Direct)
+                    },
+
+                    _ if cid_str_with_prefix.starts_with("recursive") => {
+                        (&cid_str_with_prefix["recursive".len() + 1..], PinMode::Recursive)
+                    }
+
+                    _ if cid_str_with_prefix.starts_with("indirect") => {
+                        (&cid_str_with_prefix["indirect".len() + 1..], PinMode::Indirect)
+                    }
+
+                    _ =>  continue,
+                };
+
+                match Cid::from_str(cid_str) {
+                    Ok(cid) =>  {
+                        match expected_mode {
+                            Some(ref expected) => if pin_mode == *expected {
+                                yield (cid, pin_mode);
+                            }
+                            _ => yield (cid, pin_mode),
+                        }
+                    }
+
+                    Err(_) => {}
+                }
+            }
         };
 
         st.in_current_span().boxed()
@@ -306,6 +266,8 @@ impl PinStore for LeveldbStore {
             }
         };
 
+        let db = self.get_db();
+
         for id in ids.iter() {
             match get_pinned_mode(self, id) {
                 Ok(Some(pin_mode)) => {
@@ -319,11 +281,11 @@ impl PinStore for LeveldbStore {
                         PinMode::Indirect => {
                             let pin_key = get_pin_key(id, &PinMode::Indirect);
 
-                            match self.get_u8(pin_key.as_bytes()) {
+                            match db.get(pin_key.as_str()) {
                                 Ok(Some(indirect_from_raw)) => {
-                                    let indirect_from_str = String::from_utf8_lossy(indirect_from_raw.as_slice());
+                                    let indirect_from_str = str::from_utf8(indirect_from_raw.as_ref())?;
 
-                                    match Cid::from_str(&indirect_from_str) {
+                                    match Cid::from_str(indirect_from_str) {
                                         Ok(indirect_from_cid) =>
                                             res.push((id.clone(), PinKind::IndirectFrom(indirect_from_cid))),
                                         _ => {
@@ -350,9 +312,9 @@ impl PinStore for LeveldbStore {
 
 fn pin_mode_literal(pin_mode: &PinMode) -> &'static str {
     match pin_mode {
-        PinMode::Direct => "direct",
-        PinMode::Indirect => "indirect",
-        PinMode::Recursive => "recursive",
+        PinMode::Direct => "d",
+        PinMode::Indirect => "i",
+        PinMode::Recursive => "r",
     }
 }
 
@@ -360,11 +322,14 @@ fn get_pin_key(cid: &Cid, pin_mode: &PinMode) -> String {
     format!("pin.{}.{}", pin_mode_literal(pin_mode), cid.to_string())
 }
 
-fn get_pinned_mode(database: &LeveldbStore, block: &Cid) -> Result<Option<PinMode>, Error> {
+
+fn get_pinned_mode(kv_db: &KvDbStore, block: &Cid) -> Result<Option<PinMode>, Error> {
     for mode in &[PinMode::Direct, PinMode::Recursive, PinMode::Indirect] {
         let key =  get_pin_key(block, mode);
 
-        match database.get_u8(key.as_bytes()) {
+        let db = kv_db.get_db();
+
+        match db.get(key.as_str()) {
             Ok(Some(_)) => return Ok(Some(mode.clone())),
             Ok(_) => {}
             Err(e) => return Err(e.into())
@@ -374,8 +339,8 @@ fn get_pinned_mode(database: &LeveldbStore, block: &Cid) -> Result<Option<PinMod
     Ok(None)
 }
 
-fn is_pinned(database: &LeveldbStore, block: &Cid) -> Result<bool, Error> {
-    match get_pinned_mode(database, block) {
+fn is_pinned(db: &KvDbStore, block: &Cid) -> Result<bool, Error> {
+    match get_pinned_mode(db, block) {
         Ok(Some(_)) => return Ok(true),
         Ok(_) => return Ok(false),
         Err(e) => Err(e.into())

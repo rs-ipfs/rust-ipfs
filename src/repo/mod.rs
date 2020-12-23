@@ -26,7 +26,7 @@ mod common_tests;
 
 pub mod fs;
 pub mod mem;
-pub mod leveldb;
+pub mod kv;
 
 /// Consolidates `BlockStore` and `DataStore` into a representation of storage.
 pub trait RepoTypes: Send + Sync + 'static {
