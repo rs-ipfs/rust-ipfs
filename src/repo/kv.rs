@@ -1,13 +1,13 @@
-use sled::{self, Db};
+use super::{Column, DataStore};
+use crate::error::Error;
+use crate::repo::{PinKind, PinMode, PinStore, References};
 use async_trait::async_trait;
+use cid::{self, Cid};
+use futures::stream::{StreamExt, TryStreamExt};
+use sled::{self, Db};
+use std::convert::Into;
 use std::path::PathBuf;
 use std::str::{self, FromStr};
-use std::convert::Into;
-use cid::{self, Cid};
-use crate::error::Error;
-use crate::repo::{PinStore, References, PinMode, PinKind};
-use super::{Column, DataStore};
-use futures::stream::{StreamExt, TryStreamExt};
 use tracing_futures::Instrument;
 
 #[derive(Debug)]
@@ -58,8 +58,8 @@ impl DataStore for KvDbStore {
         let db = sled::open(self.path.as_path())?;
 
         unsafe {
-            let kv_ref = self as * const KvDbStore;
-            let kv_mut = kv_ref as * mut KvDbStore;
+            let kv_ref = self as *const KvDbStore;
+            let kv_mut = kv_ref as *mut KvDbStore;
             (*kv_mut).db = Some(db);
         }
 
@@ -73,7 +73,6 @@ impl DataStore for KvDbStore {
     /// Checks if a key is present in the datastore.
     async fn contains(&self, _col: Column, _key: &[u8]) -> Result<bool, Error> {
         Err(anyhow::anyhow!("not implemented"))
-
     }
 
     /// Returns the value associated with a key from the datastore.
@@ -97,7 +96,6 @@ impl DataStore for KvDbStore {
     }
 }
 
-
 #[async_trait]
 impl PinStore for KvDbStore {
     async fn is_pinned(&self, block: &Cid) -> Result<bool, Error> {
@@ -111,11 +109,16 @@ impl PinStore for KvDbStore {
 
         match already_pinned {
             Some(PinMode::Direct) => return Ok(()),
-            Some(PinMode::Recursive) => return Err(anyhow::anyhow!("pin: {} already pinned recursively", target.to_string())),
+            Some(PinMode::Recursive) => {
+                return Err(anyhow::anyhow!(
+                    "pin: {} already pinned recursively",
+                    target.to_string()
+                ))
+            }
             Some(PinMode::Indirect) => {
                 let pin_key = get_pin_key(target, &PinMode::Indirect);
                 batch.remove(pin_key.as_str());
-            },
+            }
             _ => {}
         }
 
@@ -126,11 +129,13 @@ impl PinStore for KvDbStore {
         Ok(self._apply_batch(batch)?)
     }
 
-    async fn insert_recursive_pin(&self, target: &Cid, referenced: References<'_>, )
-                                  -> Result<(), Error>
-    {
-
-        let set = referenced.try_collect::<std::collections::BTreeSet<_>>()
+    async fn insert_recursive_pin(
+        &self,
+        target: &Cid,
+        referenced: References<'_>,
+    ) -> Result<(), Error> {
+        let set = referenced
+            .try_collect::<std::collections::BTreeSet<_>>()
             .await?;
 
         let mut batch = sled::Batch::default();
@@ -138,13 +143,12 @@ impl PinStore for KvDbStore {
 
         match already_pinned {
             Some(PinMode::Recursive) => return Ok(()),
-            Some(mode@PinMode::Direct) | Some(mode@PinMode::Indirect) => {
+            Some(mode @ PinMode::Direct) | Some(mode @ PinMode::Indirect) => {
                 let key = get_pin_key(target, &mode);
                 batch.remove(key.as_str());
             }
             _ => {}
         }
-
 
         let recursive_key = get_pin_key(target, &PinMode::Recursive);
         batch.insert(recursive_key.as_str(), "");
@@ -152,11 +156,11 @@ impl PinStore for KvDbStore {
         for cid in &set {
             let indirect_key = get_pin_key(cid, &PinMode::Indirect);
 
-            let is_already_pinned = is_pinned(self,target);
+            let is_already_pinned = is_pinned(self, target);
 
             match is_already_pinned {
                 Ok(true) => continue,
-                _ => {},
+                _ => {}
             }
 
             // value is for get information like "Qmd9WDTA2Kph4MKiDDiaZdiB4HJQpKcxjnJQfQmM5rHhYK indirect through QmXr1XZBg1CQv17BPvSWRmM7916R6NLL7jt19rhCPdVhc5"
@@ -172,8 +176,13 @@ impl PinStore for KvDbStore {
         Ok(self._remove(&key)?)
     }
 
-    async fn remove_recursive_pin(&self, target: &Cid, referenced: References<'_>, ) -> Result<(), Error> {
-        let set = referenced.try_collect::<std::collections::BTreeSet<_>>()
+    async fn remove_recursive_pin(
+        &self,
+        target: &Cid,
+        referenced: References<'_>,
+    ) -> Result<(), Error> {
+        let set = referenced
+            .try_collect::<std::collections::BTreeSet<_>>()
             .await?;
 
         let mut batch = sled::Batch::default();
@@ -197,8 +206,10 @@ impl PinStore for KvDbStore {
         Ok(self._apply_batch(batch)?)
     }
 
-    async fn list(&self, expected_mode: Option<PinMode>) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
-
+    async fn list(
+        &self,
+        expected_mode: Option<PinMode>,
+    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
         let db = self.get_db();
         // the minimum cid of version 0
         let min_key = "pin.0.0000000000000000000000000000000000000000";
@@ -255,15 +266,16 @@ impl PinStore for KvDbStore {
         st.in_current_span().boxed()
     }
 
-
-    async fn query(&self, ids: Vec<Cid>, requirement: Option<PinMode>) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
+    async fn query(
+        &self,
+        ids: Vec<Cid>,
+        requirement: Option<PinMode>,
+    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
         let mut res = Vec::<(Cid, PinKind<Cid>)>::new();
 
-        let pin_mode_matches = |pin_mode: &PinMode| {
-            match requirement {
-                Some(ref expected) => *expected == *pin_mode,
-                None => true
-            }
+        let pin_mode_matches = |pin_mode: &PinMode| match requirement {
+            Some(ref expected) => *expected == *pin_mode,
+            None => true,
         };
 
         let db = self.get_db();
@@ -272,7 +284,7 @@ impl PinStore for KvDbStore {
             match get_pinned_mode(self, id) {
                 Ok(Some(pin_mode)) => {
                     if !pin_mode_matches(&pin_mode) {
-                        continue
+                        continue;
                     }
 
                     match pin_mode {
@@ -283,19 +295,22 @@ impl PinStore for KvDbStore {
 
                             match db.get(pin_key.as_str()) {
                                 Ok(Some(indirect_from_raw)) => {
-                                    let indirect_from_str = str::from_utf8(indirect_from_raw.as_ref())?;
+                                    let indirect_from_str =
+                                        str::from_utf8(indirect_from_raw.as_ref())?;
 
                                     match Cid::from_str(indirect_from_str) {
-                                        Ok(indirect_from_cid) =>
-                                            res.push((id.clone(), PinKind::IndirectFrom(indirect_from_cid))),
+                                        Ok(indirect_from_cid) => res.push((
+                                            id.clone(),
+                                            PinKind::IndirectFrom(indirect_from_cid),
+                                        )),
                                         _ => {
                                             warn!("invalid indirect from cid of {}", id);
-                                            continue
+                                            continue;
                                         }
                                     }
                                 }
                                 Ok(_) => {}
-                                Err(e) => return Err(e.into())
+                                Err(e) => return Err(e.into()),
                             }
                         }
                     }
@@ -309,7 +324,6 @@ impl PinStore for KvDbStore {
     }
 }
 
-
 fn pin_mode_literal(pin_mode: &PinMode) -> &'static str {
     match pin_mode {
         PinMode::Direct => "d",
@@ -322,17 +336,16 @@ fn get_pin_key(cid: &Cid, pin_mode: &PinMode) -> String {
     format!("pin.{}.{}", pin_mode_literal(pin_mode), cid.to_string())
 }
 
-
 fn get_pinned_mode(kv_db: &KvDbStore, block: &Cid) -> Result<Option<PinMode>, Error> {
     for mode in &[PinMode::Direct, PinMode::Recursive, PinMode::Indirect] {
-        let key =  get_pin_key(block, mode);
+        let key = get_pin_key(block, mode);
 
         let db = kv_db.get_db();
 
         match db.get(key.as_str()) {
             Ok(Some(_)) => return Ok(Some(mode.clone())),
             Ok(_) => {}
-            Err(e) => return Err(e.into())
+            Err(e) => return Err(e.into()),
         }
     }
 
@@ -343,6 +356,6 @@ fn is_pinned(db: &KvDbStore, block: &Cid) -> Result<bool, Error> {
     match get_pinned_mode(db, block) {
         Ok(Some(_)) => return Ok(true),
         Ok(_) => return Ok(false),
-        Err(e) => Err(e.into())
+        Err(e) => Err(e.into()),
     }
 }

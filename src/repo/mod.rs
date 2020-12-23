@@ -25,8 +25,8 @@ use std::{error, fmt, io};
 mod common_tests;
 
 pub mod fs;
-pub mod mem;
 pub mod kv;
+pub mod mem;
 
 /// Consolidates `BlockStore` and `DataStore` into a representation of storage.
 pub trait RepoTypes: Send + Sync + 'static {
