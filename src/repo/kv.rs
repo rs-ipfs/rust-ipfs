@@ -159,7 +159,7 @@ impl PinStore for KvDataStore {
             let is_already_pinned = is_pinned(self, target);
 
             if let Ok(true) = is_already_pinned {
-                continue
+                continue;
             }
 
             // value is for get information like "Qmd9WDTA2Kph4MKiDDiaZdiB4HJQpKcxjnJQfQmM5rHhYK indirect through QmXr1XZBg1CQv17BPvSWRmM7916R6NLL7jt19rhCPdVhc5"
