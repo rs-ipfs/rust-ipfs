@@ -209,7 +209,7 @@ impl PinStore for KvDataStore {
     ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
         let db = self.get_db();
         // the minimum cid of version 0
-        let min_key = "pin.0.0000000000000000000000000000000000000000";
+        let min_key = "pin.0.0000000000000000000000000000000000000000000000";
         assert_eq!(min_key.len(), 52);
 
         let iter = db.range(min_key..);
@@ -223,7 +223,7 @@ impl PinStore for KvDataStore {
             let (raw_key, _) = item.unwrap();
             let key = String::from(String::from_utf8_lossy(raw_key.as_ref()));
 
-            if ! key.starts_with("pin.") {
+            if !key.starts_with("pin.") {
                 continue;
             }
 
