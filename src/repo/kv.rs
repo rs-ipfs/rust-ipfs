@@ -301,7 +301,7 @@ impl PinStore for KvDbStore {
                     }
                 }
                 Ok(_) => {}
-                Err(e) => return Err(e.into())
+                Err(e) => return Err(e.into()),
             }
         }
 
