@@ -11,12 +11,12 @@ use std::str::{self, FromStr};
 use tracing_futures::Instrument;
 
 #[derive(Debug)]
-pub struct KvDbStore {
+pub struct KvDataStore {
     path: PathBuf,
     db: Option<Db>,
 }
 
-impl KvDbStore {
+impl KvDataStore {
     fn _put(&self, key: &str, value: &str) -> Result<(), Error> {
         let db = self.get_db();
 
@@ -46,9 +46,9 @@ impl KvDbStore {
 }
 
 #[async_trait]
-impl DataStore for KvDbStore {
-    fn new(root: PathBuf) -> KvDbStore {
-        KvDbStore {
+impl DataStore for KvDataStore {
+    fn new(root: PathBuf) -> KvDataStore {
+        KvDataStore {
             path: root,
             db: None,
         }
@@ -58,8 +58,8 @@ impl DataStore for KvDbStore {
         let db = sled::open(self.path.as_path())?;
 
         unsafe {
-            let kv_ref = self as *const KvDbStore;
-            let kv_mut = kv_ref as *mut KvDbStore;
+            let kv_ref = self as *const KvDataStore;
+            let kv_mut = kv_ref as *mut KvDataStore;
             (*kv_mut).db = Some(db);
         }
 
@@ -97,7 +97,7 @@ impl DataStore for KvDbStore {
 }
 
 #[async_trait]
-impl PinStore for KvDbStore {
+impl PinStore for KvDataStore {
     async fn is_pinned(&self, block: &Cid) -> Result<bool, Error> {
         is_pinned(self, block)
     }
@@ -336,7 +336,7 @@ fn get_pin_key(cid: &Cid, pin_mode: &PinMode) -> String {
     format!("pin.{}.{}", pin_mode_literal(pin_mode), cid.to_string())
 }
 
-fn get_pinned_mode(kv_db: &KvDbStore, block: &Cid) -> Result<Option<PinMode>, Error> {
+fn get_pinned_mode(kv_db: &KvDataStore, block: &Cid) -> Result<Option<PinMode>, Error> {
     for mode in &[PinMode::Direct, PinMode::Recursive, PinMode::Indirect] {
         let key = get_pin_key(block, mode);
 
@@ -352,7 +352,7 @@ fn get_pinned_mode(kv_db: &KvDbStore, block: &Cid) -> Result<Option<PinMode>, Er
     Ok(None)
 }
 
-fn is_pinned(db: &KvDbStore, block: &Cid) -> Result<bool, Error> {
+fn is_pinned(db: &KvDataStore, block: &Cid) -> Result<bool, Error> {
     match get_pinned_mode(db, block) {
         Ok(Some(_)) => return Ok(true),
         Ok(_) => return Ok(false),
