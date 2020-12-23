@@ -4,7 +4,7 @@ use crate::repo::{PinKind, PinMode, PinStore, References};
 use async_trait::async_trait;
 use cid::{self, Cid};
 use futures::stream::{StreamExt, TryStreamExt};
-use sled::{self, Db};
+use sled::{self, Config as DbConfig, Db, Mode as DbMode};
 use std::convert::Into;
 use std::path::PathBuf;
 use std::str::{self, FromStr};
@@ -55,7 +55,12 @@ impl DataStore for KvDataStore {
     }
 
     async fn init(&self) -> Result<(), Error> {
-        let db = sled::open(self.path.as_path())?;
+        let config = DbConfig::new();
+
+        let db = config
+            .mode(DbMode::HighThroughput)
+            .path(self.path.as_path())
+            .open()?;
 
         unsafe {
             let kv_ref = self as *const KvDataStore;
@@ -156,7 +161,7 @@ impl PinStore for KvDataStore {
         for cid in &set {
             let indirect_key = get_pin_key(cid, &PinMode::Indirect);
 
-            let is_already_pinned = is_pinned(self, target);
+            let is_already_pinned = is_pinned(self, cid);
 
             if let Ok(true) = is_already_pinned {
                 continue;
@@ -210,6 +215,7 @@ impl PinStore for KvDataStore {
         expected_mode: Option<PinMode>,
     ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
         let db = self.get_db();
+
         // the minimum cid of version 0
         let min_key = "pin.0.0000000000000000000000000000000000000000000000";
         assert_eq!(min_key.len(), 52);
@@ -235,18 +241,19 @@ impl PinStore for KvDataStore {
         let st = async_stream::try_stream! {
             for key in all_keys.iter() {
                 let cid_str_with_prefix = &key[4..];
+                let cid_str = &key[6..];
 
-                let (cid_str, pin_mode) = match cid_str_with_prefix {
-                    _ if cid_str_with_prefix.starts_with("direct") => {
-                        (&cid_str_with_prefix["direct".len() + 1..], PinMode::Direct)
+                let pin_mode = match cid_str_with_prefix {
+                    _ if cid_str_with_prefix.starts_with("d") => {
+                        PinMode::Direct
                     },
 
-                    _ if cid_str_with_prefix.starts_with("recursive") => {
-                        (&cid_str_with_prefix["recursive".len() + 1..], PinMode::Recursive)
+                    _ if cid_str_with_prefix.starts_with("r") => {
+                        PinMode::Recursive
                     }
 
-                    _ if cid_str_with_prefix.starts_with("indirect") => {
-                        (&cid_str_with_prefix["indirect".len() + 1..], PinMode::Indirect)
+                    _ if cid_str_with_prefix.starts_with("i") => {
+                        PinMode::Indirect
                     }
 
                     _ =>  continue,
@@ -258,7 +265,8 @@ impl PinStore for KvDataStore {
                             Some(ref expected) => if pin_mode == *expected {
                                 yield (cid, pin_mode);
                             }
-                            _ => yield (cid, pin_mode),
+                            Some(_) => {}
+                            None => yield (cid, pin_mode),
                         }
                     }
 
