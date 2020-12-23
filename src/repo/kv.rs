@@ -158,10 +158,7 @@ impl PinStore for KvDataStore {
 
             let is_already_pinned = is_pinned(self, target);
 
-            match is_already_pinned {
-                Ok(true) => continue,
-                _ => {}
-            }
+            if let Ok(true) = is_already_pinned { continue }
 
             // value is for get information like "Qmd9WDTA2Kph4MKiDDiaZdiB4HJQpKcxjnJQfQmM5rHhYK indirect through QmXr1XZBg1CQv17BPvSWRmM7916R6NLL7jt19rhCPdVhc5"
             batch.insert(indirect_key.as_str(), target.to_string().as_str());
@@ -214,22 +211,27 @@ impl PinStore for KvDataStore {
         // the minimum cid of version 0
         let min_key = "pin.0.0000000000000000000000000000000000000000";
         assert_eq!(min_key.len(), 52);
+
         let iter = db.range(min_key..);
+        let mut all_keys: Vec<String> = vec![];
+
+        for item in iter {
+            if item.is_err() {
+                continue;
+            }
+
+            let (raw_key, _) = item.unwrap();
+            let key = String::from(String::from_utf8_lossy(raw_key.as_ref()));
+
+            if ! key.starts_with("pin.") {
+                continue;
+            }
+
+            all_keys.push(key);
+        }
 
         let st = async_stream::try_stream! {
-            for item in iter {
-                if item.is_err() {
-                    continue;
-                }
-
-                let (key, _) = item.unwrap();
-
-                let key = str::from_utf8(key.as_ref())?;
-
-                if ! key.starts_with("pin.") {
-                    continue;
-                }
-
+            for key in all_keys.iter() {
                 let cid_str_with_prefix = &key[4..];
 
                 let (cid_str, pin_mode) = match cid_str_with_prefix {
@@ -316,7 +318,7 @@ impl PinStore for KvDataStore {
                     }
                 }
                 Ok(_) => {}
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             }
         }
 
@@ -354,8 +356,8 @@ fn get_pinned_mode(kv_db: &KvDataStore, block: &Cid) -> Result<Option<PinMode>, 
 
 fn is_pinned(db: &KvDataStore, block: &Cid) -> Result<bool, Error> {
     match get_pinned_mode(db, block) {
-        Ok(Some(_)) => return Ok(true),
-        Ok(_) => return Ok(false),
-        Err(e) => Err(e.into()),
+        Ok(Some(_)) => Ok(true),
+        Ok(_) => Ok(false),
+        Err(e) => Err(e),
     }
 }
