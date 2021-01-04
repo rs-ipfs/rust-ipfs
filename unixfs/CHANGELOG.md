@@ -1,5 +1,9 @@
 # Next
 
+* Document panic introduced in walker ergonomics [#435]
+
+[#435]: https://github.com/rs-ipfs/rust-ipfs/pull/435
+
 # 0.2.0
 
 Minor version bump due to ipfs 0.2.0 release.

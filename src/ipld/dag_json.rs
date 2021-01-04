@@ -10,7 +10,6 @@ use serde_json::ser::Serializer;
 use serde_json::Error;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::iter::FromIterator;
 
 /// Json codec.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -215,7 +214,7 @@ impl<'de> de::Visitor<'de> for JSONVisitor {
         let unwrapped = values
             .into_iter()
             .map(|(key, WrapperOwned(value))| (key, value));
-        Ok(Ipld::Map(BTreeMap::from_iter(unwrapped)))
+        Ok(Ipld::Map(unwrapped.collect()))
     }
 
     #[inline]

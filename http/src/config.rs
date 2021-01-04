@@ -72,7 +72,7 @@ pub fn init(
 
     let bits = bits.get();
 
-    if bits < 2048 || bits > 16 * 1024 {
+    if !(2048..=16 * 1024).contains(&bits) {
         // Ring won't accept less than a 2048 bit key.
         return Err(InitializationError::InvalidRsaKeyLength(bits));
     }
