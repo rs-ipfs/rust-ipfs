@@ -85,11 +85,11 @@ impl Walker {
         }
     }
 
-    /// Returns the next `Cid` to load and pass its associated content to `continue_walk`.
+    /// Returns the next [`Cid`] to load and pass its associated content to [`next`].
     ///
     /// # Panics
     ///
-    /// When `Walker::should_continue()` returns `false`.
+    /// When [`should_continue()`] returns `false`.
     // TODO: perhaps this should return an option?
     pub fn pending_links(&self) -> (&Cid, impl Iterator<Item = &Cid> + '_) {
         use InnerKind::*;
@@ -304,7 +304,7 @@ impl Walker {
         }
     }
 
-    /// `true` if the walk of `inspect` should continue
+    /// Returns `true` if there are more links to walk over.
     pub fn should_continue(&self) -> bool {
         self.should_continue
     }
