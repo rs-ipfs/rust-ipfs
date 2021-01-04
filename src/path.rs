@@ -175,7 +175,7 @@ impl SlashedPath {
     ) -> Result<(), ()> {
         let mut split = split.peekable();
         while let Some(sub_path) = split.next() {
-            if sub_path == "" {
+            if sub_path.is_empty() {
                 return if split.peek().is_none() {
                     // trim trailing
                     Ok(())
