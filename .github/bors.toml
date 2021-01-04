@@ -6,5 +6,7 @@ status = ["ci"]
 
 delete_merged_branches = true
 
-# requires review approvals, which can also contain the bors command
-required_approvals = 1
+# required review approvals, which can also contain the bors command. this was
+# removed after finding it makes small maintenance tasks quite communication
+# heavy.
+required_approvals = 0
