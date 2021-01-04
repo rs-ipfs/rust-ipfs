@@ -86,7 +86,7 @@ impl Walker {
     }
 
     /// Returns the next `Cid` to load and pass its associated content to `continue_walk`.
-    pub fn pending_links<'a>(&'a self) -> (&'a Cid, impl Iterator<Item = &'a Cid> + 'a) {
+    pub fn pending_links(&self) -> (&Cid, impl Iterator<Item = &Cid> + '_) {
         use InnerKind::*;
         // rev: because we'll pop any of the pending
         let cids = self.pending.iter().map(|(cid, ..)| cid).rev();
