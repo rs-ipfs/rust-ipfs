@@ -194,6 +194,10 @@ jobs:
       run: cargo clippy --all-targets --workspace -- -D warnings
 
   # adapted from https://github.com/taiki-e/pin-project/blob/5878410863f5f25e21f7cba97b035501749850f9/.github/workflows/ci.yml#L136-L167
+  # further enchanced following solutions to
+  # https://github.com/bors-ng/bors-ng/issues/1115 -- bors now considers the
+  # skipped task a failure, or overrides the status for a task with a same name
+  # with the one which came later.
   ci-success:
       # this is read by bors
       name: ci
@@ -205,15 +209,3 @@ jobs:
       steps:
         - name: Mark the job as a success
           run: exit 0
-
-  ci-failure:
-      # again, read by bors
-      name: ci
-      if: github.event_name == 'push' && !success()
-      needs:
-        - ci-matrix
-        - lint-rust
-      runs-on: ubuntu-latest
-      steps:
-        - name: Mark the job as failure
-          run: exit 1
