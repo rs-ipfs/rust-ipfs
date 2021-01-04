@@ -131,21 +131,26 @@ impl Into<Vec<u8>> for &Message {
         let mut proto = bitswap_pb::Message::default();
         let mut wantlist = bitswap_pb::message::Wantlist::default();
         for (cid, priority) in self.want() {
-            let mut entry = bitswap_pb::message::wantlist::Entry::default();
-            entry.block = cid.to_bytes();
-            entry.priority = *priority;
+            let entry = bitswap_pb::message::wantlist::Entry {
+                block: cid.to_bytes(),
+                priority: *priority,
+                ..Default::default()
+            };
             wantlist.entries.push(entry);
         }
         for cid in self.cancel() {
-            let mut entry = bitswap_pb::message::wantlist::Entry::default();
-            entry.block = cid.to_bytes();
-            entry.cancel = true;
+            let entry = bitswap_pb::message::wantlist::Entry {
+                block: cid.to_bytes(),
+                cancel: true,
+                ..Default::default()
+            };
             wantlist.entries.push(entry);
         }
         for block in self.blocks() {
-            let mut payload = bitswap_pb::message::Block::default();
-            payload.prefix = Prefix::from(block.cid()).to_bytes();
-            payload.data = block.data().to_vec();
+            let payload = bitswap_pb::message::Block {
+                prefix: Prefix::from(block.cid()).to_bytes(),
+                data: block.data().to_vec(),
+            };
             proto.payload.push(payload);
         }
         if !wantlist.entries.is_empty() {
