@@ -286,18 +286,19 @@ impl PinStore for KvDataStore {
 
         let db = self.get_db();
 
-        for id in ids.iter() {
-            match get_pinned_mode(self, id)? {
+        for id in ids {
+            // FIXME: this is blocking
+            match get_pinned_mode(self, &id)? {
                 Some(pin_mode) => {
                     if !requirement.matches(&pin_mode) {
                         continue;
                     }
 
                     match pin_mode {
-                        PinMode::Direct => res.push((id.clone(), PinKind::Direct)),
-                        PinMode::Recursive => res.push((id.clone(), PinKind::Recursive(0))),
+                        PinMode::Direct => res.push((id, PinKind::Direct)),
+                        PinMode::Recursive => res.push((id, PinKind::Recursive(0))),
                         PinMode::Indirect => {
-                            let pin_key = get_pin_key(id, &PinMode::Indirect);
+                            let pin_key = get_pin_key(&id, &PinMode::Indirect);
 
                             match db.get(pin_key.as_str())? {
                                 Some(indirect_from_raw) => {
@@ -305,10 +306,9 @@ impl PinStore for KvDataStore {
                                         str::from_utf8(indirect_from_raw.as_ref())?;
 
                                     match Cid::from_str(indirect_from_str) {
-                                        Ok(indirect_from_cid) => res.push((
-                                            id.clone(),
-                                            PinKind::IndirectFrom(indirect_from_cid),
-                                        )),
+                                        Ok(indirect_from_cid) => {
+                                            res.push((id, PinKind::IndirectFrom(indirect_from_cid)))
+                                        }
                                         Err(_) => {
                                             warn!("invalid indirect from cid of {}", id);
                                             continue;
