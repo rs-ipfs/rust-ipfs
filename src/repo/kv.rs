@@ -232,7 +232,7 @@ impl PinStore for KvDataStore {
                 continue;
             }
 
-            all_keys.push(key.to_owned().to_string());
+            all_keys.push(key.into_owned());
         }
 
         let st = async_stream::try_stream! {
