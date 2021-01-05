@@ -135,6 +135,8 @@ impl PinStore for KvDataStore {
         target: &Cid,
         referenced: References<'_>,
     ) -> Result<(), Error> {
+        // TODO: this set is probably unnecessary, since we could just write everything to the
+        // batch directly
         let set = referenced.try_collect::<BTreeSet<_>>().await?;
 
         let mut batch = sled::Batch::default();
@@ -155,13 +157,15 @@ impl PinStore for KvDataStore {
         for cid in &set {
             let indirect_key = get_pin_key(cid, &PinMode::Indirect);
 
-            let is_already_pinned = is_pinned(self, cid);
-
-            if let Ok(true) = is_already_pinned {
+            if let Ok(true) = is_pinned(self, cid) {
+                // FIXME: overall I think we should always propagate errors up, and not allow there
+                // to be any unparseable keys
                 continue;
             }
 
             // value is for get information like "Qmd9WDTA2Kph4MKiDDiaZdiB4HJQpKcxjnJQfQmM5rHhYK indirect through QmXr1XZBg1CQv17BPvSWRmM7916R6NLL7jt19rhCPdVhc5"
+            // FIXME: this will not work with multiple blocks linking to the same block? also the
+            // test is probably missing as well
             batch.insert(indirect_key.as_str(), target.to_string().as_str());
         }
 
@@ -183,16 +187,17 @@ impl PinStore for KvDataStore {
         target: &Cid,
         referenced: References<'_>,
     ) -> Result<(), Error> {
+        // TODO: is this "in the same transaction" as the batch which is created?
         if is_not_pinned_or_pinned_indirectly(self, target)? {
             return Err(anyhow::anyhow!("not pinned or pinned indirectly"));
         }
 
+        // TODO: same here, could probably build the batch directly
         let set = referenced.try_collect::<BTreeSet<_>>().await?;
 
         let mut batch = sled::Batch::default();
 
         let recursive_key = get_pin_key(target, &PinMode::Recursive);
-
         batch.remove(recursive_key.as_str());
 
         for cid in &set {
@@ -221,6 +226,8 @@ impl PinStore for KvDataStore {
         let min_key = "pin.0.0000000000000000000000000000000000000000000000";
         assert_eq!(min_key.len(), 52);
 
+        // FIXME: since Iter returned by db.range is owned, we could probably use
+        // futures::stream::iter and avoid the async_stream::try_stream! here?
         let iter = db.range(min_key..);
         let mut all_keys: Vec<String> = vec![];
 
