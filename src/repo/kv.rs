@@ -20,6 +20,7 @@ pub struct KvDataStore {
 }
 
 impl KvDataStore {
+    // unused for now, but might be needed if we implement the DataStore api
     fn _put(&self, key: &str, value: &str) -> Result<(), Error> {
         let db = self.get_db();
 
@@ -28,7 +29,7 @@ impl KvDataStore {
         Ok(())
     }
 
-    fn _remove(&self, key: &str) -> Result<(), Error> {
+    fn remove(&self, key: &str) -> Result<(), Error> {
         let db = self.get_db();
 
         match db.remove(key) {
@@ -37,7 +38,7 @@ impl KvDataStore {
         }
     }
 
-    fn _apply_batch(&self, batch: sled::Batch) -> Result<(), Error> {
+    fn apply_batch(&self, batch: sled::Batch) -> Result<(), Error> {
         let db = self.get_db();
 
         Ok(db.apply_batch(batch)?)
@@ -126,7 +127,7 @@ impl PinStore for KvDataStore {
 
         batch.insert(direct_key.as_str(), "");
 
-        Ok(self._apply_batch(batch)?)
+        Ok(self.apply_batch(batch)?)
     }
 
     async fn insert_recursive_pin(
@@ -164,7 +165,7 @@ impl PinStore for KvDataStore {
             batch.insert(indirect_key.as_str(), target.to_string().as_str());
         }
 
-        Ok(self._apply_batch(batch)?)
+        Ok(self.apply_batch(batch)?)
     }
 
     async fn remove_direct_pin(&self, target: &Cid) -> Result<(), Error> {
@@ -174,7 +175,7 @@ impl PinStore for KvDataStore {
 
         let key = get_pin_key(target, &PinMode::Direct);
 
-        Ok(self._remove(&key)?)
+        Ok(self.remove(&key)?)
     }
 
     async fn remove_recursive_pin(
@@ -207,7 +208,7 @@ impl PinStore for KvDataStore {
             }
         }
 
-        Ok(self._apply_batch(batch)?)
+        Ok(self.apply_batch(batch)?)
     }
 
     async fn list(
