@@ -103,6 +103,9 @@ impl<T: RepoTypes> IpfsTypes for T {}
 pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
+    #[cfg(feature = "sled_data_store")]
+    type TDataStore = repo::kv::KvDataStore;
+    #[cfg(not(feature = "sled_data_store"))]
     type TDataStore = repo::fs::FsDataStore;
     type TLock = repo::fs::FsLock;
 }
