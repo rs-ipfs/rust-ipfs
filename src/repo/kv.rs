@@ -1,4 +1,4 @@
-use super::{Column, DataStore};
+use super::{Column, DataStore, PinModeRequirement};
 use crate::error::Error;
 use crate::repo::{PinKind, PinMode, PinStore, References};
 use async_trait::async_trait;
@@ -282,17 +282,14 @@ impl PinStore for KvDataStore {
     ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
         let mut res = Vec::<(Cid, PinKind<Cid>)>::new();
 
-        let pin_mode_matches = |pin_mode: &PinMode| match requirement {
-            Some(ref expected) => *expected == *pin_mode,
-            None => true,
-        };
+        let requirement = PinModeRequirement::from(requirement);
 
         let db = self.get_db();
 
         for id in ids.iter() {
             match get_pinned_mode(self, id)? {
                 Some(pin_mode) => {
-                    if !pin_mode_matches(&pin_mode) {
+                    if !requirement.matches(&pin_mode) {
                         continue;
                     }
 
@@ -344,6 +341,7 @@ fn get_pin_key(cid: &Cid, pin_mode: &PinMode) -> String {
 }
 
 fn get_pinned_mode(kv_db: &KvDataStore, block: &Cid) -> Result<Option<PinMode>, Error> {
+    // FIXME: write this as async?
     for mode in &[PinMode::Direct, PinMode::Recursive, PinMode::Indirect] {
         let key = get_pin_key(block, mode);
 

@@ -1,7 +1,8 @@
 //! Volatile memory backed repo
 use crate::error::Error;
 use crate::repo::{
-    BlockPut, BlockStore, Column, DataStore, Lock, LockError, PinKind, PinMode, PinStore,
+    BlockPut, BlockStore, Column, DataStore, Lock, LockError, PinKind, PinMode, PinModeRequirement,
+    PinStore,
 };
 use crate::Block;
 use async_trait::async_trait;
@@ -300,11 +301,13 @@ impl PinStore for MemDataStore {
 
     async fn list(
         &self,
-        mode: Option<PinMode>,
+        requirement: Option<PinMode>,
     ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
         use futures::stream::StreamExt;
         use std::convert::TryFrom;
         let g = self.pin.lock().await;
+
+        let requirement = PinModeRequirement::from(requirement);
 
         let copy = g
             .iter()
@@ -317,13 +320,9 @@ impl PinStore for MemDataStore {
             })
             .filter(move |res| {
                 // could return just two different boxed streams
-                if let Some(f) = &mode {
-                    match res {
-                        Ok((_, mode)) => mode == f,
-                        Err(_) => true,
-                    }
-                } else {
-                    true
+                match res {
+                    Ok((_, mode)) => requirement.matches(mode),
+                    Err(_) => true,
                 }
             })
             .collect::<Vec<_>>();
@@ -337,6 +336,8 @@ impl PinStore for MemDataStore {
         requirement: Option<PinMode>,
     ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
         let g = self.pin.lock().await;
+
+        let requirement = PinModeRequirement::from(requirement);
 
         cids.into_iter()
             .map(move |cid| {
@@ -360,7 +361,7 @@ impl PinStore for MemDataStore {
                         // would be more clear if this business was in a separate map; quite awful
                         // as it is now
 
-                        let matches = requirement.as_ref().map(|req| mode == *req).unwrap_or(true);
+                        let matches = requirement.matches(&mode);
 
                         if matches {
                             trace!(cid = %cid, req = ?requirement, "pin matches");
@@ -371,7 +372,7 @@ impl PinStore for MemDataStore {
                                 "{} is not pinned as {:?}",
                                 cid,
                                 requirement
-                                    .as_ref()
+                                    .required()
                                     .expect("matches is never false if requirement is none")
                             ));
                         }
