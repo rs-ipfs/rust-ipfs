@@ -263,7 +263,7 @@ impl PinStore for KvDataStore {
         ids: Vec<Cid>,
         requirement: Option<PinMode>,
     ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
-        let mut res = Vec::<(Cid, PinKind<Cid>)>::new();
+        let mut res = Vec::with_capacity(ids.len());
 
         let requirement = PinModeRequirement::from(requirement);
 
