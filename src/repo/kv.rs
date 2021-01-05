@@ -218,68 +218,44 @@ impl PinStore for KvDataStore {
 
     async fn list(
         &self,
-        expected_mode: Option<PinMode>,
+        requirement: Option<PinMode>,
     ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
         let db = self.get_db();
 
-        // the minimum cid of version 0
-        let min_key = "pin.0.0000000000000000000000000000000000000000000000";
-        assert_eq!(min_key.len(), 52);
+        // FIXME: this is still blocking ... might not be a way without a channel
+        let iter = db.range::<String, std::ops::RangeFull>(..);
 
-        // FIXME: since Iter returned by db.range is owned, we could probably use
-        // futures::stream::iter and avoid the async_stream::try_stream! here?
-        let iter = db.range(min_key..);
-        let mut all_keys: Vec<String> = vec![];
+        let requirement = PinModeRequirement::from(requirement);
 
-        for item in iter.filter(|item| item.is_ok()) {
-            let (raw_key, _) = item.unwrap();
-            let key = String::from_utf8_lossy(raw_key.as_ref());
-
-            if !key.starts_with("pin.") {
-                continue;
-            }
-
-            all_keys.push(key.into_owned());
-        }
-
-        let st = async_stream::try_stream! {
-            for key in all_keys.iter() {
-                let cid_str_with_prefix = &key[4..];
-                let cid_str = &key[6..];
-
-                let pin_mode = match cid_str_with_prefix {
-                    _ if cid_str_with_prefix.starts_with("d") => {
-                        PinMode::Direct
-                    },
-
-                    _ if cid_str_with_prefix.starts_with("r") => {
-                        PinMode::Recursive
+        let adapted = iter
+            .map(|res| res.map_err(|e| Error::from(e)))
+            .filter_map(move |res| match res {
+                Ok((k, _v)) => {
+                    if !k.starts_with(b"pin.") || k.len() < 7 {
+                        return Some(Err(anyhow::anyhow!(
+                            "invalid pin: {:?}",
+                            String::from_utf8_lossy(&*k)
+                        )));
                     }
+                    let mode = match k[4] {
+                        b'd' => PinMode::Direct,
+                        b'r' => PinMode::Recursive,
+                        b'i' => PinMode::Indirect,
+                        x => return Some(Err(anyhow::anyhow!("invalid pinmode: {}", x as char))),
+                    };
 
-                    _ if cid_str_with_prefix.starts_with("i") => {
-                        PinMode::Indirect
+                    if !requirement.matches(&mode) {
+                        None
+                    } else {
+                        let cid = std::str::from_utf8(&k[6..]).map_err(Error::from);
+                        let cid = cid.and_then(|x| Cid::from_str(x).map_err(Error::from));
+                        Some(cid.map(move |cid| (cid, mode)))
                     }
-
-                    _ =>  continue,
-                };
-
-                match Cid::from_str(cid_str) {
-                    Ok(cid) =>  {
-                        match expected_mode {
-                            Some(ref expected) => if pin_mode == *expected {
-                                yield (cid, pin_mode);
-                            }
-                            Some(_) => {}
-                            None => yield (cid, pin_mode),
-                        }
-                    }
-
-                    Err(_) => {}
                 }
-            }
-        };
+                Err(e) => Some(Err(e)),
+            });
 
-        st.in_current_span().boxed()
+        futures::stream::iter(adapted).in_current_span().boxed()
     }
 
     async fn query(
