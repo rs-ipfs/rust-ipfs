@@ -350,7 +350,7 @@ fn get_pinned_mode(kv_db: &KvDataStore, block: &Cid) -> Result<Option<PinMode>, 
         let db = kv_db.get_db();
 
         match db.get(key.as_str())? {
-            Some(_) => return Ok(Some(mode.clone())),
+            Some(_) => return Ok(Some(*mode)),
             None => {}
         }
     }

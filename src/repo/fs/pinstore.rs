@@ -523,7 +523,7 @@ fn sync_read_direct_or_recursive(block_path: &mut PathBuf) -> Option<PinMode> {
         // Path::is_file calls fstat and coerces errors to false; this might be enough, as
         // we are holding the lock
         if block_path.is_file() {
-            return Some(mode.clone());
+            return Some(*mode);
         }
     }
     None
