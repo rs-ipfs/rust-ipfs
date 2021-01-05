@@ -290,8 +290,8 @@ impl PinStore for KvDataStore {
         let db = self.get_db();
 
         for id in ids.iter() {
-            match get_pinned_mode(self, id) {
-                Ok(Some(pin_mode)) => {
+            match get_pinned_mode(self, id)? {
+                Some(pin_mode) => {
                     if !pin_mode_matches(&pin_mode) {
                         continue;
                     }
@@ -302,8 +302,8 @@ impl PinStore for KvDataStore {
                         PinMode::Indirect => {
                             let pin_key = get_pin_key(id, &PinMode::Indirect);
 
-                            match db.get(pin_key.as_str()) {
-                                Ok(Some(indirect_from_raw)) => {
+                            match db.get(pin_key.as_str())? {
+                                Some(indirect_from_raw) => {
                                     let indirect_from_str =
                                         str::from_utf8(indirect_from_raw.as_ref())?;
 
@@ -318,14 +318,12 @@ impl PinStore for KvDataStore {
                                         }
                                     }
                                 }
-                                Ok(None) => {}
-                                Err(e) => return Err(e.into()),
+                                None => {}
                             }
                         }
                     }
                 }
-                Ok(None) => {}
-                Err(e) => return Err(e),
+                None => {}
             }
         }
 
@@ -351,29 +349,26 @@ fn get_pinned_mode(kv_db: &KvDataStore, block: &Cid) -> Result<Option<PinMode>, 
 
         let db = kv_db.get_db();
 
-        match db.get(key.as_str()) {
-            Ok(Some(_)) => return Ok(Some(mode.clone())),
-            Ok(None) => {}
-            Err(e) => return Err(e.into()),
+        match db.get(key.as_str())? {
+            Some(_) => return Ok(Some(mode.clone())),
+            None => {}
         }
     }
 
     Ok(None)
 }
 
-fn is_pinned(db: &KvDataStore, block: &Cid) -> Result<bool, Error> {
-    match get_pinned_mode(db, block) {
-        Ok(Some(_)) => Ok(true),
-        Ok(None) => Ok(false),
-        Err(e) => Err(e),
+fn is_pinned(db: &KvDataStore, cid: &Cid) -> Result<bool, Error> {
+    match get_pinned_mode(db, cid)? {
+        Some(_) => Ok(true),
+        None => Ok(false),
     }
 }
 
 fn is_not_pinned_or_pinned_indirectly(db: &KvDataStore, block: &Cid) -> Result<bool, Error> {
-    match get_pinned_mode(db, block) {
-        Ok(Some(PinMode::Indirect)) | Ok(None) => Ok(true),
-        Ok(_) => Ok(false),
-        Err(e) => Err(e),
+    match get_pinned_mode(db, block)? {
+        Some(PinMode::Indirect) | None => Ok(true),
+        _ => Ok(false),
     }
 }
 
