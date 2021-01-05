@@ -121,7 +121,7 @@ jobs:
       run: cargo build --locked --workspace --all-targets
 
     - name: Run interop DHT tests with go-ipfs
-      if: matrix.platform.host == 'ubuntu-latest'
+      if: matrix.platform.host == 'ubuntu-latest' && matrix.platform.cross == false
       run: cargo test --features=test_go_interop dht
 
     - name: Setup conformance tests (non-cross targets)
