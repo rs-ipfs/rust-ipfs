@@ -5,10 +5,16 @@ use async_trait::async_trait;
 use cid::{self, Cid};
 use futures::stream::{StreamExt, TryStreamExt};
 use once_cell::sync::OnceCell;
-use sled::{self, Config as DbConfig, Db, Mode as DbMode};
+use sled::{
+    self,
+    transaction::{
+        ConflictableTransactionError, TransactionError, TransactionResult, TransactionalTree,
+        UnabortableTransactionError,
+    },
+    Config as DbConfig, Db, Mode as DbMode,
+};
 use std::collections::BTreeSet;
 use std::convert::Infallible;
-use std::convert::Into;
 use std::path::PathBuf;
 use std::str::{self, FromStr};
 use tracing_futures::Instrument;
@@ -104,15 +110,14 @@ impl PinStore for KvDataStore {
     }
 
     async fn insert_direct_pin(&self, target: &Cid) -> Result<(), Error> {
+        use ConflictableTransactionError::Abort;
         let res = self.get_db().transaction(|tx_tree| {
             let already_pinned = get_pinned_mode(&tx_tree, target)?;
 
             match already_pinned {
                 Some(PinMode::Direct) => return Ok(false),
                 Some(PinMode::Recursive) => {
-                    return Err(sled::transaction::ConflictableTransactionError::Abort(
-                        anyhow::anyhow!("already pinned recursively"),
-                    ))
+                    return Err(Abort(anyhow::anyhow!("already pinned recursively")))
                 }
                 Some(PinMode::Indirect) => {
                     // TODO: I think the direct should live alongside the indirect?
@@ -189,11 +194,10 @@ impl PinStore for KvDataStore {
     }
 
     async fn remove_direct_pin(&self, target: &Cid) -> Result<(), Error> {
+        use ConflictableTransactionError::Abort;
         let res = self.get_db().transaction::<_, _, Error>(|tx_tree| {
             if is_not_pinned_or_pinned_indirectly(tx_tree, target)? {
-                return Err(sled::transaction::ConflictableTransactionError::Abort(
-                    anyhow::anyhow!("not pinned or pinned indirectly"),
-                ));
+                return Err(Abort(anyhow::anyhow!("not pinned or pinned indirectly")));
             }
 
             let key = get_pin_key(target, &PinMode::Direct);
@@ -210,14 +214,13 @@ impl PinStore for KvDataStore {
         target: &Cid,
         referenced: References<'_>,
     ) -> Result<(), Error> {
+        use ConflictableTransactionError::Abort;
         // TODO: is this "in the same transaction" as the batch which is created?
         let set = referenced.try_collect::<BTreeSet<_>>().await?;
 
         let res = self.get_db().transaction(|tx_tree| {
             if is_not_pinned_or_pinned_indirectly(tx_tree, target)? {
-                return Err(sled::transaction::ConflictableTransactionError::Abort(
-                    anyhow::anyhow!("not pinned or pinned indirectly"),
-                ));
+                return Err(Abort(anyhow::anyhow!("not pinned or pinned indirectly")));
             }
 
             let recursive_key = get_pin_key(target, &PinMode::Recursive);
@@ -295,6 +298,7 @@ impl PinStore for KvDataStore {
         ids: Vec<Cid>,
         requirement: Option<PinMode>,
     ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
+        use ConflictableTransactionError::Abort;
         let requirement = PinModeRequirement::from(requirement);
 
         let db = self.get_db();
@@ -309,44 +313,48 @@ impl PinStore for KvDataStore {
                 // FIXME: this is blocking ...
                 let mode = get_pinned_mode(tx_tree, &id)?;
 
-                let mode = mode.and_then(|mode| if requirement.matches(&mode) { Some(mode) } else { None });
+                let mode = mode.and_then(|mode| {
+                    if requirement.matches(&mode) {
+                        Some(mode)
+                    } else {
+                        None
+                    }
+                });
 
                 let matched = match mode {
-                    Some(pin_mode) => {
-                        match pin_mode {
-                            PinMode::Direct => Some(PinKind::Direct),
-                            PinMode::Recursive => Some(PinKind::Recursive(0)),
-                            PinMode::Indirect => {
-                                let pin_key = get_pin_key(&id, &PinMode::Indirect);
+                    Some(pin_mode) => match pin_mode {
+                        PinMode::Direct => Some(PinKind::Direct),
+                        PinMode::Recursive => Some(PinKind::Recursive(0)),
+                        PinMode::Indirect => {
+                            let pin_key = get_pin_key(&id, &PinMode::Indirect);
 
-                                match tx_tree.get(pin_key.as_str())? {
-                                    Some(indirect_from_raw) => {
-                                        let indirect_from_str =
-                                            str::from_utf8(indirect_from_raw.as_ref()).map_err(Error::from);
+                            match tx_tree.get(pin_key.as_str())? {
+                                Some(indirect_from_raw) => {
+                                    let indirect_from_str =
+                                        str::from_utf8(indirect_from_raw.as_ref())
+                                            .map_err(Error::from);
 
-                                        let cid = indirect_from_str.and_then(|s| {
-                                            Cid::from_str(s).map_err(Error::from)
-                                        });
+                                    let cid = indirect_from_str
+                                        .and_then(|s| Cid::from_str(s).map_err(Error::from));
 
-                                        match cid {
-                                            Ok(indirect_from_cid) => Some(
-                                                PinKind::IndirectFrom(indirect_from_cid),
-                                            ),
-                                            Err(e) => {
-                                                let contextful = e.context(format!(
-                                                    "failed to read indirect pin source: {:?}",
-                                                    String::from_utf8_lossy(indirect_from_raw.as_ref())
-                                                        .as_ref(),
-                                                ));
-                                                return Err(sled::transaction::ConflictableTransactionError::Abort(contextful));
-                                            },
+                                    match cid {
+                                        Ok(indirect_from_cid) => {
+                                            Some(PinKind::IndirectFrom(indirect_from_cid))
+                                        }
+                                        Err(e) => {
+                                            let contextful = e.context(format!(
+                                                "failed to read indirect pin source: {:?}",
+                                                String::from_utf8_lossy(indirect_from_raw.as_ref())
+                                                    .as_ref(),
+                                            ));
+                                            return Err(Abort(contextful));
                                         }
                                     }
-                                    None => None
                                 }
+                                None => None,
                             }
                         }
-                    }
+                    },
                     None => None,
                 };
 
@@ -376,8 +384,8 @@ impl PinStore for KvDataStore {
 }
 
 /// Helper needed as the error cannot just `?` converted. TODO: rename to launder?
-fn unwrap_tx_result<T>(res: sled::transaction::TransactionResult<T, Error>) -> Result<T, Error> {
-    use sled::transaction::TransactionError::*;
+fn unwrap_tx_result<T>(res: TransactionResult<T, Error>) -> Result<T, Error> {
+    use TransactionError::*;
     match res {
         Ok(t) => Ok(t),
         Err(Abort(e)) => Err(e),
@@ -406,9 +414,9 @@ fn get_pin_key(cid: &Cid, pin_mode: &PinMode) -> String {
 }
 
 fn get_pinned_mode(
-    tree: &sled::transaction::TransactionalTree,
+    tree: &TransactionalTree,
     block: &Cid,
-) -> Result<Option<PinMode>, sled::transaction::UnabortableTransactionError> {
+) -> Result<Option<PinMode>, UnabortableTransactionError> {
     // FIXME: write this as async?
     for mode in &[PinMode::Direct, PinMode::Recursive, PinMode::Indirect] {
         let key = get_pin_key(block, mode);
@@ -423,9 +431,9 @@ fn get_pinned_mode(
 }
 
 fn is_not_pinned_or_pinned_indirectly(
-    tree: &sled::transaction::TransactionalTree,
+    tree: &TransactionalTree,
     block: &Cid,
-) -> Result<bool, sled::transaction::UnabortableTransactionError> {
+) -> Result<bool, UnabortableTransactionError> {
     match get_pinned_mode(tree, block)? {
         Some(PinMode::Indirect) | None => Ok(true),
         _ => Ok(false),
