@@ -63,11 +63,25 @@ macro_rules! pinstore_interface_tests {
                 let empty =
                     Cid::try_from("QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH").unwrap();
 
-                assert_eq!(repo.is_pinned(&empty).await.unwrap(), false);
+                assert_eq!(
+                    repo.is_pinned(&empty).await.unwrap(),
+                    false,
+                    "initially unpinned"
+                );
                 repo.insert_direct_pin(&empty).await.unwrap();
-                assert_eq!(repo.is_pinned(&empty).await.unwrap(), true);
-                repo.insert_direct_pin(&empty).await.unwrap();
-                assert_eq!(repo.is_pinned(&empty).await.unwrap(), true);
+                assert_eq!(
+                    repo.is_pinned(&empty).await.unwrap(),
+                    true,
+                    "must be pinned following direct pin"
+                );
+                repo.insert_direct_pin(&empty)
+                    .await
+                    .expect("rewriting existing direct pin as direct should be noop");
+                assert_eq!(
+                    repo.is_pinned(&empty).await.unwrap(),
+                    true,
+                    "must be pinned following two direct pins"
+                );
             }
 
             #[tokio::test(max_threads = 1)]
@@ -146,7 +160,11 @@ macro_rules! pinstore_interface_tests {
 
                 let pins = repo.list(None).await.try_collect::<Vec<_>>().await.unwrap();
 
-                assert_eq!(pins, vec![(root.clone(), PinMode::Direct)]);
+                assert_eq!(
+                    pins,
+                    vec![(root.clone(), PinMode::Direct)],
+                    "must find direct pin for root"
+                );
 
                 // first refs
 
