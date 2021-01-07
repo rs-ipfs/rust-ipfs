@@ -100,6 +100,8 @@ See [the contributing docs](./CONTRIBUTING.md) for more info.
 
 You can also back the project financially by reaching out or by becoming a backer on [OpenCollective](https://opencollective.com/rs-ipfs)
 
+If you have any questions on the use of the library or other inquiries, you are welcome to submit an issue.
+
 ## Roadmap
 
 Special thanks to the Web3 Foundation and Protocol Labs for their devgrant support.

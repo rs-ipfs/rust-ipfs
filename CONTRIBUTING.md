@@ -3,7 +3,7 @@
 Welcome, and thank you for your interest in contributing to Rust IPFS. Issues and pull requests
 are encouraged. You can make a difference by tackling any of the following items:
 
-* Bug reports and feature requests in the form of issues
+* Bug reports, feature requests and general inquiries in the form of issues
 * Implementing the remaining features and corresponding HTTP endpoints not yet covered. See https://areweipfsyet.rs for info on which those are.
 * Additional tests (unit, functional, conformance) and CI for existing functionality
 * Examples, particularly those that showcase Rust's unique capabilities or performance
