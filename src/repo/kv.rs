@@ -133,7 +133,7 @@ impl PinStore for KvDataStore {
             Ok(true)
         });
 
-        if unwrap_tx_result(res)? {
+        if launder(res)? {
             self.flush_async().await
         } else {
             Ok(())
@@ -204,7 +204,7 @@ impl PinStore for KvDataStore {
             tx_tree.remove(key.as_str())?;
             Ok(())
         });
-        unwrap_tx_result(res)?;
+        launder(res)?;
 
         self.flush_async().await
     }
@@ -244,7 +244,7 @@ impl PinStore for KvDataStore {
             Ok(())
         });
 
-        unwrap_tx_result(res)?;
+        launder(res)?;
 
         self.flush_async().await
     }
@@ -364,7 +364,7 @@ impl PinStore for KvDataStore {
             Ok(res)
         });
 
-        let indices = unwrap_tx_result(result)?;
+        let indices = launder(result)?;
 
         assert_eq!(indices.len(), ids.len());
 
@@ -383,8 +383,8 @@ impl PinStore for KvDataStore {
     }
 }
 
-/// Helper needed as the error cannot just `?` converted. TODO: rename to launder?
-fn unwrap_tx_result<T>(res: TransactionResult<T, Error>) -> Result<T, Error> {
+/// Helper needed as the error cannot just `?` converted.
+fn launder<T>(res: TransactionResult<T, Error>) -> Result<T, Error> {
     use TransactionError::*;
     match res {
         Ok(t) => Ok(t),
