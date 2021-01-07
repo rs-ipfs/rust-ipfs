@@ -4,13 +4,14 @@
 * ci: update go-ipfs to `0.7.0` for interop tests [#428]
 * refactor(http): introduce `Config` as the facade for configuration [#423]
 * feat(http): create `Profile` abstraction [#421]
-* feat: `sled` pinstore [#439]
+* feat: `sled` pinstore [#439], [#442]
 
 [#429]: https://github.com/rs-ipfs/rust-ipfs/pull/429
 [#428]: https://github.com/rs-ipfs/rust-ipfs/pull/428
 [#423]: https://github.com/rs-ipfs/rust-ipfs/pull/423
 [#421]: https://github.com/rs-ipfs/rust-ipfs/pull/421
 [#439]: https://github.com/rs-ipfs/rust-ipfs/pull/439
+[#442]: https://github.com/rs-ipfs/rust-ipfs/pull/442
 
 # 0.2.1
 
