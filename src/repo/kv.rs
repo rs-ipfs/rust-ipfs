@@ -24,6 +24,16 @@ impl KvDataStore {
     fn get_db(&self) -> &Db {
         self.db.get().unwrap()
     }
+
+    fn flush_async(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_ {
+        use futures::future::TryFutureExt;
+        self.db
+            .get()
+            .unwrap()
+            .flush_async()
+            .map_ok(|_| ())
+            .map_err(Error::from)
+    }
 }
 
 #[async_trait]
@@ -98,7 +108,7 @@ impl PinStore for KvDataStore {
             let already_pinned = get_pinned_mode(&tx_tree, target)?;
 
             match already_pinned {
-                Some(PinMode::Direct) => return Ok(()),
+                Some(PinMode::Direct) => return Ok(false),
                 Some(PinMode::Recursive) => {
                     return Err(sled::transaction::ConflictableTransactionError::Abort(
                         anyhow::anyhow!("already pinned recursively"),
@@ -115,10 +125,14 @@ impl PinStore for KvDataStore {
             let direct_key = get_pin_key(target, &PinMode::Direct);
             tx_tree.insert(direct_key.as_str(), "")?;
 
-            Ok(())
+            Ok(true)
         });
 
-        unwrap_tx_result(res)
+        if unwrap_tx_result(res)? {
+            self.flush_async().await
+        } else {
+            Ok(())
+        }
     }
 
     async fn insert_recursive_pin(
@@ -131,14 +145,16 @@ impl PinStore for KvDataStore {
         let set = referenced.try_collect::<BTreeSet<_>>().await?;
 
         // the transaction is not infallible but there is no additional error we return
-        self.get_db()
+        let modified = self
+            .get_db()
             .transaction::<_, _, Infallible>(move |tx_tree| {
                 let already_pinned = get_pinned_mode(tx_tree, target)?;
 
                 match already_pinned {
-                    Some(PinMode::Recursive) => return Ok(()),
+                    Some(PinMode::Recursive) => return Ok(false),
                     Some(mode @ PinMode::Direct) | Some(mode @ PinMode::Indirect) => {
-                        // FIXME: this is probably another lapse in tests...?
+                        // FIXME: this is probably another lapse in tests that both direct and
+                        // indirect can be removed when inserting recursive?
                         let key = get_pin_key(target, &mode);
                         tx_tree.remove(key.as_str())?;
                     }
@@ -162,10 +178,14 @@ impl PinStore for KvDataStore {
                     tx_tree.insert(indirect_key.as_str(), target.to_string().as_str())?;
                 }
 
-                Ok(())
+                Ok(true)
             })?;
 
-        Ok(())
+        if modified {
+            self.flush_async().await
+        } else {
+            Ok(())
+        }
     }
 
     async fn remove_direct_pin(&self, target: &Cid) -> Result<(), Error> {
@@ -180,7 +200,9 @@ impl PinStore for KvDataStore {
             tx_tree.remove(key.as_str())?;
             Ok(())
         });
-        unwrap_tx_result(res)
+        unwrap_tx_result(res)?;
+
+        self.flush_async().await
     }
 
     async fn remove_recursive_pin(
@@ -219,7 +241,9 @@ impl PinStore for KvDataStore {
             Ok(())
         });
 
-        unwrap_tx_result(res)
+        unwrap_tx_result(res)?;
+
+        self.flush_async().await
     }
 
     async fn list(
