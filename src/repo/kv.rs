@@ -263,7 +263,7 @@ impl PinStore for KvDataStore {
         let requirement = PinModeRequirement::from(requirement);
 
         let adapted = iter
-            .map(|res| res.map_err(|e| Error::from(e)))
+            .map(|res| res.map_err(Error::from))
             .filter_map(move |res| match res {
                 Ok((k, _v)) => {
                     if !k.starts_with(b"pin.") || k.len() < 7 {
@@ -421,9 +421,8 @@ fn get_pinned_mode(
     for mode in &[PinMode::Direct, PinMode::Recursive, PinMode::Indirect] {
         let key = get_pin_key(block, mode);
 
-        match tree.get(key.as_str())? {
-            Some(_) => return Ok(Some(*mode)),
-            None => {}
+        if tree.get(key.as_str())?.is_some() {
+            return Ok(Some(*mode));
         }
     }
 
