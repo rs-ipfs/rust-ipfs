@@ -108,11 +108,12 @@ impl PinStore for KvDataStore {
                     // TODO: I think the direct should live alongside the indirect?
                     let pin_key = get_pin_key(target, &PinMode::Indirect);
                     tx_tree.remove(pin_key.as_str())?;
-                    let direct_key = get_pin_key(target, &PinMode::Direct);
-                    tx_tree.insert(direct_key.as_str(), "")?;
                 }
                 None => {}
             }
+
+            let direct_key = get_pin_key(target, &PinMode::Direct);
+            tx_tree.insert(direct_key.as_str(), "")?;
 
             Ok(())
         });
