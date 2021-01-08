@@ -272,9 +272,10 @@ impl PinStore for KvDataStore {
                     if !k.starts_with(b"pin.") || k.len() < 7 {
                         return Some(Err(anyhow::anyhow!(
                             "invalid pin: {:?}",
-                            String::from_utf8_lossy(&*k)
+                            &*String::from_utf8_lossy(&*k)
                         )));
                     }
+
                     let mode = match k[4] {
                         b'd' => PinMode::Direct,
                         b'r' => PinMode::Recursive,
@@ -287,6 +288,12 @@ impl PinStore for KvDataStore {
                     } else {
                         let cid = std::str::from_utf8(&k[6..]).map_err(Error::from);
                         let cid = cid.and_then(|x| Cid::from_str(x).map_err(Error::from));
+                        let cid = cid.map_err(|e| {
+                            e.context(format!(
+                                "failed to read pin: {:?}",
+                                &*String::from_utf8_lossy(&*k)
+                            ))
+                        });
                         Some(cid.map(move |cid| (cid, mode)))
                     }
                 }
