@@ -155,6 +155,8 @@ impl PinStore for KvDataStore {
             .transaction::<_, _, Infallible>(move |tx_tree| {
                 let already_pinned = get_pinned_mode(tx_tree, target)?;
 
+                // FIXME: whatever the pin is serialized as, this would be probably the most
+                // efficient to reuse the already found key here.
                 match already_pinned {
                     Some(PinMode::Recursive) => return Ok(false),
                     Some(mode @ PinMode::Direct) | Some(mode @ PinMode::Indirect) => {
@@ -232,6 +234,7 @@ impl PinStore for KvDataStore {
             for cid in &set {
                 let already_pinned = get_pinned_mode(tx_tree, cid)?;
 
+                // FIXME: this found key could be reused as well.
                 match already_pinned {
                     Some(PinMode::Recursive) | Some(PinMode::Direct) => continue, // this should be unreachable
                     Some(PinMode::Indirect) => {
@@ -315,13 +318,12 @@ impl PinStore for KvDataStore {
 
         let result = db.transaction::<_, _, Error>(|tx_tree| {
             // since its an Fn closure this cannot be reserved once ... not sure why it couldn't be
-            // FnMut?
+            // FnMut? the vec could be cached in the "outer" scope in a refcell.
             let mut res = Vec::with_capacity(ids.len());
 
             // as we might loop over an over on the tx we might need this over and over, cannot
             // take ownership.
             for id in ids.iter() {
-                // FIXME: this is blocking ...
                 let mode = get_pinned_mode(tx_tree, &id)?;
 
                 let matched = match mode {
