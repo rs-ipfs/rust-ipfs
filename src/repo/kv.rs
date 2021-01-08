@@ -317,16 +317,8 @@ impl PinStore for KvDataStore {
                 // FIXME: this is blocking ...
                 let mode = get_pinned_mode(tx_tree, &id)?;
 
-                let mode = mode.and_then(|mode| {
-                    if requirement.matches(&mode) {
-                        Some(mode)
-                    } else {
-                        None
-                    }
-                });
-
                 let matched = match mode {
-                    Some(pin_mode) => match pin_mode {
+                    Some(pin_mode) if requirement.matches(&pin_mode) => match pin_mode {
                         PinMode::Direct => Some(PinKind::Direct),
                         PinMode::Recursive => Some(PinKind::Recursive(0)),
                         PinMode::Indirect => {
@@ -347,7 +339,7 @@ impl PinStore for KvDataStore {
                                 .transpose()?
                         }
                     },
-                    None => None,
+                    Some(_) | None => None,
                 };
 
                 res.push(matched);
