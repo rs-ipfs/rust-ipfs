@@ -311,7 +311,8 @@ impl PinStore for KvDataStore {
             // FnMut?
             let mut res = Vec::with_capacity(ids.len());
 
-            // as we might loop over an over on the tx we might need this
+            // as we might loop over an over on the tx we might need this over and over, cannot
+            // take ownership.
             for id in ids.iter() {
                 // FIXME: this is blocking ...
                 let mode = get_pinned_mode(tx_tree, &id)?;
@@ -331,26 +332,19 @@ impl PinStore for KvDataStore {
                         PinMode::Indirect => {
                             let pin_key = get_pin_key(&id, &PinMode::Indirect);
 
-                            match tx_tree.get(pin_key.as_str())? {
-                                Some(indirect_from_raw) => {
-                                    let cid = cid_from_indirect_value(&*indirect_from_raw);
-
-                                    match cid {
-                                        Ok(indirect_from_cid) => {
-                                            Some(PinKind::IndirectFrom(indirect_from_cid))
-                                        }
-                                        Err(e) => {
-                                            let contextful = e.context(format!(
+                            tx_tree
+                                .get(pin_key.as_str())?
+                                .map(|root| {
+                                    cid_from_indirect_value(&*root)
+                                        .map(|cid| PinKind::IndirectFrom(cid))
+                                        .map_err(|e| {
+                                            Abort(e.context(format!(
                                                 "failed to read indirect pin source: {:?}",
-                                                String::from_utf8_lossy(indirect_from_raw.as_ref())
-                                                    .as_ref(),
-                                            ));
-                                            return Err(Abort(contextful));
-                                        }
-                                    }
-                                }
-                                None => None,
-                            }
+                                                String::from_utf8_lossy(root.as_ref()).as_ref(),
+                                            )))
+                                        })
+                                })
+                                .transpose()?
                         }
                     },
                     None => None,
