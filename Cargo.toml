@@ -10,6 +10,9 @@ version = "0.2.1"
 
 [features]
 default = []
+
+# feature will enable sled_data_store use in ipfs::Types (default used by ipfs-http for example)
+# sled dependency is not guarded by this to keep compiling and test the pinstore.
 sled_data_store = []
 test_go_interop = []
 test_js_interop = []
