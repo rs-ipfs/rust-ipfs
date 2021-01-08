@@ -236,11 +236,55 @@ pub enum Column {
 }
 
 /// `PinMode` is the description of pin type for quering purposes.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PinMode {
     Indirect,
     Direct,
     Recursive,
+}
+
+/// Helper for around the quite confusing test required in [`PinStore::list`] and
+/// [`PinStore::query`].
+#[derive(Debug, Clone, Copy)]
+enum PinModeRequirement {
+    Only(PinMode),
+    Any,
+}
+
+impl From<Option<PinMode>> for PinModeRequirement {
+    fn from(filter: Option<PinMode>) -> Self {
+        match filter {
+            Some(one) => PinModeRequirement::Only(one),
+            None => PinModeRequirement::Any,
+        }
+    }
+}
+
+impl PinModeRequirement {
+    fn is_indirect_or_any(&self) -> bool {
+        use PinModeRequirement::*;
+        match self {
+            Only(PinMode::Indirect) | Any => true,
+            Only(_) => false,
+        }
+    }
+
+    fn matches<P: PartialEq<PinMode>>(&self, other: &P) -> bool {
+        use PinModeRequirement::*;
+        match self {
+            Only(one) if other == one => true,
+            Only(_) => false,
+            Any => true,
+        }
+    }
+
+    fn required(&self) -> Option<PinMode> {
+        use PinModeRequirement::*;
+        match self {
+            Only(one) => Some(*one),
+            Any => None,
+        }
+    }
 }
 
 impl<B: Borrow<Cid>> PartialEq<PinMode> for PinKind<B> {

@@ -1,13 +1,20 @@
-use super::{Column, DataStore};
+use super::{Column, DataStore, PinModeRequirement};
 use crate::error::Error;
 use crate::repo::{PinKind, PinMode, PinStore, References};
 use async_trait::async_trait;
 use cid::{self, Cid};
 use futures::stream::{StreamExt, TryStreamExt};
 use once_cell::sync::OnceCell;
-use sled::{self, Config as DbConfig, Db, Mode as DbMode};
+use sled::{
+    self,
+    transaction::{
+        ConflictableTransactionError, TransactionError, TransactionResult, TransactionalTree,
+        UnabortableTransactionError,
+    },
+    Config as DbConfig, Db, Mode as DbMode,
+};
 use std::collections::BTreeSet;
-use std::convert::Into;
+use std::convert::Infallible;
 use std::path::PathBuf;
 use std::str::{self, FromStr};
 use tracing_futures::Instrument;
@@ -20,31 +27,18 @@ pub struct KvDataStore {
 }
 
 impl KvDataStore {
-    fn _put(&self, key: &str, value: &str) -> Result<(), Error> {
-        let db = self.get_db();
-
-        let _ = db.insert(key, value)?;
-
-        Ok(())
-    }
-
-    fn _remove(&self, key: &str) -> Result<(), Error> {
-        let db = self.get_db();
-
-        match db.remove(key) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    fn _apply_batch(&self, batch: sled::Batch) -> Result<(), Error> {
-        let db = self.get_db();
-
-        Ok(db.apply_batch(batch)?)
-    }
-
     fn get_db(&self) -> &Db {
         self.db.get().unwrap()
+    }
+
+    fn flush_async(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_ {
+        use futures::future::TryFutureExt;
+        self.db
+            .get()
+            .unwrap()
+            .flush_async()
+            .map_ok(|_| ())
+            .map_err(Error::from)
     }
 }
 
@@ -101,32 +95,49 @@ impl DataStore for KvDataStore {
     }
 }
 
+// in the transactional parts of the [`Infallible`] is used to signal there is no additional
+// custom error, not that the transaction was infallible in itself.
+
 #[async_trait]
 impl PinStore for KvDataStore {
-    async fn is_pinned(&self, block: &Cid) -> Result<bool, Error> {
-        is_pinned(self, block)
+    async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
+        Ok(self.get_db().transaction::<_, _, Infallible>(|tree| {
+            match get_pinned_mode(tree, cid)? {
+                Some(_) => Ok(true),
+                None => Ok(false),
+            }
+        })?)
     }
 
     async fn insert_direct_pin(&self, target: &Cid) -> Result<(), Error> {
-        let already_pinned = get_pinned_mode(self, target)?;
+        use ConflictableTransactionError::Abort;
+        let res = self.get_db().transaction(|tx_tree| {
+            let already_pinned = get_pinned_mode(&tx_tree, target)?;
 
-        let mut batch = sled::Batch::default();
-
-        match already_pinned {
-            Some(PinMode::Direct) => return Ok(()),
-            Some(PinMode::Recursive) => return Err(anyhow::anyhow!("already pinned recursively")),
-            Some(PinMode::Indirect) => {
-                let pin_key = get_pin_key(target, &PinMode::Indirect);
-                batch.remove(pin_key.as_str());
+            match already_pinned {
+                Some(PinMode::Direct) => return Ok(false),
+                Some(PinMode::Recursive) => {
+                    return Err(Abort(anyhow::anyhow!("already pinned recursively")))
+                }
+                Some(PinMode::Indirect) => {
+                    // TODO: I think the direct should live alongside the indirect?
+                    let pin_key = get_pin_key(target, &PinMode::Indirect);
+                    tx_tree.remove(pin_key.as_str())?;
+                }
+                None => {}
             }
-            None => {}
+
+            let direct_key = get_pin_key(target, &PinMode::Direct);
+            tx_tree.insert(direct_key.as_str(), "")?;
+
+            Ok(true)
+        });
+
+        if launder(res)? {
+            self.flush_async().await
+        } else {
+            Ok(())
         }
-
-        let direct_key = get_pin_key(target, &PinMode::Direct);
-
-        batch.insert(direct_key.as_str(), "");
-
-        Ok(self._apply_batch(batch)?)
     }
 
     async fn insert_recursive_pin(
@@ -134,47 +145,68 @@ impl PinStore for KvDataStore {
         target: &Cid,
         referenced: References<'_>,
     ) -> Result<(), Error> {
+        // since the transaction can be retried multiple times, we need to collect these and keep
+        // iterating it until there is no conflict.
         let set = referenced.try_collect::<BTreeSet<_>>().await?;
 
-        let mut batch = sled::Batch::default();
-        let already_pinned = get_pinned_mode(self, target)?;
+        // the transaction is not infallible but there is no additional error we return
+        let modified = self
+            .get_db()
+            .transaction::<_, _, Infallible>(move |tx_tree| {
+                let already_pinned = get_pinned_mode(tx_tree, target)?;
 
-        match already_pinned {
-            Some(PinMode::Recursive) => return Ok(()),
-            Some(mode @ PinMode::Direct) | Some(mode @ PinMode::Indirect) => {
-                let key = get_pin_key(target, &mode);
-                batch.remove(key.as_str());
-            }
-            None => {}
+                match already_pinned {
+                    Some(PinMode::Recursive) => return Ok(false),
+                    Some(mode @ PinMode::Direct) | Some(mode @ PinMode::Indirect) => {
+                        // FIXME: this is probably another lapse in tests that both direct and
+                        // indirect can be removed when inserting recursive?
+                        let key = get_pin_key(target, &mode);
+                        tx_tree.remove(key.as_str())?;
+                    }
+                    None => {}
+                }
+                let recursive_key = get_pin_key(target, &PinMode::Recursive);
+                tx_tree.insert(recursive_key.as_str(), "")?;
+
+                // cannot use into_iter here as the transactions are retryable
+                for cid in set.iter() {
+                    let indirect_key = get_pin_key(&cid, &PinMode::Indirect);
+
+                    if matches!(get_pinned_mode(tx_tree, &cid)?, Some(_)) {
+                        // TODO: quite costly to do the get_pinned_mode here
+                        continue;
+                    }
+
+                    // value is for get information like "Qmd9WDTA2Kph4MKiDDiaZdiB4HJQpKcxjnJQfQmM5rHhYK indirect through QmXr1XZBg1CQv17BPvSWRmM7916R6NLL7jt19rhCPdVhc5"
+                    // FIXME: this will not work with multiple blocks linking to the same block? also the
+                    // test is probably missing as well
+                    tx_tree.insert(indirect_key.as_str(), target.to_string().as_str())?;
+                }
+
+                Ok(true)
+            })?;
+
+        if modified {
+            self.flush_async().await
+        } else {
+            Ok(())
         }
-
-        let recursive_key = get_pin_key(target, &PinMode::Recursive);
-        batch.insert(recursive_key.as_str(), "");
-
-        for cid in &set {
-            let indirect_key = get_pin_key(cid, &PinMode::Indirect);
-
-            let is_already_pinned = is_pinned(self, cid);
-
-            if let Ok(true) = is_already_pinned {
-                continue;
-            }
-
-            // value is for get information like "Qmd9WDTA2Kph4MKiDDiaZdiB4HJQpKcxjnJQfQmM5rHhYK indirect through QmXr1XZBg1CQv17BPvSWRmM7916R6NLL7jt19rhCPdVhc5"
-            batch.insert(indirect_key.as_str(), target.to_string().as_str());
-        }
-
-        Ok(self._apply_batch(batch)?)
     }
 
     async fn remove_direct_pin(&self, target: &Cid) -> Result<(), Error> {
-        if is_not_pinned_or_pinned_indirectly(self, target)? {
-            return Err(anyhow::anyhow!("not pinned or pinned indirectly"));
-        }
+        use ConflictableTransactionError::Abort;
+        let res = self.get_db().transaction::<_, _, Error>(|tx_tree| {
+            if is_not_pinned_or_pinned_indirectly(tx_tree, target)? {
+                return Err(Abort(anyhow::anyhow!("not pinned or pinned indirectly")));
+            }
 
-        let key = get_pin_key(target, &PinMode::Direct);
+            let key = get_pin_key(target, &PinMode::Direct);
+            tx_tree.remove(key.as_str())?;
+            Ok(())
+        });
+        launder(res)?;
 
-        Ok(self._remove(&key)?)
+        self.flush_async().await
     }
 
     async fn remove_recursive_pin(
@@ -182,96 +214,83 @@ impl PinStore for KvDataStore {
         target: &Cid,
         referenced: References<'_>,
     ) -> Result<(), Error> {
-        if is_not_pinned_or_pinned_indirectly(self, target)? {
-            return Err(anyhow::anyhow!("not pinned or pinned indirectly"));
-        }
-
+        use ConflictableTransactionError::Abort;
+        // TODO: is this "in the same transaction" as the batch which is created?
         let set = referenced.try_collect::<BTreeSet<_>>().await?;
 
-        let mut batch = sled::Batch::default();
-
-        let recursive_key = get_pin_key(target, &PinMode::Recursive);
-
-        batch.remove(recursive_key.as_str());
-
-        for cid in &set {
-            let already_pinned = get_pinned_mode(self, cid)?;
-
-            match already_pinned {
-                Some(PinMode::Recursive) | Some(PinMode::Direct) => continue, // this should be unreachable
-                Some(PinMode::Indirect) => {
-                    let indirect_key = get_pin_key(cid, &PinMode::Indirect);
-                    batch.remove(indirect_key.as_str());
-                }
-                None => {}
+        let res = self.get_db().transaction(|tx_tree| {
+            if is_not_pinned_or_pinned_indirectly(tx_tree, target)? {
+                return Err(Abort(anyhow::anyhow!("not pinned or pinned indirectly")));
             }
-        }
 
-        Ok(self._apply_batch(batch)?)
+            let recursive_key = get_pin_key(target, &PinMode::Recursive);
+            tx_tree.remove(recursive_key.as_str())?;
+
+            for cid in &set {
+                let already_pinned = get_pinned_mode(tx_tree, cid)?;
+
+                match already_pinned {
+                    Some(PinMode::Recursive) | Some(PinMode::Direct) => continue, // this should be unreachable
+                    Some(PinMode::Indirect) => {
+                        // FIXME: not really sure of this but it might be that recursive removed
+                        // the others...?
+                        let indirect_key = get_pin_key(cid, &PinMode::Indirect);
+                        tx_tree.remove(indirect_key.as_str())?;
+                    }
+                    None => {}
+                }
+            }
+
+            Ok(())
+        });
+
+        launder(res)?;
+
+        self.flush_async().await
     }
 
     async fn list(
         &self,
-        expected_mode: Option<PinMode>,
+        requirement: Option<PinMode>,
     ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
         let db = self.get_db();
 
-        // the minimum cid of version 0
-        let min_key = "pin.0.0000000000000000000000000000000000000000000000";
-        assert_eq!(min_key.len(), 52);
+        // FIXME: this is still blocking ... might not be a way without a channel
+        // this probably doesn't need to be transactional? well, perhaps transactional reads would
+        // be the best, not sure what is the guaratee for in-sequence key reads.
+        let iter = db.range::<String, std::ops::RangeFull>(..);
 
-        let iter = db.range(min_key..);
-        let mut all_keys: Vec<String> = vec![];
+        let requirement = PinModeRequirement::from(requirement);
 
-        for item in iter.filter(|item| item.is_ok()) {
-            let (raw_key, _) = item.unwrap();
-            let key = String::from_utf8_lossy(raw_key.as_ref());
-
-            if !key.starts_with("pin.") {
-                continue;
-            }
-
-            all_keys.push(key.to_owned().to_string());
-        }
-
-        let st = async_stream::try_stream! {
-            for key in all_keys.iter() {
-                let cid_str_with_prefix = &key[4..];
-                let cid_str = &key[6..];
-
-                let pin_mode = match cid_str_with_prefix {
-                    _ if cid_str_with_prefix.starts_with("d") => {
-                        PinMode::Direct
-                    },
-
-                    _ if cid_str_with_prefix.starts_with("r") => {
-                        PinMode::Recursive
+        let adapted = iter
+            .map(|res| res.map_err(Error::from))
+            .filter_map(move |res| match res {
+                Ok((k, _v)) => {
+                    if !k.starts_with(b"pin.") || k.len() < 7 {
+                        return Some(Err(anyhow::anyhow!(
+                            "invalid pin: {:?}",
+                            String::from_utf8_lossy(&*k)
+                        )));
                     }
+                    let mode = match k[4] {
+                        b'd' => PinMode::Direct,
+                        b'r' => PinMode::Recursive,
+                        b'i' => PinMode::Indirect,
+                        x => return Some(Err(anyhow::anyhow!("invalid pinmode: {}", x as char))),
+                    };
 
-                    _ if cid_str_with_prefix.starts_with("i") => {
-                        PinMode::Indirect
+                    if !requirement.matches(&mode) {
+                        None
+                    } else {
+                        let cid = std::str::from_utf8(&k[6..]).map_err(Error::from);
+                        let cid = cid.and_then(|x| Cid::from_str(x).map_err(Error::from));
+                        Some(cid.map(move |cid| (cid, mode)))
                     }
-
-                    _ =>  continue,
-                };
-
-                match Cid::from_str(cid_str) {
-                    Ok(cid) =>  {
-                        match expected_mode {
-                            Some(ref expected) => if pin_mode == *expected {
-                                yield (cid, pin_mode);
-                            }
-                            Some(_) => {}
-                            None => yield (cid, pin_mode),
-                        }
-                    }
-
-                    Err(_) => {}
                 }
-            }
-        };
+                Err(e) => Some(Err(e)),
+            });
 
-        st.in_current_span().boxed()
+        futures::stream::iter(adapted).in_current_span().boxed()
     }
 
     async fn query(
@@ -279,56 +298,98 @@ impl PinStore for KvDataStore {
         ids: Vec<Cid>,
         requirement: Option<PinMode>,
     ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
-        let mut res = Vec::<(Cid, PinKind<Cid>)>::new();
-
-        let pin_mode_matches = |pin_mode: &PinMode| match requirement {
-            Some(ref expected) => *expected == *pin_mode,
-            None => true,
-        };
+        use ConflictableTransactionError::Abort;
+        let requirement = PinModeRequirement::from(requirement);
 
         let db = self.get_db();
 
-        for id in ids.iter() {
-            match get_pinned_mode(self, id) {
-                Ok(Some(pin_mode)) => {
-                    if !pin_mode_matches(&pin_mode) {
-                        continue;
+        let result = db.transaction::<_, _, Error>(|tx_tree| {
+            // since its an Fn closure this cannot be reserved once ... not sure why it couldn't be
+            // FnMut?
+            let mut res = Vec::with_capacity(ids.len());
+
+            // as we might loop over an over on the tx we might need this
+            for id in ids.iter() {
+                // FIXME: this is blocking ...
+                let mode = get_pinned_mode(tx_tree, &id)?;
+
+                let mode = mode.and_then(|mode| {
+                    if requirement.matches(&mode) {
+                        Some(mode)
+                    } else {
+                        None
                     }
+                });
 
-                    match pin_mode {
-                        PinMode::Direct => res.push((id.clone(), PinKind::Direct)),
-                        PinMode::Recursive => res.push((id.clone(), PinKind::Recursive(0))),
+                let matched = match mode {
+                    Some(pin_mode) => match pin_mode {
+                        PinMode::Direct => Some(PinKind::Direct),
+                        PinMode::Recursive => Some(PinKind::Recursive(0)),
                         PinMode::Indirect => {
-                            let pin_key = get_pin_key(id, &PinMode::Indirect);
+                            let pin_key = get_pin_key(&id, &PinMode::Indirect);
 
-                            match db.get(pin_key.as_str()) {
-                                Ok(Some(indirect_from_raw)) => {
+                            match tx_tree.get(pin_key.as_str())? {
+                                Some(indirect_from_raw) => {
                                     let indirect_from_str =
-                                        str::from_utf8(indirect_from_raw.as_ref())?;
+                                        str::from_utf8(indirect_from_raw.as_ref())
+                                            .map_err(Error::from);
 
-                                    match Cid::from_str(indirect_from_str) {
-                                        Ok(indirect_from_cid) => res.push((
-                                            id.clone(),
-                                            PinKind::IndirectFrom(indirect_from_cid),
-                                        )),
-                                        Err(_) => {
-                                            warn!("invalid indirect from cid of {}", id);
-                                            continue;
+                                    let cid = indirect_from_str
+                                        .and_then(|s| Cid::from_str(s).map_err(Error::from));
+
+                                    match cid {
+                                        Ok(indirect_from_cid) => {
+                                            Some(PinKind::IndirectFrom(indirect_from_cid))
+                                        }
+                                        Err(e) => {
+                                            let contextful = e.context(format!(
+                                                "failed to read indirect pin source: {:?}",
+                                                String::from_utf8_lossy(indirect_from_raw.as_ref())
+                                                    .as_ref(),
+                                            ));
+                                            return Err(Abort(contextful));
                                         }
                                     }
                                 }
-                                Ok(None) => {}
-                                Err(e) => return Err(e.into()),
+                                None => None,
                             }
                         }
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => return Err(e),
+                    },
+                    None => None,
+                };
+
+                res.push(matched);
+            }
+
+            Ok(res)
+        });
+
+        let indices = launder(result)?;
+
+        assert_eq!(indices.len(), ids.len());
+
+        // for each original id in ids, there is a corresponding Option<PinMode<_>>
+        // indices.len() is the upper bound of Some values, could be counted as well.
+
+        let mut cids = Vec::with_capacity(indices.len());
+
+        for (cid, maybe_mode) in ids.into_iter().zip(indices.into_iter()) {
+            if let Some(mode) = maybe_mode {
+                cids.push((cid, mode));
             }
         }
 
-        Ok(res)
+        Ok(cids)
+    }
+}
+
+/// Helper needed as the error cannot just `?` converted.
+fn launder<T>(res: TransactionResult<T, Error>) -> Result<T, Error> {
+    use TransactionError::*;
+    match res {
+        Ok(t) => Ok(t),
+        Err(Abort(e)) => Err(e),
+        Err(Storage(e)) => Err(e.into()),
     }
 }
 
@@ -341,38 +402,40 @@ fn pin_mode_literal(pin_mode: &PinMode) -> &'static str {
 }
 
 fn get_pin_key(cid: &Cid, pin_mode: &PinMode) -> String {
+    // TODO: get_pinned_mode could be range query if the pin modes were suffixes, keys would need
+    // to be cid.to_bytes().push(pin_mode_literal(pin_mode))? ... since the cid bytes
+    // representation already contains the length we should be good to go in all cases.
+    //
+    // for storing multiple targets then the last could be found by doing a query as well. in the
+    // case of multiple indirect pins they'd have to be with another suffix.
+    //
+    // TODO: check if such representation would really order properly
     format!("pin.{}.{}", pin_mode_literal(pin_mode), cid)
 }
 
-fn get_pinned_mode(kv_db: &KvDataStore, block: &Cid) -> Result<Option<PinMode>, Error> {
+fn get_pinned_mode(
+    tree: &TransactionalTree,
+    block: &Cid,
+) -> Result<Option<PinMode>, UnabortableTransactionError> {
+    // FIXME: write this as async?
     for mode in &[PinMode::Direct, PinMode::Recursive, PinMode::Indirect] {
         let key = get_pin_key(block, mode);
 
-        let db = kv_db.get_db();
-
-        match db.get(key.as_str()) {
-            Ok(Some(_)) => return Ok(Some(mode.clone())),
-            Ok(None) => {}
-            Err(e) => return Err(e.into()),
+        if tree.get(key.as_str())?.is_some() {
+            return Ok(Some(*mode));
         }
     }
 
     Ok(None)
 }
 
-fn is_pinned(db: &KvDataStore, block: &Cid) -> Result<bool, Error> {
-    match get_pinned_mode(db, block) {
-        Ok(Some(_)) => Ok(true),
-        Ok(None) => Ok(false),
-        Err(e) => Err(e),
-    }
-}
-
-fn is_not_pinned_or_pinned_indirectly(db: &KvDataStore, block: &Cid) -> Result<bool, Error> {
-    match get_pinned_mode(db, block) {
-        Ok(Some(PinMode::Indirect)) | Ok(None) => Ok(true),
-        Ok(_) => Ok(false),
-        Err(e) => Err(e),
+fn is_not_pinned_or_pinned_indirectly(
+    tree: &TransactionalTree,
+    block: &Cid,
+) -> Result<bool, UnabortableTransactionError> {
+    match get_pinned_mode(tree, block)? {
+        Some(PinMode::Indirect) | None => Ok(true),
+        _ => Ok(false),
     }
 }
 

@@ -1,7 +1,7 @@
 //! Persistent filesystem backed pin store. See [`FsDataStore`] for more information.
 use super::{filestem_to_pin_cid, pin_path, FsDataStore};
 use crate::error::Error;
-use crate::repo::{PinKind, PinMode, PinStore, References};
+use crate::repo::{PinKind, PinMode, PinModeRequirement, PinStore, References};
 use async_trait::async_trait;
 use cid::Cid;
 use core::convert::TryFrom;
@@ -242,6 +242,8 @@ impl PinStore for FsDataStore {
 
         let path = self.path.clone();
 
+        let requirement = PinModeRequirement::from(requirement);
+
         // depending on what was queried we must iterate through the results in the order of
         // recursive, direct and indirect.
         //
@@ -258,13 +260,13 @@ impl PinStore for FsDataStore {
             let mut recursive: HashSet<Cid> = HashSet::new();
             let mut direct: HashSet<Cid> = HashSet::new();
 
-            let collect_recursive_for_indirect = requirement.as_ref().map(|r| *r == PinMode::Indirect).unwrap_or(true);
+            let collect_recursive_for_indirect = requirement.is_indirect_or_any();
 
             futures::pin_mut!(cids);
 
             while let Some((cid, mode)) = cids.try_next().await? {
 
-                let matches = requirement.as_ref().map(|r| *r == mode).unwrap_or(true);
+                let matches = requirement.matches(&mode);
 
                 if mode == PinMode::Recursive {
                     if collect_recursive_for_indirect {
@@ -338,6 +340,8 @@ impl PinStore for FsDataStore {
             None => (true, None, true),
         };
 
+        let searched_suffix = PinModeRequirement::from(searched_suffix);
+
         let (mut response, mut remaining) = if check_direct {
             // find the recursive and direct ones by just seeing if the files exist
             let base = self.path.clone();
@@ -346,7 +350,7 @@ impl PinStore for FsDataStore {
                     let mut path = pin_path(base.clone(), &cid);
 
                     if let Some(mode) = sync_read_direct_or_recursive(&mut path) {
-                        if searched_suffix.as_ref().map(|m| *m == mode).unwrap_or(true) {
+                        if searched_suffix.matches(&mode) {
                             response[i] = Some((
                                 cid,
                                 match mode {
@@ -523,7 +527,7 @@ fn sync_read_direct_or_recursive(block_path: &mut PathBuf) -> Option<PinMode> {
         // Path::is_file calls fstat and coerces errors to false; this might be enough, as
         // we are holding the lock
         if block_path.is_file() {
-            return Some(mode.clone());
+            return Some(*mode);
         }
     }
     None
