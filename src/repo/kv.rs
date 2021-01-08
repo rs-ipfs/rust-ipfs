@@ -128,7 +128,7 @@ impl PinStore for KvDataStore {
             }
 
             let direct_key = get_pin_key(target, &PinMode::Direct);
-            tx_tree.insert(direct_key.as_str(), "")?;
+            tx_tree.insert(direct_key.as_str(), direct_value())?;
 
             Ok(true)
         });
@@ -166,7 +166,9 @@ impl PinStore for KvDataStore {
                     None => {}
                 }
                 let recursive_key = get_pin_key(target, &PinMode::Recursive);
-                tx_tree.insert(recursive_key.as_str(), "")?;
+                tx_tree.insert(recursive_key.as_str(), recursive_value())?;
+
+                let target_value = indirect_value(target);
 
                 // cannot use into_iter here as the transactions are retryable
                 for cid in set.iter() {
@@ -180,7 +182,7 @@ impl PinStore for KvDataStore {
                     // value is for get information like "Qmd9WDTA2Kph4MKiDDiaZdiB4HJQpKcxjnJQfQmM5rHhYK indirect through QmXr1XZBg1CQv17BPvSWRmM7916R6NLL7jt19rhCPdVhc5"
                     // FIXME: this will not work with multiple blocks linking to the same block? also the
                     // test is probably missing as well
-                    tx_tree.insert(indirect_key.as_str(), target.to_string().as_str())?;
+                    tx_tree.insert(indirect_key.as_str(), target_value.as_str())?;
                 }
 
                 Ok(true)
@@ -204,6 +206,7 @@ impl PinStore for KvDataStore {
             tx_tree.remove(key.as_str())?;
             Ok(())
         });
+
         launder(res)?;
 
         self.flush_async().await
@@ -330,12 +333,7 @@ impl PinStore for KvDataStore {
 
                             match tx_tree.get(pin_key.as_str())? {
                                 Some(indirect_from_raw) => {
-                                    let indirect_from_str =
-                                        str::from_utf8(indirect_from_raw.as_ref())
-                                            .map_err(Error::from);
-
-                                    let cid = indirect_from_str
-                                        .and_then(|s| Cid::from_str(s).map_err(Error::from));
+                                    let cid = cid_from_indirect_value(&*indirect_from_raw);
 
                                     match cid {
                                         Ok(indirect_from_cid) => {
@@ -381,6 +379,28 @@ impl PinStore for KvDataStore {
 
         Ok(cids)
     }
+}
+
+/// Name the empty value stored for direct pins; the pin key itself describes the mode and the cid.
+fn direct_value() -> &'static [u8] {
+    Default::default()
+}
+
+/// Name the empty value stored for recursive pins at the top.
+fn recursive_value() -> &'static [u8] {
+    Default::default()
+}
+
+/// Name the value stored for indirect pins, currently only the most recent recursive pin.
+fn indirect_value(recursively_pinned: &Cid) -> String {
+    recursively_pinned.to_string()
+}
+
+/// Inverse of [`indirect_value`].
+fn cid_from_indirect_value(bytes: &[u8]) -> Result<Cid, Error> {
+    str::from_utf8(bytes.as_ref())
+        .map_err(Error::from)
+        .and_then(|s| Cid::from_str(s).map_err(Error::from))
 }
 
 /// Helper needed as the error cannot just `?` converted.
