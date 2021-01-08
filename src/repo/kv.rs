@@ -124,14 +124,13 @@ impl PinStore for KvDataStore {
             let already_pinned = get_pinned_mode(&tx_tree, target)?;
 
             match already_pinned {
-                Some(PinMode::Direct) => return Ok(false),
-                Some(PinMode::Recursive) => {
+                Some((PinMode::Direct, _)) => return Ok(false),
+                Some((PinMode::Recursive, _)) => {
                     return Err(Abort(anyhow::anyhow!("already pinned recursively")))
                 }
-                Some(PinMode::Indirect) => {
+                Some((PinMode::Indirect, key)) => {
                     // TODO: I think the direct should live alongside the indirect?
-                    let pin_key = get_pin_key(target, &PinMode::Indirect);
-                    tx_tree.remove(pin_key.as_str())?;
+                    tx_tree.remove(key.as_str())?;
                 }
                 None => {}
             }
@@ -164,18 +163,16 @@ impl PinStore for KvDataStore {
             .transaction::<_, _, Infallible>(move |tx_tree| {
                 let already_pinned = get_pinned_mode(tx_tree, target)?;
 
-                // FIXME: whatever the pin is serialized as, this would be probably the most
-                // efficient to reuse the already found key here.
                 match already_pinned {
-                    Some(PinMode::Recursive) => return Ok(false),
-                    Some(mode @ PinMode::Direct) | Some(mode @ PinMode::Indirect) => {
+                    Some((PinMode::Recursive, _)) => return Ok(false),
+                    Some((PinMode::Direct, key)) | Some((PinMode::Indirect, key)) => {
                         // FIXME: this is probably another lapse in tests that both direct and
                         // indirect can be removed when inserting recursive?
-                        let key = get_pin_key(target, &mode);
                         tx_tree.remove(key.as_str())?;
                     }
                     None => {}
                 }
+
                 let recursive_key = get_pin_key(target, &PinMode::Recursive);
                 tx_tree.insert(recursive_key.as_str(), recursive_value())?;
 
@@ -243,14 +240,12 @@ impl PinStore for KvDataStore {
             for cid in &set {
                 let already_pinned = get_pinned_mode(tx_tree, cid)?;
 
-                // FIXME: this found key could be reused as well.
                 match already_pinned {
-                    Some(PinMode::Recursive) | Some(PinMode::Direct) => continue, // this should be unreachable
-                    Some(PinMode::Indirect) => {
+                    Some((PinMode::Recursive, _)) | Some((PinMode::Direct, _)) => continue, // this should be unreachable
+                    Some((PinMode::Indirect, key)) => {
                         // FIXME: not really sure of this but it might be that recursive removed
                         // the others...?
-                        let indirect_key = get_pin_key(cid, &PinMode::Indirect);
-                        tx_tree.remove(indirect_key.as_str())?;
+                        tx_tree.remove(key.as_str())?;
                     }
                     None => {}
                 }
@@ -333,10 +328,10 @@ impl PinStore for KvDataStore {
             // as we might loop over an over on the tx we might need this over and over, cannot
             // take ownership.
             for id in ids.iter() {
-                let mode = get_pinned_mode(tx_tree, &id)?;
+                let mode_and_key = get_pinned_mode(tx_tree, &id)?;
 
-                let matched = match mode {
-                    Some(pin_mode) if requirement.matches(&pin_mode) => match pin_mode {
+                let matched = match mode_and_key {
+                    Some((pin_mode, _)) if requirement.matches(&pin_mode) => match pin_mode {
                         PinMode::Direct => Some(PinKind::Direct),
                         PinMode::Recursive => Some(PinKind::Recursive(0)),
                         PinMode::Indirect => {
@@ -437,16 +432,17 @@ fn get_pin_key(cid: &Cid, pin_mode: &PinMode) -> String {
     format!("pin.{}.{}", pin_mode_literal(pin_mode), cid)
 }
 
+/// Returns a tuple of the parsed mode and the key used
 fn get_pinned_mode(
     tree: &TransactionalTree,
     block: &Cid,
-) -> Result<Option<PinMode>, UnabortableTransactionError> {
+) -> Result<Option<(PinMode, String)>, UnabortableTransactionError> {
     // FIXME: write this as async?
     for mode in &[PinMode::Direct, PinMode::Recursive, PinMode::Indirect] {
         let key = get_pin_key(block, mode);
 
         if tree.get(key.as_str())?.is_some() {
-            return Ok(Some(*mode));
+            return Ok(Some((*mode, key)));
         }
     }
 
@@ -458,7 +454,7 @@ fn is_not_pinned_or_pinned_indirectly(
     block: &Cid,
 ) -> Result<bool, UnabortableTransactionError> {
     match get_pinned_mode(tree, block)? {
-        Some(PinMode::Indirect) | None => Ok(true),
+        Some((PinMode::Indirect, _)) | None => Ok(true),
         _ => Ok(false),
     }
 }
