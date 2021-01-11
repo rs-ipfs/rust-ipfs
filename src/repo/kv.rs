@@ -17,7 +17,6 @@ use std::collections::BTreeSet;
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::str::{self, FromStr};
-use tracing_futures::Instrument;
 
 /// [`sled`] based pinstore implementation. Implements datastore which errors for each call.
 /// Currently feature-gated behind `sled_data_store` feature in the [`crate::Types`], usable
@@ -38,16 +37,6 @@ pub struct KvDataStore {
 impl KvDataStore {
     fn get_db(&self) -> &Db {
         self.db.get().unwrap()
-    }
-
-    fn flush_async(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_ {
-        use futures::future::TryFutureExt;
-        self.db
-            .get()
-            .unwrap()
-            .flush_async()
-            .map_ok(|_| ())
-            .map_err(Error::from)
     }
 }
 
@@ -279,7 +268,6 @@ impl PinStore for KvDataStore {
         &self,
         requirement: Option<PinMode>,
     ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
-        use futures::stream::StreamExt;
         let db = self.get_db().to_owned();
 
         // if the pins are always updated in transaction, we might get away with just tree reads.
@@ -391,7 +379,7 @@ impl PinStore for KvDataStore {
                                 .get(key.as_str())?
                                 .map(|root| {
                                     cid_from_indirect_value(&*root)
-                                        .map(|cid| PinKind::IndirectFrom(cid))
+                                        .map(PinKind::IndirectFrom)
                                         .map_err(|e| {
                                             Abort(e.context(format!(
                                                 "failed to read indirect pin source: {:?}",
@@ -441,7 +429,7 @@ fn indirect_value(recursively_pinned: &Cid) -> String {
 
 /// Inverse of [`indirect_value`].
 fn cid_from_indirect_value(bytes: &[u8]) -> Result<Cid, Error> {
-    str::from_utf8(bytes.as_ref())
+    str::from_utf8(bytes)
         .map_err(Error::from)
         .and_then(|s| Cid::from_str(s).map_err(Error::from))
 }
