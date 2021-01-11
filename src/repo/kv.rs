@@ -110,42 +110,47 @@ impl DataStore for KvDataStore {
 #[async_trait]
 impl PinStore for KvDataStore {
     async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        Ok(self.get_db().transaction::<_, _, Infallible>(|tree| {
-            match get_pinned_mode(tree, cid)? {
-                Some(_) => Ok(true),
-                None => Ok(false),
-            }
-        })?)
+        let cid = cid.to_owned();
+        let db = self.get_db().to_owned();
+        tokio::task::spawn_blocking(move || {
+            Ok(db.transaction::<_, _, Infallible>(|tree| {
+                Ok(get_pinned_mode(tree, &cid)?.is_some())
+            })?)
+        })
+        .await?
     }
 
     async fn insert_direct_pin(&self, target: &Cid) -> Result<(), Error> {
         use ConflictableTransactionError::Abort;
-        let res = self.get_db().transaction(|tx_tree| {
-            let already_pinned = get_pinned_mode(&tx_tree, target)?;
+        let target = target.to_owned();
+        let db = self.get_db().to_owned();
+        let res = tokio::task::spawn_blocking(move || {
+            db.transaction(|tx_tree| {
+                let already_pinned = get_pinned_mode(&tx_tree, &target)?;
 
-            match already_pinned {
-                Some((PinMode::Direct, _)) => return Ok(false),
-                Some((PinMode::Recursive, _)) => {
-                    return Err(Abort(anyhow::anyhow!("already pinned recursively")))
+                match already_pinned {
+                    Some((PinMode::Direct, _)) => return Ok(()),
+                    Some((PinMode::Recursive, _)) => {
+                        return Err(Abort(anyhow::anyhow!("already pinned recursively")))
+                    }
+                    Some((PinMode::Indirect, key)) => {
+                        // TODO: I think the direct should live alongside the indirect?
+                        tx_tree.remove(key.as_str())?;
+                    }
+                    None => {}
                 }
-                Some((PinMode::Indirect, key)) => {
-                    // TODO: I think the direct should live alongside the indirect?
-                    tx_tree.remove(key.as_str())?;
-                }
-                None => {}
-            }
 
-            let direct_key = get_pin_key(target, &PinMode::Direct);
-            tx_tree.insert(direct_key.as_str(), direct_value())?;
+                let direct_key = get_pin_key(&target, &PinMode::Direct);
+                tx_tree.insert(direct_key.as_str(), direct_value())?;
 
-            Ok(true)
-        });
+                tx_tree.flush();
 
-        if launder(res)? {
-            self.flush_async().await
-        } else {
-            Ok(())
-        }
+                Ok(())
+            })
+        })
+        .await?;
+
+        launder(res)
     }
 
     async fn insert_recursive_pin(
@@ -157,14 +162,16 @@ impl PinStore for KvDataStore {
         // iterating it until there is no conflict.
         let set = referenced.try_collect::<BTreeSet<_>>().await?;
 
+        let target = target.to_owned();
+        let db = self.get_db().to_owned();
+
         // the transaction is not infallible but there is no additional error we return
-        let modified = self
-            .get_db()
-            .transaction::<_, _, Infallible>(move |tx_tree| {
-                let already_pinned = get_pinned_mode(tx_tree, target)?;
+        tokio::task::spawn_blocking(move || {
+            db.transaction::<_, _, Infallible>(move |tx_tree| {
+                let already_pinned = get_pinned_mode(tx_tree, &target)?;
 
                 match already_pinned {
-                    Some((PinMode::Recursive, _)) => return Ok(false),
+                    Some((PinMode::Recursive, _)) => return Ok(()),
                     Some((PinMode::Direct, key)) | Some((PinMode::Indirect, key)) => {
                         // FIXME: this is probably another lapse in tests that both direct and
                         // indirect can be removed when inserting recursive?
@@ -173,10 +180,10 @@ impl PinStore for KvDataStore {
                     None => {}
                 }
 
-                let recursive_key = get_pin_key(target, &PinMode::Recursive);
+                let recursive_key = get_pin_key(&target, &PinMode::Recursive);
                 tx_tree.insert(recursive_key.as_str(), recursive_value())?;
 
-                let target_value = indirect_value(target);
+                let target_value = indirect_value(&target);
 
                 // cannot use into_iter here as the transactions are retryable
                 for cid in set.iter() {
@@ -193,31 +200,35 @@ impl PinStore for KvDataStore {
                     tx_tree.insert(indirect_key.as_str(), target_value.as_str())?;
                 }
 
-                Ok(true)
-            })?;
+                tx_tree.flush();
+                Ok(())
+            })
+        })
+        .await??;
 
-        if modified {
-            self.flush_async().await
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 
     async fn remove_direct_pin(&self, target: &Cid) -> Result<(), Error> {
         use ConflictableTransactionError::Abort;
-        let res = self.get_db().transaction::<_, _, Error>(|tx_tree| {
-            if is_not_pinned_or_pinned_indirectly(tx_tree, target)? {
-                return Err(Abort(anyhow::anyhow!("not pinned or pinned indirectly")));
-            }
+        let target = target.to_owned();
+        let db = self.get_db().to_owned();
 
-            let key = get_pin_key(target, &PinMode::Direct);
-            tx_tree.remove(key.as_str())?;
-            Ok(())
-        });
+        let res = tokio::task::spawn_blocking(move || {
+            db.transaction::<_, _, Error>(|tx_tree| {
+                if is_not_pinned_or_pinned_indirectly(tx_tree, &target)? {
+                    return Err(Abort(anyhow::anyhow!("not pinned or pinned indirectly")));
+                }
 
-        launder(res)?;
+                let key = get_pin_key(&target, &PinMode::Direct);
+                tx_tree.remove(key.as_str())?;
+                tx_tree.flush();
+                Ok(())
+            })
+        })
+        .await?;
 
-        self.flush_async().await
+        launder(res)
     }
 
     async fn remove_recursive_pin(
@@ -229,85 +240,124 @@ impl PinStore for KvDataStore {
         // TODO: is this "in the same transaction" as the batch which is created?
         let set = referenced.try_collect::<BTreeSet<_>>().await?;
 
-        let res = self.get_db().transaction(|tx_tree| {
-            if is_not_pinned_or_pinned_indirectly(tx_tree, target)? {
-                return Err(Abort(anyhow::anyhow!("not pinned or pinned indirectly")));
-            }
+        let target = target.to_owned();
+        let db = self.get_db().to_owned();
 
-            let recursive_key = get_pin_key(target, &PinMode::Recursive);
-            tx_tree.remove(recursive_key.as_str())?;
-
-            for cid in &set {
-                let already_pinned = get_pinned_mode(tx_tree, cid)?;
-
-                match already_pinned {
-                    Some((PinMode::Recursive, _)) | Some((PinMode::Direct, _)) => continue, // this should be unreachable
-                    Some((PinMode::Indirect, key)) => {
-                        // FIXME: not really sure of this but it might be that recursive removed
-                        // the others...?
-                        tx_tree.remove(key.as_str())?;
-                    }
-                    None => {}
+        let res = tokio::task::spawn_blocking(move || {
+            db.transaction(|tx_tree| {
+                if is_not_pinned_or_pinned_indirectly(tx_tree, &target)? {
+                    return Err(Abort(anyhow::anyhow!("not pinned or pinned indirectly")));
                 }
-            }
 
-            Ok(())
-        });
+                let recursive_key = get_pin_key(&target, &PinMode::Recursive);
+                tx_tree.remove(recursive_key.as_str())?;
 
-        launder(res)?;
+                for cid in &set {
+                    let already_pinned = get_pinned_mode(tx_tree, cid)?;
 
-        self.flush_async().await
+                    match already_pinned {
+                        Some((PinMode::Recursive, _)) | Some((PinMode::Direct, _)) => continue, // this should be unreachable
+                        Some((PinMode::Indirect, key)) => {
+                            // FIXME: not really sure of this but it might be that recursive removed
+                            // the others...?
+                            tx_tree.remove(key.as_str())?;
+                        }
+                        None => {}
+                    }
+                }
+
+                tx_tree.flush();
+                Ok(())
+            })
+        })
+        .await?;
+
+        launder(res)
     }
 
     async fn list(
         &self,
         requirement: Option<PinMode>,
     ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
-        let db = self.get_db();
+        use futures::stream::StreamExt;
+        let db = self.get_db().to_owned();
 
-        // FIXME: this is still blocking ... might not be a way without a channel
-        // this probably doesn't need to be transactional? well, perhaps transactional reads would
-        // be the best, not sure what is the guaratee for in-sequence key reads.
-        let iter = db.range::<String, std::ops::RangeFull>(..);
+        // if the pins are always updated in transaction, we might get away with just tree reads.
+        //
+        // FIXME: the unboundedness is still quite unoptimal here: we might get gazillion http
+        // listings which all quickly fill up a lot of memory and clients never have to read any
+        // responses. using of bounded channel would require sometimes sleeping and maybe bouncing
+        // back and forth between an async task and continuation of the iteration. leaving this to
+        // a later issue.
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let requirement = PinModeRequirement::from(requirement);
+        let _jh = tokio::task::spawn_blocking(move || {
+            // FIXME: this is still blocking ... might not be a way without a channel
+            // this probably doesn't need to be transactional? well, perhaps transactional reads would
+            // be the best, not sure what is the guaratee for in-sequence key reads.
+            let iter = db.range::<String, std::ops::RangeFull>(..);
 
-        let adapted = iter
-            .map(|res| res.map_err(Error::from))
-            .filter_map(move |res| match res {
-                Ok((k, _v)) => {
-                    if !k.starts_with(b"pin.") || k.len() < 7 {
-                        return Some(Err(anyhow::anyhow!(
-                            "invalid pin: {:?}",
-                            &*String::from_utf8_lossy(&*k)
-                        )));
-                    }
+            let requirement = PinModeRequirement::from(requirement);
 
-                    let mode = match k[4] {
-                        b'd' => PinMode::Direct,
-                        b'r' => PinMode::Recursive,
-                        b'i' => PinMode::Indirect,
-                        x => return Some(Err(anyhow::anyhow!("invalid pinmode: {}", x as char))),
-                    };
+            let adapted =
+                iter.map(|res| res.map_err(Error::from))
+                    .filter_map(move |res| match res {
+                        Ok((k, _v)) => {
+                            if !k.starts_with(b"pin.") || k.len() < 7 {
+                                return Some(Err(anyhow::anyhow!(
+                                    "invalid pin: {:?}",
+                                    &*String::from_utf8_lossy(&*k)
+                                )));
+                            }
 
-                    if !requirement.matches(&mode) {
-                        None
-                    } else {
-                        let cid = std::str::from_utf8(&k[6..]).map_err(Error::from);
-                        let cid = cid.and_then(|x| Cid::from_str(x).map_err(Error::from));
-                        let cid = cid.map_err(|e| {
-                            e.context(format!(
-                                "failed to read pin: {:?}",
-                                &*String::from_utf8_lossy(&*k)
-                            ))
-                        });
-                        Some(cid.map(move |cid| (cid, mode)))
-                    }
+                            let mode = match k[4] {
+                                b'd' => PinMode::Direct,
+                                b'r' => PinMode::Recursive,
+                                b'i' => PinMode::Indirect,
+                                x => {
+                                    return Some(Err(anyhow::anyhow!(
+                                        "invalid pinmode: {}",
+                                        x as char
+                                    )))
+                                }
+                            };
+
+                            if !requirement.matches(&mode) {
+                                None
+                            } else {
+                                let cid = std::str::from_utf8(&k[6..]).map_err(Error::from);
+                                let cid = cid.and_then(|x| Cid::from_str(x).map_err(Error::from));
+                                let cid = cid.map_err(|e| {
+                                    e.context(format!(
+                                        "failed to read pin: {:?}",
+                                        &*String::from_utf8_lossy(&*k)
+                                    ))
+                                });
+                                Some(cid.map(move |cid| (cid, mode)))
+                            }
+                        }
+                        Err(e) => Some(Err(e)),
+                    });
+
+            for res in adapted {
+                if tx.send(res).is_err() {
+                    break;
                 }
-                Err(e) => Some(Err(e)),
-            });
+            }
+        });
 
-        futures::stream::iter(adapted).in_current_span().boxed()
+        // we cannot know if the task was spawned successfully until it has completed, so we cannot
+        // really do anything with the _jh.
+        //
+        // perhaps we could await for the first element OR cancellation OR perhaps something
+        // else. StreamExt::peekable() would be good to go, but Peekable is only usable on top of
+        // something pinned, and I cannot see how could it become a boxed stream if we pin it, peek
+        // it and ... how would we get the peeked element since Peekable::into_inner doesn't return
+        // the value which has already been read from the stream?
+        //
+        // it would be nice to make sure that the stream doesn't end before task has ended, but
+        // perhaps the unboundedness of the channel takes care of that.
+        rx.boxed()
     }
 
     async fn query(
@@ -318,27 +368,27 @@ impl PinStore for KvDataStore {
         use ConflictableTransactionError::Abort;
         let requirement = PinModeRequirement::from(requirement);
 
-        let db = self.get_db();
+        let db = self.get_db().to_owned();
 
-        let result = db.transaction::<_, _, Error>(|tx_tree| {
-            // since its an Fn closure this cannot be reserved once ... not sure why it couldn't be
-            // FnMut? the vec could be cached in the "outer" scope in a refcell.
-            let mut res = Vec::with_capacity(ids.len());
+        tokio::task::spawn_blocking(move || {
+            let res = db.transaction::<_, _, Error>(|tx_tree| {
+                // since its an Fn closure this cannot be reserved once ... not sure why it couldn't be
+                // FnMut? the vec could be cached in the "outer" scope in a refcell.
+                let mut modes = Vec::with_capacity(ids.len());
 
-            // as we might loop over an over on the tx we might need this over and over, cannot
-            // take ownership.
-            for id in ids.iter() {
-                let mode_and_key = get_pinned_mode(tx_tree, &id)?;
+                // as we might loop over an over on the tx we might need this over and over, cannot
+                // take ownership inside the transaction. TODO: perhaps the use of transaction is
+                // questionable here; if the source of the indirect pin cannot be it is already
+                // None, this could work outside of transaction similarly.
+                for id in ids.iter() {
+                    let mode_and_key = get_pinned_mode(tx_tree, &id)?;
 
-                let matched = match mode_and_key {
-                    Some((pin_mode, _)) if requirement.matches(&pin_mode) => match pin_mode {
-                        PinMode::Direct => Some(PinKind::Direct),
-                        PinMode::Recursive => Some(PinKind::Recursive(0)),
-                        PinMode::Indirect => {
-                            let pin_key = get_pin_key(&id, &PinMode::Indirect);
-
-                            tx_tree
-                                .get(pin_key.as_str())?
+                    let matched = match mode_and_key {
+                        Some((pin_mode, key)) if requirement.matches(&pin_mode) => match pin_mode {
+                            PinMode::Direct => Some(PinKind::Direct),
+                            PinMode::Recursive => Some(PinKind::Recursive(0)),
+                            PinMode::Indirect => tx_tree
+                                .get(key.as_str())?
                                 .map(|root| {
                                     cid_from_indirect_value(&*root)
                                         .map(|cid| PinKind::IndirectFrom(cid))
@@ -349,34 +399,28 @@ impl PinStore for KvDataStore {
                                             )))
                                         })
                                 })
-                                .transpose()?
-                        }
-                    },
-                    Some(_) | None => None,
-                };
+                                .transpose()?,
+                        },
+                        Some(_) | None => None,
+                    };
 
-                res.push(matched);
-            }
+                    // this might be None, or Some(PinKind); it's important there are as many cids
+                    // as there are modes
+                    modes.push(matched);
+                }
 
-            Ok(res)
-        });
+                Ok(modes)
+            });
 
-        let indices = launder(result)?;
+            let modes = launder(res)?;
 
-        assert_eq!(indices.len(), ids.len());
-
-        // for each original id in ids, there is a corresponding Option<PinMode<_>>
-        // indices.len() is the upper bound of Some values, could be counted as well.
-
-        let mut cids = Vec::with_capacity(indices.len());
-
-        for (cid, maybe_mode) in ids.into_iter().zip(indices.into_iter()) {
-            if let Some(mode) = maybe_mode {
-                cids.push((cid, mode));
-            }
-        }
-
-        Ok(cids)
+            Ok(ids
+                .into_iter()
+                .zip(modes.into_iter())
+                .filter_map(|(cid, mode)| mode.map(move |mode| (cid, mode)))
+                .collect::<Vec<_>>())
+        })
+        .await?
     }
 }
 
