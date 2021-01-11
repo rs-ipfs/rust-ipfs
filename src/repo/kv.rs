@@ -101,7 +101,10 @@ impl PinStore for KvDataStore {
     async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
         let cid = cid.to_owned();
         let db = self.get_db().to_owned();
+        let span = tracing::Span::current();
         tokio::task::spawn_blocking(move || {
+            let span = tracing::trace_span!(parent: &span, "blocking");
+            let _g = span.enter();
             Ok(db.transaction::<_, _, Infallible>(|tree| {
                 Ok(get_pinned_mode(tree, &cid)?.is_some())
             })?)
@@ -113,7 +116,13 @@ impl PinStore for KvDataStore {
         use ConflictableTransactionError::Abort;
         let target = target.to_owned();
         let db = self.get_db().to_owned();
+
+        let span = tracing::Span::current();
+
         let res = tokio::task::spawn_blocking(move || {
+            let span = tracing::trace_span!(parent: &span, "blocking");
+            let _g = span.enter();
+
             db.transaction(|tx_tree| {
                 let already_pinned = get_pinned_mode(&tx_tree, &target)?;
 
@@ -154,8 +163,12 @@ impl PinStore for KvDataStore {
         let target = target.to_owned();
         let db = self.get_db().to_owned();
 
+        let span = tracing::Span::current();
+
         // the transaction is not infallible but there is no additional error we return
         tokio::task::spawn_blocking(move || {
+            let span = tracing::trace_span!(parent: &span, "blocking");
+            let _g = span.enter();
             db.transaction::<_, _, Infallible>(move |tx_tree| {
                 let already_pinned = get_pinned_mode(tx_tree, &target)?;
 
@@ -203,7 +216,12 @@ impl PinStore for KvDataStore {
         let target = target.to_owned();
         let db = self.get_db().to_owned();
 
+        let span = tracing::Span::current();
+
         let res = tokio::task::spawn_blocking(move || {
+            let span = tracing::trace_span!(parent: &span, "blocking");
+            let _g = span.enter();
+
             db.transaction::<_, _, Error>(|tx_tree| {
                 if is_not_pinned_or_pinned_indirectly(tx_tree, &target)? {
                     return Err(Abort(anyhow::anyhow!("not pinned or pinned indirectly")));
@@ -232,7 +250,12 @@ impl PinStore for KvDataStore {
         let target = target.to_owned();
         let db = self.get_db().to_owned();
 
+        let span = tracing::Span::current();
+
         let res = tokio::task::spawn_blocking(move || {
+            let span = tracing::trace_span!(parent: &span, "blocking");
+            let _g = span.enter();
+
             db.transaction(|tx_tree| {
                 if is_not_pinned_or_pinned_indirectly(tx_tree, &target)? {
                     return Err(Abort(anyhow::anyhow!("not pinned or pinned indirectly")));
@@ -279,7 +302,12 @@ impl PinStore for KvDataStore {
         // a later issue.
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
+        let span = tracing::Span::current();
+
         let _jh = tokio::task::spawn_blocking(move || {
+            let span = tracing::trace_span!(parent: &span, "blocking");
+            let _g = span.enter();
+
             // FIXME: this is still blocking ... might not be a way without a channel
             // this probably doesn't need to be transactional? well, perhaps transactional reads would
             // be the best, not sure what is the guaratee for in-sequence key reads.
