@@ -308,7 +308,6 @@ impl PinStore for KvDataStore {
             let span = tracing::trace_span!(parent: &span, "blocking");
             let _g = span.enter();
 
-            // FIXME: this is still blocking ... might not be a way without a channel
             // this probably doesn't need to be transactional? well, perhaps transactional reads would
             // be the best, not sure what is the guaratee for in-sequence key reads.
             let iter = db.range::<String, std::ops::RangeFull>(..);
@@ -497,7 +496,6 @@ fn get_pinned_mode(
     tree: &TransactionalTree,
     block: &Cid,
 ) -> Result<Option<(PinMode, String)>, UnabortableTransactionError> {
-    // FIXME: write this as async?
     for mode in &[PinMode::Direct, PinMode::Recursive, PinMode::Indirect] {
         let key = get_pin_key(block, mode);
 
