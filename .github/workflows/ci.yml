@@ -114,7 +114,7 @@ jobs:
 
     - name: Install cargo-ndk
       if: contains(matrix.platform.target, 'android')
-      run: cargo install cargo-ndk
+      run: cargo install --version '<2.0.0' cargo-ndk
 
     - name: Build (others)
       if: matrix.platform.cross == false
