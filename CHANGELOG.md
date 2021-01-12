@@ -5,6 +5,7 @@
 * refactor(http): introduce `Config` as the facade for configuration [#423]
 * feat(http): create `Profile` abstraction [#421]
 * feat: `sled` pinstore [#439], [#442], [#444]
+* chore: update a lot of dependencies including libp2p, tokio, warp [#446]
 
 [#429]: https://github.com/rs-ipfs/rust-ipfs/pull/429
 [#428]: https://github.com/rs-ipfs/rust-ipfs/pull/428
@@ -12,7 +13,8 @@
 [#421]: https://github.com/rs-ipfs/rust-ipfs/pull/421
 [#439]: https://github.com/rs-ipfs/rust-ipfs/pull/439
 [#442]: https://github.com/rs-ipfs/rust-ipfs/pull/442
-[#442]: https://github.com/rs-ipfs/rust-ipfs/pull/444
+[#444]: https://github.com/rs-ipfs/rust-ipfs/pull/444
+[#446]: https://github.com/rs-ipfs/rust-ipfs/pull/446
 
 # 0.2.1
 
