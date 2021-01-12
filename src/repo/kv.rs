@@ -294,6 +294,9 @@ impl PinStore for KvDataStore {
         let db = self.get_db().to_owned();
 
         // if the pins are always updated in transaction, we might get away with just tree reads.
+        // this does however mean that it is possible to witness for example a part of a larger
+        // recursive pin and then just not find anymore of the recursive pin near the end of the
+        // listing. for non-gc uses this should not be an issue.
         //
         // FIXME: the unboundedness is still quite unoptimal here: we might get gazillion http
         // listings which all quickly fill up a lot of memory and clients never have to read any
