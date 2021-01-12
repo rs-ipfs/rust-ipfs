@@ -190,7 +190,6 @@ fn serve<Types: IpfsTypes>(
     listening_addr: Multiaddr,
 ) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
     use std::net::SocketAddr;
-    use tokio::stream::StreamExt;
     use warp::Filter;
 
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -211,7 +210,7 @@ fn serve<Types: IpfsTypes>(
     };
 
     warp::serve(routes).bind_with_graceful_shutdown(socket_addr, async move {
-        shutdown_rx.next().await;
+        let _ = shutdown_rx.recv().await;
         info!("Shutdown trigger received; starting shutdown");
         ipfs.exit_daemon().await;
     })

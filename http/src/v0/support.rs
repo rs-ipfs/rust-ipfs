@@ -92,31 +92,16 @@ impl warp::reject::Reject for RequiredArgumentMissing {}
 #[derive(Debug)]
 pub(crate) struct InvalidMultipartFormData;
 impl warp::reject::Reject for InvalidMultipartFormData {}
-impl From<InvalidMultipartFormData> for warp::Rejection {
-    fn from(err: InvalidMultipartFormData) -> warp::Rejection {
-        warp::reject::custom(err)
-    }
-}
 
 /// Marker for `warp` specific rejections when something is unimplemented
 #[derive(Debug)]
 pub(crate) struct NotImplemented;
 impl warp::reject::Reject for NotImplemented {}
-impl From<NotImplemented> for warp::Rejection {
-    fn from(err: NotImplemented) -> warp::Rejection {
-        warp::reject::custom(err)
-    }
-}
 
 /// PeerId parsing error, details from `libp2p::identity::ParseError` are lost.
 #[derive(Debug)]
 pub(crate) struct InvalidPeerId;
 impl warp::reject::Reject for InvalidPeerId {}
-impl From<InvalidPeerId> for warp::Rejection {
-    fn from(err: InvalidPeerId) -> warp::Rejection {
-        warp::reject::custom(err)
-    }
-}
 
 /// Default placeholder for ipfs::Error but once we get more typed errors we could start making
 /// them more readable, if needed.
@@ -124,11 +109,6 @@ impl From<InvalidPeerId> for warp::Rejection {
 #[derive(Debug)]
 pub(crate) struct StringError(Cow<'static, str>);
 impl warp::reject::Reject for StringError {}
-impl From<StringError> for warp::Rejection {
-    fn from(err: StringError) -> warp::Rejection {
-        warp::reject::custom(err)
-    }
-}
 
 impl<D: std::fmt::Display> From<D> for StringError {
     fn from(d: D) -> Self {

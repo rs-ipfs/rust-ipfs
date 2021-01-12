@@ -12,13 +12,13 @@ vergen = { default-features = false, version = "3.1" }
 [dependencies]
 anyhow = "*" # temporarily needed until the next release of mpart-async
 async-stream = { default-features = false, version = "0.3" }
-bytes = { default-features = false, version = "0.5" }
+bytes = { default-features = false, version = "1.0" }
 cid = { default-features = false, version = "0.5" }
 futures = { default-features = false, version = "0.3" }
 humantime = { default-features = false, version = "2.0" }
 ipfs = { path = "../" }
 mime = { default-features = false, version = "0.3" }
-mpart-async = { default-features = false, version = "0.4" }
+mpart-async = { default-features = false, version = "0.4", git = "https://github.com/gferon/mpart-async.git", branch = "tokio-1.0" }
 multibase = { default-features = false, version = "0.8" }
 multihash = { default-features = false, version = "0.11" }
 # openssl is required for rsa keygen but not used by the rust-ipfs or its dependencies
@@ -31,11 +31,12 @@ serde_json = { default-features = false, version = "1.0" }
 structopt = { default-features = false, version = "0.3" }
 tar = { default-features = false, version = "0.4" }
 thiserror = { default-features = false, version = "1.0" }
-tokio = { default-features = false, features = ["time"], version = "0.3" }
+tokio = { default-features = false, features = ["time", "sync"], version = "1.0" }
+tokio-stream = { version = "0.1" }
 tracing = { default-features = false, features = ["log"], version = "0.1" }
 tracing-subscriber = { default-features = false, features = ["fmt", "tracing-log", "env-filter"], version = "0.2" }
 url = { default-features = false, version = "2.1" }
-warp = { default-features = false, version = "0.2" }
+warp = { default-features = false, version = "0.2", git = "https://github.com/aknuds1/warp.git", branch = "chore/upgrade-tokio" }
 
 [dev-dependencies]
 hex-literal = { default-features = false, version = "0.3" }

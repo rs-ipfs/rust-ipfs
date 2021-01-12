@@ -50,8 +50,10 @@ pub async fn try_only_named_multipart<'a>(
     st: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin + 'a,
 ) -> Result<Vec<u8>, OnlyMultipartFailure> {
     use bytes::Bytes;
-    let mut stream =
-        MultipartStream::new(Bytes::from(boundary), st.map_ok(|mut buf| buf.to_bytes()));
+    let mut stream = MultipartStream::new(
+        Bytes::from(boundary),
+        st.map_ok(|mut buf| buf.copy_to_bytes(buf.remaining())),
+    );
 
     // store the first good field here; optimally this would just be an Option but couldn't figure
     // out a way to handle the "field matched", "field not matched" cases while supporting empty

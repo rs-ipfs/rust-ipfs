@@ -1,9 +1,6 @@
 use super::AddArgs;
 use crate::v0::support::StringError;
-use bytes::{
-    buf::{BufExt, BufMutExt},
-    Buf, BufMut, Bytes, BytesMut,
-};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use cid::Cid;
 use futures::stream::{Stream, StreamExt, TryStreamExt};
 use ipfs::unixfs::ll::{
@@ -31,7 +28,10 @@ pub(super) async fn add_inner<T: IpfsTypes>(
         .map(|v| v.to_string())
         .ok_or_else(|| StringError::from("missing 'boundary' on content-type"))?;
 
-    let st = MultipartStream::new(Bytes::from(boundary), body.map_ok(|mut buf| buf.to_bytes()));
+    let st = MultipartStream::new(
+        Bytes::from(boundary),
+        body.map_ok(|mut buf| buf.copy_to_bytes(buf.remaining())),
+    );
 
     let st = add_stream(ipfs, st, opts);
 
@@ -52,7 +52,8 @@ pub(super) async fn add_inner<T: IpfsTypes>(
                 .into();
             let crlf = Bytes::from(&b"\r\n"[..]);
             // note that here we are assuming that the stream ends on error
-            Ok(bytes.chain(crlf).to_bytes())
+            let mut chained = bytes.chain(crlf);
+            Ok(chained.copy_to_bytes(chained.remaining()))
         }
     });
 

@@ -357,18 +357,19 @@ impl BlockStore for FsBlockStore {
     async fn list(&self) -> Result<Vec<Cid>, Error> {
         use futures::future::{ready, Either};
         use futures::stream::{empty, TryStreamExt};
+        use tokio_stream::wrappers::ReadDirStream;
 
         let span = tracing::trace_span!("listing blocks");
 
         async move {
-            let stream = fs::read_dir(self.path.clone()).await?;
+            let stream = ReadDirStream::new(fs::read_dir(self.path.clone()).await?);
 
             // FIXME: written as a stream to make the Vec be BoxStream<'static, Cid>
             let vec = stream
                 .and_then(|d| async move {
                     // map over the shard directories
                     Ok(if d.file_type().await?.is_dir() {
-                        Either::Left(fs::read_dir(d.path()).await?)
+                        Either::Left(ReadDirStream::new(fs::read_dir(d.path()).await?))
                     } else {
                         Either::Right(empty())
                     })
