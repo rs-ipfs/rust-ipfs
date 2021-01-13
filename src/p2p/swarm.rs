@@ -26,9 +26,7 @@ pub struct Disconnector {
 }
 
 impl Disconnector {
-    pub fn disconnect<T: NetworkBehaviour>(self, swarm: &mut Swarm<T>)
-        where <<<T as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent: std::clone::Clone
-    {
+    pub fn disconnect<T: NetworkBehaviour>(self, swarm: &mut Swarm<T>) {
         Swarm::ban_peer_id(swarm, self.peer_id.clone());
         Swarm::unban_peer_id(swarm, self.peer_id);
     }
@@ -280,7 +278,7 @@ mod tests {
         for l in Swarm::listeners(&swarm1) {
             let mut addr = l.to_owned();
             addr.push(Protocol::P2p(
-                Multihash::from_bytes(peer1_id.clone().into_bytes()).unwrap(),
+                Multihash::from_bytes(&peer1_id.to_bytes()).unwrap(),
             ));
             if let Some(fut) = swarm2.connect(addr.try_into().unwrap()) {
                 fut.await.unwrap();

@@ -430,8 +430,11 @@ impl NetworkBehaviour for Pubsub {
                         handler,
                     });
                 }
-                NetworkBehaviourAction::ReportObservedAddr { address } => {
-                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address });
+                NetworkBehaviourAction::ReportObservedAddr { address, score } => {
+                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr {
+                        address,
+                        score,
+                    });
                 }
             }
         }

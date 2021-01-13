@@ -315,7 +315,7 @@ where
         use multibase::Base::Base64Pad;
         let msg = msg.as_ref();
 
-        let from = Base64Pad.encode(msg.source.as_bytes());
+        let from = Base64Pad.encode(msg.source.to_bytes());
         let data = Base64Pad.encode(&msg.data);
         let seqno = Base64Pad.encode(&msg.sequence_number);
         let topics = msg.topics.clone();

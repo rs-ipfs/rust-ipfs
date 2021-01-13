@@ -1404,7 +1404,9 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         // perhaps this could be moved under `IpfsEvent` or free functions?
                         let mut addresses = Vec::new();
                         addresses.extend(Swarm::listeners(&self.swarm).cloned());
-                        addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
+                        addresses.extend(
+                            Swarm::external_addresses(&self.swarm).map(|ar| ar.addr.clone()),
+                        );
                         // ignore error, perhaps caller went away already
                         let _ = ret.send(addresses);
                     }

@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 
 use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
+use ipfs::{Multiaddr, Protocol};
 use ipfs_http::{config, v0};
-use parity_multiaddr::{Multiaddr, Protocol};
 
 #[macro_use]
 extern crate tracing;
@@ -111,6 +111,7 @@ fn main() {
             }
         }
         Options::Daemon => {
+            // FIXME: toctou, should just match for this err?
             if !config_path.is_file() {
                 eprintln!("Error: no IPFS repo found in {:?}", home);
                 eprintln!("please run: 'ipfs init'");
