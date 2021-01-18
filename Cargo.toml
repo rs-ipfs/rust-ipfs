@@ -34,7 +34,7 @@ ipfs-unixfs = { version = "0.2", path = "unixfs" }
 libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-tokio", "mplex", "noise", "ping", "yamux", "dns"], git = "https://github.com/libp2p/rust-libp2p.git" }
 multibase = { default-features = false, version = "0.8" }
 multihash = { default-features = false, version = "0.11" }
-prost = { default-features = false, version = "0.6" }
+prost = { default-features = false, version = "0.7" }
 rand = { default-features = false, version = "0.7" }
 serde = { default-features = false, features = ["derive"], version = "1.0" }
 serde_json = { default-features = false, features = ["std"], version = "1.0" }
@@ -55,7 +55,7 @@ once_cell = "1.5.2"
 ipconfig = { default-features = false, version = "0.2" }
 
 [build-dependencies]
-prost-build = { default-features = false, version = "0.6" }
+prost-build = { default-features = false, version = "0.7" }
 
 [dev-dependencies]
 hex-literal = { default-features = false, version = "0.3" }
