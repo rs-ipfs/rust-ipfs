@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 use tokio::sync::Semaphore;
-use tokio_stream::{empty, StreamExt};
+use tokio_stream::{empty, wrappers::ReadDirStream, StreamExt};
 use tokio_util::either::Either;
 use tracing_futures::Instrument;
 
@@ -444,8 +444,6 @@ impl FsDataStore {
     async fn list_pinfiles(
         &self,
     ) -> impl futures::stream::Stream<Item = Result<(Cid, PinMode), Error>> + 'static {
-        use tokio_stream::wrappers::ReadDirStream;
-
         let stream = match tokio::fs::read_dir(self.path.clone()).await {
             Ok(st) => Either::Left(ReadDirStream::new(st)),
             // make this into a stream which will only yield the initial error

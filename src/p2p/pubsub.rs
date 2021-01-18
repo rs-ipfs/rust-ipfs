@@ -37,7 +37,7 @@ pub struct Pubsub {
 pub struct PubsubMessage {
     /// Peer address of the message sender.
     pub source: PeerId,
-    /// The message data.  
+    /// The message data.
     pub data: Vec<u8>,
     /// The sequence number of the message.
     // this could be an enum for gossipsub message compat, it uses u64, though the floodsub
