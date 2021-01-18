@@ -207,13 +207,7 @@ impl Pubsub {
     pub fn subscribed_peers(&self, topic: &Topic) -> Vec<PeerId> {
         self.peers
             .iter()
-            .filter_map(|(k, v)| {
-                if v.contains(topic) {
-                    Some(k.clone())
-                } else {
-                    None
-                }
-            })
+            .filter_map(|(k, v)| if v.contains(topic) { Some(*k) } else { None })
             .collect()
     }
 
@@ -384,7 +378,7 @@ impl NetworkBehaviour for Pubsub {
                     peer_id,
                     topic,
                 }) => {
-                    let topics = self.peers.entry(peer_id.clone()).or_insert_with(Vec::new);
+                    let topics = self.peers.entry(peer_id).or_insert_with(Vec::new);
                     let appeared = topics.is_empty();
                     if topics.iter().find(|&t| t == &topic).is_none() {
                         topics.push(topic);
@@ -400,7 +394,7 @@ impl NetworkBehaviour for Pubsub {
                     peer_id,
                     topic,
                 }) => {
-                    if let Entry::Occupied(mut oe) = self.peers.entry(peer_id.clone()) {
+                    if let Entry::Occupied(mut oe) = self.peers.entry(peer_id) {
                         let topics = oe.get_mut();
                         if let Some(pos) = topics.iter().position(|t| t == &topic) {
                             topics.swap_remove(pos);

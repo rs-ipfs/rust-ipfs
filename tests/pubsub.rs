@@ -103,7 +103,7 @@ async fn publish_between_two_nodes() {
     ]
     .iter()
     .cloned()
-    .map(|(topics, id, data)| (topics.to_vec(), id.clone(), data.to_vec()))
+    .map(|(topics, id, data)| (topics.to_vec(), *id, data.to_vec()))
     .collect::<HashSet<_>>();
 
     for st in &mut [b_msgs.by_ref(), a_msgs.by_ref()] {

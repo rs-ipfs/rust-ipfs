@@ -51,7 +51,7 @@ async fn connect_two_nodes_by_peer_id() {
     let node_b = Node::new("b").await;
 
     node_a
-        .add_peer(node_b.id.clone(), node_b.addrs[0].clone())
+        .add_peer(node_b.id, node_b.addrs[0].clone())
         .await
         .unwrap();
     let b_id_multiaddr: Multiaddr = format!("/p2p/{}", &node_b.id).parse().unwrap();
@@ -93,7 +93,7 @@ async fn connect_two_nodes_with_two_connections_doesnt_panic() {
     assert_eq!(addresses.len(), 2);
 
     for mut addr in addresses.into_iter() {
-        addr.push(Protocol::P2p(node_a.id.clone().into()));
+        addr.push(Protocol::P2p(node_a.id.into()));
 
         timeout(TIMEOUT, node_b.connect(addr))
             .await

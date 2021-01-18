@@ -148,7 +148,7 @@ impl Bitswap {
     ///
     /// Called from Kademlia behaviour.
     pub fn connect(&mut self, peer_id: PeerId) {
-        if self.target_peers.insert(peer_id.clone()) {
+        if self.target_peers.insert(peer_id) {
             self.events.push_back(NetworkBehaviourAction::DialPeer {
                 peer_id,
                 condition: DialPeerCondition::Disconnected,
@@ -224,9 +224,9 @@ impl NetworkBehaviour for Bitswap {
     fn inject_connected(&mut self, peer_id: &PeerId) {
         debug!("bitswap: inject_connected {}", peer_id);
         let ledger = Ledger::new();
-        self.stats.entry(peer_id.clone()).or_default();
-        self.connected_peers.insert(peer_id.clone(), ledger);
-        self.send_want_list(peer_id.clone());
+        self.stats.entry(*peer_id).or_default();
+        self.connected_peers.insert(*peer_id, ledger);
+        self.send_want_list(*peer_id);
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
@@ -259,7 +259,7 @@ impl NetworkBehaviour for Bitswap {
         for cid in message.cancel() {
             ledger.received_want_list.remove(cid);
 
-            let event = BitswapEvent::ReceivedCancel(source.clone(), cid.clone());
+            let event = BitswapEvent::ReceivedCancel(source, cid.clone());
             self.events
                 .push_back(NetworkBehaviourAction::GenerateEvent(event));
         }
@@ -272,7 +272,7 @@ impl NetworkBehaviour for Bitswap {
         {
             ledger.received_want_list.insert(cid.to_owned(), *priority);
 
-            let event = BitswapEvent::ReceivedWant(source.clone(), cid.clone(), *priority);
+            let event = BitswapEvent::ReceivedWant(source, cid.clone(), *priority);
             self.events
                 .push_back(NetworkBehaviourAction::GenerateEvent(event));
         }
@@ -281,7 +281,7 @@ impl NetworkBehaviour for Bitswap {
         for block in mem::take(&mut message.blocks) {
             self.cancel_block(&block.cid());
 
-            let event = BitswapEvent::ReceivedBlock(source.clone(), block);
+            let event = BitswapEvent::ReceivedBlock(source, block);
             self.events
                 .push_back(NetworkBehaviourAction::GenerateEvent(event));
         }
@@ -308,7 +308,7 @@ impl NetworkBehaviour for Bitswap {
                 }
 
                 return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                    peer_id: peer_id.clone(),
+                    peer_id: *peer_id,
                     handler: NotifyHandler::Any,
                     event: message,
                 });

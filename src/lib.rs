@@ -921,7 +921,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             self.to_task
                 .clone()
-                .send(IpfsEvent::FindPeer(peer_id.clone(), false, tx))
+                .send(IpfsEvent::FindPeer(peer_id, false, tx))
                 .await?;
 
             match rx.await? {
@@ -934,7 +934,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
                     self.to_task
                         .clone()
-                        .send(IpfsEvent::FindPeer(peer_id.clone(), true, tx))
+                        .send(IpfsEvent::FindPeer(peer_id, true, tx))
                         .await?;
 
                     match rx.await? {
