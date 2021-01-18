@@ -71,7 +71,7 @@ fn create_resolver() -> Result<StubResolver, Error> {
 
 #[cfg(target_os = "windows")]
 fn create_resolver() -> Result<StubResolver, Error> {
-    use domain_resolv::stub::conf::ResolvConf;
+    use domain::resolv::stub::conf::ResolvConf;
     use std::{collections::HashSet, io::Cursor};
 
     let mut config = ResolvConf::new();
@@ -100,12 +100,12 @@ pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
     dnslink.push_str(domain);
     let resolver = create_resolver()?;
 
-    let qname = Dname::<Bytes>::from_str(&domain)?;
+    let qname = Dname::<Bytes>::from_chars(domain.chars())?;
     let question = Question::new_in(qname, Rtype::Txt);
     let resolver1 = resolver.clone();
     let query1 = Box::pin(async move { resolver1.query(question).await });
 
-    let qname = Dname::<Bytes>::from_str(&dnslink)?;
+    let qname = Dname::<Bytes>::from_chars(dnslink.chars())?;
     let question = Question::new_in(qname, Rtype::Txt);
     let resolver2 = resolver;
     let query2 = Box::pin(async move { resolver2.query(question).await });
