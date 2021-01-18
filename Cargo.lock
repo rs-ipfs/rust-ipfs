@@ -60,7 +60,7 @@ version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d52a9bb7ec0cf484c551830a7ce27bd20d67eac647e1befb56b0be4ee39a55d2"
 dependencies = [
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -117,7 +117,7 @@ dependencies = [
  "polling",
  "vec-arena",
  "waker-fn",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -182,7 +182,7 @@ checksum = "d9b39be18770d11421cdb1b9947a45dd3f37e93092cbf377614828a319d5fee8"
 dependencies = [
  "hermit-abi",
  "libc",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -410,7 +410,7 @@ dependencies = [
  "num-integer",
  "num-traits",
  "time",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -723,32 +723,20 @@ checksum = "8e93d7f5705de3e49895a2b5e0b8855a1c27f080192ae9c32a6432d50741a57a"
 dependencies = [
  "libc",
  "redox_users",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
 name = "domain"
 version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cc2157cca35ae62d3d6281d876cc1b3f0f71a3409fe4b7c8d8790b441e9bc2b"
+source = "git+https://github.com/NLnetLabs/domain.git#0ddde30e716dc23bc07de53acc7377092e7e1204"
 dependencies = [
- "bytes 0.5.6",
- "rand",
- "smallvec",
-]
-
-[[package]]
-name = "domain-resolv"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "836b2fbda90bc12569223077c1fa0a62a8eee8b78f4e5d82a8f20b20ca1ccf0f"
-dependencies = [
- "bytes 0.5.6",
- "domain",
+ "bytes 1.0.1",
  "futures",
+ "libc",
  "rand",
  "smallvec",
- "tokio 0.2.22",
+ "tokio 1.0.1",
 ]
 
 [[package]]
@@ -804,7 +792,7 @@ dependencies = [
  "cfg-if 0.1.10",
  "libc",
  "redox_syscall",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -851,24 +839,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
 dependencies = [
  "libc",
- "winapi 0.3.9",
+ "winapi",
 ]
-
-[[package]]
-name = "fuchsia-zircon"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e9763c69ebaae630ba35f74888db465e49e259ba1bc0eda7d06f4a067615d82"
-dependencies = [
- "bitflags",
- "fuchsia-zircon-sys",
-]
-
-[[package]]
-name = "fuchsia-zircon-sys"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dcaa9ae7725d12cdb85b3ad99a434db70b468c09ded17e012d86b5c1010f7a7"
 
 [[package]]
 name = "futures"
@@ -1225,7 +1197,7 @@ checksum = "28538916eb3f3976311f5dfbe67b5362d0add1293d0a9cad17debf86f8e3aa48"
 dependencies = [
  "if-addrs-sys",
  "libc",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -1251,7 +1223,7 @@ dependencies = [
  "ipnet",
  "libc",
  "log",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -1274,15 +1246,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iovec"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2b3ea6ff95e175473f8ffe6a7eb7c00d054240321b84c57051175fe3c1e075e"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "ipconfig"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1290,7 +1253,7 @@ checksum = "f7e2f18aece9709094573a9f24f483c4f65caa4298e2f7ae1b71cc65d853fad7"
 dependencies = [
  "socket2",
  "widestring",
- "winapi 0.3.9",
+ "winapi",
  "winreg",
 ]
 
@@ -1303,11 +1266,10 @@ dependencies = [
  "async-trait",
  "base64",
  "byteorder",
- "bytes 0.5.6",
+ "bytes 1.0.1",
  "cid",
  "dirs",
  "domain",
- "domain-resolv",
  "either",
  "fs2",
  "futures",
@@ -1373,7 +1335,6 @@ dependencies = [
  "multibase",
  "multihash 0.11.4",
  "openssl",
- "parity-multiaddr 0.9.6",
  "percent-encoding",
  "prost 0.6.1",
  "prost-build 0.6.1",
@@ -1455,16 +1416,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67c21572b4949434e4fc1e1978b99c5f77064153c59d998bf13ecd96fb5ecba7"
 
 [[package]]
-name = "kernel32-sys"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"
-dependencies = [
- "winapi 0.2.8",
- "winapi-build",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1479,7 +1430,7 @@ checksum = "1482821306169ec4d07f6aca392a4681f66c75c9918aa49641a2595db64053cb"
 [[package]]
 name = "libp2p"
 version = "0.34.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "atomic",
  "bytes 1.0.1",
@@ -1497,7 +1448,7 @@ dependencies = [
  "libp2p-swarm",
  "libp2p-tcp",
  "libp2p-yamux",
- "parity-multiaddr 0.11.0",
+ "parity-multiaddr",
  "parking_lot",
  "pin-project 1.0.4",
  "smallvec",
@@ -1507,7 +1458,7 @@ dependencies = [
 [[package]]
 name = "libp2p-core"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "asn1_der",
  "bs58",
@@ -1521,7 +1472,7 @@ dependencies = [
  "log",
  "multihash 0.13.2",
  "multistream-select",
- "parity-multiaddr 0.11.0",
+ "parity-multiaddr",
  "parking_lot",
  "pin-project 1.0.4",
  "prost 0.7.0",
@@ -1540,7 +1491,7 @@ dependencies = [
 [[package]]
 name = "libp2p-core-derive"
 version = "0.21.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "quote",
  "syn",
@@ -1549,7 +1500,7 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "futures",
  "libp2p-core",
@@ -1559,7 +1510,7 @@ dependencies = [
 [[package]]
 name = "libp2p-floodsub"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "cuckoofilter",
  "fnv",
@@ -1576,7 +1527,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "futures",
  "libp2p-core",
@@ -1591,7 +1542,7 @@ dependencies = [
 [[package]]
 name = "libp2p-kad"
 version = "0.28.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "arrayvec",
  "asynchronous-codec",
@@ -1616,7 +1567,7 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "asynchronous-codec",
  "bytes 1.0.1",
@@ -1633,7 +1584,7 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.29.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "bytes 1.0.1",
  "curve25519-dalek",
@@ -1654,7 +1605,7 @@ dependencies = [
 [[package]]
 name = "libp2p-ping"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "futures",
  "libp2p-core",
@@ -1668,7 +1619,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "either",
  "futures",
@@ -1683,7 +1634,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "async-io",
  "futures",
@@ -1701,7 +1652,7 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.30.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "futures",
  "libp2p-core",
@@ -1807,46 +1758,15 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "0.6.22"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fce347092656428bc8eaf6201042cb551b8d67855af7374542a92a0fbfcac430"
-dependencies = [
- "cfg-if 0.1.10",
- "fuchsia-zircon",
- "fuchsia-zircon-sys",
- "iovec",
- "kernel32-sys",
- "libc",
- "log",
- "miow 0.2.1",
- "net2",
- "slab",
- "winapi 0.2.8",
-]
-
-[[package]]
-name = "mio"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e50ae3f04d169fcc9bde0b547d1c205219b7157e07ded9c5aff03e0637cb3ed7"
 dependencies = [
  "libc",
  "log",
- "miow 0.3.6",
+ "miow",
  "ntapi",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "miow"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c1f2f3b1cf331de6896aabf6e9d55dca90356cc9960cca7eaaf408a355ae919"
-dependencies = [
- "kernel32-sys",
- "net2",
- "winapi 0.2.8",
- "ws2_32-sys",
+ "winapi",
 ]
 
 [[package]]
@@ -1856,7 +1776,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a33c1b55807fbed163481b5ba66db4b2fa6cde694a5027be10fb724206c5897"
 dependencies = [
  "socket2",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -1938,7 +1858,7 @@ checksum = "1255076139a83bb467426e7f8d0134968a8118844faa755985e077cf31850333"
 [[package]]
 name = "multistream-select"
 version = "0.10.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "bytes 1.0.1",
  "futures",
@@ -1955,18 +1875,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8123a81538e457d44b933a02faf885d3fe8408806b23fa700e8f01c6c3a98998"
 dependencies = [
  "libc",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "net2"
-version = "0.2.35"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ebc3ec692ed7c9a255596c67808dee269f64655d8baf7b4f0638e51ba1d6853"
-dependencies = [
- "cfg-if 0.1.10",
- "libc",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -1981,7 +1890,7 @@ version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f6bb902e437b6d86e03cce10a7e2af662292c5dfef23b65899ea3ac9354ad44"
 dependencies = [
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -2066,25 +1975,8 @@ dependencies = [
 
 [[package]]
 name = "parity-multiaddr"
-version = "0.9.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43244a26dc1ddd3097216bb12eaa6cf8a07b060c72718d9ebd60fd297d6401df"
-dependencies = [
- "arrayref",
- "bs58",
- "byteorder",
- "data-encoding",
- "multihash 0.11.4",
- "percent-encoding",
- "serde",
- "static_assertions",
- "unsigned-varint 0.5.1",
-]
-
-[[package]]
-name = "parity-multiaddr"
 version = "0.11.0"
-source = "git+https://github.com/libp2p/rust-libp2p.git#75b5fdfbca293b7ae8bb546b9730531016f4caea"
+source = "git+https://github.com/libp2p/rust-libp2p.git#2c4de90356fb0ddee68dc12de6417d79954fef4c"
 dependencies = [
  "arrayref",
  "bs58",
@@ -2127,7 +2019,7 @@ dependencies = [
  "libc",
  "redox_syscall",
  "smallvec",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -2232,7 +2124,7 @@ dependencies = [
  "libc",
  "log",
  "wepoll-sys",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -2548,7 +2440,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3acd125665422973a33ac9d3dd2df85edad0f4ae9b00dafb1a05e43a9f5ef8e7"
 dependencies = [
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -2563,7 +2455,7 @@ dependencies = [
  "spin",
  "untrusted",
  "web-sys",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -2824,7 +2716,7 @@ checksum = "122e570113d28d773067fab24266b66753f6ea915758651696b6e35e49f88d6e"
 dependencies = [
  "cfg-if 1.0.0",
  "libc",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -2930,7 +2822,7 @@ dependencies = [
  "rand",
  "redox_syscall",
  "remove_dir_all",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -2979,7 +2871,7 @@ checksum = "6db9e6914ab8b1ae1c260a4ae7a49b6c5611b40328a735b21862567685e73255"
 dependencies = [
  "libc",
  "wasi 0.10.0+wasi-snapshot-preview1",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -2997,22 +2889,6 @@ name = "tinyvec"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "238ce071d267c5710f9d31451efec16c5ee22de34df17cc05e56cbc92e967117"
-
-[[package]]
-name = "tokio"
-version = "0.2.22"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d34ca54d84bf2b5b4d7d31e901a8464f7b60ac145a284fba25ceb801f2ddccd"
-dependencies = [
- "bytes 0.5.6",
- "iovec",
- "lazy_static",
- "memchr",
- "mio 0.6.22",
- "pin-project-lite 0.1.10",
- "slab",
- "tokio-macros 0.2.5",
-]
 
 [[package]]
 name = "tokio"
@@ -3036,21 +2912,10 @@ dependencies = [
  "bytes 1.0.1",
  "libc",
  "memchr",
- "mio 0.7.7",
+ "mio",
  "num_cpus",
  "pin-project-lite 0.2.4",
- "tokio-macros 1.0.0",
-]
-
-[[package]]
-name = "tokio-macros"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0c3acc6aa564495a0f2e1d59fab677cd7f81a19994cfc7f3ad0e64301560389"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
+ "tokio-macros",
 ]
 
 [[package]]
@@ -3346,7 +3211,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "777182bc735b6424e1a57516d35ed72cb8019d85c8c9bf536dccb3445c1a2f7d"
 dependencies = [
  "same-file",
- "winapi 0.3.9",
+ "winapi",
  "winapi-util",
 ]
 
@@ -3363,7 +3228,7 @@ dependencies = [
 [[package]]
 name = "warp"
 version = "0.2.5"
-source = "git+https://github.com/aknuds1/warp.git?branch=chore/upgrade-tokio#bb2f511fc8785784089ebdb12861bbc32e4cef5d"
+source = "git+https://github.com/seanmonstar/warp.git#ffefea08050ffe8022d3391f4bd5e5ab4e95d7c9"
 dependencies = [
  "bytes 1.0.1",
  "futures",
@@ -3526,12 +3391,6 @@ checksum = "c168940144dd21fd8046987c16a46a33d5fc84eec29ef9dcddc2ac9e31526b7c"
 
 [[package]]
 name = "winapi"
-version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "167dc9d6949a9b857f3451275e911c3f44255842c1f7a76f33c55103a909087a"
-
-[[package]]
-name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
@@ -3539,12 +3398,6 @@ dependencies = [
  "winapi-i686-pc-windows-gnu",
  "winapi-x86_64-pc-windows-gnu",
 ]
-
-[[package]]
-name = "winapi-build"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d315eee3b34aca4797b2da6b13ed88266e6d612562a0c46390af8299fc699bc"
 
 [[package]]
 name = "winapi-i686-pc-windows-gnu"
@@ -3558,7 +3411,7 @@ version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70ec6ce85bb158151cae5e5c87f95a8e97d2c0c4b001223f33a334e3ce5de178"
 dependencies = [
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -3573,17 +3426,7 @@ version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2986deb581c4fe11b621998a5e53361efe6b48a151178d0cd9eeffa4dc6acc9"
 dependencies = [
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "ws2_32-sys"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d59cefebd0c892fa2dd6de581e937301d8552cb44489cdff035c6187cb63fa5e"
-dependencies = [
- "winapi 0.2.8",
- "winapi-build",
+ "winapi",
 ]
 
 [[package]]
