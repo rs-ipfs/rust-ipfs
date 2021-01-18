@@ -1,6 +1,6 @@
 //! go-ipfs compatible configuration file handling and setup.
 
-use parity_multiaddr::{multiaddr, Multiaddr};
+use ipfs::{multiaddr, Multiaddr};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::num::NonZeroU16;

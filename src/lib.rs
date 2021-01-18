@@ -89,7 +89,10 @@ pub use self::{
 pub use cid::Cid;
 pub use ipfs_bitswap::Block;
 pub use libp2p::{
-    core::{connection::ListenerId, multiaddr::Protocol, Multiaddr, PeerId, PublicKey},
+    core::{
+        connection::ListenerId, multiaddr::multiaddr, multiaddr::Protocol, Multiaddr, PeerId,
+        PublicKey,
+    },
     identity::Keypair,
     kad::{record::Key, Quorum},
 };
