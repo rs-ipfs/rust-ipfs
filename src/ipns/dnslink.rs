@@ -4,7 +4,7 @@ use bytes::Bytes;
 use domain::base::iana::Rtype;
 use domain::base::{Dname, Question};
 use domain::rdata::rfc1035::Txt;
-use domain_resolv::{stub::Answer, StubResolver};
+use domain::resolv::{stub::Answer, StubResolver};
 use futures::future::{select_ok, SelectOk};
 use futures::pin_mut;
 use std::future::Future;
