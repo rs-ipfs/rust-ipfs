@@ -61,7 +61,7 @@ hex-literal = { default-features = false, version = "0.3" }
 sha2 = { default-features = false, version = "0.9" }
 tokio = { default-features = false, features = ["io-std", "io-util", "time"], version = "1" }
 tracing-subscriber = { default-features = false, features = ["fmt", "tracing-log", "ansi", "env-filter"], version = "0.2" }
-rand = { default-features = false, version = "0.7" }
+rand = { default-features = false, version = "0.8", features = ["std", "std_rng"] }
 
 [workspace]
 members = [ "bitswap", "http", "unixfs" ]

@@ -491,7 +491,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     #[ignore]
     async fn subscription_stress_test() {
-        use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
+        use rand::{seq::SliceRandom, Rng};
         use std::time::Duration;
         use tokio::{task, time::sleep};
 
@@ -515,24 +515,22 @@ mod tests {
         let reg = Arc::new(SubscriptionRegistry::<u32, ()>::default());
         // a collection to hold active subscription futures
         let subs = Arc::new(Mutex::new(Vec::with_capacity(1024)));
-        // an RNG to create some randomness
-        let mut rng = StdRng::from_entropy();
 
         // the task below creates a random number of subscriptions to a
         // random object in a loop
         let reg_clone = Arc::clone(&reg);
         let subs_clone = Arc::clone(&subs);
-        let mut rng_clone = rng.clone();
         let create_task = task::spawn(async move {
-            let (mut kind, mut count);
-
             loop {
                 sleep(Duration::from_millis(CREATE_WAIT_TIME)).await;
 
+                // avoid storing the thread_rng in a binding to keep it from making the future
+                // !Send, so use it through rand::thread_rng.
+
                 // the id of the object that will gain subscriptions
-                kind = rng_clone.gen_range(0, KIND_COUNT);
+                let kind = rand::thread_rng().gen_range(0..KIND_COUNT);
                 // the number of subscriptions it will gain
-                count = rng_clone.gen_range(0, KIND_SUB_COUNT);
+                let count = rand::thread_rng().gen_range(0..KIND_SUB_COUNT);
 
                 if count > 0 {
                     let mut subs = subs_clone.lock().unwrap();
@@ -548,23 +546,20 @@ mod tests {
         // the task below finishes subscriptions to random objects in a loop,
         // one object at a time
         let reg_clone = Arc::clone(&reg);
-        let mut rng_clone = rng.clone();
         let finish_task = task::spawn(async move {
-            let (mut kinds, mut count);
-
             loop {
                 sleep(Duration::from_millis(FINISH_WAIT_TIME)).await;
 
-                kinds = reg_clone
+                let kinds = reg_clone
                     .subscriptions
                     .lock()
                     .unwrap()
                     .keys()
                     .cloned()
                     .collect::<Vec<_>>();
-                count = rng_clone.gen_range(0, kinds.len());
+                let count = rand::thread_rng().gen_range(0..kinds.len());
 
-                for kind in kinds.choose_multiple(&mut rng_clone, count) {
+                for kind in kinds.choose_multiple(&mut rand::thread_rng(), count) {
                     reg.finish_subscription(kind.to_owned(), Ok(0));
                 }
             }
@@ -573,16 +568,14 @@ mod tests {
         // the task below drops a random number of subscription futures from
         // the vector populated by the create_task
         let cancel_task = task::spawn(async move {
-            let (mut count, mut idx);
-
             loop {
                 sleep(Duration::from_millis(CANCEL_WAIT_TIME)).await;
 
                 let subs_unlocked = &mut *subs.lock().unwrap();
-                count = rng.gen_range(0, subs_unlocked.len());
+                let count = rand::thread_rng().gen_range(0..subs_unlocked.len());
 
                 for _ in 0..count {
-                    idx = rng.gen_range(0, subs_unlocked.len());
+                    let idx = rand::thread_rng().gen_range(0..subs_unlocked.len());
                     subs_unlocked.remove(idx);
                 }
             }
