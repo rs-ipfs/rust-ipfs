@@ -35,7 +35,7 @@ tokio-stream = { version = "0.1" }
 tracing = { default-features = false, features = ["log"], version = "0.1" }
 tracing-subscriber = { default-features = false, features = ["fmt", "tracing-log", "env-filter"], version = "0.2" }
 url = { default-features = false, version = "2.1" }
-warp = { default-features = false, version = "0.2", git = "https://github.com/seanmonstar/warp.git" }
+warp = { default-features = false, version = "0.3" }
 
 [dev-dependencies]
 hex-literal = { default-features = false, version = "0.3" }
