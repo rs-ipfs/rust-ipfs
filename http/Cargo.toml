@@ -18,7 +18,7 @@ futures = { default-features = false, version = "0.3" }
 humantime = { default-features = false, version = "2.0" }
 ipfs = { path = "../" }
 mime = { default-features = false, version = "0.3" }
-mpart-async = { default-features = false, version = "0.4", git = "https://github.com/gferon/mpart-async.git", branch = "tokio-1.0" }
+mpart-async = { default-features = false, version = "0.5" }
 multibase = { default-features = false, version = "0.8" }
 multihash = { default-features = false, version = "0.11" }
 # openssl is required for rsa keygen but not used by the rust-ipfs or its dependencies
