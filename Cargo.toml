@@ -26,7 +26,6 @@ ipfs-bitswap = { version = "0.1", path = "bitswap" }
 byteorder = { default-features = false, version = "1.3" }
 bytes = { default-features = false, version = "1" }
 cid = { default-features = false, version = "0.5" }
-dirs = { default-features = false, version = "3.0" }
 domain = { default-features = false, git = "https://github.com/NLnetLabs/domain.git", features = ["resolv", "bytes"] }
 either = { default-features = false, version = "1.5" }
 futures = { default-features = false, version = "0.3.9", features = ["alloc", "std"] }
