@@ -443,7 +443,7 @@ mod tests {
     use std::env::temp_dir;
     use std::sync::Arc;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn test_fs_blockstore() {
         let mut tmp = temp_dir();
         tmp.push("blockstore1");
@@ -481,7 +481,7 @@ mod tests {
         std::fs::remove_dir_all(tmp).ok();
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn test_fs_blockstore_open() {
         let mut tmp = temp_dir();
         tmp.push("blockstore2");
@@ -506,7 +506,7 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn test_fs_blockstore_list() {
         let mut tmp = temp_dir();
         tmp.push("blockstore_list");
@@ -530,7 +530,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn race_to_insert_new() {
         // FIXME: why not tempdir?
         let mut tmp = temp_dir();
@@ -561,7 +561,7 @@ mod tests {
         assert_eq!(existing, count - 1);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn race_to_insert_with_existing() {
         // FIXME: why not tempdir?
         let mut tmp = temp_dir();
@@ -634,7 +634,7 @@ mod tests {
         (writes, existing)
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn remove() {
         // FIXME: why not tempdir?
         let mut tmp = temp_dir();

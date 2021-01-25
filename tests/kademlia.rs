@@ -15,7 +15,7 @@ fn strip_peer_id(addr: Multiaddr) -> Multiaddr {
 }
 
 /// Check if `Ipfs::find_peer` works without DHT involvement.
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test]
 async fn find_peer_local() {
     let nodes = spawn_nodes(2, Topology::None).await;
     nodes[0].connect(nodes[1].addrs[0].clone()).await.unwrap();
@@ -101,7 +101,7 @@ async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) 
 }
 
 /// Check if `Ipfs::find_peer` works using DHT.
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test]
 async fn dht_find_peer() {
     // works for numbers >=2, though 2 would essentially just
     // be the same as find_peer_local, so it should be higher
@@ -118,7 +118,7 @@ async fn dht_find_peer() {
     assert_eq!(found_addrs, vec![to_be_found]);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test]
 async fn dht_get_closest_peers() {
     const CHAIN_LEN: usize = 10;
     let (nodes, _foreign_node) = spawn_bootstrapped_nodes(CHAIN_LEN).await;
@@ -130,7 +130,7 @@ async fn dht_get_closest_peers() {
 }
 
 #[ignore = "targets an actual bootstrapper, so random failures can happen"]
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test]
 async fn dht_popular_content_discovery() {
     let peer = Node::new("a").await;
 
@@ -147,7 +147,7 @@ async fn dht_popular_content_discovery() {
 }
 
 /// Check if Ipfs::{get_providers, provide} does its job.
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test]
 async fn dht_providing() {
     const CHAIN_LEN: usize = 10;
     let (nodes, foreign_node) = spawn_bootstrapped_nodes(CHAIN_LEN).await;
@@ -176,7 +176,7 @@ async fn dht_providing() {
 }
 
 /// Check if Ipfs::{get, put} does its job.
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test]
 async fn dht_get_put() {
     const CHAIN_LEN: usize = 10;
     let (nodes, foreign_node) = spawn_bootstrapped_nodes(CHAIN_LEN).await;

@@ -51,7 +51,7 @@ async fn check_cid_subscriptions(ipfs: &Node, cid: &Cid, expected_count: usize) 
 }
 
 /// Check if canceling a Cid affects the wantlist.
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test]
 async fn wantlist_cancellation() {
     tracing_subscriber::fmt::init();
 

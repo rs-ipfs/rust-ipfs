@@ -303,7 +303,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn very_long_file_and_symlink_names() {
         let ipfs = Node::new("test_node").await;
 
@@ -359,7 +359,7 @@ mod tests {
         assert_eq!(found, expected);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn get_multiblock_file() {
         let ipfs = Node::new("test_node").await;
 

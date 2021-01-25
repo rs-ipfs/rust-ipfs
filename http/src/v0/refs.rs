@@ -216,7 +216,7 @@ mod tests {
     use std::collections::HashSet;
     use std::convert::TryFrom;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn test_inner_local() {
         let filter = local(&*preloaded_testing_ipfs().await);
 
@@ -263,7 +263,7 @@ mod tests {
         assert!(diff.is_empty(), "{:?}", diff);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn refs_with_path() {
         let ipfs = preloaded_testing_ipfs().await;
 

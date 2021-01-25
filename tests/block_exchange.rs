@@ -15,7 +15,7 @@ fn create_block() -> Block {
 }
 
 // verify that a put block can be received via get_block and the data matches
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test]
 async fn two_node_put_get() {
     let nodes = spawn_nodes(2, Topology::Line).await;
     let block = create_block();
@@ -30,7 +30,7 @@ async fn two_node_put_get() {
 }
 
 // check that a long line of nodes still works with get_block
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test]
 #[ignore]
 async fn long_get_block() {
     // this number could be higher, but it starts hanging above ~24

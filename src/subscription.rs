@@ -429,7 +429,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn subscription_basics() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -441,7 +441,7 @@ mod tests {
         assert_eq!(s3.await.unwrap(), 10);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn subscription_cancelled_on_dropping_registry() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -449,7 +449,7 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn subscription_cancelled_on_shutdown() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         let s1 = registry.create_subscription(0.into(), None);
@@ -457,7 +457,7 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn new_subscriptions_cancelled_after_shutdown() {
         let registry = SubscriptionRegistry::<u32, ()>::default();
         registry.shutdown();
@@ -465,7 +465,7 @@ mod tests {
         assert_eq!(s1.await, Err(SubscriptionErr::Cancelled));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn dropping_subscription_future_after_registering() {
         use std::time::Duration;
         use tokio::time::timeout;
@@ -488,7 +488,7 @@ mod tests {
 
     // this test is designed to verify that the subscription registry is working properly
     // and doesn't break even under extreme conditions
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     #[ignore]
     async fn subscription_stress_test() {
         use rand::{seq::SliceRandom, Rng};
