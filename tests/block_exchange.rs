@@ -2,7 +2,7 @@ use cid::{Cid, Codec};
 use ipfs::Block;
 use multihash::Sha2_256;
 use std::time::Duration;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 
 mod common;
 use common::{spawn_nodes, Topology};
@@ -22,6 +22,44 @@ async fn two_node_put_get() {
 
     nodes[0].put_block(block.clone()).await.unwrap();
     let found_block = timeout(Duration::from_secs(10), nodes[1].get_block(&block.cid))
+        .await
+        .expect("get_block did not complete in time")
+        .unwrap();
+
+    assert_eq!(block.data, found_block.data);
+}
+
+// start fetching the cid before storing the block on the source, causing a need for a retry which
+// we dont yet have.
+#[tokio::test]
+async fn two_node_get_put() {
+    let nodes = spawn_nodes(2, Topology::Line).await;
+    let block = create_block();
+
+    let downloaded = nodes[1].get_block(&block.cid);
+    tokio::pin!(downloaded);
+
+    {
+        let deadline = sleep(Duration::from_secs(1));
+        tokio::pin!(deadline);
+        loop {
+            tokio::select! {
+                _ = &mut deadline => {
+                    // FIXME(flaky time assumption): we now assume that the want has been
+                    // propagated, and that our nodes[0] has not found it locally. perhaps if swarm
+                    // could propagate all of the events up, we could notify this via event. alas,
+                    // we dont have such an event, nor can we hope to get this information over
+                    // bitswap 1.0
+                    break;
+                },
+                _ = &mut downloaded => unreachable!("cannot complete get_block before block exists"),
+            }
+        }
+    }
+
+    nodes[0].put_block(block.clone()).await.unwrap();
+
+    let found_block = timeout(Duration::from_secs(10), downloaded)
         .await
         .expect("get_block did not complete in time")
         .unwrap();
