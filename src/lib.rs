@@ -340,6 +340,10 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
     /// Initialize the ipfs node. The returned `Ipfs` value is cloneable, send and sync, and the
     /// future should be spawned on a executor as soon as possible.
+    ///
+    /// The future returned from this method should not need
+    /// (instrumenting)[`tracing_futures::Instrument::instrument`] as the [`IpfsOptions::span`]
+    /// will be used as parent span for all of the awaited and created futures.
     pub async fn start(self) -> Result<(Ipfs<Types>, impl Future<Output = ()>), Error> {
         use futures::stream::StreamExt;
 
@@ -350,16 +354,27 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             mut options,
         } = self;
 
-        repo.init().await?;
-
-        let (to_task, receiver) = channel::<IpfsEvent>(1);
-
-        let facade_span = options
+        let root_span = options
             .span
             .take()
-            .unwrap_or_else(|| tracing::trace_span!("ipfs"));
+            // not sure what would be the best practice with tracing and spans
+            .unwrap_or_else(|| tracing::trace_span!(parent: &Span::current(), "ipfs"));
 
-        let swarm_span = tracing::trace_span!(parent: facade_span.clone(), "swarm");
+        let init_span = tracing::trace_span!(parent: &root_span, "init");
+
+        // stored in the Ipfs, added on every method call
+        let facade_span = tracing::trace_span!("facade");
+
+        // stored in the executor given to libp2p, used to spawn at least the connections,
+        // instrumenting each of those. FIXME: name is wrong, this is the "exec[utor]", not the "swarm".
+        let swarm_span = tracing::trace_span!(parent: &root_span, "swarm");
+
+        // stored in the IpfsFuture, the background task. FIXME: this should be the "swarm".
+        let bg_task_span = tracing::trace_span!(parent: &root_span, "bg_task");
+
+        repo.init().instrument(init_span.clone()).await?;
+
+        let (to_task, receiver) = channel::<IpfsEvent>(1);
 
         let ipfs = Ipfs {
             span: facade_span,
@@ -369,7 +384,9 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         };
 
         let swarm_options = SwarmOptions::from(&options);
-        let swarm = create_swarm(swarm_options, swarm_span, repo).await?;
+        let swarm = create_swarm(swarm_options, swarm_span, repo)
+            .instrument(tracing::trace_span!(parent: &init_span, "swarm"))
+            .await?;
 
         let IpfsOptions {
             listening_addrs, ..
@@ -386,7 +403,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             fut.start_add_listener_address(addr, None);
         }
 
-        Ok((ipfs, fut))
+        Ok((ipfs, fut.instrument(bg_task_span)))
     }
 }
 
@@ -1663,12 +1680,12 @@ mod node {
         pub async fn with_options(opts: IpfsOptions) -> Self {
             let id = opts.keypair.public().into_peer_id();
 
-            let (ipfs, fut): (Ipfs<TestTypes>, _) = UninitializedIpfs::new(opts)
-                .start()
-                .in_current_span()
-                .await
-                .unwrap();
-            let bg_task = tokio::task::spawn(fut.in_current_span());
+            // for future: assume UninitializedIpfs handles instrumenting any futures with the
+            // given span
+
+            let (ipfs, fut): (Ipfs<TestTypes>, _) =
+                UninitializedIpfs::new(opts).start().await.unwrap();
+            let bg_task = tokio::task::spawn(fut);
             let addrs = ipfs.identity().await.unwrap().1;
 
             Node {
