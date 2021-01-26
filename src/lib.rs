@@ -363,14 +363,14 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         // the "current" span which is not entered but the awaited futures are instrumented with it
         let init_span = tracing::trace_span!(parent: &root_span, "init");
 
-        // stored in the Ipfs, added on every method call
+        // stored in the Ipfs, instrumenting every method call
         let facade_span = tracing::trace_span!("facade");
 
         // stored in the executor given to libp2p, used to spawn at least the connections,
         // instrumenting each of those.
         let exec_span = tracing::trace_span!(parent: &root_span, "exec");
 
-        // stored in the IpfsFuture, the background task.
+        // instruments the IpfsFuture, the background task.
         let swarm_span = tracing::trace_span!(parent: &root_span, "swarm");
 
         repo.init().instrument(init_span.clone()).await?;
