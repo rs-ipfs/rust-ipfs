@@ -13,7 +13,6 @@ use tokio::fs;
 use tokio::sync::Semaphore;
 use tokio_stream::{empty, wrappers::ReadDirStream, StreamExt};
 use tokio_util::either::Either;
-use tracing_futures::Instrument;
 
 // PinStore is a trait from ipfs::repo implemented on FsDataStore defined at ipfs::repo::fs or
 // parent module.
@@ -318,7 +317,7 @@ impl PinStore for FsDataStore {
             }
         };
 
-        Box::pin(st.in_current_span())
+        Box::pin(st)
     }
 
     async fn query(
