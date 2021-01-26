@@ -77,6 +77,12 @@ impl FromStr for MultiaddrWithoutPeerId {
     }
 }
 
+impl PartialEq<Multiaddr> for MultiaddrWithoutPeerId {
+    fn eq(&self, other: &Multiaddr) -> bool {
+        &self.0 == other
+    }
+}
+
 /// A `Multiaddr` paired with a discrete `PeerId`. The `Multiaddr` can contain a
 /// `Protocol::P2p`, but it's not as easy to work with, and some functionalities
 /// don't support it being contained within the `Multiaddr`.
