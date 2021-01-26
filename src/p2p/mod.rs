@@ -55,7 +55,7 @@ impl From<&IpfsOptions> for SwarmOptions {
 /// Creates a new IPFS swarm.
 pub async fn create_swarm<TIpfsTypes: IpfsTypes>(
     options: SwarmOptions,
-    swarm_span: Span,
+    span: Span,
     repo: Arc<Repo<TIpfsTypes>>,
 ) -> io::Result<TSwarm<TIpfsTypes>> {
     let peer_id = options.peer_id;
@@ -68,7 +68,7 @@ pub async fn create_swarm<TIpfsTypes: IpfsTypes>(
 
     // Create a Swarm
     let swarm = libp2p::swarm::SwarmBuilder::new(transport, behaviour, peer_id)
-        .executor(Box::new(SpannedExecutor(swarm_span)))
+        .executor(Box::new(SpannedExecutor(span)))
         .build();
 
     Ok(swarm)

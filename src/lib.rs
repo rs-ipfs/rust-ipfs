@@ -360,17 +360,18 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             // not sure what would be the best practice with tracing and spans
             .unwrap_or_else(|| tracing::trace_span!(parent: &Span::current(), "ipfs"));
 
+        // the "current" span which is not entered but the awaited futures are instrumented with it
         let init_span = tracing::trace_span!(parent: &root_span, "init");
 
         // stored in the Ipfs, added on every method call
         let facade_span = tracing::trace_span!("facade");
 
         // stored in the executor given to libp2p, used to spawn at least the connections,
-        // instrumenting each of those. FIXME: name is wrong, this is the "exec[utor]", not the "swarm".
-        let swarm_span = tracing::trace_span!(parent: &root_span, "swarm");
+        // instrumenting each of those.
+        let exec_span = tracing::trace_span!(parent: &root_span, "exec");
 
-        // stored in the IpfsFuture, the background task. FIXME: this should be the "swarm".
-        let bg_task_span = tracing::trace_span!(parent: &root_span, "bg_task");
+        // stored in the IpfsFuture, the background task.
+        let swarm_span = tracing::trace_span!(parent: &root_span, "swarm");
 
         repo.init().instrument(init_span.clone()).await?;
 
@@ -383,8 +384,10 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             to_task,
         };
 
+        // FIXME: mutating options above is an unfortunate side-effect of this call, which could be
+        // reordered for less error prone code.
         let swarm_options = SwarmOptions::from(&options);
-        let swarm = create_swarm(swarm_options, swarm_span, repo)
+        let swarm = create_swarm(swarm_options, exec_span, repo)
             .instrument(tracing::trace_span!(parent: &init_span, "swarm"))
             .await?;
 
@@ -403,7 +406,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             fut.start_add_listener_address(addr, None);
         }
 
-        Ok((ipfs, fut.instrument(bg_task_span)))
+        Ok((ipfs, fut.instrument(swarm_span)))
     }
 }
 
