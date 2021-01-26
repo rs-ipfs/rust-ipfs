@@ -1510,7 +1510,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         let _ = ret.send(peers);
                     }
                     IpfsEvent::FindPeer(peer_id, local_only, ret) => {
-                        let swarm_addrs = self.swarm.swarm.addresses_of_peer(&peer_id);
+                        let swarm_addrs = self.swarm.swarm.connections_to(&peer_id);
                         let locally_known_addrs = if !swarm_addrs.is_empty() {
                             swarm_addrs
                         } else {
