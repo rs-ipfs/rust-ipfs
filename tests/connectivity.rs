@@ -121,3 +121,32 @@ async fn connect_two_nodes_with_two_connections_doesnt_panic() {
         peers
     );
 }
+
+#[tokio::test]
+async fn connect_to_wrong_peer() {
+    let a = Node::new("a").await;
+    let b = Node::new("b").await;
+    let c = Node::new("c").await;
+
+    // take b's address but with c's peerid
+    let mut wrong_addr = b.addrs[0].clone();
+    assert!(matches!(wrong_addr.pop(), Some(Protocol::P2p(_))));
+    wrong_addr.push(Protocol::P2p(c.id.as_ref().to_owned()));
+
+    // timeout of one is not great, but it's enough to make the connection.
+    let connection_result = timeout(Duration::from_secs(1), a.connect(wrong_addr)).await;
+
+    for &(node, name) in &[(&c, "c"), (&b, "b"), (&a, "a")] {
+        let peers = node.peers().await.unwrap();
+        assert!(
+            peers.is_empty(),
+            "{} should have no connections, but had: {:?}",
+            name,
+            peers
+        );
+    }
+
+    connection_result
+        .expect("connect timed out")
+        .expect_err("connection should had failed (wrong peer id)");
+}
