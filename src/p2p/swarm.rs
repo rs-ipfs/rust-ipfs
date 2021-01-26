@@ -26,10 +26,8 @@ pub struct Disconnector {
 }
 
 impl Disconnector {
-    pub fn disconnect<T: NetworkBehaviour>(self, swarm: &mut Swarm<T>)
-        where <<<T as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent: std::clone::Clone
-    {
-        Swarm::ban_peer_id(swarm, self.peer_id.clone());
+    pub fn disconnect<T: NetworkBehaviour>(self, swarm: &mut Swarm<T>) {
+        Swarm::ban_peer_id(swarm, self.peer_id);
         Swarm::unban_peer_id(swarm, self.peer_id);
     }
 }
@@ -69,7 +67,7 @@ impl SwarmApi {
 
                 if let Some(any) = conns.first() {
                     Some(Connection {
-                        addr: MultiaddrWithPeerId::from((any.clone(), peer.clone())),
+                        addr: MultiaddrWithPeerId::from((any.clone(), *peer)),
                         rtt,
                     })
                 } else {
@@ -80,7 +78,7 @@ impl SwarmApi {
 
     pub fn set_rtt(&mut self, peer_id: &PeerId, rtt: Duration) {
         // FIXME: this is for any connection
-        self.roundtrip_times.insert(peer_id.clone(), rtt);
+        self.roundtrip_times.insert(*peer_id, rtt);
     }
 
     pub fn connect(&mut self, addr: MultiaddrWithPeerId) -> Option<SubscriptionFuture<(), String>> {
@@ -158,16 +156,16 @@ impl NetworkBehaviour for SwarmApi {
         trace!("inject_connected {} {:?}", peer_id, cp);
         let addr: MultiaddrWithoutPeerId = connection_point_addr(cp).to_owned().try_into().unwrap();
 
-        self.peers.insert(peer_id.clone());
-        let connections = self.connected_peers.entry(peer_id.clone()).or_default();
+        self.peers.insert(*peer_id);
+        let connections = self.connected_peers.entry(*peer_id).or_default();
         connections.push(addr.clone());
 
-        self.connections.insert(addr.clone(), peer_id.clone());
+        self.connections.insert(addr.clone(), *peer_id);
 
         if let ConnectedPoint::Dialer { .. } = cp {
             let addr = MultiaddrWithPeerId {
                 multiaddr: addr,
-                peer_id: peer_id.clone(),
+                peer_id: *peer_id,
             };
 
             self.connect_registry
@@ -267,10 +265,10 @@ mod tests {
     use libp2p::{multiaddr::Protocol, multihash::Multihash, swarm::Swarm};
     use std::convert::TryInto;
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn swarm_api() {
         let (peer1_id, trans) = mk_transport();
-        let mut swarm1 = Swarm::new(trans, SwarmApi::default(), peer1_id.clone());
+        let mut swarm1 = Swarm::new(trans, SwarmApi::default(), peer1_id);
 
         let (peer2_id, trans) = mk_transport();
         let mut swarm2 = Swarm::new(trans, SwarmApi::default(), peer2_id);
@@ -280,7 +278,7 @@ mod tests {
         for l in Swarm::listeners(&swarm1) {
             let mut addr = l.to_owned();
             addr.push(Protocol::P2p(
-                Multihash::from_bytes(peer1_id.clone().into_bytes()).unwrap(),
+                Multihash::from_bytes(&peer1_id.to_bytes()).unwrap(),
             ));
             if let Some(fut) = swarm2.connect(addr.try_into().unwrap()) {
                 fut.await.unwrap();

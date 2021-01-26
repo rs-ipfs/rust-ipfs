@@ -369,7 +369,7 @@ mod tests {
         assert_eq!(links, ["african.txt", "americas.txt", "australian.txt",]);
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn all_refs_from_root() {
         let Node { ipfs, .. } = preloaded_testing_ipfs().await;
 
@@ -416,7 +416,7 @@ mod tests {
         assert_edges(&expected, all_edges.as_slice());
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn all_unique_refs_from_root() {
         let Node { ipfs, .. } = preloaded_testing_ipfs().await;
 

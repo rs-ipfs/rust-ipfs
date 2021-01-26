@@ -518,7 +518,8 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
         let data_store = &self.data_store;
         let key = ipns.to_owned();
-        let bytes = data_store.get(Column::Ipns, key.as_bytes()).await?;
+        // FIXME: needless vec<u8> creation
+        let bytes = data_store.get(Column::Ipns, &key.to_bytes()[..]).await?;
         match bytes {
             Some(ref bytes) => {
                 let string = String::from_utf8_lossy(bytes);
@@ -533,14 +534,19 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
     pub async fn put_ipns(&self, ipns: &PeerId, path: &IpfsPath) -> Result<(), Error> {
         let string = path.to_string();
         let value = string.as_bytes();
+        // FIXME: needless vec<u8> creation
         self.data_store
-            .put(Column::Ipns, ipns.as_bytes(), value)
+            .put(Column::Ipns, &ipns.to_bytes()[..], value)
             .await
     }
 
     /// Remove an ipld path from the datastore.
     pub async fn remove_ipns(&self, ipns: &PeerId) -> Result<(), Error> {
-        self.data_store.remove(Column::Ipns, ipns.as_bytes()).await
+        // FIXME: us needing to clone the peerid is wasteful to pass it as a reference only to be
+        // cloned again
+        self.data_store
+            .remove(Column::Ipns, &ipns.to_bytes()[..])
+            .await
     }
 
     /// Inserts a direct pin for a `Cid`.

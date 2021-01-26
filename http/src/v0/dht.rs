@@ -46,7 +46,7 @@ async fn find_peer_query<T: IpfsTypes>(
     } = query;
     let peer_id = arg.into_inner();
     let addrs = ipfs
-        .find_peer(peer_id.clone())
+        .find_peer(peer_id)
         .maybe_timeout(timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?
@@ -189,7 +189,7 @@ async fn get_closest_peers_query<T: IpfsTypes>(
     } = query;
     let peer_id = arg.into_inner();
     let closest_peers = ipfs
-        .get_closest_peers(peer_id.clone())
+        .get_closest_peers(peer_id)
         .maybe_timeout(timeout.map(StringSerialized::into_inner))
         .await
         .map_err(StringError::from)?

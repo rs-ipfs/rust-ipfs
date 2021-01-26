@@ -1,4 +1,4 @@
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn multiple_consecutive_ephemeral_listening_addresses() {
     let node = ipfs::Node::new("test_node").await;
 
@@ -12,7 +12,7 @@ async fn multiple_consecutive_ephemeral_listening_addresses() {
     assert_ne!(first, second);
 }
 
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn multiple_concurrent_ephemeral_listening_addresses_on_same_ip() {
     let node = ipfs::Node::new("test_node").await;
 
@@ -41,7 +41,7 @@ async fn multiple_concurrent_ephemeral_listening_addresses_on_same_ip() {
     );
 }
 
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 #[cfg(not(target_os = "macos"))]
 async fn multiple_concurrent_ephemeral_listening_addresses_on_different_ip() {
     let node = ipfs::Node::new("test_node").await;
@@ -59,7 +59,7 @@ async fn multiple_concurrent_ephemeral_listening_addresses_on_different_ip() {
     second.unwrap();
 }
 
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn adding_unspecified_addr_resolves_with_first() {
     let node = ipfs::Node::new("test_node").await;
     // there is no test in trying to match this with others as ... that would be quite
@@ -69,7 +69,7 @@ async fn adding_unspecified_addr_resolves_with_first() {
         .unwrap();
 }
 
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn listening_for_multiple_unspecified_addresses() {
     let node = ipfs::Node::new("test_node").await;
     // there is no test in trying to match this with others as ... that would be quite
@@ -93,7 +93,7 @@ async fn listening_for_multiple_unspecified_addresses() {
     );
 }
 
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn remove_listening_address() {
     let node = ipfs::Node::new("test_node").await;
 
@@ -117,7 +117,7 @@ fn remove_listening_address_before_completing() {
     // "immediatedly".
 }
 
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn pre_configured_listening_addrs() {
     use ipfs::{IpfsOptions, MultiaddrWithPeerId, MultiaddrWithoutPeerId, Node};
     use libp2p::Multiaddr;

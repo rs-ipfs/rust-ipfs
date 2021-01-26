@@ -600,7 +600,7 @@ mod tests {
     use super::*;
     use crate::{make_ipld, Node};
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn test_resolve_root_cid() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -610,7 +610,7 @@ mod tests {
         assert_eq!(res, data);
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn test_resolve_array_elem() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -623,7 +623,7 @@ mod tests {
         assert_eq!(res, make_ipld!(2));
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn test_resolve_nested_array_elem() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -636,7 +636,7 @@ mod tests {
         assert_eq!(res, make_ipld!(2));
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn test_resolve_object_elem() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -651,7 +651,7 @@ mod tests {
         assert_eq!(res, make_ipld!(false));
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn test_resolve_cid_elem() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -845,7 +845,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn resolve_through_link() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -874,7 +874,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn fail_resolving_first_segment() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -890,7 +890,7 @@ mod tests {
         assert_eq!(e.to_string(), format!("no link named \"1\" under {}", cid2));
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn fail_resolving_last_segment() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
@@ -906,7 +906,7 @@ mod tests {
         assert_eq!(e.to_string(), format!("no link named \"a\" under {}", cid1));
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn fail_resolving_through_file() {
         let Node { ipfs, .. } = Node::new("test_node").await;
 
@@ -938,7 +938,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn fail_resolving_through_dir() {
         let Node { ipfs, .. } = Node::new("test_node").await;
 

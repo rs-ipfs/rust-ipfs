@@ -4,7 +4,7 @@ use bytes::Bytes;
 use domain::base::iana::Rtype;
 use domain::base::{Dname, Question};
 use domain::rdata::rfc1035::Txt;
-use domain_resolv::{stub::Answer, StubResolver};
+use domain::resolv::{stub::Answer, StubResolver};
 use futures::future::{select_ok, SelectOk};
 use futures::pin_mut;
 use std::future::Future;
@@ -71,7 +71,7 @@ fn create_resolver() -> Result<StubResolver, Error> {
 
 #[cfg(target_os = "windows")]
 fn create_resolver() -> Result<StubResolver, Error> {
-    use domain_resolv::stub::conf::ResolvConf;
+    use domain::resolv::stub::conf::ResolvConf;
     use std::{collections::HashSet, io::Cursor};
 
     let mut config = ResolvConf::new();
@@ -100,12 +100,12 @@ pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
     dnslink.push_str(domain);
     let resolver = create_resolver()?;
 
-    let qname = Dname::<Bytes>::from_str(&domain)?;
+    let qname = Dname::<Bytes>::from_chars(domain.chars())?;
     let question = Question::new_in(qname, Rtype::Txt);
     let resolver1 = resolver.clone();
     let query1 = Box::pin(async move { resolver1.query(question).await });
 
-    let qname = Dname::<Bytes>::from_str(&dnslink)?;
+    let qname = Dname::<Bytes>::from_chars(dnslink.chars())?;
     let question = Question::new_in(qname, Rtype::Txt);
     let resolver2 = resolver;
     let query2 = Box::pin(async move { resolver2.query(question).await });
@@ -120,14 +120,14 @@ pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
 mod tests {
     use super::*;
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     #[ignore]
     async fn test_resolve1() {
         let res = resolve("ipfs.io").await.unwrap().to_string();
         assert_eq!(res, "/ipns/website.ipfs.io");
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     #[ignore]
     async fn test_resolve2() {
         let res = resolve("website.ipfs.io").await.unwrap().to_string();

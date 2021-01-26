@@ -15,17 +15,17 @@ fn strip_peer_id(addr: Multiaddr) -> Multiaddr {
 }
 
 /// Check if `Ipfs::find_peer` works without DHT involvement.
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn find_peer_local() {
     let nodes = spawn_nodes(2, Topology::None).await;
     nodes[0].connect(nodes[1].addrs[0].clone()).await.unwrap();
 
     // while nodes[0] is connected to nodes[1], they know each
     // other's addresses and can find them without using the DHT
-    let mut found_addrs = nodes[0].find_peer(nodes[1].id.clone()).await.unwrap();
+    let mut found_addrs = nodes[0].find_peer(nodes[1].id).await.unwrap();
 
     for addr in &mut found_addrs {
-        addr.push(Protocol::P2p(nodes[1].id.clone().into()));
+        addr.push(Protocol::P2p(nodes[1].id.into()));
         assert!(nodes[1].addrs.contains(addr));
     }
 }
@@ -42,12 +42,12 @@ async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) 
     // they don't have a chance to form the full picture in the DHT
     for i in 0..n {
         let (next_id, next_addr) = if i < n - 1 {
-            (nodes[i + 1].id.clone(), nodes[i + 1].addrs[0].clone())
+            (nodes[i + 1].id, nodes[i + 1].addrs[0].clone())
         } else {
             // the last node in the chain also needs to know some address
             // in order to bootstrap, so give it its neighbour's information
             // and then bootstrap it as well
-            (nodes[n - 2].id.clone(), nodes[n - 2].addrs[0].clone())
+            (nodes[n - 2].id, nodes[n - 2].addrs[0].clone())
         };
 
         nodes[i].add_peer(next_id, next_addr).await.unwrap();
@@ -80,13 +80,13 @@ async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) 
     for i in 0..(n - 1) {
         let (next_id, next_addr) = if i == n / 2 - 1 || i == n / 2 {
             println!("telling rust node {} about the foreign node", i);
-            (foreign_node.id.clone(), foreign_node.addrs[0].clone())
+            (foreign_node.id, foreign_node.addrs[0].clone())
         } else if i < n / 2 {
             println!("telling rust node {} about rust node {}", i, i + 1);
-            (nodes[i + 1].id.clone(), nodes[i + 1].addrs[0].clone())
+            (nodes[i + 1].id, nodes[i + 1].addrs[0].clone())
         } else {
             println!("telling rust node {} about rust node {}", i, i - 1);
-            (nodes[i - 1].id.clone(), nodes[i - 1].addrs[0].clone())
+            (nodes[i - 1].id, nodes[i - 1].addrs[0].clone())
         };
 
         nodes[i].add_peer(next_id, next_addr).await.unwrap();
@@ -101,7 +101,7 @@ async fn spawn_bootstrapped_nodes(n: usize) -> (Vec<Node>, Option<ForeignNode>) 
 }
 
 /// Check if `Ipfs::find_peer` works using DHT.
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn dht_find_peer() {
     // works for numbers >=2, though 2 would essentially just
     // be the same as find_peer_local, so it should be higher
@@ -112,32 +112,25 @@ async fn dht_find_peer() {
     // node 0 now tries to find the address of the very last node in the
     // chain; the chain should be long enough for it not to automatically
     // be connected to it after the bootstrap
-    let found_addrs = nodes[0]
-        .find_peer(nodes[last_index].id.clone())
-        .await
-        .unwrap();
+    let found_addrs = nodes[0].find_peer(nodes[last_index].id).await.unwrap();
 
     let to_be_found = strip_peer_id(nodes[last_index].addrs[0].clone());
     assert_eq!(found_addrs, vec![to_be_found]);
 }
 
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn dht_get_closest_peers() {
     const CHAIN_LEN: usize = 10;
     let (nodes, _foreign_node) = spawn_bootstrapped_nodes(CHAIN_LEN).await;
 
     assert_eq!(
-        nodes[0]
-            .get_closest_peers(nodes[0].id.clone())
-            .await
-            .unwrap()
-            .len(),
+        nodes[0].get_closest_peers(nodes[0].id).await.unwrap().len(),
         CHAIN_LEN - 1
     );
 }
 
 #[ignore = "targets an actual bootstrapper, so random failures can happen"]
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn dht_popular_content_discovery() {
     let peer = Node::new("a").await;
 
@@ -154,7 +147,7 @@ async fn dht_popular_content_discovery() {
 }
 
 /// Check if Ipfs::{get_providers, provide} does its job.
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn dht_providing() {
     const CHAIN_LEN: usize = 10;
     let (nodes, foreign_node) = spawn_bootstrapped_nodes(CHAIN_LEN).await;
@@ -179,11 +172,11 @@ async fn dht_providing() {
         .get_providers(cid)
         .await
         .unwrap()
-        .contains(&nodes[last_index].id.clone()));
+        .contains(&nodes[last_index].id));
 }
 
 /// Check if Ipfs::{get, put} does its job.
-#[tokio::test(max_threads = 1)]
+#[tokio::test]
 async fn dht_get_put() {
     const CHAIN_LEN: usize = 10;
     let (nodes, foreign_node) = spawn_bootstrapped_nodes(CHAIN_LEN).await;

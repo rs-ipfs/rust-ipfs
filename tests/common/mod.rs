@@ -68,7 +68,7 @@ mod tests {
 
     const N: usize = 5;
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn check_topology_line() {
         let nodes = spawn_nodes(N, Topology::Line).await;
 
@@ -81,7 +81,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn check_topology_ring() {
         let nodes = spawn_nodes(N, Topology::Ring).await;
 
@@ -90,7 +90,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn check_topology_mesh() {
         let nodes = spawn_nodes(N, Topology::Mesh).await;
 
@@ -99,7 +99,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn check_topology_star() {
         let nodes = spawn_nodes(N, Topology::Star).await;
 

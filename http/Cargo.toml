@@ -6,36 +6,36 @@ name = "ipfs-http"
 version = "0.1.0"
 
 [build-dependencies]
-prost-build = { default-features = false, version = "0.6" }
+prost-build = { default-features = false, version = "0.7" }
 vergen = { default-features = false, version = "3.1" }
 
 [dependencies]
 anyhow = "*" # temporarily needed until the next release of mpart-async
 async-stream = { default-features = false, version = "0.3" }
-bytes = { default-features = false, version = "0.5" }
+bytes = { default-features = false, version = "1.0" }
 cid = { default-features = false, version = "0.5" }
 futures = { default-features = false, version = "0.3" }
 humantime = { default-features = false, version = "2.0" }
 ipfs = { path = "../" }
 mime = { default-features = false, version = "0.3" }
-mpart-async = { default-features = false, version = "0.4" }
+mpart-async = { default-features = false, version = "0.5" }
 multibase = { default-features = false, version = "0.8" }
 multihash = { default-features = false, version = "0.11" }
 # openssl is required for rsa keygen but not used by the rust-ipfs or its dependencies
 openssl = { default-features = false, version = "0.10" }
-parity-multiaddr = { default-features = false, version = "0.9" }
 percent-encoding = { default-features = false, version = "2.1" }
-prost = { default-features = false, version = "0.6.1" }
+prost = { default-features = false, version = "0.7" }
 serde = { default-features = false, features = ["derive"], version = "1.0" }
 serde_json = { default-features = false, version = "1.0" }
 structopt = { default-features = false, version = "0.3" }
 tar = { default-features = false, version = "0.4" }
 thiserror = { default-features = false, version = "1.0" }
-tokio = { default-features = false, version = "0.2" }
+tokio = { default-features = false, features = ["time", "sync"], version = "1.0" }
+tokio-stream = { version = "0.1" }
 tracing = { default-features = false, features = ["log"], version = "0.1" }
 tracing-subscriber = { default-features = false, features = ["fmt", "tracing-log", "env-filter"], version = "0.2" }
 url = { default-features = false, version = "2.1" }
-warp = { default-features = false, version = "0.2" }
+warp = { default-features = false, version = "0.3" }
 
 [dev-dependencies]
 hex-literal = { default-features = false, version = "0.3" }

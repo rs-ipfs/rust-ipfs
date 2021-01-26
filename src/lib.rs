@@ -89,7 +89,10 @@ pub use self::{
 pub use cid::Cid;
 pub use ipfs_bitswap::Block;
 pub use libp2p::{
-    core::{connection::ListenerId, multiaddr::Protocol, Multiaddr, PeerId, PublicKey},
+    core::{
+        connection::ListenerId, multiaddr::multiaddr, multiaddr::Protocol, Multiaddr, PeerId,
+        PublicKey,
+    },
     identity::Keypair,
     kad::{record::Key, Quorum},
 };
@@ -918,7 +921,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
             self.to_task
                 .clone()
-                .send(IpfsEvent::FindPeer(peer_id.clone(), false, tx))
+                .send(IpfsEvent::FindPeer(peer_id, false, tx))
                 .await?;
 
             match rx.await? {
@@ -931,7 +934,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
                     self.to_task
                         .clone()
-                        .send(IpfsEvent::FindPeer(peer_id.clone(), true, tx))
+                        .send(IpfsEvent::FindPeer(peer_id, true, tx))
                         .await?;
 
                     match rx.await? {
@@ -1404,7 +1407,9 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         // perhaps this could be moved under `IpfsEvent` or free functions?
                         let mut addresses = Vec::new();
                         addresses.extend(Swarm::listeners(&self.swarm).cloned());
-                        addresses.extend(Swarm::external_addresses(&self.swarm).cloned());
+                        addresses.extend(
+                            Swarm::external_addresses(&self.swarm).map(|ar| ar.addr.clone()),
+                        );
                         // ignore error, perhaps caller went away already
                         let _ = ret.send(addresses);
                     }
@@ -1751,7 +1756,7 @@ mod tests {
     use crate::make_ipld;
     use multihash::Sha2_256;
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn test_put_and_get_block() {
         let ipfs = Node::new("test_node").await;
 
@@ -1764,7 +1769,7 @@ mod tests {
         assert_eq!(block, new_block);
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn test_put_and_get_dag() {
         let ipfs = Node::new("test_node").await;
 
@@ -1774,7 +1779,7 @@ mod tests {
         assert_eq!(data, new_data);
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn test_pin_and_unpin() {
         let ipfs = Node::new("test_node").await;
 

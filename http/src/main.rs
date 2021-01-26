@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 
 use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
+use ipfs::{Multiaddr, Protocol};
 use ipfs_http::{config, v0};
-use parity_multiaddr::{Multiaddr, Protocol};
 
 #[macro_use]
 extern crate tracing;
@@ -111,6 +111,7 @@ fn main() {
             }
         }
         Options::Daemon => {
+            // FIXME: toctou, should just match for this err?
             if !config_path.is_file() {
                 eprintln!("Error: no IPFS repo found in {:?}", home);
                 eprintln!("please run: 'ipfs init'");
@@ -130,7 +131,7 @@ fn main() {
     // TODO: sigterm should initiate graceful shutdown, second time should shutdown right now
     // NOTE: sigkill ... well surely it will stop the process right away
 
-    let mut rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
 
     rt.block_on(async move {
         let opts = IpfsOptions {
@@ -190,7 +191,6 @@ fn serve<Types: IpfsTypes>(
     listening_addr: Multiaddr,
 ) -> (std::net::SocketAddr, impl std::future::Future<Output = ()>) {
     use std::net::SocketAddr;
-    use tokio::stream::StreamExt;
     use warp::Filter;
 
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -211,7 +211,7 @@ fn serve<Types: IpfsTypes>(
     };
 
     warp::serve(routes).bind_with_graceful_shutdown(socket_addr, async move {
-        shutdown_rx.next().await;
+        let _ = shutdown_rx.recv().await;
         info!("Shutdown trigger received; starting shutdown");
         ipfs.exit_daemon().await;
     })

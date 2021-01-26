@@ -13,9 +13,9 @@
 use futures::stream::{Stream, TryStream};
 use serde::{Deserialize, Serialize};
 
-use tokio::stream::StreamExt;
 use tokio::sync::{broadcast, Mutex};
 use tokio::time::timeout;
+use tokio_stream::StreamExt;
 
 use ipfs::{Ipfs, IpfsTypes};
 
@@ -125,7 +125,7 @@ async fn inner_subscribe<T: IpfsTypes>(
     // from write, which is not supported operation either.
     let mut guard = pubsub.subscriptions.lock().await;
 
-    let rx = match guard.entry(topic) {
+    let mut rx = match guard.entry(topic) {
         Entry::Occupied(oe) => {
             // the easiest case: just join in, even if there are no other subscribers at the
             // moment
@@ -160,14 +160,26 @@ async fn inner_subscribe<T: IpfsTypes>(
         }
     };
 
-    // map recv errors into the StreamError and flatten
-    let mut errored = false;
-    rx.into_stream()
-        .map(|res| res.map_err(|_| StreamError::Recv).and_then(|res| res))
-        .take_while(move |res| {
-            // return until the first error
-            !std::mem::replace(&mut errored, res.is_err())
-        })
+    async_stream::stream! {
+        loop {
+            let next = rx.recv().await;
+
+            // map recv errors into the StreamError and flatten
+            let next = match next {
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => Err(StreamError::Recv),
+                Ok(next) => next.and_then(|n| Ok(n)),
+            };
+
+            let was_err = next.is_err();
+
+            yield next;
+
+            if was_err {
+                break;
+            }
+        }
+    }
 }
 
 /// Shovel task takes items from the [`SubscriptionStream`], formats them and passes them on to
@@ -303,7 +315,7 @@ where
         use multibase::Base::Base64Pad;
         let msg = msg.as_ref();
 
-        let from = Base64Pad.encode(msg.source.as_bytes());
+        let from = Base64Pad.encode(msg.source.to_bytes());
         let data = Base64Pad.encode(&msg.data);
         let seqno = Base64Pad.encode(&msg.sequence_number);
         let topics = msg.topics.clone();
@@ -536,7 +548,7 @@ mod tests {
         })
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn url_hacked_args() {
         let response = request()
             .path("/pubsub/pub?arg=some_channel&arg=foobar")
@@ -546,7 +558,7 @@ mod tests {
         assert_eq!(body, r#"{"message":"foobar","topic":"some_channel"}"#);
     }
 
-    #[tokio::test(max_threads = 1)]
+    #[tokio::test]
     async fn message_in_body() {
         let response = request()
             .path("/pubsub/pub?arg=some_channel")

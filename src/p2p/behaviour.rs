@@ -12,9 +12,9 @@ use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{Identify, IdentifyEvent};
 use libp2p::kad::record::{store::MemoryStore, Key, Record};
 use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent, Quorum};
-use libp2p::mdns::{MdnsEvent, TokioMdns};
+// use libp2p::mdns::{MdnsEvent, TokioMdns};
 use libp2p::ping::{Ping, PingEvent};
-use libp2p::swarm::toggle::Toggle;
+// use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use multibase::Base;
 use std::{convert::TryInto, sync::Arc};
@@ -25,7 +25,7 @@ use tokio::task;
 pub struct Behaviour<Types: IpfsTypes> {
     #[behaviour(ignore)]
     repo: Arc<Repo<Types>>,
-    mdns: Toggle<TokioMdns>,
+    // mdns: Toggle<TokioMdns>,
     kademlia: Kademlia<MemoryStore>,
     #[behaviour(ignore)]
     kad_subscriptions: SubscriptionRegistry<KadResult, String>,
@@ -54,6 +54,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<void::Void> for Behaviour<Ty
     fn inject_event(&mut self, _event: void::Void) {}
 }
 
+/*
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
@@ -72,6 +73,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<Typ
         }
     }
 }
+*/
 
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: KademliaEvent) {
@@ -417,12 +419,14 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     pub async fn new(options: SwarmOptions, repo: Arc<Repo<Types>>) -> Self {
         info!("net: starting with peer id {}", options.peer_id);
 
+        /*
         let mdns = if options.mdns {
             Some(TokioMdns::new().expect("Failed to create mDNS service"))
         } else {
             None
         }
         .into();
+        */
 
         let store = MemoryStore::new(options.peer_id.to_owned());
 
@@ -456,7 +460,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
         Behaviour {
             repo,
-            mdns,
+            // mdns,
             kademlia,
             kad_subscriptions: Default::default(),
             bitswap,
@@ -469,7 +473,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
     pub fn add_peer(&mut self, peer: PeerId, addr: Multiaddr) {
         self.kademlia.add_address(&peer, addr);
-        self.swarm.add_peer(peer.clone());
+        self.swarm.add_peer(peer);
         // FIXME: the call below automatically performs a dial attempt
         // to the given peer; it is unsure that we want it done within
         // add_peer, especially since that peer might not belong to the
@@ -543,10 +547,11 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     }
 
     pub fn get_closest_peers(&mut self, id: PeerId) -> SubscriptionFuture<KadResult, String> {
-        let id = id.to_base58();
+        // TODO: why was this base58?
+        // let id = id.to_base58();
 
         self.kad_subscriptions
-            .create_subscription(self.kademlia.get_closest_peers(id.as_bytes()).into(), None)
+            .create_subscription(self.kademlia.get_closest_peers(id).into(), None)
     }
 
     pub fn get_providers(&mut self, cid: Cid) -> SubscriptionFuture<KadResult, String> {

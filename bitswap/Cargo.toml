@@ -8,17 +8,17 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/rs-ipfs/rust-ipfs"
 
 [build-dependencies]
-prost-build = { default-features = false, version = "0.6" }
+prost-build = { default-features = false, version = "0.7" }
 
 [dependencies]
 cid = { default-features = false, version = "0.5" }
 fnv = { default-features = false, version = "1.0" }
 futures = { default-features = false, version = "0.3" }
-libp2p-core = { default-features = false, version = "0.22" }
-libp2p-swarm = { default-features = false, version = "0.22" }
+libp2p-core = { default-features = false, version = "0.27" }
+libp2p-swarm = { default-features = false, version = "0.27" }
 multihash = { default-features = false, version = "0.11" }
-prost = { default-features = false, version = "0.6" }
+prost = { default-features = false, version = "0.7" }
 thiserror = { default-features = false, version = "1.0" }
-tokio = { default-features = false, version = "0.2" }
+tokio = { default-features = false, version = "1", features = ["rt"] }
 tracing = { default-features = false, version = "0.1" }
 unsigned-varint = { default-features = false, version = "0.3" }

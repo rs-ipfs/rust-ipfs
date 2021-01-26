@@ -260,7 +260,7 @@ where
     T: Serialize + Send + 'static,
     E: std::fmt::Display + Send + 'static,
 {
-    use bytes::{buf::BufMutExt, BufMut, BytesMut};
+    use bytes::{BufMut, BytesMut};
     use futures::stream::StreamExt;
 
     let mut buffer = BytesMut::with_capacity(256);

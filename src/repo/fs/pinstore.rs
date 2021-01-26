@@ -5,13 +5,14 @@ use crate::repo::{PinKind, PinMode, PinModeRequirement, PinStore, References};
 use async_trait::async_trait;
 use cid::Cid;
 use core::convert::TryFrom;
-use futures::future::Either;
-use futures::stream::{empty, StreamExt, TryStreamExt};
+use futures::stream::TryStreamExt;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 use tokio::sync::Semaphore;
+use tokio_stream::{empty, wrappers::ReadDirStream, StreamExt};
+use tokio_util::either::Either;
 use tracing_futures::Instrument;
 
 // PinStore is a trait from ipfs::repo implemented on FsDataStore defined at ipfs::repo::fs or
@@ -36,7 +37,7 @@ impl PinStore for FsDataStore {
 
         futures::pin_mut!(st);
 
-        while let Some(recursive) = st.try_next().await? {
+        while let Some(recursive) = StreamExt::try_next(&mut st).await? {
             // TODO: it might be much better to just deserialize the vec one by one and comparing while
             // going
             let (_, references) = read_recursively_pinned(self.path.clone(), recursive).await?;
@@ -264,7 +265,7 @@ impl PinStore for FsDataStore {
 
             futures::pin_mut!(cids);
 
-            while let Some((cid, mode)) = cids.try_next().await? {
+            while let Some((cid, mode)) = StreamExt::try_next(&mut cids).await? {
 
                 let matches = requirement.matches(&mode);
 
@@ -306,7 +307,7 @@ impl PinStore for FsDataStore {
                 .map_ok(move |cid| read_recursively_pinned(path.clone(), cid))
                 .try_buffer_unordered(4);
 
-            while let Some((_, next_batch)) = recursive.try_next().await? {
+            while let Some((_, next_batch)) = StreamExt::try_next(&mut recursive).await? {
                 for indirect in next_batch {
                     if returned.insert(indirect.clone()) {
                         yield (indirect, PinMode::Indirect);
@@ -317,7 +318,7 @@ impl PinStore for FsDataStore {
             }
         };
 
-        st.in_current_span().boxed()
+        Box::pin(st.in_current_span())
     }
 
     async fn query(
@@ -412,7 +413,9 @@ impl PinStore for FsDataStore {
 
             futures::pin_mut!(recursives);
 
-            'out: while let Some((referring, references)) = recursives.try_next().await? {
+            'out: while let Some((referring, references)) =
+                StreamExt::try_next(&mut recursives).await?
+            {
                 // FIXME: maybe binary search?
                 for cid in references {
                     if let Some(index) = remaining.remove(&cid) {
@@ -442,7 +445,7 @@ impl FsDataStore {
         &self,
     ) -> impl futures::stream::Stream<Item = Result<(Cid, PinMode), Error>> + 'static {
         let stream = match tokio::fs::read_dir(self.path.clone()).await {
-            Ok(st) => Either::Left(st),
+            Ok(st) => Either::Left(ReadDirStream::new(st)),
             // make this into a stream which will only yield the initial error
             Err(e) => Either::Right(futures::stream::once(futures::future::ready(Err(e)))),
         };
@@ -451,7 +454,7 @@ impl FsDataStore {
             .and_then(|d| async move {
                 // map over the shard directories
                 Ok(if d.file_type().await?.is_dir() {
-                    Either::Left(fs::read_dir(d.path()).await?)
+                    Either::Left(ReadDirStream::new(fs::read_dir(d.path()).await?))
                 } else {
                     Either::Right(empty())
                 })

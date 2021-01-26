@@ -291,6 +291,8 @@ impl PinStore for KvDataStore {
         &self,
         requirement: Option<PinMode>,
     ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
+        use tokio_stream::wrappers::UnboundedReceiverStream;
+
         let db = self.get_db().to_owned();
 
         // if the pins are always updated in transaction, we might get away with just tree reads.
@@ -375,7 +377,7 @@ impl PinStore for KvDataStore {
         //
         // it would be nice to make sure that the stream doesn't end before task has ended, but
         // perhaps the unboundedness of the channel takes care of that.
-        rx.boxed()
+        UnboundedReceiverStream::new(rx).boxed()
     }
 
     async fn query(

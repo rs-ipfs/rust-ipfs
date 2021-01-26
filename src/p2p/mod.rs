@@ -58,7 +58,7 @@ pub async fn create_swarm<TIpfsTypes: IpfsTypes>(
     swarm_span: Span,
     repo: Arc<Repo<TIpfsTypes>>,
 ) -> io::Result<TSwarm<TIpfsTypes>> {
-    let peer_id = options.peer_id.clone();
+    let peer_id = options.peer_id;
 
     // Set up an encrypted TCP transport over the Mplex protocol.
     let transport = transport::build_transport(options.keypair.clone())?;
