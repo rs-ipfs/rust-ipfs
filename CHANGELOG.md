@@ -6,6 +6,7 @@
 * feat(http): create `Profile` abstraction [#421]
 * feat: `sled` pinstore [#439], [#442], [#444]
 * chore: update a lot of dependencies including libp2p, tokio, warp [#446]
+* fix: rename spans (part of [#453])
 
 [#429]: https://github.com/rs-ipfs/rust-ipfs/pull/429
 [#428]: https://github.com/rs-ipfs/rust-ipfs/pull/428
@@ -15,6 +16,7 @@
 [#442]: https://github.com/rs-ipfs/rust-ipfs/pull/442
 [#444]: https://github.com/rs-ipfs/rust-ipfs/pull/444
 [#446]: https://github.com/rs-ipfs/rust-ipfs/pull/446
+[#453]: https://github.com/rs-ipfs/rust-ipfs/pull/453
 
 # 0.2.1
 
