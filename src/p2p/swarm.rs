@@ -186,16 +186,21 @@ impl NetworkBehaviour for SwarmApi {
         trace!("inject_connection_closed {} {:?}", peer_id, cp);
         let closed_addr = connection_point_addr(cp).to_owned().try_into().unwrap();
 
-        let became_empty = if let Some(connections) = self.connected_peers.get_mut(peer_id) {
-            if let Some(index) = connections.iter().position(|addr| *addr == closed_addr) {
-                connections.swap_remove(index);
+        match self.connected_peers.entry(*peer_id) {
+            Entry::Occupied(mut oe) => {
+                let connections = oe.get_mut();
+                let pos = connections.iter().position(|addr| *addr == closed_addr);
+
+                if let Some(pos) = pos {
+                    connections.swap_remove(pos);
+                }
+
+                if connections.is_empty() {
+                    oe.remove();
+                }
             }
-            connections.is_empty()
-        } else {
-            false
-        };
-        if became_empty {
-            self.connected_peers.remove(peer_id);
+
+            Entry::Vacant(_) => {}
         }
         self.connections.remove(&closed_addr);
 
