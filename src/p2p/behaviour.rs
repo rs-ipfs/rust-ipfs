@@ -410,7 +410,21 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<Typ
 
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: IdentifyEvent) {
-        trace!("identify: {:?}", event);
+        match event {
+            IdentifyEvent::Received {
+                peer_id,
+                observed_addr,
+                ..
+            } => {
+                trace!("identify from {} at {}", peer_id, observed_addr);
+            }
+            IdentifyEvent::Sent { peer_id } => {
+                trace!("identify info sent to {}", peer_id);
+            }
+            IdentifyEvent::Error { peer_id, error } => {
+                trace!("identify error with {}: {}", peer_id, error);
+            }
+        }
     }
 }
 
