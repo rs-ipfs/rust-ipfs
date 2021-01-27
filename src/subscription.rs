@@ -142,14 +142,19 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
                 }
             }
 
-            // ensure that the subscriptions are being handled correctly: normally
-            // finish_subscriptions should result in some related futures being awoken
-            debug_assert!(
-                awoken != 0,
-                "no subscriptions to be awoken! subs: {:?}; req_kind: {:?}",
-                subscriptions,
-                req_kind
-            );
+            #[cfg(debug_assertions)]
+            if awoken == 0 {
+                let msg = format!(
+                    "no subscriptions to be awoken! subs: {:?}; req_kind: {:?}",
+                    related_subs, req_kind
+                );
+
+                // important: drop the held mutexes before panicking so that we can continue using
+                // subscriptions.lock().unwrap().
+                drop(subscriptions);
+
+                panic!(msg);
+            }
 
             trace!("Woke {} related subscription(s)", awoken);
         }
