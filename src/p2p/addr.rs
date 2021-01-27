@@ -34,6 +34,12 @@ impl std::error::Error for MultiaddrWrapperError {}
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MultiaddrWithoutPeerId(Multiaddr);
 
+impl fmt::Display for MultiaddrWithoutPeerId {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, fmt)
+    }
+}
+
 impl TryFrom<Multiaddr> for MultiaddrWithoutPeerId {
     type Error = MultiaddrWrapperError;
 
@@ -161,7 +167,7 @@ impl FromStr for MultiaddrWithPeerId {
 
 impl fmt::Display for MultiaddrWithPeerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/p2p/{}", self.multiaddr.as_ref(), self.peer_id)
+        write!(f, "{}/p2p/{}", self.multiaddr, self.peer_id)
     }
 }
 
