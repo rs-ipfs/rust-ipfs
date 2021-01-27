@@ -83,6 +83,14 @@ impl PartialEq<Multiaddr> for MultiaddrWithoutPeerId {
     }
 }
 
+impl MultiaddrWithoutPeerId {
+    /// Adds the peer_id information to this address without peer_id, turning it into
+    /// [`MultiaddrWithPeerId`].
+    pub fn with(self, peer_id: PeerId) -> MultiaddrWithPeerId {
+        (self, peer_id).into()
+    }
+}
+
 /// A `Multiaddr` paired with a discrete `PeerId`. The `Multiaddr` can contain a
 /// `Protocol::P2p`, but it's not as easy to work with, and some functionalities
 /// don't support it being contained within the `Multiaddr`.
