@@ -71,6 +71,7 @@ async fn two_node_get_put() {
 #[tokio::test]
 #[ignore]
 async fn long_get_block() {
+    tracing_subscriber::fmt::init();
     // this number could be higher, but it starts hanging above ~24
     const N: usize = 10;
     let nodes = spawn_nodes(N, Topology::Line).await;
