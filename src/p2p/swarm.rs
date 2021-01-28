@@ -407,26 +407,51 @@ mod tests {
     use super::*;
     use crate::p2p::transport::{build_transport, TTransport};
     use libp2p::identity::Keypair;
-    use libp2p::{multiaddr::Protocol, multihash::Multihash, swarm::Swarm};
+    use libp2p::swarm::SwarmEvent;
+    use libp2p::{multiaddr::Protocol, multihash::Multihash, swarm::Swarm, swarm::SwarmBuilder};
     use std::convert::TryInto;
 
     #[tokio::test]
     async fn swarm_api() {
         let (peer1_id, trans) = mk_transport();
-        let mut swarm1 = Swarm::new(trans, SwarmApi::default(), peer1_id);
+        let mut swarm1 = SwarmBuilder::new(trans, SwarmApi::default(), peer1_id)
+            .executor(Box::new(ThreadLocalTokio))
+            .build();
 
         let (peer2_id, trans) = mk_transport();
-        let mut swarm2 = Swarm::new(trans, SwarmApi::default(), peer2_id);
+        let mut swarm2 = SwarmBuilder::new(trans, SwarmApi::default(), peer2_id)
+            .executor(Box::new(ThreadLocalTokio))
+            .build();
 
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
-        for l in Swarm::listeners(&swarm1) {
-            let mut addr = l.to_owned();
+        loop {
+            match swarm1.next_event().await {
+                SwarmEvent::NewListenAddr(_) => {
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        let listeners = Swarm::listeners(&swarm1).cloned().collect::<Vec<_>>();
+
+        for mut addr in listeners {
             addr.push(Protocol::P2p(
                 Multihash::from_bytes(&peer1_id.to_bytes()).unwrap(),
             ));
-            if let Some(fut) = swarm2.connect(addr.try_into().unwrap()) {
-                fut.await.unwrap();
+
+            let mut sub = swarm2.connect(addr.try_into().unwrap()).unwrap();
+
+            loop {
+                tokio::select! {
+                    _ = (&mut swarm1).next_event() => {},
+                    _ = (&mut swarm2).next_event() => {},
+                    res = (&mut sub) => {
+                        res.unwrap();
+                        break;
+                    }
+                }
             }
         }
     }
@@ -436,5 +461,17 @@ mod tests {
         let peer_id = key.public().into_peer_id();
         let transport = build_transport(key).unwrap();
         (peer_id, transport)
+    }
+
+    use std::future::Future;
+    use std::pin::Pin;
+
+    // can only be used from within tokio context.
+    struct ThreadLocalTokio;
+
+    impl libp2p::core::Executor for ThreadLocalTokio {
+        fn exec(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
+            tokio::task::spawn(future);
+        }
     }
 }
