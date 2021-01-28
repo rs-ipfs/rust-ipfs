@@ -656,7 +656,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Accepts only multiaddresses with the PeerId to authenticate the connection.
     ///
     /// Returns a future which will complete when the connection has been successfully made or
-    /// failed for whatever reason.
+    /// failed for whatever reason. It is possible for this method to return an error, while ending
+    /// up being connected to the peer by the means of another connection.
     pub async fn connect(&self, target: MultiaddrWithPeerId) -> Result<(), Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -716,6 +717,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     ///
     /// At the moment the peer is disconnected by temporarily banning the peer and unbanning it
     /// right after. This should always disconnect all connections to the peer.
+    ///
+    /// Note: this is rarely needed in pratice as connections will time out if left unused.
     pub async fn disconnect(&self, target: MultiaddrWithPeerId) -> Result<(), Error> {
         async move {
             let (tx, rx) = oneshot_channel();
@@ -1510,7 +1513,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         let _ = ret.send(peers);
                     }
                     IpfsEvent::FindPeer(peer_id, local_only, ret) => {
-                        let swarm_addrs = self.swarm.swarm.addresses_of_peer(&peer_id);
+                        let swarm_addrs = self.swarm.swarm.connections_to(&peer_id);
                         let locally_known_addrs = if !swarm_addrs.is_empty() {
                             swarm_addrs
                         } else {
