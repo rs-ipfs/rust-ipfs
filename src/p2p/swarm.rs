@@ -476,6 +476,19 @@ mod tests {
                         // this is currently a success even though the connection is never really
                         // established, the DummyProtocolsHandler doesn't do anything nor want the
                         // connection to be kept alive and thats it.
+                        //
+                        // it could be argued that this should be `Err("keepalive disconnected")`
+                        // or something and I'd agree, but I also agree this can be an `Ok(())`;
+                        // it's the sort of difficulty with the cli functionality in general: what
+                        // does it mean to connect to a peer? one way to look at it would be to
+                        // make the peer a "pinned peer" or "friend" and to keep the connection
+                        // alive at all costs. perhaps that is something for the next round.
+                        //
+                        // another aspect would be to fail this future because there was no
+                        // `inject_connected`, only `inject_connection_established`. taking that
+                        // route would be good; it does however leave the special case of adding
+                        // another connection, which does add even more complexity than it exists
+                        // at the present.
                         res.unwrap();
 
                         // just to confirm that there are no connections.
@@ -497,7 +510,8 @@ mod tests {
     use std::future::Future;
     use std::pin::Pin;
 
-    // can only be used from within tokio context.
+    // can only be used from within tokio context. this is required since otherwise libp2p-tcp will
+    // use tokio, but from a futures-executor threadpool, which is outside of tokio context.
     struct ThreadLocalTokio;
 
     impl libp2p::core::Executor for ThreadLocalTokio {
