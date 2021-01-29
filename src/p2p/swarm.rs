@@ -292,8 +292,33 @@ impl NetworkBehaviour for SwarmApi {
         if let ConnectedPoint::Dialer { .. } = cp {
             let addr = MultiaddrWithPeerId::from((closed_addr, peer_id.to_owned()));
 
-            self.connect_registry
-                .finish_subscription(addr.into(), Err("Connection reset by peer".to_owned()));
+            match self.pending_connections.entry(*peer_id) {
+                Entry::Occupied(mut oe) => {
+                    let connections = oe.get_mut();
+                    let pos = connections.iter().position(|x| addr.multiaddr == *x);
+
+                    if let Some(pos) = pos {
+                        connections.swap_remove(pos);
+
+                        // this needs to be guarded, so that the connect test case doesn't cause a
+                        // panic following inject_connection_established, inject_connection_closed
+                        // if there's only the DummyProtocolsHandler, which doesn't open a
+                        // substream and closes up immediatedly.
+                        self.connect_registry.finish_subscription(
+                            addr.into(),
+                            Err("Connection reset by peer".to_owned()),
+                        );
+                    }
+
+                    if connections.is_empty() {
+                        oe.remove();
+                    }
+                }
+                Entry::Vacant(_) => {}
+            }
+        } else {
+            // we were not dialing to the peer, thus we cannot have a pending subscription to
+            // finish.
         }
     }
 
@@ -338,8 +363,8 @@ impl NetworkBehaviour for SwarmApi {
                 });
         }
 
-        // this should not be executed once, but probably will be in case unsupported addresses
-        // happen
+        // this should not be executed once, but probably will be in case unsupported addresses or something
+        // surprising happens.
         for failed in self.pending_connections.remove(peer_id).unwrap_or_default() {
             let addr = MultiaddrWithoutPeerId::try_from(failed)
                 .expect("peerid has been stripped earlier")
@@ -448,7 +473,13 @@ mod tests {
                     _ = (&mut swarm1).next_event() => {},
                     _ = (&mut swarm2).next_event() => {},
                     res = (&mut sub) => {
+                        // this is currently a success even though the connection is never really
+                        // established, the DummyProtocolsHandler doesn't do anything nor want the
+                        // connection to be kept alive and thats it.
                         res.unwrap();
+
+                        // just to confirm that there are no connections.
+                        assert_eq!(Vec::<Multiaddr>::new(), swarm1.connections_to(&peer2_id));
                         break;
                     }
                 }
