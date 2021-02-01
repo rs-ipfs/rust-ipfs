@@ -455,11 +455,8 @@ mod tests {
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
         loop {
-            match swarm1.next_event().await {
-                SwarmEvent::NewListenAddr(_) => {
-                    break;
-                }
-                _ => {}
+            if let SwarmEvent::NewListenAddr(_) = swarm1.next_event().await {
+                break;
             }
         }
 
@@ -522,13 +519,10 @@ mod tests {
         let address;
 
         loop {
-            match swarm1.next_event().await {
-                SwarmEvent::NewListenAddr(addr) => {
-                    // wonder if there should be a timeout?
-                    address = addr;
-                    break;
-                }
-                _ => {}
+            if let SwarmEvent::NewListenAddr(addr) = swarm1.next_event().await {
+                // wonder if there should be a timeout?
+                address = addr;
+                break;
             }
         }
 
@@ -572,9 +566,8 @@ mod tests {
         let mut addresses = Vec::with_capacity(2);
 
         while addresses.len() < 2 {
-            match swarm1.next_event().await {
-                SwarmEvent::NewListenAddr(addr) => addresses.push(addr),
-                _ => {}
+            if let SwarmEvent::NewListenAddr(addr) = swarm1.next_event().await {
+                addresses.push(addr);
             }
         }
 
