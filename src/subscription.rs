@@ -144,6 +144,9 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
 
             #[cfg(debug_assertions)]
             if awoken == 0 {
+                // this assertion was originally added because we had quite a lot of trouble with
+                // the subscriptions and it still isn't perfect. if you hit these assertion please
+                // do report a bug.
                 let msg = format!(
                     "no subscriptions to be awoken! subs: {:?}; req_kind: {:?}",
                     related_subs, req_kind
