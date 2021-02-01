@@ -431,6 +431,10 @@ fn connection_point_addr(cp: &ConnectedPoint) -> &Multiaddr {
 mod tests {
     use super::*;
     use crate::p2p::transport::{build_transport, TTransport};
+    use futures::{
+        stream::{StreamExt, TryStreamExt},
+        TryFutureExt,
+    };
     use libp2p::identity::Keypair;
     use libp2p::swarm::SwarmEvent;
     use libp2p::{multiaddr::Protocol, multihash::Multihash, swarm::Swarm, swarm::SwarmBuilder};
@@ -483,7 +487,6 @@ mod tests {
                         // does it mean to connect to a peer? one way to look at it would be to
                         // make the peer a "pinned peer" or "friend" and to keep the connection
                         // alive at all costs. perhaps that is something for the next round.
-                        //
                         // another aspect would be to fail this future because there was no
                         // `inject_connected`, only `inject_connection_established`. taking that
                         // route would be good; it does however leave the special case of adding
@@ -501,9 +504,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn wrong_peer_first_later_good() {
-        use futures::stream::{StreamExt, TryStreamExt};
-
+    async fn wrong_peerid() {
         let (peer1_id, trans) = mk_transport();
         let mut swarm1 = SwarmBuilder::new(trans, SwarmApi::default(), peer1_id)
             .executor(Box::new(ThreadLocalTokio))
@@ -517,28 +518,67 @@ mod tests {
         let peer3_id = Keypair::generate_ed25519().public().into_peer_id();
 
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
+
+        let address;
+
+        loop {
+            match swarm1.next_event().await {
+                SwarmEvent::NewListenAddr(addr) => {
+                    // wonder if there should be a timeout?
+                    address = addr;
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        let mut fut = swarm2
+            .connect(
+                MultiaddrWithoutPeerId::try_from(address)
+                    .unwrap()
+                    .with(peer3_id),
+            )
+            .unwrap()
+            // remove the private type wrapper
+            .map_err(|e| e.into_inner());
+
+        loop {
+            tokio::select! {
+                _ = swarm1.next_event() => {},
+                _ = swarm2.next_event() => {},
+                res = &mut fut => {
+                    assert_eq!(res.unwrap_err(), Some("Pending connection: Invalid peer ID.".into()));
+                    return;
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn racy_connecting_attempts() {
+        let (peer1_id, trans) = mk_transport();
+        let mut swarm1 = SwarmBuilder::new(trans, SwarmApi::default(), peer1_id)
+            .executor(Box::new(ThreadLocalTokio))
+            .build();
+
+        let (peer2_id, trans) = mk_transport();
+        let mut swarm2 = SwarmBuilder::new(trans, SwarmApi::default(), peer2_id)
+            .executor(Box::new(ThreadLocalTokio))
+            .build();
+
+        Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
         let mut addresses = Vec::with_capacity(2);
 
         while addresses.len() < 2 {
-            tokio::select! {
-                evt = swarm1.next_event() => {
-                    match evt {
-                        SwarmEvent::NewListenAddr(addr) => addresses.push(addr),
-                        _ => {}
-                    }
-                }
-            };
+            match swarm1.next_event().await {
+                SwarmEvent::NewListenAddr(addr) => addresses.push(addr),
+                _ => {}
+            }
         }
 
-        println!("got addresses");
-
         let targets = (
-            // first one is with wrong peer_id
-            MultiaddrWithoutPeerId::try_from(addresses[0].clone())
-                .unwrap()
-                .with(peer3_id),
             MultiaddrWithoutPeerId::try_from(addresses[0].clone())
                 .unwrap()
                 .with(peer1_id),
@@ -548,15 +588,11 @@ mod tests {
         );
 
         let mut connections = futures::stream::FuturesOrdered::new();
-        // this should always fail, get to inject_dial_failure finishing the subscription with
-        // error.to_string()
-        connections.push(swarm2.connect(targets.0).unwrap());
-
         // these two should be attempted in parallel. since we know both of them work, and they are
         // given in this order, we know that in libp2p 0.34 only the first should win, however at
         // both should always be finished.
+        connections.push(swarm2.connect(targets.0).unwrap());
         connections.push(swarm2.connect(targets.1).unwrap());
-        connections.push(swarm2.connect(targets.2).unwrap());
         let ready = connections
             // turn the private error type into Option
             .map_err(|e| e.into_inner())
@@ -573,7 +609,6 @@ mod tests {
                     assert_eq!(
                         res,
                         vec![
-                            Err(Some("Pending connection: Invalid peer ID.".into())),
                             Ok(()),
                             Err(Some("finished connecting to another address".into()))
                         ]);
@@ -582,10 +617,6 @@ mod tests {
                 }
             }
         }
-
-        // most of this test case could be done just by exercising the NetworkBehaviour surface of
-        // SwarmApi. however it would also not break if libp2p ever starts to dial in parallel (the
-        // next version possibly).
     }
 
     fn mk_transport() -> (PeerId, TTransport) {
