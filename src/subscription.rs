@@ -219,6 +219,16 @@ impl<E: Debug + PartialEq> fmt::Display for SubscriptionErr<E> {
 
 impl<E: Debug + PartialEq> std::error::Error for SubscriptionErr<E> {}
 
+impl<E: Debug + PartialEq> SubscriptionErr<E> {
+    pub fn into_inner(self) -> Option<E> {
+        use SubscriptionErr::*;
+        match self {
+            Cancelled => None,
+            Failed(e) => Some(e),
+        }
+    }
+}
+
 /// Represents a request for a resource at different stages of its lifetime.
 pub enum Subscription<T, E> {
     /// A finished `Subscription` containing the desired `TRes` value.
