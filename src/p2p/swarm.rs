@@ -430,7 +430,7 @@ fn connection_point_addr(cp: &ConnectedPoint) -> &Multiaddr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::p2p::transport::{build_transport, TTransport};
+    use crate::p2p::transport::build_transport;
     use futures::{
         stream::{StreamExt, TryStreamExt},
         TryFutureExt,
@@ -442,15 +442,8 @@ mod tests {
 
     #[tokio::test]
     async fn swarm_api() {
-        let (peer1_id, trans) = mk_transport();
-        let mut swarm1 = SwarmBuilder::new(trans, SwarmApi::default(), peer1_id)
-            .executor(Box::new(ThreadLocalTokio))
-            .build();
-
-        let (peer2_id, trans) = mk_transport();
-        let mut swarm2 = SwarmBuilder::new(trans, SwarmApi::default(), peer2_id)
-            .executor(Box::new(ThreadLocalTokio))
-            .build();
+        let (peer1_id, mut swarm1) = build_swarm();
+        let (peer2_id, mut swarm2) = build_swarm();
 
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
@@ -502,15 +495,8 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_peerid() {
-        let (peer1_id, trans) = mk_transport();
-        let mut swarm1 = SwarmBuilder::new(trans, SwarmApi::default(), peer1_id)
-            .executor(Box::new(ThreadLocalTokio))
-            .build();
-
-        let (peer2_id, trans) = mk_transport();
-        let mut swarm2 = SwarmBuilder::new(trans, SwarmApi::default(), peer2_id)
-            .executor(Box::new(ThreadLocalTokio))
-            .build();
+        let (_, mut swarm1) = build_swarm();
+        let (_, mut swarm2) = build_swarm();
 
         let peer3_id = Keypair::generate_ed25519().public().into_peer_id();
 
@@ -550,15 +536,8 @@ mod tests {
 
     #[tokio::test]
     async fn racy_connecting_attempts() {
-        let (peer1_id, trans) = mk_transport();
-        let mut swarm1 = SwarmBuilder::new(trans, SwarmApi::default(), peer1_id)
-            .executor(Box::new(ThreadLocalTokio))
-            .build();
-
-        let (peer2_id, trans) = mk_transport();
-        let mut swarm2 = SwarmBuilder::new(trans, SwarmApi::default(), peer2_id)
-            .executor(Box::new(ThreadLocalTokio))
-            .build();
+        let (peer1_id, mut swarm1) = build_swarm();
+        let (_, mut swarm2) = build_swarm();
 
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
@@ -612,11 +591,15 @@ mod tests {
         }
     }
 
-    fn mk_transport() -> (PeerId, TTransport) {
+    fn build_swarm() -> (PeerId, libp2p::swarm::Swarm<SwarmApi>) {
         let key = Keypair::generate_ed25519();
         let peer_id = key.public().into_peer_id();
         let transport = build_transport(key).unwrap();
-        (peer_id, transport)
+
+        let swarm = SwarmBuilder::new(transport, SwarmApi::default(), peer_id)
+            .executor(Box::new(ThreadLocalTokio))
+            .build();
+        (peer_id, swarm)
     }
 
     use std::future::Future;
