@@ -561,7 +561,7 @@ mod tests {
 
         let mut connections = futures::stream::FuturesOrdered::new();
         // these two should be attempted in parallel. since we know both of them work, and they are
-        // given in this order, we know that in libp2p 0.34 only the first should win, however at
+        // given in this order, we know that in libp2p 0.34 only the first should win, however
         // both should always be finished.
         connections.push(swarm2.connect(targets.0).unwrap());
         connections.push(swarm2.connect(targets.1).unwrap());
