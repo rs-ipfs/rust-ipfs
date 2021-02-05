@@ -74,22 +74,22 @@ pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::resolve;
 
     #[tokio::test]
-    #[ignore]
-    async fn test_resolve1() {
+    async fn resolve_ipfs_io() {
+        tracing_subscriber::fmt::init();
         let res = resolve("ipfs.io").await.unwrap().to_string();
         assert_eq!(res, "/ipns/website.ipfs.io");
     }
 
     #[tokio::test]
-    #[ignore]
-    async fn test_resolve2() {
-        let res = resolve("website.ipfs.io").await.unwrap().to_string();
-        assert_eq!(
-            res,
-            "/ipfs/bafybeiayvrj27f65vbecspbnuavehcb3znvnt2strop2rfbczupudoizya"
+    async fn resolve_website_ipfs_io() {
+        let res = resolve("website.ipfs.io").await.unwrap();
+
+        assert!(
+            matches!(res.root(), crate::path::PathRoot::Ipld(_)),
+            "expected an /ipfs/cid path"
         );
     }
 }
