@@ -1,139 +1,95 @@
 use crate::error::Error;
 use crate::path::IpfsPath;
-use bytes::Bytes;
-use domain::base::iana::Rtype;
-use domain::base::{Dname, Question};
-use domain::rdata::rfc1035::Txt;
-use domain::resolv::{stub::Answer, StubResolver};
-use futures::future::{select_ok, SelectOk};
-use futures::pin_mut;
-use std::future::Future;
-use std::pin::Pin;
 use std::str::FromStr;
-use std::task::{Context, Poll};
-use std::{fmt, io};
-
-#[derive(Debug)]
-pub struct DnsLinkError(String);
-
-impl fmt::Display for DnsLinkError {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "DNS error: {}", self.0)
-    }
-}
-
-impl std::error::Error for DnsLinkError {}
-
-type FutureAnswer = Pin<Box<dyn Future<Output = Result<Answer, io::Error>> + Send>>;
-
-pub struct DnsLinkFuture {
-    query: SelectOk<FutureAnswer>,
-}
-
-impl Future for DnsLinkFuture {
-    type Output = Result<IpfsPath, Error>;
-
-    fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
-        let _self = self.get_mut();
-        loop {
-            let query = &mut _self.query;
-            pin_mut!(query);
-            match query.poll(context) {
-                Poll::Ready(Ok((answer, rest))) => {
-                    for record in answer.answer()?.limit_to::<Txt<_>>() {
-                        let txt = record?;
-                        let bytes: &[u8] = txt.data().as_flat_slice().unwrap_or(b"");
-                        let string = String::from_utf8_lossy(&bytes).to_string();
-                        if let Some(path) = string.strip_prefix("dnslink=") {
-                            let path = IpfsPath::from_str(path)?;
-                            return Poll::Ready(Ok(path));
-                        }
-                    }
-                    if !rest.is_empty() {
-                        _self.query = select_ok(rest);
-                    } else {
-                        return Poll::Ready(Err(
-                            DnsLinkError("no DNS records found".to_owned()).into()
-                        ));
-                    }
-                }
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(DnsLinkError(e.to_string()).into())),
-            }
-        }
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn create_resolver() -> Result<StubResolver, Error> {
-    Ok(StubResolver::default())
-}
-
-#[cfg(target_os = "windows")]
-fn create_resolver() -> Result<StubResolver, Error> {
-    use domain::resolv::stub::conf::ResolvConf;
-    use std::{collections::HashSet, io::Cursor};
-
-    let mut config = ResolvConf::new();
-    let mut name_servers = String::new();
-
-    let mut dns_servers = HashSet::new();
-    for adapter in ipconfig::get_adapters()? {
-        for dns in adapter.dns_servers() {
-            dns_servers.insert(dns.to_owned());
-        }
-    }
-
-    for dns in &dns_servers {
-        name_servers.push_str(&format!("nameserver {}\n", dns));
-    }
-
-    let mut name_servers = Cursor::new(name_servers.into_bytes());
-    config.parse(&mut name_servers)?;
-    config.finalize();
-
-    Ok(StubResolver::from_conf(config))
-}
+use tracing_futures::Instrument;
 
 pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
-    let mut dnslink = "_dnslink.".to_string();
-    dnslink.push_str(domain);
-    let resolver = create_resolver()?;
+    use std::borrow::Cow;
+    use trust_dns_resolver::AsyncResolver;
 
-    let qname = Dname::<Bytes>::from_chars(domain.chars())?;
-    let question = Question::new_in(qname, Rtype::Txt);
-    let resolver1 = resolver.clone();
-    let query1 = Box::pin(async move { resolver1.query(question).await });
+    let span = tracing::trace_span!("dnslink", %domain);
 
-    let qname = Dname::<Bytes>::from_chars(dnslink.chars())?;
-    let question = Question::new_in(qname, Rtype::Txt);
-    let resolver2 = resolver;
-    let query2 = Box::pin(async move { resolver2.query(question).await });
+    async move {
+        // allow using non fqdn names (using the local search path suffices)
+        let searched = Some(Cow::Borrowed(domain));
 
-    Ok(DnsLinkFuture {
-        query: select_ok(vec![query1 as FutureAnswer, query2]),
+        let prefix = "_dnslink.";
+        let prefixed = if !domain.starts_with(prefix) {
+            let mut next = String::with_capacity(domain.len() + prefix.len());
+            next.push_str(prefix);
+            next.push_str(domain);
+            Some(Cow::Owned(next))
+        } else {
+            None
+        };
+
+        let searched = searched.into_iter().chain(prefixed.into_iter());
+
+        // FIXME: this uses caching trust-dns resolver even though it's discarded right away
+        // when trust-dns support lands in future libp2p-dns investigate if we could share one, no need
+        // to have multiple related caches.
+        let resolver = AsyncResolver::tokio_from_system_conf()?;
+
+        // previous implementation searched $domain and _dnslink.$domain concurrently. not sure did
+        // `domain` assume fqdn names or not, but local suffices were not being searched on windows at
+        // least. they are probably waste of time most of the time.
+        for domain in searched.into_iter() {
+            let res = match resolver.txt_lookup(&*domain).await {
+                Ok(res) => res,
+                Err(e) => {
+                    tracing::debug!("resolving dnslink of {:?} failed: {}", domain, e);
+                    continue;
+                }
+            };
+
+            let mut paths = res
+                .iter()
+                .flat_map(|txt| txt.iter())
+                .filter_map(|txt| {
+                    if txt.starts_with(b"dnslink=") {
+                        Some(&txt[b"dnslink=".len()..])
+                    } else {
+                        None
+                    }
+                })
+                .map(|suffix| {
+                    std::str::from_utf8(suffix)
+                        .map_err(Error::from)
+                        .and_then(|s| IpfsPath::from_str(s))
+                });
+
+            if let Some(Ok(x)) = paths.next() {
+                tracing::trace!("dnslink found for {:?}", domain);
+                return Ok(x);
+            }
+
+            tracing::trace!("zero TXT records found for {:?}", domain);
+        }
+
+        Err(anyhow::anyhow!("failed to resolve {:?}", domain))
     }
-    .await?)
+    .instrument(span)
+    .await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::resolve;
 
     #[tokio::test]
-    #[ignore]
-    async fn test_resolve1() {
+    async fn resolve_ipfs_io() {
+        tracing_subscriber::fmt::init();
         let res = resolve("ipfs.io").await.unwrap().to_string();
         assert_eq!(res, "/ipns/website.ipfs.io");
     }
 
     #[tokio::test]
-    #[ignore]
-    async fn test_resolve2() {
-        let res = resolve("website.ipfs.io").await.unwrap().to_string();
-        assert_eq!(
-            res,
-            "/ipfs/bafybeiayvrj27f65vbecspbnuavehcb3znvnt2strop2rfbczupudoizya"
+    async fn resolve_website_ipfs_io() {
+        let res = resolve("website.ipfs.io").await.unwrap();
+
+        assert!(
+            matches!(res.root(), crate::path::PathRoot::Ipld(_)),
+            "expected an /ipfs/cid path"
         );
     }
 }
