@@ -9,7 +9,7 @@ use anyhow::anyhow;
 use cid::Cid;
 use ipfs_bitswap::{Bitswap, BitswapEvent};
 use libp2p::core::{Multiaddr, PeerId};
-use libp2p::identify::{Identify, IdentifyEvent};
+use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
 use libp2p::kad::record::{store::MemoryStore, Key, Record};
 use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent, Quorum};
 // use libp2p::mdns::{MdnsEvent, TokioMdns};
@@ -185,7 +185,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
                         let key = multibase::encode(Base::Base32Lower, key);
                         warn!("kad: timed out while trying to republish provider {}", key);
                     }
-                    GetRecord(Ok(GetRecordOk { records })) => {
+                    GetRecord(Ok(GetRecordOk { records, .. })) => {
                         if self.kademlia.query(&id).is_none() {
                             let records = records.into_iter().map(|rec| rec.record).collect();
                             self.kad_subscriptions
@@ -445,9 +445,8 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         let bitswap = Bitswap::default();
         let ping = Ping::default();
         let identify = Identify::new(
-            "/ipfs/0.1.0".into(),
-            "rust-ipfs".into(),
-            options.keypair.public(),
+            IdentifyConfig::new("/ipfs/0.1.0".into(), options.keypair.public())
+                .with_agent_version("rust-ipfs".into()),
         );
         let pubsub = Pubsub::new(options.peer_id);
         let mut swarm = SwarmApi::default();
