@@ -460,7 +460,10 @@ mod tests {
                 Multihash::from_bytes(&peer1_id.to_bytes()).unwrap(),
             ));
 
-            let mut sub = swarm2.connect(addr.try_into().unwrap()).unwrap();
+            let mut sub = swarm2
+                .behaviour_mut()
+                .connect(addr.try_into().unwrap())
+                .unwrap();
 
             loop {
                 tokio::select! {
@@ -485,7 +488,7 @@ mod tests {
                         res.unwrap();
 
                         // just to confirm that there are no connections.
-                        assert_eq!(Vec::<Multiaddr>::new(), swarm1.connections_to(&peer2_id));
+                        assert_eq!(Vec::<Multiaddr>::new(), swarm1.behaviour().connections_to(&peer2_id));
                         break;
                     }
                 }
@@ -513,6 +516,7 @@ mod tests {
         }
 
         let mut fut = swarm2
+            .behaviour_mut()
             .connect(
                 MultiaddrWithoutPeerId::try_from(address)
                     .unwrap()
@@ -563,8 +567,8 @@ mod tests {
         // these two should be attempted in parallel. since we know both of them work, and they are
         // given in this order, we know that in libp2p 0.34 only the first should win, however
         // both should always be finished.
-        connections.push(swarm2.connect(targets.0).unwrap());
-        connections.push(swarm2.connect(targets.1).unwrap());
+        connections.push(swarm2.behaviour_mut().connect(targets.0).unwrap());
+        connections.push(swarm2.behaviour_mut().connect(targets.1).unwrap());
         let ready = connections
             // turn the private error type into Option
             .map_err(|e| e.into_inner())
