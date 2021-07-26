@@ -257,8 +257,8 @@ mod tests {
     use ipfs::{Block, Ipfs, IpfsTypes, Node};
     use multihash::Sha2_256;
     use std::convert::TryFrom;
-    use std::path::PathBuf;
     use std::io::Read;
+    use std::path::PathBuf;
 
     // Entry we'll use in expectations
     #[derive(Debug, PartialEq, Eq)]
