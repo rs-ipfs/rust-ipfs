@@ -11,6 +11,7 @@ use crate::protocol::{BitswapConfig, MessageWrapper};
 use cid::Cid;
 use fnv::FnvHashSet;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use hash_hasher::HashedMap;
 use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
 use libp2p_swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
 use libp2p_swarm::{
@@ -93,7 +94,7 @@ pub struct Bitswap {
     /// Ledger
     pub connected_peers: HashMap<PeerId, Ledger>,
     /// Wanted blocks
-    wanted_blocks: HashMap<Cid, Priority>,
+    wanted_blocks: HashedMap<Cid, Priority>,
     /// Blocks queued to be sent
     pub queued_blocks: UnboundedSender<(PeerId, Block)>,
     ready_blocks: UnboundedReceiver<(PeerId, Block)>,

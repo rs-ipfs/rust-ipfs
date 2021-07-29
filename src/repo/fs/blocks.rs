@@ -5,7 +5,7 @@ use crate::repo::{BlockPut, BlockStore};
 use crate::Block;
 use async_trait::async_trait;
 use cid::Cid;
-use std::collections::HashMap;
+use hash_hasher::{HashBuildHasher, HashedMap};
 use std::hash::Hash;
 use std::io::Read;
 use std::path::PathBuf;
@@ -16,7 +16,7 @@ use tokio::fs;
 use tokio::sync::broadcast;
 use tracing_futures::Instrument;
 
-type ArcMutexMap<A, B> = Arc<Mutex<HashMap<A, B>>>;
+type ArcMutexHashedMap<A, B> = Arc<Mutex<HashedMap<A, B>>>;
 
 /// File system backed block store.
 ///
@@ -30,7 +30,7 @@ pub struct FsBlockStore {
     /// Synchronize concurrent reads and writes to the same Cid.
     /// If the write ever happens, the message sent will be Ok(()), on failure it'll be an Err(()).
     /// Since this is a broadcast channel, the late arriving receiver might not get any messages.
-    writes: ArcMutexMap<RepoCid, broadcast::Sender<Result<(), ()>>>,
+    writes: ArcMutexHashedMap<RepoCid, broadcast::Sender<Result<(), ()>>>,
 
     /// Initially used to demonstrate a bug, not really needed anymore. Could be used as a basis
     /// for periodic synching to disk to know much space we have used.
@@ -46,7 +46,7 @@ pub struct FsBlockStore {
 /// Without reference counting, there is a race condition with repeated multiple
 /// concurrent writers and dropping; this might lead to the first ones dropping the latter
 /// concurrent writes [`FsBlockStore::writes`] key.
-struct RemoveOnDrop<K: Eq + Hash, V>(ArcMutexMap<K, V>, Option<K>);
+struct RemoveOnDrop<K: Eq + Hash, V>(ArcMutexHashedMap<K, V>, Option<K>);
 
 impl<K: Eq + Hash, V> Drop for RemoveOnDrop<K, V> {
     fn drop(&mut self) {
@@ -107,8 +107,7 @@ impl BlockStore for FsBlockStore {
     fn new(path: PathBuf) -> Self {
         FsBlockStore {
             path,
-            //cids: Default::default(),
-            writes: Arc::new(Mutex::new(HashMap::with_capacity(8))),
+            writes: Arc::new(Mutex::new(HashedMap::with_capacity_and_hasher(8, HashBuildHasher::default()))),
             written_bytes: Default::default(),
         }
     }
