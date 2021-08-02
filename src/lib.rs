@@ -478,7 +478,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             if !recursive {
                 self.repo.insert_direct_pin(cid).await
             } else {
-                let ipld = crate::ipld::decode_ipld(&cid, &data)?;
+                let ipld = crate::ipld::decode_ipld(cid, &data)?;
 
                 let st = crate::refs::IpldRefs::default()
                     .with_only_unique()
@@ -510,14 +510,14 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             } else {
                 // start walking refs of the root after loading it
 
-                let Block { data, .. } = match self.repo.get_block_now(&cid).await? {
+                let Block { data, .. } = match self.repo.get_block_now(cid).await? {
                     Some(b) => b,
                     None => {
                         return Err(anyhow::anyhow!("pinned root not found: {}", cid));
                     }
                 };
 
-                let ipld = crate::ipld::decode_ipld(&cid, &data)?;
+                let ipld = crate::ipld::decode_ipld(cid, &data)?;
                 let st = crate::refs::IpldRefs::default()
                     .with_only_unique()
                     .with_existing_blocks()
@@ -639,13 +639,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                     if !seen.insert(res.clone()) {
                         break;
                     }
-                    resolved = ipns.resolve(&res).await;
+                    resolved = ipns.resolve(res).await;
                 }
-
-                resolved
-            } else {
-                resolved
             }
+            resolved
         }
         .instrument(self.span.clone())
         .await
@@ -749,7 +746,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             let peer_id = public_key.clone().into_peer_id();
 
             for addr in &mut addresses {
-                addr.push(Protocol::P2p(peer_id.clone().into()))
+                addr.push(Protocol::P2p(peer_id.into()))
             }
 
             Ok((public_key, addresses))

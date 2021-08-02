@@ -141,7 +141,7 @@ impl MemDataStore {
                     indirect_by: Vec::new(),
                 };
 
-                doc.update(true, &kind).unwrap();
+                doc.update(true, kind).unwrap();
                 let vec = serde_json::to_vec(&doc)?;
                 ve.insert(vec);
                 trace!(doc = ?doc, kind = ?kind, "created on insert");
@@ -697,7 +697,7 @@ mod tests {
         store.open().await.unwrap();
 
         let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), false);
+        assert!(!contains.await.unwrap());
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), None);
         if store.remove(&cid).await.unwrap().is_ok() {
@@ -707,13 +707,13 @@ mod tests {
         let put = store.put(block.clone());
         assert_eq!(put.await.unwrap().0, cid.to_owned());
         let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), true);
+        assert!(contains.await.unwrap());
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), Some(block.clone()));
 
         store.remove(&cid).await.unwrap().unwrap();
         let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), false);
+        assert!(!contains.await.unwrap());
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), None);
     }
@@ -753,7 +753,7 @@ mod tests {
         store.open().await.unwrap();
 
         let contains = store.contains(col, &key);
-        assert_eq!(contains.await.unwrap(), false);
+        assert!(!contains.await.unwrap());
         let get = store.get(col, &key);
         assert_eq!(get.await.unwrap(), None);
         store.remove(col, &key).await.unwrap();
@@ -761,13 +761,13 @@ mod tests {
         let put = store.put(col, &key, &value);
         put.await.unwrap();
         let contains = store.contains(col, &key);
-        assert_eq!(contains.await.unwrap(), true);
+        assert!(contains.await.unwrap());
         let get = store.get(col, &key);
         assert_eq!(get.await.unwrap(), Some(value.to_vec()));
 
         store.remove(col, &key).await.unwrap();
         let contains = store.contains(col, &key);
-        assert_eq!(contains.await.unwrap(), false);
+        assert!(!contains.await.unwrap());
         let get = store.get(col, &key);
         assert_eq!(get.await.unwrap(), None);
     }

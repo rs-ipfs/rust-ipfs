@@ -203,7 +203,7 @@ fn serve<Types: IpfsTypes>(
     let components = listening_addr.iter().collect::<Vec<_>>();
 
     let socket_addr = match components.as_slice() {
-        [Protocol::Ip4(ip), Protocol::Tcp(port)] => SocketAddr::new(ip.clone().into(), *port),
+        [Protocol::Ip4(ip), Protocol::Tcp(port)] => SocketAddr::new((*ip).into(), *port),
         _ => panic!(
             "Couldn't convert MultiAddr into SocketAddr: {}",
             listening_addr

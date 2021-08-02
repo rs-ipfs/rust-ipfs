@@ -238,7 +238,7 @@ fn pem_to_der(bytes: &[u8]) -> Vec<u8> {
     // the ascii for multibase's base64pad decoding.
     let mut base64_encoded = String::new();
 
-    let pem = std::str::from_utf8(&bytes).expect("PEM should be utf8");
+    let pem = std::str::from_utf8(bytes).expect("PEM should be utf8");
 
     // this will hold the end of the line after -----BEGIN
     let mut begin_tag = None;

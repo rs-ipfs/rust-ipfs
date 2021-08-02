@@ -179,7 +179,7 @@ impl BlockStore for FsBlockStore {
 
         let span = tracing::trace_span!("put block", cid = %block.cid());
 
-        let target_path = block_path(self.path.clone(), &block.cid());
+        let target_path = block_path(self.path.clone(), block.cid());
         let cid = block.cid;
         let data = block.data;
 
@@ -458,7 +458,7 @@ mod tests {
         store.open().await.unwrap();
 
         let contains = store.contains(&cid).await.unwrap();
-        assert_eq!(contains, false);
+        assert!(!contains);
         let get = store.get(&cid).await.unwrap();
         assert_eq!(get, None);
         if store.remove(&cid).await.unwrap().is_ok() {
@@ -468,13 +468,13 @@ mod tests {
         let put = store.put(block.clone()).await.unwrap();
         assert_eq!(put.0, cid.to_owned());
         let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), true);
+        assert!(contains.await.unwrap());
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), Some(block.clone()));
 
         store.remove(&cid).await.unwrap().unwrap();
         let contains = store.contains(&cid);
-        assert_eq!(contains.await.unwrap(), false);
+        assert!(!contains.await.unwrap());
         let get = store.get(&cid);
         assert_eq!(get.await.unwrap(), None);
 
@@ -606,7 +606,7 @@ mod tests {
         let join_handles = (0..count)
             .map(|_| {
                 tokio::spawn({
-                    let bs = Arc::clone(&blockstore);
+                    let bs = Arc::clone(blockstore);
                     let barrier = Arc::clone(&barrier);
                     let block = block.clone();
                     async move {

@@ -380,7 +380,8 @@ impl NetworkBehaviour for Pubsub {
                 }) => {
                     let topics = self.peers.entry(peer_id).or_insert_with(Vec::new);
                     let appeared = topics.is_empty();
-                    if topics.iter().find(|&t| t == &topic).is_none() {
+
+                    if !topics.contains(&topic) {
                         topics.push(topic);
                     }
 

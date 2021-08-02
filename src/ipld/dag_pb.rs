@@ -94,26 +94,26 @@ impl PbNode {
     }
 }
 
-impl Into<Ipld> for PbNode {
-    fn into(self) -> Ipld {
+impl From<PbNode> for Ipld {
+    fn from(val: PbNode) -> Self {
         let mut map = BTreeMap::<String, Ipld>::new();
-        let links = self
+        let links = val
             .links
             .into_iter()
             .map(|link| link.into())
             .collect::<Vec<Ipld>>();
         map.insert("Links".to_string(), links.into());
-        map.insert("Data".to_string(), self.data.into());
+        map.insert("Data".to_string(), val.data.into());
         map.into()
     }
 }
 
-impl Into<Ipld> for PbLink {
-    fn into(self) -> Ipld {
+impl From<PbLink> for Ipld {
+    fn from(val: PbLink) -> Self {
         let mut map = BTreeMap::<String, Ipld>::new();
-        map.insert("Hash".to_string(), self.cid.into());
-        map.insert("Name".to_string(), self.name.into());
-        map.insert("Tsize".to_string(), self.size.into());
+        map.insert("Hash".to_string(), val.cid.into());
+        map.insert("Name".to_string(), val.name.into());
+        map.insert("Tsize".to_string(), val.size.into());
         map.into()
     }
 }

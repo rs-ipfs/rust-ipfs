@@ -289,11 +289,13 @@ impl PinModeRequirement {
 
 impl<B: Borrow<Cid>> PartialEq<PinMode> for PinKind<B> {
     fn eq(&self, other: &PinMode) -> bool {
-        matches!((self, other),
+        matches!(
+            (self, other),
             (PinKind::IndirectFrom(_), PinMode::Indirect)
-            | (PinKind::Direct, PinMode::Direct)
-            | (PinKind::Recursive(_), PinMode::Recursive)
-            | (PinKind::RecursiveIntention, PinMode::Recursive))
+                | (PinKind::Direct, PinMode::Direct)
+                | (PinKind::Recursive(_), PinMode::Recursive)
+                | (PinKind::RecursiveIntention, PinMode::Recursive)
+        )
     }
 }
 
@@ -457,7 +459,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         // FIXME: here's a race: block_store might give Ok(None) and we get to create our
         // subscription after the put has completed. So maybe create the subscription first, then
         // cancel it?
-        if let Some(block) = self.get_block_now(&cid).await? {
+        if let Some(block) = self.get_block_now(cid).await? {
             Ok(block)
         } else {
             let subscription = self
@@ -476,7 +478,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Retrieves a block from the block store if it's available locally.
     pub async fn get_block_now(&self, cid: &Cid) -> Result<Option<Block>, Error> {
-        self.block_store.get(&cid).await
+        self.block_store.get(cid).await
     }
 
     /// Lists the blocks in the blockstore.
@@ -486,7 +488,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Remove block from the block store.
     pub async fn remove_block(&self, cid: &Cid) -> Result<Cid, Error> {
-        if self.is_pinned(&cid).await? {
+        if self.is_pinned(cid).await? {
             return Err(anyhow::anyhow!("block to remove is pinned"));
         }
 
@@ -494,7 +496,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         // I like this pattern of the repo abstraction being some sort of
         // "clearing house" for the underlying result enums, but this
         // could potentially be pushed out out of here up to Ipfs, idk
-        match self.block_store.remove(&cid).await? {
+        match self.block_store.remove(cid).await? {
             Ok(success) => match success {
                 BlockRm::Removed(_cid) => {
                     // sending only fails if the background task has exited
@@ -572,7 +574,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Checks if a `Cid` is pinned.
     pub async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        self.data_store.is_pinned(&cid).await
+        self.data_store.is_pinned(cid).await
     }
 
     pub async fn list_pins(

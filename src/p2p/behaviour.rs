@@ -319,7 +319,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
         match event {
             BitswapEvent::ReceivedBlock(peer_id, block) => {
                 let repo = self.repo.clone();
-                let peer_stats = Arc::clone(&self.bitswap.stats.get(&peer_id).unwrap());
+                let peer_stats = Arc::clone(self.bitswap.stats.get(&peer_id).unwrap());
                 task::spawn(async move {
                     let bytes = block.data().len() as u64;
                     let res = repo.put_block(block.clone()).await;
@@ -483,8 +483,8 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     }
 
     pub fn remove_peer(&mut self, peer: &PeerId) {
-        self.swarm.remove_peer(&peer);
-        self.pubsub.remove_node_from_partial_view(&peer);
+        self.swarm.remove_peer(peer);
+        self.pubsub.remove_node_from_partial_view(peer);
         // TODO self.bitswap.remove_peer(&peer);
     }
 

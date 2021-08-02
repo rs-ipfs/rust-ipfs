@@ -435,7 +435,7 @@ impl PinStore for FsDataStore {
 
         // the input can of course contain duplicate cids so handle them by just giving responses
         // for the first of the duplicates
-        Ok(response.into_iter().filter_map(|each| each).collect())
+        Ok(response.into_iter().flatten().collect())
     }
 }
 

@@ -257,7 +257,7 @@ pub fn validate(cid: &Cid, data: &[u8]) -> Result<(), BlockError> {
     if data.len() > MAX_BLOCK_SIZE {
         return Err(BlockError::BlockTooLarge(data.len()));
     }
-    let hash = cid.hash().algorithm().digest(&data);
+    let hash = cid.hash().algorithm().digest(data);
     if hash.as_ref() != cid.hash() {
         return Err(BlockError::InvalidHash(hash));
     }

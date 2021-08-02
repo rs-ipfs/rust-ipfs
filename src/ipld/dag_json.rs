@@ -30,13 +30,13 @@ const LINK_KEY: &str = "/";
 pub fn json_encode(ipld: &Ipld) -> Result<Box<[u8]>, Error> {
     let mut writer = Vec::with_capacity(128);
     let mut ser = Serializer::new(&mut writer);
-    serialize(&ipld, &mut ser)?;
+    serialize(ipld, &mut ser)?;
     Ok(writer.into_boxed_slice())
 }
 
 pub fn json_decode(data: &[u8]) -> Result<Ipld, Error> {
-    let mut de = serde_json::Deserializer::from_slice(&data);
-    Ok(deserialize(&mut de)?)
+    let mut de = serde_json::Deserializer::from_slice(data);
+    deserialize(&mut de)
 }
 
 fn serialize<S>(ipld: &Ipld, ser: S) -> Result<S::Ok, S::Error>
@@ -48,8 +48,8 @@ where
         Ipld::Bool(bool) => ser.serialize_bool(*bool),
         Ipld::Integer(i128) => ser.serialize_i128(*i128),
         Ipld::Float(f64) => ser.serialize_f64(*f64),
-        Ipld::String(string) => ser.serialize_str(&string),
-        Ipld::Bytes(bytes) => ser.serialize_bytes(&bytes),
+        Ipld::String(string) => ser.serialize_str(string),
+        Ipld::Bytes(bytes) => ser.serialize_bytes(bytes),
         Ipld::List(list) => {
             let wrapped = list.iter().map(|ipld| Wrapper(ipld));
             ser.collect_seq(wrapped)
@@ -82,7 +82,7 @@ impl<'a> Serialize for Wrapper<'a> {
     where
         S: ser::Serializer,
     {
-        serialize(&self.0, serializer)
+        serialize(self.0, serializer)
     }
 }
 

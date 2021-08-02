@@ -141,7 +141,7 @@ impl PostOrderIterator {
 
         buffer.truncate(size);
 
-        let mh = multihash::wrap(multihash::Code::Sha2_256, &Sha256::digest(&buffer));
+        let mh = multihash::wrap(multihash::Code::Sha2_256, &Sha256::digest(buffer));
         let cid = Cid::new_v0(mh).expect("sha2_256 is the correct multihash for cidv0");
 
         let combined_from_links = links

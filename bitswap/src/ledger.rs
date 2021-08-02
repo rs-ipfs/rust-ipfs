@@ -126,11 +126,11 @@ impl Message {
     }
 }
 
-impl Into<Vec<u8>> for &Message {
-    fn into(self) -> Vec<u8> {
+impl From<&Message> for Vec<u8> {
+    fn from(val: &Message) -> Self {
         let mut proto = bitswap_pb::Message::default();
         let mut wantlist = bitswap_pb::message::Wantlist::default();
-        for (cid, priority) in self.want() {
+        for (cid, priority) in val.want() {
             let entry = bitswap_pb::message::wantlist::Entry {
                 block: cid.to_bytes(),
                 priority: *priority,
@@ -138,7 +138,7 @@ impl Into<Vec<u8>> for &Message {
             };
             wantlist.entries.push(entry);
         }
-        for cid in self.cancel() {
+        for cid in val.cancel() {
             let entry = bitswap_pb::message::wantlist::Entry {
                 block: cid.to_bytes(),
                 cancel: true,
@@ -146,7 +146,7 @@ impl Into<Vec<u8>> for &Message {
             };
             wantlist.entries.push(entry);
         }
-        for block in self.blocks() {
+        for block in val.blocks() {
             let payload = bitswap_pb::message::Block {
                 prefix: Prefix::from(block.cid()).to_bytes(),
                 data: block.data().to_vec(),

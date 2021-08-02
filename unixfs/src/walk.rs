@@ -629,7 +629,7 @@ impl<'a> FileSegment<'a> {
 
 impl AsRef<[u8]> for FileSegment<'_> {
     fn as_ref(&self) -> &[u8] {
-        &self.bytes
+        self.bytes
     }
 }
 
@@ -871,11 +871,11 @@ mod tests {
         while walker.should_continue() {
             let (next, _) = walker.pending_links();
 
-            let block = blocks.get_by_cid(&next);
+            let block = blocks.get_by_cid(next);
 
             counter += 1;
 
-            match walker.next(&block, &mut None).unwrap() {
+            match walker.next(block, &mut None).unwrap() {
                 ContinuedWalk::File(segment, ..) => {
                     match counter {
                         1 => {
@@ -903,14 +903,14 @@ mod tests {
     }
 
     trait CountsExt {
-        fn checked_removal(&mut self, key: &PathBuf, expected: usize);
+        fn checked_removal(&mut self, key: &Path, expected: usize);
     }
 
     impl CountsExt for HashMap<PathBuf, usize> {
-        fn checked_removal(&mut self, key: &PathBuf, expected: usize) {
+        fn checked_removal(&mut self, key: &Path, expected: usize) {
             use std::collections::hash_map::Entry::*;
 
-            match self.entry(key.clone()) {
+            match self.entry(key.to_owned()) {
                 Occupied(oe) => {
                     assert_eq!(oe.remove(), expected);
                 }
