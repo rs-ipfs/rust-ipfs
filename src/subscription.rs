@@ -156,7 +156,7 @@ impl<T: Debug + Clone + PartialEq, E: Debug + Clone> SubscriptionRegistry<T, E> 
                 // subscriptions.lock().unwrap().
                 drop(subscriptions);
 
-                panic!(msg);
+                panic!("{}", msg);
             }
 
             trace!("Woke {} related subscription(s)", awoken);
