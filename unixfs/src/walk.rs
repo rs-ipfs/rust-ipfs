@@ -903,14 +903,14 @@ mod tests {
     }
 
     trait CountsExt {
-        fn checked_removal(&mut self, key: &PathBuf, expected: usize);
+        fn checked_removal(&mut self, key: &Path, expected: usize);
     }
 
     impl CountsExt for HashMap<PathBuf, usize> {
-        fn checked_removal(&mut self, key: &PathBuf, expected: usize) {
+        fn checked_removal(&mut self, key: &Path, expected: usize) {
             use std::collections::hash_map::Entry::*;
 
-            match self.entry(key.clone()) {
+            match self.entry(key.to_owned()) {
                 Occupied(oe) => {
                     assert_eq!(oe.remove(), expected);
                 }
