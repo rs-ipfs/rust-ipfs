@@ -193,9 +193,11 @@ jobs:
 
     - name: cargo fmt
       run: cargo fmt --all -- --check
+      continue-on-error: true # will just nag until we are up to clippy changes
 
     - name: cargo clippy
       run: cargo clippy --all-targets --workspace -- -D warnings
+      continue-on-error: true # will just nag until we are up to clippy changes
 
   # adapted from https://github.com/taiki-e/pin-project/blob/5878410863f5f25e21f7cba97b035501749850f9/.github/workflows/ci.yml#L136-L167
   # further enchanced following solutions to
