@@ -22,7 +22,7 @@ fn insert_get<H: BuildHasher + Default>(cids: &Cids) {
 
     cids.0.iter().enumerate().for_each(|(_, c)| {
         for _ in 0..GETS_PER_INSERT {
-            h.get(&c).unwrap();
+            h.get(c).unwrap();
         }
     });
 }
@@ -51,11 +51,11 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     for c in cids {
         group.bench_with_input(BenchmarkId::new("HashMap", c.clone()), &c, |b, c| {
-            b.iter(|| insert_get::<RandomState>(&c));
+            b.iter(|| insert_get::<RandomState>(c));
         });
 
         group.bench_with_input(BenchmarkId::new("HashedMap", c.clone()), &c, |b, c| {
-            b.iter(|| insert_get::<HashBuildHasher>(&c));
+            b.iter(|| insert_get::<HashBuildHasher>(c));
         });
     }
 

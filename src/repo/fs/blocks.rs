@@ -107,7 +107,10 @@ impl BlockStore for FsBlockStore {
     fn new(path: PathBuf) -> Self {
         FsBlockStore {
             path,
-            writes: Arc::new(Mutex::new(HashedMap::with_capacity_and_hasher(8, HashBuildHasher::default()))),
+            writes: Arc::new(Mutex::new(HashedMap::with_capacity_and_hasher(
+                8,
+                HashBuildHasher::default(),
+            ))),
             written_bytes: Default::default(),
         }
     }
