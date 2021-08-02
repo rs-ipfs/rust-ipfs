@@ -29,21 +29,25 @@ jobs:
           host: windows-latest
           cross: false
 
-        - target: armv7-linux-androideabi
-          host: ubuntu-latest
-          cross: true
-
-        - target: aarch64-linux-android
-          host: ubuntu-latest
-          cross: true
-
-        - target: x86_64-apple-ios
-          host: macos-latest
-          cross: true
-
-        - target: aarch64-apple-ios
-          host: macos-latest
-          cross: true
+        # Mobile platforms disabled until we get a good estimate of them being
+        # needed. Previous discussion to enable them was before github CI usage
+        # was metered.
+        #
+        # - target: armv7-linux-androideabi
+        #   host: ubuntu-latest
+        #   cross: true
+        #
+        # - target: aarch64-linux-android
+        #   host: ubuntu-latest
+        #   cross: true
+        #
+        # - target: x86_64-apple-ios
+        #   host: macos-latest
+        #   cross: true
+        #
+        # - target: aarch64-apple-ios
+        #   host: macos-latest
+        #   cross: true
 
     env:
       RUST_BACKTRACE: 1
