@@ -749,7 +749,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             let peer_id = public_key.clone().into_peer_id();
 
             for addr in &mut addresses {
-                addr.push(Protocol::P2p(peer_id.clone().into()))
+                addr.push(Protocol::P2p(peer_id.into()))
             }
 
             Ok((public_key, addresses))
