@@ -101,7 +101,7 @@ jobs:
         tar -xf go_ipfs.tar.gz
 
     - name: Install dependencies windows (openssl)
-      uses: lukka/run-vcpkg@v4.1
+      uses: lukka/run-vcpkg@v7.4
       id: windows-runvcpkg
       if: matrix.platform.host == 'windows-latest'
       with:
