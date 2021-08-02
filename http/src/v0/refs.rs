@@ -346,8 +346,8 @@ mod tests {
 
         for (cid_str, data) in blocks.iter() {
             let cid = Cid::try_from(*cid_str).unwrap();
-            validate(&cid, &data).unwrap();
-            decode_ipld(&cid, &data).unwrap();
+            validate(&cid, data).unwrap();
+            decode_ipld(&cid, data).unwrap();
 
             let block = Block {
                 cid,

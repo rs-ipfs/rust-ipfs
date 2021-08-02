@@ -124,7 +124,7 @@ impl PinStore for KvDataStore {
             let _g = span.enter();
 
             db.transaction(|tx_tree| {
-                let already_pinned = get_pinned_mode(&tx_tree, &target)?;
+                let already_pinned = get_pinned_mode(tx_tree, &target)?;
 
                 match already_pinned {
                     Some((PinMode::Direct, _)) => return Ok(()),
@@ -189,9 +189,9 @@ impl PinStore for KvDataStore {
 
                 // cannot use into_iter here as the transactions are retryable
                 for cid in set.iter() {
-                    let indirect_key = get_pin_key(&cid, &PinMode::Indirect);
+                    let indirect_key = get_pin_key(cid, &PinMode::Indirect);
 
-                    if matches!(get_pinned_mode(tx_tree, &cid)?, Some(_)) {
+                    if matches!(get_pinned_mode(tx_tree, cid)?, Some(_)) {
                         // TODO: quite costly to do the get_pinned_mode here
                         continue;
                     }
@@ -401,7 +401,7 @@ impl PinStore for KvDataStore {
                 // questionable here; if the source of the indirect pin cannot be it is already
                 // None, this could work outside of transaction similarly.
                 for id in ids.iter() {
-                    let mode_and_key = get_pinned_mode(tx_tree, &id)?;
+                    let mode_and_key = get_pinned_mode(tx_tree, id)?;
 
                     let matched = match mode_and_key {
                         Some((pin_mode, key)) if requirement.matches(&pin_mode) => match pin_mode {

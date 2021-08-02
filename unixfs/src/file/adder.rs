@@ -215,11 +215,8 @@ impl FileAdder {
     /// Note: the API will hopefully evolve in a direction which will not allocate a new Vec for
     /// every block in the near-ish future.
     pub fn finish(mut self) -> impl Iterator<Item = (Cid, Vec<u8>)> {
-        let last_leaf = Self::flush_buffered_leaf(
-            &self.block_buffer.as_slice(),
-            &mut self.unflushed_links,
-            true,
-        );
+        let last_leaf =
+            Self::flush_buffered_leaf(&self.block_buffer, &mut self.unflushed_links, true);
         let root_links = self.flush_buffered_links(true);
         // should probably error if there is neither?
         last_leaf.into_iter().chain(root_links.into_iter())

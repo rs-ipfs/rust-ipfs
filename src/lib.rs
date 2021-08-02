@@ -478,7 +478,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             if !recursive {
                 self.repo.insert_direct_pin(cid).await
             } else {
-                let ipld = crate::ipld::decode_ipld(&cid, &data)?;
+                let ipld = crate::ipld::decode_ipld(cid, &data)?;
 
                 let st = crate::refs::IpldRefs::default()
                     .with_only_unique()
@@ -510,14 +510,14 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             } else {
                 // start walking refs of the root after loading it
 
-                let Block { data, .. } = match self.repo.get_block_now(&cid).await? {
+                let Block { data, .. } = match self.repo.get_block_now(cid).await? {
                     Some(b) => b,
                     None => {
                         return Err(anyhow::anyhow!("pinned root not found: {}", cid));
                     }
                 };
 
-                let ipld = crate::ipld::decode_ipld(&cid, &data)?;
+                let ipld = crate::ipld::decode_ipld(cid, &data)?;
                 let st = crate::refs::IpldRefs::default()
                     .with_only_unique()
                     .with_existing_blocks()

@@ -250,7 +250,7 @@ pub(crate) mod tests {
 
         while let Some((key, range)) = links_and_ranges.pop() {
             let next = blocks.get_by_raw(&key);
-            let fr = traversal.continue_walk(&next, &range).unwrap();
+            let fr = traversal.continue_walk(next, &range).unwrap();
 
             let (content, next) = fr.content();
             combined.extend(content.unwrap_content());

@@ -323,7 +323,7 @@ mod tests {
             &hex!("0a260802122077656c6c2068656c6c6f207468657265206c6f6e672066696c656e616d65730a1820"),
         ];
 
-        drop(put_all_blocks(&ipfs, &blocks).await.unwrap());
+        drop(put_all_blocks(&ipfs, blocks).await.unwrap());
 
         let filter = super::get(&ipfs);
 
@@ -376,7 +376,7 @@ mod tests {
             &hex!("0a07080212010a1801"),
         ];
 
-        drop(put_all_blocks(&ipfs, &blocks).await.unwrap());
+        drop(put_all_blocks(&ipfs, blocks).await.unwrap());
 
         let filter = super::get(&ipfs);
 
@@ -419,7 +419,7 @@ mod tests {
     ) -> impl std::future::Future<Output = Result<Vec<Cid>, ipfs::Error>> + 'a {
         let mut inorder = FuturesOrdered::new();
         for block in blocks {
-            inorder.push(put_block(&ipfs, block));
+            inorder.push(put_block(ipfs, block));
         }
 
         inorder.try_collect::<Vec<_>>()

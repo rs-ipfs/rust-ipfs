@@ -89,7 +89,7 @@ where
             let (next, _) = visit.pending_links();
 
             let borrow = ipfs.borrow();
-            let Block { cid, data } = match borrow.get_block(&next).await {
+            let Block { cid, data } = match borrow.get_block(next).await {
                 Ok(block) => block,
                 Err(e) => {
                     yield Err(TraversalFailed::Loading(next.to_owned(), e));

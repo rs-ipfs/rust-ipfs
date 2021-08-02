@@ -141,7 +141,7 @@ impl MemDataStore {
                     indirect_by: Vec::new(),
                 };
 
-                doc.update(true, &kind).unwrap();
+                doc.update(true, kind).unwrap();
                 let vec = serde_json::to_vec(&doc)?;
                 ve.insert(vec);
                 trace!(doc = ?doc, kind = ?kind, "created on insert");

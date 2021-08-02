@@ -279,14 +279,14 @@ mod tests {
 
         let block = blocks.get_by_str("QmQXUANxYGpkwMTWQUdZBPx9jqfFP7acNgL4FHRWkndKCe");
 
-        let next = match resolve(&block[..], "non_sharded_dir", &mut None).unwrap() {
+        let next = match resolve(block, "non_sharded_dir", &mut None).unwrap() {
             MaybeResolved::Found(cid) => cid,
             x => unreachable!("{:?}", x),
         };
 
         let block = blocks.get_by_cid(&next);
 
-        let next = match resolve(&block[..], "foobar", &mut None).unwrap() {
+        let next = match resolve(block, "foobar", &mut None).unwrap() {
             MaybeResolved::Found(cid) => cid,
             x => unreachable!("{:?}", x),
         };

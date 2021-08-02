@@ -135,7 +135,7 @@ impl Bitswap {
         self.stats
             .values()
             .fold(Stats::default(), |acc, peer_stats| {
-                acc.add_assign(&peer_stats);
+                acc.add_assign(peer_stats);
                 acc
             })
     }
@@ -279,7 +279,7 @@ impl NetworkBehaviour for Bitswap {
 
         // Process the incoming blocks.
         for block in mem::take(&mut message.blocks) {
-            self.cancel_block(&block.cid());
+            self.cancel_block(block.cid());
 
             let event = BitswapEvent::ReceivedBlock(source, block);
             self.events

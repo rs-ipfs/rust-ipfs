@@ -52,10 +52,10 @@ fn ingest_tar(bytes: &[u8], buffer: &mut Vec<u8>, path: &mut String) {
 
             let len = buffer.len();
 
-            let mh = multihash::wrap(multihash::Code::Sha2_256, &Sha256::digest(&buffer));
+            let mh = multihash::wrap(multihash::Code::Sha2_256, &Sha256::digest(buffer));
             let cid = Cid::new_v0(mh).expect("sha2_256 is the correct multihash for cidv0");
 
-            tree.put_link(&path, cid, len as u64).unwrap();
+            tree.put_link(path, cid, len as u64).unwrap();
 
             // save the &buffer[..]
 
@@ -106,7 +106,7 @@ fn ingest_tar(bytes: &[u8], buffer: &mut Vec<u8>, path: &mut String) {
 
                         total_written += subtotal;
 
-                        tree.put_link(&path, cid, total_written as u64).unwrap();
+                        tree.put_link(path, cid, total_written as u64).unwrap();
                         break;
                     }
                     n => {

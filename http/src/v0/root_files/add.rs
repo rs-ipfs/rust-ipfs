@@ -299,9 +299,7 @@ async fn push_all(
         let (iter, used) = adder.push(&next.slice(read..));
         read += used;
 
-        let maybe_tuple = import_all(&ipfs, iter)
-            .await
-            .map_err(AddError::Persisting)?;
+        let maybe_tuple = import_all(ipfs, iter).await.map_err(AddError::Persisting)?;
 
         let subtotal = maybe_tuple.map(|t| t.1);
 
