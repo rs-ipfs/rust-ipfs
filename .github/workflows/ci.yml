@@ -108,7 +108,7 @@ jobs:
         vcpkgDirectory: '${{ runner.workspace }}/vcpkg'
         vcpkgTriplet: 'x64-windows'
         vcpkgArguments: 'openssl'
-        vcpkgGitCommitId: 'ffa41582f78478812c836a6e8ce315fb27431182'  # ok for openssl-sys v0.9.58
+        vcpkgGitCommitId: '261c458af6e3eed5d099144aff95d2b5035f656b'  # unknown for openssl-sys v0.9.65
 
     - name: Install rust toolchain
       uses: hecrj/setup-rust-action@v1.3.4
