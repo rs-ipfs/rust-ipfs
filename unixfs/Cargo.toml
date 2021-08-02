@@ -20,7 +20,7 @@ quick-protobuf = { default-features = false, features = ["std"], version = "0.7"
 sha2 = { default-features = false, version = "0.9" }
 
 [dev-dependencies]
-hash_hasher = { default-features = false, version = "2.0.3" }
+hash_hasher = "2.0.3"
 hex-literal = { default-features = false, version = "0.3" }
 libc = { default-features = false, version = "0.2.71" }
 multibase = { default-features = false, version = "0.8.0" }
