@@ -340,9 +340,9 @@ impl From<Bytes> for PreformattedJsonMessage {
 }
 
 // This direction is required by warp::hyper::Body
-impl Into<Bytes> for PreformattedJsonMessage {
-    fn into(self) -> Bytes {
-        self.0
+impl From<PreformattedJsonMessage> for Bytes {
+    fn from(val: PreformattedJsonMessage) -> Self {
+        val.0
     }
 }
 
