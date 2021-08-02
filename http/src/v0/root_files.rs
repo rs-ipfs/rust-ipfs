@@ -257,6 +257,7 @@ mod tests {
     use ipfs::{Block, Ipfs, IpfsTypes, Node};
     use multihash::Sha2_256;
     use std::convert::TryFrom;
+    use std::io::Read;
     use std::path::PathBuf;
 
     // Entry we'll use in expectations
@@ -279,15 +280,11 @@ mod tests {
                     let path = entry.path()?.into();
                     let size = header.size()?;
 
-                    // writing to file is the only supported way to get the contents
-                    let tempdir = tempfile::tempdir()?;
-                    let temp_file = tempdir.path().join("temporary_file_for_testing.txt");
-                    entry.unpack(&temp_file)?;
-
-                    let bytes = std::fs::read(&temp_file);
-
-                    // regardless of read success let's prefer deleting the file
-                    std::fs::remove_file(&temp_file)?;
+                    // From https://github.com/alexcrichton/tar-rs/blob/0.4.35/src/entry.rs#L281
+                    // Preallocate some data but don't let ourselves get too crazy now.
+                    let cap = std::cmp::min(entry.size(), 128 * 1024);
+                    let mut v = Vec::with_capacity(cap as usize);
+                    let bytes = entry.read_to_end(&mut v).map(|_| v);
 
                     // and only later check if the read succeeded
                     Entry::File(path, size, bytes?)
