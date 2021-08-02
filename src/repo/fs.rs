@@ -144,11 +144,11 @@ mod tests {
 
         let mut lock = FsLock::new(lockfile_path.clone());
         let result = lock.try_exclusive();
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
 
         let mut failing_lock = FsLock::new(lockfile_path.clone());
         let result = failing_lock.try_exclusive();
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Clean-up.
         std::fs::remove_file(lockfile_path).unwrap();
