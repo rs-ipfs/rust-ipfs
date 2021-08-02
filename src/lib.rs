@@ -639,13 +639,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                     if !seen.insert(res.clone()) {
                         break;
                     }
-                    resolved = ipns.resolve(&res).await;
+                    resolved = ipns.resolve(res).await;
                 }
-
-                resolved
-            } else {
-                resolved
             }
+            resolved
         }
         .instrument(self.span.clone())
         .await

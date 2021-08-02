@@ -296,10 +296,11 @@ impl<T, E> Subscription<T, E> {
 
     fn wake(&mut self, result: Result<T, E>) {
         let former_self = mem::replace(self, Subscription::Ready(result));
-        if let Subscription::Pending { waker, .. } = former_self {
-            if let Some(waker) = waker {
-                waker.wake();
-            }
+        if let Subscription::Pending {
+            waker: Some(waker), ..
+        } = former_self
+        {
+            waker.wake();
         }
     }
 
@@ -417,11 +418,8 @@ impl<T: Debug + PartialEq, E: Debug> Drop for SubscriptionFuture<T, E> {
             }
         };
 
-        if let Some(sub) = sub {
-            // don't cancel anything that isn't `Pending`
-            if let mut sub @ Subscription::Pending { .. } = sub {
-                sub.cancel(self.id, self.kind.clone(), is_last);
-            }
+        if let Some(mut sub @ Subscription::Pending { .. }) = sub {
+            sub.cancel(self.id, self.kind.clone(), is_last);
         }
     }
 }
