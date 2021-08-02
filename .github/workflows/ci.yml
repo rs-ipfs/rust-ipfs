@@ -29,21 +29,25 @@ jobs:
           host: windows-latest
           cross: false
 
-        - target: armv7-linux-androideabi
-          host: ubuntu-latest
-          cross: true
-
-        - target: aarch64-linux-android
-          host: ubuntu-latest
-          cross: true
-
-        - target: x86_64-apple-ios
-          host: macos-latest
-          cross: true
-
-        - target: aarch64-apple-ios
-          host: macos-latest
-          cross: true
+        # Mobile platforms disabled until we get a good estimate of them being
+        # needed. Previous discussion to enable them was before github CI usage
+        # was metered.
+        #
+        # - target: armv7-linux-androideabi
+        #   host: ubuntu-latest
+        #   cross: true
+        #
+        # - target: aarch64-linux-android
+        #   host: ubuntu-latest
+        #   cross: true
+        #
+        # - target: x86_64-apple-ios
+        #   host: macos-latest
+        #   cross: true
+        #
+        # - target: aarch64-apple-ios
+        #   host: macos-latest
+        #   cross: true
 
     env:
       RUST_BACKTRACE: 1
@@ -97,14 +101,14 @@ jobs:
         tar -xf go_ipfs.tar.gz
 
     - name: Install dependencies windows (openssl)
-      uses: lukka/run-vcpkg@v4.1
+      uses: lukka/run-vcpkg@v7.4
       id: windows-runvcpkg
       if: matrix.platform.host == 'windows-latest'
       with:
         vcpkgDirectory: '${{ runner.workspace }}/vcpkg'
         vcpkgTriplet: 'x64-windows'
         vcpkgArguments: 'openssl'
-        vcpkgGitCommitId: 'ffa41582f78478812c836a6e8ce315fb27431182'  # ok for openssl-sys v0.9.58
+        vcpkgGitCommitId: '261c458af6e3eed5d099144aff95d2b5035f656b'  # unknown for openssl-sys v0.9.65
 
     - name: Install rust toolchain
       uses: hecrj/setup-rust-action@v1.3.4
@@ -189,9 +193,11 @@ jobs:
 
     - name: cargo fmt
       run: cargo fmt --all -- --check
+      continue-on-error: true # will just nag until we are up to clippy changes
 
     - name: cargo clippy
       run: cargo clippy --all-targets --workspace -- -D warnings
+      continue-on-error: true # will just nag until we are up to clippy changes
 
   # adapted from https://github.com/taiki-e/pin-project/blob/5878410863f5f25e21f7cba97b035501749850f9/.github/workflows/ci.yml#L136-L167
   # further enchanced following solutions to
