@@ -77,14 +77,10 @@ impl SwarmApi {
             .filter_map(move |(peer, conns)| {
                 let rtt = self.roundtrip_times.get(peer).cloned();
 
-                if let Some(any) = conns.first() {
-                    Some(Connection {
-                        addr: MultiaddrWithPeerId::from((any.clone(), *peer)),
-                        rtt,
-                    })
-                } else {
-                    None
-                }
+                conns.first().map(|any| Connection {
+                    addr: MultiaddrWithPeerId::from((any.clone(), *peer)),
+                    rtt,
+                })
             })
     }
 
