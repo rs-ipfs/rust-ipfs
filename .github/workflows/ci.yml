@@ -5,6 +5,9 @@ on:
       - staging
   pull_request:
     branches: '*'
+  schedule:
+    # added while removing the Cargo.lock to help combat dependency drift caused by too lenient Cargo.toml ranges
+    - cron: '0 3 * * 1' # every monday at 03:00
 
 name: Rust IPFS
 
