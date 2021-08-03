@@ -374,7 +374,6 @@ impl BlockStore for FsBlockStore {
             async move {
                 let stream = ReadDirStream::new(fs::read_dir(p).await?);
 
-                // FIXME: written as a stream to make the Vec be BoxStream<'static, Cid>
                 let vec = stream
                     .try_filter_map(|d| async move {
                         // map over the shard directories
@@ -384,7 +383,7 @@ impl BlockStore for FsBlockStore {
                             None
                         })
                     })
-                    // flatten each
+                    // flatten each; there could be unordered execution pre-flattening
                     .try_flatten()
                     // convert the paths ending in ".data" into cid
                     .try_filter_map(|d| {
