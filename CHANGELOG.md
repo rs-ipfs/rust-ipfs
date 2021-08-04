@@ -8,6 +8,7 @@
 * chore: update a lot of dependencies including libp2p, tokio, warp [#446]
 * fix: rename spans (part of [#453])
 * fix: connect using DialPeer instead of DialAddress [#454]
+* fix: compilation error when used as a dependency [#470]
 
 [#429]: https://github.com/rs-ipfs/rust-ipfs/pull/429
 [#428]: https://github.com/rs-ipfs/rust-ipfs/pull/428
@@ -19,6 +20,7 @@
 [#446]: https://github.com/rs-ipfs/rust-ipfs/pull/446
 [#453]: https://github.com/rs-ipfs/rust-ipfs/pull/453
 [#454]: https://github.com/rs-ipfs/rust-ipfs/pull/454
+[#470]: https://github.com/rs-ipfs/rust-ipfs/pull/470
 
 # 0.2.1
 
