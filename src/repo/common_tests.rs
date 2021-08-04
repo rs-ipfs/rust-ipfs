@@ -53,7 +53,7 @@ macro_rules! pinstore_interface_tests {
             use crate::repo::{DataStore, PinKind, PinMode, PinStore};
             use cid::Cid;
             use futures::{StreamExt, TryStreamExt};
-            use std::collections::HashMap;
+            use hash_hasher::HashedMap;
             use std::convert::TryFrom;
 
             #[tokio::test]
@@ -178,7 +178,7 @@ macro_rules! pinstore_interface_tests {
                 let mut both = repo
                     .list(None)
                     .await
-                    .try_collect::<HashMap<Cid, PinMode>>()
+                    .try_collect::<HashedMap<Cid, PinMode>>()
                     .await
                     .unwrap();
 
@@ -211,7 +211,7 @@ macro_rules! pinstore_interface_tests {
                 let mut both = repo
                     .list(None)
                     .await
-                    .try_collect::<HashMap<Cid, PinMode>>()
+                    .try_collect::<HashedMap<Cid, PinMode>>()
                     .await
                     .unwrap();
 
@@ -242,7 +242,7 @@ macro_rules! pinstore_interface_tests {
                 let mut both = repo
                     .list(None)
                     .await
-                    .try_collect::<HashMap<Cid, PinMode>>()
+                    .try_collect::<HashedMap<Cid, PinMode>>()
                     .await
                     .unwrap();
 
@@ -302,7 +302,7 @@ macro_rules! pinstore_interface_tests {
                 let mut one = repo
                     .list(None)
                     .await
-                    .try_collect::<HashMap<Cid, PinMode>>()
+                    .try_collect::<HashedMap<Cid, PinMode>>()
                     .await
                     .unwrap();
 

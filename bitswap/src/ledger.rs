@@ -4,11 +4,9 @@ use crate::error::BitswapError;
 use crate::prefix::Prefix;
 use cid::Cid;
 use core::convert::TryFrom;
+use hash_hasher::{HashedMap, HashedSet};
 use prost::Message as ProstMessage;
-use std::{
-    collections::{HashMap, HashSet},
-    mem,
-};
+use std::mem;
 
 pub type Priority = i32;
 
@@ -16,9 +14,9 @@ pub type Priority = i32;
 #[derive(Debug, Default)]
 pub struct Ledger {
     /// The list of wanted blocks sent to the peer.
-    sent_want_list: HashMap<Cid, Priority>,
+    sent_want_list: HashedMap<Cid, Priority>,
     /// The list of wanted blocks received from the peer.
-    pub(crate) received_want_list: HashMap<Cid, Priority>,
+    pub(crate) received_want_list: HashedMap<Cid, Priority>,
     /// Queued message.
     message: Message,
 }
@@ -69,9 +67,9 @@ impl Ledger {
 #[derive(Clone, PartialEq, Default)]
 pub struct Message {
     /// List of wanted blocks.
-    want: HashMap<Cid, Priority>,
+    want: HashedMap<Cid, Priority>,
     /// List of blocks to cancel.
-    cancel: HashSet<Cid>,
+    cancel: HashedSet<Cid>,
     /// Wheather it is the full list of wanted blocks.
     full: bool,
     /// List of blocks to send.
@@ -90,12 +88,12 @@ impl Message {
     }
 
     /// Returns the list of wanted blocks.
-    pub fn want(&self) -> &HashMap<Cid, Priority> {
+    pub fn want(&self) -> &HashedMap<Cid, Priority> {
         &self.want
     }
 
     /// Returns the list of cancelled blocks.
-    pub fn cancel(&self) -> &HashSet<Cid> {
+    pub fn cancel(&self) -> &HashedSet<Cid> {
         &self.cancel
     }
 

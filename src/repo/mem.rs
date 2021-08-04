@@ -7,6 +7,7 @@ use crate::repo::{
 use crate::Block;
 use async_trait::async_trait;
 use cid::Cid;
+use hash_hasher::HashedMap;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use tokio::sync::{Mutex, OwnedMutexGuard};
@@ -24,7 +25,7 @@ use std::sync::Arc;
 /// Blocks are stored as a `HashMap` of the `Cid` and `Block`.
 #[derive(Debug, Default)]
 pub struct MemBlockStore {
-    blocks: Mutex<HashMap<RepoCid, Block>>,
+    blocks: Mutex<HashedMap<RepoCid, Block>>,
 }
 
 #[async_trait]

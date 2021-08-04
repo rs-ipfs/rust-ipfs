@@ -1,11 +1,11 @@
 use cid::Cid;
 use core::convert::TryFrom;
+use hash_hasher::HashedMap;
 use hex_literal::hex;
-use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct FakeBlockstore {
-    blocks: HashMap<Cid, Vec<u8>>,
+    blocks: HashedMap<Cid, Vec<u8>>,
 }
 
 impl FakeBlockstore {
