@@ -84,7 +84,10 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
         };
 
         match event {
-            QueryResult { result, id, .. } => {
+            InboundRequestServed { request, } => {
+                trace!("kad: inbound {:?} request handled", request);
+            }
+            OutboundQueryCompleted { result, id, .. } => {
                 // make sure the query is exhausted
                 if self.kademlia.query(&id).is_none() {
                     match result {
@@ -296,7 +299,9 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
             }
             RoutingUpdated {
                 peer,
+                is_new_peer: _,
                 addresses,
+                bucket_range: _,
                 old_peer: _,
             } => {
                 trace!("kad: routing updated; {}: {:?}", peer, addresses);

@@ -444,7 +444,7 @@ mod tests {
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
         loop {
-            if let SwarmEvent::NewListenAddr(_) = swarm1.next_event().await {
+            if let Some(SwarmEvent::NewListenAddr{..}) = swarm1.next().await {
                 break;
             }
         }
@@ -463,8 +463,8 @@ mod tests {
 
             loop {
                 tokio::select! {
-                    _ = (&mut swarm1).next_event() => {},
-                    _ = (&mut swarm2).next_event() => {},
+                    _ = (&mut swarm1).next() => {},
+                    _ = (&mut swarm2).next() => {},
                     res = (&mut sub) => {
                         // this is currently a success even though the connection is never really
                         // established, the DummyProtocolsHandler doesn't do anything nor want the
@@ -501,12 +501,12 @@ mod tests {
 
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
-        let address;
+        let addr;
 
         loop {
-            if let SwarmEvent::NewListenAddr(addr) = swarm1.next_event().await {
+            if let Some(SwarmEvent::NewListenAddr {address, ..}) = swarm1.next().await {
                 // wonder if there should be a timeout?
-                address = addr;
+                addr = address;
                 break;
             }
         }
@@ -514,7 +514,7 @@ mod tests {
         let mut fut = swarm2
             .behaviour_mut()
             .connect(
-                MultiaddrWithoutPeerId::try_from(address)
+                MultiaddrWithoutPeerId::try_from(addr)
                     .unwrap()
                     .with(peer3_id),
             )
@@ -524,8 +524,8 @@ mod tests {
 
         loop {
             tokio::select! {
-                _ = swarm1.next_event() => {},
-                _ = swarm2.next_event() => {},
+                _ = swarm1.next() => {},
+                _ = swarm2.next() => {},
                 res = &mut fut => {
                     assert_eq!(res.unwrap_err(), Some("Pending connection: Invalid peer ID.".into()));
                     return;
@@ -542,19 +542,19 @@ mod tests {
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
-        let mut addresses = Vec::with_capacity(2);
+        let mut addr = Vec::with_capacity(2);
 
-        while addresses.len() < 2 {
-            if let SwarmEvent::NewListenAddr(addr) = swarm1.next_event().await {
-                addresses.push(addr);
+        while addr.len() < 2 {
+            if let Some(SwarmEvent::NewListenAddr {address, ..}) = swarm1.next().await {
+                addr.push(address);
             }
         }
 
         let targets = (
-            MultiaddrWithoutPeerId::try_from(addresses[0].clone())
+            MultiaddrWithoutPeerId::try_from(addr[0].clone())
                 .unwrap()
                 .with(peer1_id),
-            MultiaddrWithoutPeerId::try_from(addresses[1].clone())
+            MultiaddrWithoutPeerId::try_from(addr[1].clone())
                 .unwrap()
                 .with(peer1_id),
         );
@@ -574,8 +574,8 @@ mod tests {
 
         loop {
             tokio::select! {
-                _ = swarm1.next_event() => {}
-                _ = swarm2.next_event() => {}
+                _ = swarm1.next() => {}
+                _ = swarm2.next() => {}
                 res = &mut ready => {
 
                     assert_eq!(
