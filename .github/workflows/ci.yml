@@ -83,15 +83,22 @@ jobs:
       if: matrix.platform.host == 'macos-latest'
       run: brew install llvm openssl
 
-    - name: Install dependencies (windows)
+    - name: Install and cache vcpkg (windows)
       uses: lukka/run-vcpkg@v7.4
       id: windows-runvcpkg
       if: matrix.platform.host == 'windows-latest'
       with:
         vcpkgDirectory: '${{ runner.workspace }}/vcpkg'
         vcpkgTriplet: 'x64-windows'
-        vcpkgArguments: 'openssl'
         vcpkgGitCommitId: '261c458af6e3eed5d099144aff95d2b5035f656b'  # unknown for openssl-sys v0.9.65
+        setupOnly: true # required for caching
+
+    - name: Install depedencies (windows)
+      if: matrix.platform.host == 'windows-latest'
+      run: "$VCPKG_ROOT/vcpkg install openssl:x64-windows"
+      shell: bash
+      env:
+        VCPKGRS_DYNAMIC: 1
 
     - name: Install rust toolchain
       uses: hecrj/setup-rust-action@v1.3.4
