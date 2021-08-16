@@ -75,21 +75,6 @@ jobs:
     - name: Checkout sources
       uses: actions/checkout@v2
 
-    - name: Get npm cache directory
-      id: npm-cache
-      if: matrix.platform.cross == false
-      run: |
-        echo "::set-output name=dir::$(npm config get cache)"
-
-    - name: Cache npm (non-cross targets)
-      uses: actions/cache@v2
-      if: matrix.platform.cross == false
-      with:
-        path: ${{ steps.npm-cache.outputs.dir }}
-        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json', '**/setup.sh', '**/*.patch') }}
-        restore-keys: |
-          ${{ runner.os }}-node-
-
     - name: Install dependencies ubuntu
       if: matrix.platform.host == 'ubuntu-latest'
       run: sudo apt-get install llvm-dev libssl-dev pkg-config
@@ -138,12 +123,6 @@ jobs:
       if: matrix.platform.host == 'ubuntu-latest' && matrix.platform.cross == false
       run: cargo test --features=test_go_interop dht
 
-    - name: Setup conformance tests (non-cross targets)
-      if: matrix.platform.cross == false
-      run: ./setup.sh
-      shell: bash
-      working-directory: ./conformance
-
     - name: Build (android)
       if: contains(matrix.platform.target, 'android')
       run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --workspace --exclude ipfs-http
@@ -158,7 +137,30 @@ jobs:
       if: matrix.platform.cross == false && matrix.platform.host != 'macos-latest'
       run: cargo test --workspace
 
-    - name: Conformance testing (non-cross targets)
+    - name: "Conformance tests: cache config"
+      id: conformance-cache-config
+      if: matrix.platform.cross == false
+      run: |
+        echo "::set-output name=dir::$(npm config get cache)"
+        echo "::set-output name=ver::$(npm -v)"
+
+    - name: "Conformance tests: cache"
+      id: conformance-cache
+      if: matrix.platform.cross == false
+      uses: actions/cache@v2
+      with:
+        path: |
+          ${{ steps.conformance-cache-config.outputs.dir }}
+          ./conformance/node_modules
+        key: ${{ runner.os }}-conformance-${{ steps.conformance-cache-config.outputs.ver }} ${{ hashFiles('**/package-lock.json', '**/setup.sh', '**/*.patch') }}
+
+    - name: "Conformance tests: setup"
+      if: steps.conformance-cache.outputs.cache-hit != 'true' && matrix.platform.cross == false
+      run: ./setup.sh
+      shell: bash
+      working-directory: ./conformance
+
+    - name: "Conformance tests: run"
       if: matrix.platform.cross == false
       run: IPFS_RUST_EXEC=../target/debug/ipfs-http npm test
       shell: bash
