@@ -22,14 +22,17 @@ jobs:
 
         platform:
         - target: x86_64-unknown-linux-gnu
+          name: ubuntu
           host: ubuntu-latest
           cross: false
 
         - target: x86_64-apple-darwin
+          name: macos
           host: macos-latest
           cross: false
 
         - target: x86_64-pc-windows-msvc
+          name: windows
           host: windows-latest
           cross: false
 
@@ -38,18 +41,22 @@ jobs:
         # was metered.
         #
         # - target: armv7-linux-androideabi
+        #   name: android (armv7)
         #   host: ubuntu-latest
         #   cross: true
         #
         # - target: aarch64-linux-android
+        #   name: android (aarch64)
         #   host: ubuntu-latest
         #   cross: true
         #
         # - target: x86_64-apple-ios
+        #   name: ios (x86_64)
         #   host: macos-latest
         #   cross: true
         #
         # - target: aarch64-apple-ios
+        #   name: ios (aarch64)
         #   host: macos-latest
         #   cross: true
 
@@ -63,6 +70,7 @@ jobs:
       DEBUG: ipfsd-ctl:* # enables all debug output from javascript 'debug' lib used by js-ipfsd-ctl
 
     runs-on: ${{ matrix.platform.host }}
+    name: ${{ matrix.platform.name }}
     steps:
     - name: Checkout sources
       uses: actions/checkout@v2
