@@ -75,14 +75,6 @@ jobs:
     - name: Checkout sources
       uses: actions/checkout@v2
 
-    - name: Cache cargo folder
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-        key: ${{ matrix.platform.target }}-dot-cargo-parts-${{ hashFiles('Cargo.lock') }}
-
     - name: Get npm cache directory
       id: npm-cache
       if: matrix.platform.cross == false
@@ -127,6 +119,12 @@ jobs:
       with:
         rust-version: ${{ matrix.toolchain.rust }}
         targets: ${{ matrix.platform.target }}
+
+    - name: Rust cache
+      uses: Swatinem/rust-cache@v1
+      with:
+        # So that cross-compiles don't share a cache.
+        key: ${{ matrix.platform.target }}
 
     - name: Install cargo-ndk
       if: contains(matrix.platform.target, 'android')
@@ -185,23 +183,25 @@ jobs:
         path: /cores
         if-no-files-found: ignore
 
+    # Work around for this issue: https://github.com/Swatinem/rust-cache/issues/26
+    - name: Fix cache permissions (macos)
+      if: matrix.platform.cross == false && matrix.platform.host == 'macos-latest'
+      run: sudo chown -R $(whoami):$(id -ng) ./target
+
   lint-rust:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout sources
       uses: actions/checkout@v2
 
-    - name: Cache cargo folder
-      uses: actions/cache@v2
-      with:
-        path: ~/.cargo
-        key: lint-cargo-${{ hashFiles('Cargo.lock') }}
-
     - name: Install rust toolchain
       uses: hecrj/setup-rust-action@v1.3.4
       with:
         rust-version: stable
         components: clippy, rustfmt
+
+    - name: Rust cache
+      uses: Swatinem/rust-cache@v1
 
     - name: cargo fmt
       run: cargo fmt --all -- --check
