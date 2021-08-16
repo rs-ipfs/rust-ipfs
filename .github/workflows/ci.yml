@@ -75,21 +75,15 @@ jobs:
     - name: Checkout sources
       uses: actions/checkout@v2
 
-    - name: Install dependencies ubuntu
+    - name: Install dependencies (linux)
       if: matrix.platform.host == 'ubuntu-latest'
       run: sudo apt-get install llvm-dev libssl-dev pkg-config
 
-    - name: Install dependencies macos
+    - name: Install dependencies (macos)
       if: matrix.platform.host == 'macos-latest'
       run: brew install llvm openssl
 
-    - name: Download go-ipfs on Linux
-      if: matrix.platform.host == 'ubuntu-latest'
-      run: |
-        curl -L https://github.com/ipfs/go-ipfs/releases/download/v0.7.0/go-ipfs_v0.7.0_linux-amd64.tar.gz --output go_ipfs.tar.gz
-        tar -xf go_ipfs.tar.gz
-
-    - name: Install dependencies windows (openssl)
+    - name: Install dependencies (windows)
       uses: lukka/run-vcpkg@v7.4
       id: windows-runvcpkg
       if: matrix.platform.host == 'windows-latest'
@@ -111,31 +105,32 @@ jobs:
         # So that cross-compiles don't share a cache.
         key: ${{ matrix.platform.target }}
 
-    - name: Install cargo-ndk
-      if: contains(matrix.platform.target, 'android')
-      run: cargo install --version '<2.0.0' cargo-ndk
-
-    - name: Build
+    - name: Cargo build
       if: matrix.platform.cross == false
       run: cargo build --workspace --all-targets
 
-    - name: Run interop DHT tests with go-ipfs
-      if: matrix.platform.host == 'ubuntu-latest' && matrix.platform.cross == false
-      run: cargo test --features=test_go_interop dht
-
-    - name: Build (android)
+    - name: Cargo build (cross compile, android)
       if: contains(matrix.platform.target, 'android')
-      run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --workspace --exclude ipfs-http
+      run: |
+        cargo install --version '<2.0.0' cargo-ndk
+        cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --workspace --exclude ipfs-http
       # exclude http on android because openssl
 
-    - name: Build other cross compilations
+    - name: Cargo build (cross compile, non-android)
       if: contains(matrix.platform.target, 'android') == false && matrix.platform.cross == true
       run: cargo build --workspace --exclude ipfs-http --target ${{ matrix.platform.target }}
       # exclude http on other cross compilation targets because openssl
 
-    - name: Rust tests (other non-cross targets)
-      if: matrix.platform.cross == false && matrix.platform.host != 'macos-latest'
+    - name: Cargo test
+      if: matrix.platform.cross == false
       run: cargo test --workspace
+
+    - name: Interop DHT tests with go-ipfs (linux)
+      if: matrix.platform.host == 'ubuntu-latest' && matrix.platform.cross == false
+      run: |
+        curl -L https://github.com/ipfs/go-ipfs/releases/download/v0.7.0/go-ipfs_v0.7.0_linux-amd64.tar.gz --output go_ipfs.tar.gz
+        tar -xf go_ipfs.tar.gz
+        cargo test --features=test_go_interop dht
 
     - name: "Conformance tests: cache config"
       id: conformance-cache-config
@@ -186,10 +181,10 @@ jobs:
     - name: Rust cache
       uses: Swatinem/rust-cache@v1
 
-    - name: cargo fmt
+    - name: Cargo fmt
       run: cargo fmt --all -- --check
 
-    - name: cargo clippy
+    - name: Cargo clippy
       run: cargo clippy --all-targets --workspace -- -D warnings
 
   # adapted from https://github.com/taiki-e/pin-project/blob/5878410863f5f25e21f7cba97b035501749850f9/.github/workflows/ci.yml#L136-L167
