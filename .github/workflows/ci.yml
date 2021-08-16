@@ -130,7 +130,7 @@ jobs:
       if: contains(matrix.platform.target, 'android')
       run: cargo install --version '<2.0.0' cargo-ndk
 
-    - name: Build (others)
+    - name: Build
       if: matrix.platform.cross == false
       run: cargo build --workspace --all-targets
 
@@ -154,17 +154,6 @@ jobs:
       run: cargo build --workspace --exclude ipfs-http --target ${{ matrix.platform.target }}
       # exclude http on other cross compilation targets because openssl
 
-    - name: Rust tests (macos)
-      if: matrix.platform.cross == false && matrix.platform.host == 'macos-latest'
-      run: |
-          ulimit -c unlimited
-          sudo touch /cores/test || { ls -ld /cores; exit 1; }
-          sudo rm /cores/test
-          retval=0
-          sudo cargo test --workspace || retval=$?
-          sudo chmod -R a+rwx /cores
-          exit $retval
-
     - name: Rust tests (other non-cross targets)
       if: matrix.platform.cross == false && matrix.platform.host != 'macos-latest'
       run: cargo test --workspace
@@ -174,14 +163,6 @@ jobs:
       run: IPFS_RUST_EXEC=../target/debug/ipfs-http npm test
       shell: bash
       working-directory: ./conformance
-
-    - name: Upload crashes (macos)
-      uses: actions/upload-artifact@v2
-      if: ${{ always() }}
-      with:
-        name: macos.crashes
-        path: /cores
-        if-no-files-found: ignore
 
     # Work around for this issue: https://github.com/Swatinem/rust-cache/issues/26
     - name: Fix cache permissions (macos)
