@@ -1382,7 +1382,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                 // off the events from Ipfs and ... this looping goes on for a while.
                 done = false;
                 match inner {
-                    Some(SwarmEvent::NewListenAddr{address, ..}) => {
+                    Some(SwarmEvent::NewListenAddr { address, .. }) => {
                         self.complete_listening_address_adding(address);
                     }
                     _ => trace!("{:?}", inner),

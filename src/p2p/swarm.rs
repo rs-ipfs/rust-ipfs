@@ -416,8 +416,13 @@ impl NetworkBehaviour for SwarmApi {
 
 fn connection_point_addr(cp: &ConnectedPoint) -> MultiaddrWithoutPeerId {
     match cp {
-        ConnectedPoint::Dialer { address } => MultiaddrWithPeerId::try_from(address.to_owned()).expect("dialed address contains peerid in libp2p 0.38").into(),
-        ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr.to_owned().try_into().expect("send back address does not contain peerid in libp2p 0.38"),
+        ConnectedPoint::Dialer { address } => MultiaddrWithPeerId::try_from(address.to_owned())
+            .expect("dialed address contains peerid in libp2p 0.38")
+            .into(),
+        ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr
+            .to_owned()
+            .try_into()
+            .expect("send back address does not contain peerid in libp2p 0.38"),
     }
 }
 
@@ -442,7 +447,7 @@ mod tests {
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
         loop {
-            if let Some(SwarmEvent::NewListenAddr{..}) = swarm1.next().await {
+            if let Some(SwarmEvent::NewListenAddr { .. }) = swarm1.next().await {
                 break;
             }
         }
@@ -502,7 +507,7 @@ mod tests {
         let addr;
 
         loop {
-            if let Some(SwarmEvent::NewListenAddr {address, ..}) = swarm1.next().await {
+            if let Some(SwarmEvent::NewListenAddr { address, .. }) = swarm1.next().await {
                 // wonder if there should be a timeout?
                 addr = address;
                 break;
@@ -543,7 +548,7 @@ mod tests {
         let mut addr = Vec::with_capacity(2);
 
         while addr.len() < 2 {
-            if let Some(SwarmEvent::NewListenAddr {address, ..}) = swarm1.next().await {
+            if let Some(SwarmEvent::NewListenAddr { address, .. }) = swarm1.next().await {
                 addr.push(address);
             }
         }

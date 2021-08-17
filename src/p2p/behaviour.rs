@@ -84,7 +84,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
         };
 
         match event {
-            InboundRequestServed { request, } => {
+            InboundRequestServed { request } => {
                 trace!("kad: inbound {:?} request handled", request);
             }
             OutboundQueryCompleted { result, id, .. } => {

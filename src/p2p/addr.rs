@@ -232,9 +232,9 @@ pub(crate) fn eq_greedy(addr0: &Multiaddr, addr1: &Multiaddr) -> bool {
                     return true;
                 }
             }
-        
+
             true
-        },
+        }
         _ => false,
     }
 }
@@ -329,15 +329,36 @@ mod tests {
     #[test]
     fn greedy_multiaddr_comparison() {
         assert!(eq_greedy(&Multiaddr::empty(), &Multiaddr::empty()));
-        assert!(eq_greedy(&build_multiaddr!(Ip4([192, 168, 0, 1])), &build_multiaddr!(Ip4([192, 168, 0, 1]))));
-        assert!(eq_greedy(&build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16)), &build_multiaddr!(Ip4([192, 168, 0, 1]))));
-        assert!(eq_greedy(&build_multiaddr!(Ip4([192, 168, 0, 1])), &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16))));
+        assert!(eq_greedy(
+            &build_multiaddr!(Ip4([192, 168, 0, 1])),
+            &build_multiaddr!(Ip4([192, 168, 0, 1]))
+        ));
+        assert!(eq_greedy(
+            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16)),
+            &build_multiaddr!(Ip4([192, 168, 0, 1]))
+        ));
+        assert!(eq_greedy(
+            &build_multiaddr!(Ip4([192, 168, 0, 1])),
+            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16))
+        ));
 
         // At least one protocol segment needs to be there
-        assert!(!eq_greedy(&Multiaddr::empty(), &build_multiaddr!(Ip4([192, 168, 0, 1]))));
-        assert!(!eq_greedy(&build_multiaddr!(Ip4([192, 168, 0, 1])), &Multiaddr::empty()));
-        
-        assert!(!eq_greedy(&build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16)), &build_multiaddr!(Ip4([192, 168, 0, 2]))));
-        assert!(!eq_greedy(&build_multiaddr!(Ip4([192, 168, 0, 2])), &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16))));
+        assert!(!eq_greedy(
+            &Multiaddr::empty(),
+            &build_multiaddr!(Ip4([192, 168, 0, 1]))
+        ));
+        assert!(!eq_greedy(
+            &build_multiaddr!(Ip4([192, 168, 0, 1])),
+            &Multiaddr::empty()
+        ));
+
+        assert!(!eq_greedy(
+            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16)),
+            &build_multiaddr!(Ip4([192, 168, 0, 2]))
+        ));
+        assert!(!eq_greedy(
+            &build_multiaddr!(Ip4([192, 168, 0, 2])),
+            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16))
+        ));
     }
 }
