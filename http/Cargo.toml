@@ -6,7 +6,7 @@ name = "ipfs-http"
 version = "0.1.0"
 
 [build-dependencies]
-prost-build = { default-features = false, version = "0.7" }
+prost-build = { default-features = false, version = "0.8" }
 vergen = { default-features = false, version = "3.1" }
 
 [dependencies]
@@ -19,7 +19,7 @@ humantime = { default-features = false, version = "2.0" }
 ipfs = { path = "../" }
 mime = { default-features = false, version = "0.3" }
 mpart-async = { default-features = false, version = "0.5" }
-multibase = { default-features = false, version = "0.8" }
+multibase = { default-features = false, features = ["std"], version = "0.9" }
 multihash = { default-features = false, version = "0.11" }
 # openssl is required for rsa keygen but not used by the rust-ipfs or its dependencies
 openssl = { default-features = false, version = "0.10" }

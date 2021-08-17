@@ -1372,7 +1372,6 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     let next = self.swarm.next();
                     futures::pin_mut!(next);
                     match next.poll(ctx) {
-                        // klis:TODO handle None here?
                         Poll::Ready(inner) => inner,
                         Poll::Pending if done => return Poll::Pending,
                         Poll::Pending => break,
