@@ -1,4 +1,5 @@
 on:
+  workflow_dispatch:
   push:
     branches:
       - trying
@@ -21,14 +22,17 @@ jobs:
 
         platform:
         - target: x86_64-unknown-linux-gnu
+          name: ubuntu
           host: ubuntu-latest
           cross: false
 
         - target: x86_64-apple-darwin
+          name: macos
           host: macos-latest
           cross: false
 
         - target: x86_64-pc-windows-msvc
+          name: windows
           host: windows-latest
           cross: false
 
@@ -37,18 +41,22 @@ jobs:
         # was metered.
         #
         # - target: armv7-linux-androideabi
+        #   name: android (armv7)
         #   host: ubuntu-latest
         #   cross: true
         #
         # - target: aarch64-linux-android
+        #   name: android (aarch64)
         #   host: ubuntu-latest
         #   cross: true
         #
         # - target: x86_64-apple-ios
+        #   name: ios (x86_64)
         #   host: macos-latest
         #   cross: true
         #
         # - target: aarch64-apple-ios
+        #   name: ios (aarch64)
         #   host: macos-latest
         #   cross: true
 
@@ -62,56 +70,35 @@ jobs:
       DEBUG: ipfsd-ctl:* # enables all debug output from javascript 'debug' lib used by js-ipfsd-ctl
 
     runs-on: ${{ matrix.platform.host }}
+    name: ${{ matrix.platform.name }}
     steps:
     - name: Checkout sources
       uses: actions/checkout@v2
 
-    - name: Cache cargo folder
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-        key: ${{ matrix.platform.target }}-dot-cargo-parts-${{ hashFiles('Cargo.lock') }}
-
-    - name: Get npm cache directory
-      id: npm-cache
-      if: matrix.platform.cross == false
-      run: |
-        echo "::set-output name=dir::$(npm config get cache)"
-
-    - name: Cache npm (non-cross targets)
-      uses: actions/cache@v2
-      if: matrix.platform.cross == false
-      with:
-        path: ${{ steps.npm-cache.outputs.dir }}
-        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json', '**/setup.sh', '**/*.patch') }}
-        restore-keys: |
-          ${{ runner.os }}-node-
-
-    - name: Install dependencies ubuntu
+    - name: Install dependencies (linux)
       if: matrix.platform.host == 'ubuntu-latest'
       run: sudo apt-get install llvm-dev libssl-dev pkg-config
 
-    - name: Install dependencies macos
+    - name: Install dependencies (macos)
       if: matrix.platform.host == 'macos-latest'
       run: brew install llvm openssl
 
-    - name: Download go-ipfs on Linux
-      if: matrix.platform.host == 'ubuntu-latest'
-      run: |
-        curl -L https://github.com/ipfs/go-ipfs/releases/download/v0.7.0/go-ipfs_v0.7.0_linux-amd64.tar.gz --output go_ipfs.tar.gz
-        tar -xf go_ipfs.tar.gz
-
-    - name: Install dependencies windows (openssl)
+    - name: Install and cache vcpkg (windows)
       uses: lukka/run-vcpkg@v7.4
       id: windows-runvcpkg
       if: matrix.platform.host == 'windows-latest'
       with:
         vcpkgDirectory: '${{ runner.workspace }}/vcpkg'
         vcpkgTriplet: 'x64-windows'
-        vcpkgArguments: 'openssl'
         vcpkgGitCommitId: '261c458af6e3eed5d099144aff95d2b5035f656b'  # unknown for openssl-sys v0.9.65
+        setupOnly: true # required for caching
+
+    - name: Install depedencies (windows)
+      if: matrix.platform.host == 'windows-latest'
+      run: "$VCPKG_ROOT/vcpkg install openssl:x64-windows"
+      shell: bash
+      env:
+        VCPKGRS_DYNAMIC: 1
 
     - name: Install rust toolchain
       uses: hecrj/setup-rust-action@v1.3.4
@@ -119,62 +106,72 @@ jobs:
         rust-version: ${{ matrix.toolchain.rust }}
         targets: ${{ matrix.platform.target }}
 
-    - name: Install cargo-ndk
-      if: contains(matrix.platform.target, 'android')
-      run: cargo install --version '<2.0.0' cargo-ndk
+    - name: Rust cache
+      uses: Swatinem/rust-cache@v1
+      with:
+        # So that cross-compiles don't share a cache.
+        key: ${{ matrix.platform.target }}
 
-    - name: Build (others)
+    - name: Cargo build
       if: matrix.platform.cross == false
       run: cargo build --workspace --all-targets
 
-    - name: Run interop DHT tests with go-ipfs
-      if: matrix.platform.host == 'ubuntu-latest' && matrix.platform.cross == false
-      run: cargo test --features=test_go_interop dht
-
-    - name: Setup conformance tests (non-cross targets)
-      if: matrix.platform.cross == false
-      run: ./setup.sh
-      shell: bash
-      working-directory: ./conformance
-
-    - name: Build (android)
+    - name: Cargo build (cross compile, android)
       if: contains(matrix.platform.target, 'android')
-      run: cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --workspace --exclude ipfs-http
+      run: |
+        cargo install --version '<2.0.0' cargo-ndk
+        cargo ndk --android-platform 29 --target ${{ matrix.platform.target }} build --workspace --exclude ipfs-http
       # exclude http on android because openssl
 
-    - name: Build other cross compilations
+    - name: Cargo build (cross compile, non-android)
       if: contains(matrix.platform.target, 'android') == false && matrix.platform.cross == true
       run: cargo build --workspace --exclude ipfs-http --target ${{ matrix.platform.target }}
       # exclude http on other cross compilation targets because openssl
 
-    - name: Rust tests (macos)
-      if: matrix.platform.cross == false && matrix.platform.host == 'macos-latest'
-      run: |
-          ulimit -c unlimited
-          sudo touch /cores/test || { ls -ld /cores; exit 1; }
-          sudo rm /cores/test
-          retval=0
-          sudo cargo test --workspace || retval=$?
-          sudo chmod -R a+rwx /cores
-          exit $retval
-
-    - name: Rust tests (other non-cross targets)
-      if: matrix.platform.cross == false && matrix.platform.host != 'macos-latest'
+    - name: Cargo test
+      if: matrix.platform.cross == false
       run: cargo test --workspace
 
-    - name: Conformance testing (non-cross targets)
+    - name: Interop DHT tests with go-ipfs (linux)
+      if: matrix.platform.host == 'ubuntu-latest' && matrix.platform.cross == false
+      run: |
+        curl -L https://github.com/ipfs/go-ipfs/releases/download/v0.7.0/go-ipfs_v0.7.0_linux-amd64.tar.gz --output go_ipfs.tar.gz
+        tar -xf go_ipfs.tar.gz
+        cargo test --features=test_go_interop dht
+
+    - name: "Conformance tests: cache config"
+      id: conformance-cache-config
+      if: matrix.platform.cross == false
+      run: |
+        echo "::set-output name=dir::$(npm config get cache)"
+        echo "::set-output name=ver::$(npm -v)"
+
+    - name: "Conformance tests: cache"
+      id: conformance-cache
+      if: matrix.platform.cross == false
+      uses: actions/cache@v2
+      with:
+        path: |
+          ${{ steps.conformance-cache-config.outputs.dir }}
+          ./conformance/node_modules
+        key: ${{ runner.os }}-conformance-${{ steps.conformance-cache-config.outputs.ver }} ${{ hashFiles('**/package-lock.json', '**/setup.sh', '**/*.patch') }}
+
+    - name: "Conformance tests: setup"
+      if: steps.conformance-cache.outputs.cache-hit != 'true' && matrix.platform.cross == false
+      run: ./setup.sh
+      shell: bash
+      working-directory: ./conformance
+
+    - name: "Conformance tests: run"
       if: matrix.platform.cross == false
       run: IPFS_RUST_EXEC=../target/debug/ipfs-http npm test
       shell: bash
       working-directory: ./conformance
 
-    - name: Upload crashes (macos)
-      uses: actions/upload-artifact@v2
-      if: ${{ always() }}
-      with:
-        name: macos.crashes
-        path: /cores
-        if-no-files-found: ignore
+    # Work around for this issue: https://github.com/Swatinem/rust-cache/issues/26
+    - name: Fix cache permissions (macos)
+      if: matrix.platform.cross == false && matrix.platform.host == 'macos-latest'
+      run: sudo chown -R $(whoami):$(id -ng) ./target
 
   lint-rust:
     runs-on: ubuntu-latest
@@ -182,22 +179,19 @@ jobs:
     - name: Checkout sources
       uses: actions/checkout@v2
 
-    - name: Cache cargo folder
-      uses: actions/cache@v2
-      with:
-        path: ~/.cargo
-        key: lint-cargo-${{ hashFiles('Cargo.lock') }}
-
     - name: Install rust toolchain
       uses: hecrj/setup-rust-action@v1.3.4
       with:
         rust-version: stable
         components: clippy, rustfmt
 
-    - name: cargo fmt
+    - name: Rust cache
+      uses: Swatinem/rust-cache@v1
+
+    - name: Cargo fmt
       run: cargo fmt --all -- --check
 
-    - name: cargo clippy
+    - name: Cargo clippy
       run: cargo clippy --all-targets --workspace -- -D warnings
 
   # adapted from https://github.com/taiki-e/pin-project/blob/5878410863f5f25e21f7cba97b035501749850f9/.github/workflows/ci.yml#L136-L167
