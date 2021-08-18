@@ -1369,7 +1369,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
             loop {
                 let inner = {
                     use futures::StreamExt;
-                    let next = self.swarm.next();
+                    let next = self.swarm.select_next_some();
                     futures::pin_mut!(next);
                     match next.poll(ctx) {
                         Poll::Ready(inner) => inner,
@@ -1382,7 +1382,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                 // off the events from Ipfs and ... this looping goes on for a while.
                 done = false;
                 match inner {
-                    Some(SwarmEvent::NewListenAddr { address, .. }) => {
+                    SwarmEvent::NewListenAddr { address, .. } => {
                         self.complete_listening_address_adding(address);
                     }
                     _ => trace!("{:?}", inner),

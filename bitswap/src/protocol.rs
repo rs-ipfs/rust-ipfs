@@ -8,7 +8,10 @@ use crate::ledger::Message;
 use core::future::Future;
 use core::iter;
 use core::pin::Pin;
-use futures::io::{AsyncRead, AsyncWrite};
+use futures::{
+    io::{AsyncRead, AsyncWrite},
+    AsyncWriteExt,
+};
 use libp2p_core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
 use std::io;
 
@@ -71,7 +74,8 @@ where
     fn upgrade_outbound(self, mut socket: TSocket, _info: Self::Info) -> Self::Future {
         Box::pin(async move {
             let bytes = self.to_bytes();
-            upgrade::write_length_prefixed(&mut socket, bytes).await
+            upgrade::write_length_prefixed(&mut socket, bytes).await?;
+            socket.close().await
         })
     }
 }

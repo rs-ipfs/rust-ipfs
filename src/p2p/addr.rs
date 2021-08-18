@@ -217,26 +217,10 @@ pub(crate) fn could_be_bound_from_ephemeral(
 
 // Checks if two instances of multiaddr are equal comparing as many protocol segments as possible
 pub(crate) fn eq_greedy(addr0: &Multiaddr, addr1: &Multiaddr) -> bool {
-    match (addr0.is_empty(), addr1.is_empty()) {
-        (true, true) => true,
-        (false, false) => {
-            let mut it1 = addr1.iter();
-
-            for i0 in addr0.iter() {
-                if let Some(i1) = it1.next() {
-                    if i0 != i1 {
-                        return false;
-                    }
-                } else {
-                    // All previous segments were equal
-                    return true;
-                }
-            }
-
-            true
-        }
-        _ => false,
+    if addr0.is_empty() != addr1.is_empty() {
+        return false;
     }
+    addr0.iter().zip(addr1.iter()).all(|(a, b)| a == b)
 }
 
 #[cfg(test)]
