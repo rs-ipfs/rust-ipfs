@@ -300,12 +300,12 @@ impl NetworkBehaviour for Pubsub {
         self.floodsub.inject_dial_failure(peer_id)
     }
 
-    fn inject_new_listen_addr(&mut self, addr: &Multiaddr) {
-        self.floodsub.inject_new_listen_addr(addr)
+    fn inject_new_listen_addr(&mut self, id: ListenerId, addr: &Multiaddr) {
+        self.floodsub.inject_new_listen_addr(id, addr)
     }
 
-    fn inject_expired_listen_addr(&mut self, addr: &Multiaddr) {
-        self.floodsub.inject_expired_listen_addr(addr)
+    fn inject_expired_listen_addr(&mut self, id: ListenerId, addr: &Multiaddr) {
+        self.floodsub.inject_expired_listen_addr(id, addr)
     }
 
     fn inject_new_external_addr(&mut self, addr: &Multiaddr) {
@@ -429,6 +429,15 @@ impl NetworkBehaviour for Pubsub {
                     return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr {
                         address,
                         score,
+                    });
+                }
+                NetworkBehaviourAction::CloseConnection {
+                    peer_id,
+                    connection,
+                } => {
+                    return Poll::Ready(NetworkBehaviourAction::CloseConnection {
+                        peer_id,
+                        connection,
                     });
                 }
             }

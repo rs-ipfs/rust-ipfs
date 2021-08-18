@@ -1,4 +1,4 @@
-use crate::p2p::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
+use crate::p2p::{addr::eq_greedy, MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use core::task::{Context, Poll};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
@@ -174,7 +174,7 @@ impl NetworkBehaviour for SwarmApi {
     ) {
         // TODO: could be that the connection is not yet fully established at this point
         trace!("inject_connection_established {} {:?}", peer_id, cp);
-        let addr: MultiaddrWithoutPeerId = connection_point_addr(cp).to_owned().try_into().unwrap();
+        let addr = connection_point_addr(cp);
 
         self.peers.insert(*peer_id);
         let connections = self.connected_peers.entry(*peer_id).or_default();
@@ -194,16 +194,15 @@ impl NetworkBehaviour for SwarmApi {
             match self.pending_connections.entry(*peer_id) {
                 Entry::Occupied(mut oe) => {
                     let addresses = oe.get_mut();
-                    let just_connected = addresses.iter().position(|x| x == address);
+                    let just_connected = addresses.iter().position(|x| eq_greedy(x, address));
                     if let Some(just_connected) = just_connected {
                         addresses.swap_remove(just_connected);
                         if addresses.is_empty() {
                             oe.remove();
                         }
 
-                        let addr = MultiaddrWithoutPeerId::try_from(address.clone())
-                            .expect("dialed address did not contain peerid in libp2p 0.34")
-                            .with(*peer_id);
+                        let addr = MultiaddrWithPeerId::try_from(address.clone())
+                            .expect("dialed address contains peerid in libp2p 0.38");
 
                         self.connect_registry
                             .finish_subscription(addr.into(), Ok(()));
@@ -258,7 +257,7 @@ impl NetworkBehaviour for SwarmApi {
         cp: &ConnectedPoint,
     ) {
         trace!("inject_connection_closed {} {:?}", peer_id, cp);
-        let closed_addr = connection_point_addr(cp).to_owned().try_into().unwrap();
+        let closed_addr = connection_point_addr(cp);
 
         match self.connected_peers.entry(*peer_id) {
             Entry::Occupied(mut oe) => {
@@ -383,13 +382,12 @@ impl NetworkBehaviour for SwarmApi {
             match self.pending_connections.entry(*peer_id) {
                 Entry::Occupied(mut oe) => {
                     let addresses = oe.get_mut();
-                    let pos = addresses.iter().position(|a| a == addr);
+                    let pos = addresses.iter().position(|a| eq_greedy(a, addr));
 
                     if let Some(pos) = pos {
                         addresses.swap_remove(pos);
-                        let addr = MultiaddrWithoutPeerId::try_from(addr.clone())
-                            .expect("multiaddr didn't contain peer id in libp2p 0.34")
-                            .with(*peer_id);
+                        let addr = MultiaddrWithPeerId::try_from(addr.clone())
+                            .expect("dialed address contains peerid in libp2p 0.38");
                         self.connect_registry
                             .finish_subscription(addr.into(), Err(error.to_string()));
                     }
@@ -416,10 +414,15 @@ impl NetworkBehaviour for SwarmApi {
     }
 }
 
-fn connection_point_addr(cp: &ConnectedPoint) -> &Multiaddr {
+fn connection_point_addr(cp: &ConnectedPoint) -> MultiaddrWithoutPeerId {
     match cp {
-        ConnectedPoint::Dialer { address } => address,
-        ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
+        ConnectedPoint::Dialer { address } => MultiaddrWithPeerId::try_from(address.to_owned())
+            .expect("dialed address contains peerid in libp2p 0.38")
+            .into(),
+        ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr
+            .to_owned()
+            .try_into()
+            .expect("send back address does not contain peerid in libp2p 0.38"),
     }
 }
 
@@ -444,7 +447,7 @@ mod tests {
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
         loop {
-            if let SwarmEvent::NewListenAddr(_) = swarm1.next_event().await {
+            if let Some(SwarmEvent::NewListenAddr { .. }) = swarm1.next().await {
                 break;
             }
         }
@@ -456,12 +459,15 @@ mod tests {
                 Multihash::from_bytes(&peer1_id.to_bytes()).unwrap(),
             ));
 
-            let mut sub = swarm2.connect(addr.try_into().unwrap()).unwrap();
+            let mut sub = swarm2
+                .behaviour_mut()
+                .connect(addr.try_into().unwrap())
+                .unwrap();
 
             loop {
                 tokio::select! {
-                    _ = (&mut swarm1).next_event() => {},
-                    _ = (&mut swarm2).next_event() => {},
+                    _ = (&mut swarm1).next() => {},
+                    _ = (&mut swarm2).next() => {},
                     res = (&mut sub) => {
                         // this is currently a success even though the connection is never really
                         // established, the DummyProtocolsHandler doesn't do anything nor want the
@@ -481,7 +487,7 @@ mod tests {
                         res.unwrap();
 
                         // just to confirm that there are no connections.
-                        assert_eq!(Vec::<Multiaddr>::new(), swarm1.connections_to(&peer2_id));
+                        assert_eq!(Vec::<Multiaddr>::new(), swarm1.behaviour().connections_to(&peer2_id));
                         break;
                     }
                 }
@@ -498,19 +504,20 @@ mod tests {
 
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
-        let address;
+        let addr;
 
         loop {
-            if let SwarmEvent::NewListenAddr(addr) = swarm1.next_event().await {
+            if let Some(SwarmEvent::NewListenAddr { address, .. }) = swarm1.next().await {
                 // wonder if there should be a timeout?
-                address = addr;
+                addr = address;
                 break;
             }
         }
 
         let mut fut = swarm2
+            .behaviour_mut()
             .connect(
-                MultiaddrWithoutPeerId::try_from(address)
+                MultiaddrWithoutPeerId::try_from(addr)
                     .unwrap()
                     .with(peer3_id),
             )
@@ -520,8 +527,8 @@ mod tests {
 
         loop {
             tokio::select! {
-                _ = swarm1.next_event() => {},
-                _ = swarm2.next_event() => {},
+                _ = swarm1.next() => {},
+                _ = swarm2.next() => {},
                 res = &mut fut => {
                     assert_eq!(res.unwrap_err(), Some("Pending connection: Invalid peer ID.".into()));
                     return;
@@ -538,19 +545,19 @@ mod tests {
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
-        let mut addresses = Vec::with_capacity(2);
+        let mut addr = Vec::with_capacity(2);
 
-        while addresses.len() < 2 {
-            if let SwarmEvent::NewListenAddr(addr) = swarm1.next_event().await {
-                addresses.push(addr);
+        while addr.len() < 2 {
+            if let Some(SwarmEvent::NewListenAddr { address, .. }) = swarm1.next().await {
+                addr.push(address);
             }
         }
 
         let targets = (
-            MultiaddrWithoutPeerId::try_from(addresses[0].clone())
+            MultiaddrWithoutPeerId::try_from(addr[0].clone())
                 .unwrap()
                 .with(peer1_id),
-            MultiaddrWithoutPeerId::try_from(addresses[1].clone())
+            MultiaddrWithoutPeerId::try_from(addr[1].clone())
                 .unwrap()
                 .with(peer1_id),
         );
@@ -559,8 +566,8 @@ mod tests {
         // these two should be attempted in parallel. since we know both of them work, and they are
         // given in this order, we know that in libp2p 0.34 only the first should win, however
         // both should always be finished.
-        connections.push(swarm2.connect(targets.0).unwrap());
-        connections.push(swarm2.connect(targets.1).unwrap());
+        connections.push(swarm2.behaviour_mut().connect(targets.0).unwrap());
+        connections.push(swarm2.behaviour_mut().connect(targets.1).unwrap());
         let ready = connections
             // turn the private error type into Option
             .map_err(|e| e.into_inner())
@@ -570,8 +577,8 @@ mod tests {
 
         loop {
             tokio::select! {
-                _ = swarm1.next_event() => {}
-                _ = swarm2.next_event() => {}
+                _ = swarm1.next() => {}
+                _ = swarm2.next() => {}
                 res = &mut ready => {
 
                     assert_eq!(

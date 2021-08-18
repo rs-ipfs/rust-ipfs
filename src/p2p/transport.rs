@@ -2,7 +2,7 @@ use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::upgrade::Version;
 use libp2p::core::transport::Boxed;
 use libp2p::core::upgrade::SelectUpgrade;
-use libp2p::dns::DnsConfig;
+use libp2p::dns::TokioDnsConfig;
 use libp2p::identity;
 use libp2p::mplex::MplexConfig;
 use libp2p::noise::{self, NoiseConfig};
@@ -24,7 +24,7 @@ pub fn build_transport(keypair: identity::Keypair) -> io::Result<TTransport> {
         .unwrap();
     let noise_config = NoiseConfig::xx(xx_keypair).into_authenticated();
 
-    Ok(DnsConfig::new(TokioTcpConfig::new().nodelay(true))?
+    Ok(TokioDnsConfig::system(TokioTcpConfig::new())?
         .upgrade(Version::V1)
         .authenticate(noise_config)
         .multiplex(SelectUpgrade::new(
