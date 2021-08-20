@@ -1,4 +1,4 @@
-use crate::p2p::{addr::eq_greedy, MultiaddrWithPeerId, MultiaddrWithoutPeerId};
+use crate::p2p::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use core::task::{Context, Poll};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
@@ -106,21 +106,17 @@ impl SwarmApi {
             .connect_registry
             .create_subscription(addr.clone().into(), None);
 
-        // libp2p currently doesn't support dialing with the P2p protocol, so only consider the
-        // "bare" Multiaddr
-        let MultiaddrWithPeerId { multiaddr, peer_id } = addr;
-
         self.events.push_back(NetworkBehaviourAction::DialPeer {
-            peer_id,
+            peer_id: addr.peer_id,
             // rationale: this is sort of explicit command, perhaps the old address is no longer
             // valid. Always would be even better but it's bugged at the moment.
             condition: DialPeerCondition::NotDialing,
         });
 
         self.pending_addresses
-            .entry(peer_id)
+            .entry(addr.peer_id)
             .or_insert_with(|| Vec::with_capacity(1))
-            .push(multiaddr.into());
+            .push(addr.into());
 
         Some(subscription)
     }
@@ -194,7 +190,7 @@ impl NetworkBehaviour for SwarmApi {
             match self.pending_connections.entry(*peer_id) {
                 Entry::Occupied(mut oe) => {
                     let addresses = oe.get_mut();
-                    let just_connected = addresses.iter().position(|x| eq_greedy(x, address));
+                    let just_connected = addresses.iter().position(|a| a == address);
                     if let Some(just_connected) = just_connected {
                         addresses.swap_remove(just_connected);
                         if addresses.is_empty() {
@@ -235,9 +231,8 @@ impl NetworkBehaviour for SwarmApi {
             );
 
         for addr in all_subs {
-            let addr = MultiaddrWithoutPeerId::try_from(addr)
-                .expect("peerid has been stripped earlier")
-                .with(*peer_id);
+            let addr = MultiaddrWithPeerId::try_from(addr)
+                .expect("dialed address contains peerid in libp2p 0.38");
 
             // fail the other than already connected subscriptions in
             // inject_connection_established. while the whole swarmapi is quite unclear on the
@@ -335,9 +330,8 @@ impl NetworkBehaviour for SwarmApi {
             );
 
         for addr in failed {
-            let addr = MultiaddrWithoutPeerId::try_from(addr)
-                .expect("peerid has been stripped earlier")
-                .with(*peer_id);
+            let addr = MultiaddrWithPeerId::try_from(addr)
+                .expect("dialed address contains peerid in libp2p 0.38");
 
             self.connect_registry
                 .finish_subscription(addr.into(), Err("disconnected".into()));
@@ -361,9 +355,8 @@ impl NetworkBehaviour for SwarmApi {
         // this should not be executed once, but probably will be in case unsupported addresses or something
         // surprising happens.
         for failed in self.pending_connections.remove(peer_id).unwrap_or_default() {
-            let addr = MultiaddrWithoutPeerId::try_from(failed)
-                .expect("peerid has been stripped earlier")
-                .with(*peer_id);
+            let addr = MultiaddrWithPeerId::try_from(failed)
+                .expect("dialed address contains peerid in libp2p 0.38");
 
             self.connect_registry
                 .finish_subscription(addr.into(), Err("addresses exhausted".into()));
@@ -382,7 +375,7 @@ impl NetworkBehaviour for SwarmApi {
             match self.pending_connections.entry(*peer_id) {
                 Entry::Occupied(mut oe) => {
                     let addresses = oe.get_mut();
-                    let pos = addresses.iter().position(|a| eq_greedy(a, addr));
+                    let pos = addresses.iter().position(|a| a == addr);
 
                     if let Some(pos) = pos {
                         addresses.swap_remove(pos);

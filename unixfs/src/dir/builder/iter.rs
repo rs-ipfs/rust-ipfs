@@ -187,7 +187,7 @@ impl PostOrderIterator {
                     };
 
                     self.pending.push(Visited::PostRoot { leaves });
-                    self.pending.extend(children.drain(..));
+                    self.pending.append(children);
                 }
                 Visited::Descent {
                     node,
@@ -215,7 +215,7 @@ impl PostOrderIterator {
                         index,
                     });
 
-                    self.pending.extend(children.drain(..));
+                    self.pending.append(children);
                 }
                 Visited::Post {
                     parent_id,
