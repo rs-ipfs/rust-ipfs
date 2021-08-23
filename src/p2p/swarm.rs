@@ -1,4 +1,4 @@
-use crate::p2p::{addr::eq_greedy, MultiaddrWithPeerId, MultiaddrWithoutPeerId};
+use crate::p2p::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use core::task::{Context, Poll};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
@@ -49,11 +49,11 @@ pub struct SwarmApi {
 
     /// The connections which have been requested, but the swarm/network is yet to ask for
     /// addresses; currently filled in the order of adding, with the default size of one.
-    pending_addresses: HashMap<PeerId, Vec<Multiaddr>>,
+    pending_addresses: HashMap<PeerId, Vec<MultiaddrWithPeerId>>,
 
     /// The connections which have been requested, and the swarm/network has requested the
     /// addresses of. Used to keep finishing all of the subscriptions.
-    pending_connections: HashMap<PeerId, Vec<Multiaddr>>,
+    pending_connections: HashMap<PeerId, Vec<MultiaddrWithPeerId>>,
 
     pub(crate) bootstrappers: HashSet<MultiaddrWithPeerId>,
 }
@@ -106,21 +106,17 @@ impl SwarmApi {
             .connect_registry
             .create_subscription(addr.clone().into(), None);
 
-        // libp2p currently doesn't support dialing with the P2p protocol, so only consider the
-        // "bare" Multiaddr
-        let MultiaddrWithPeerId { multiaddr, peer_id } = addr;
-
         self.events.push_back(NetworkBehaviourAction::DialPeer {
-            peer_id,
+            peer_id: addr.peer_id,
             // rationale: this is sort of explicit command, perhaps the old address is no longer
             // valid. Always would be even better but it's bugged at the moment.
             condition: DialPeerCondition::NotDialing,
         });
 
         self.pending_addresses
-            .entry(peer_id)
+            .entry(addr.peer_id)
             .or_insert_with(|| Vec::with_capacity(1))
-            .push(multiaddr.into());
+            .push(addr);
 
         Some(subscription)
     }
@@ -163,7 +159,7 @@ impl NetworkBehaviour for SwarmApi {
             .or_default()
             .extend(addresses.iter().cloned());
 
-        addresses
+        addresses.into_iter().map(|a| a.into()).collect()
     }
 
     fn inject_connection_established(
@@ -194,18 +190,19 @@ impl NetworkBehaviour for SwarmApi {
             match self.pending_connections.entry(*peer_id) {
                 Entry::Occupied(mut oe) => {
                     let addresses = oe.get_mut();
-                    let just_connected = addresses.iter().position(|x| eq_greedy(x, address));
+                    let address: MultiaddrWithPeerId = address
+                        .clone()
+                        .try_into()
+                        .expect("dialed address contains peerid in libp2p 0.38");
+                    let just_connected = addresses.iter().position(|x| *x == address);
                     if let Some(just_connected) = just_connected {
                         addresses.swap_remove(just_connected);
                         if addresses.is_empty() {
                             oe.remove();
                         }
 
-                        let addr = MultiaddrWithPeerId::try_from(address.clone())
-                            .expect("dialed address contains peerid in libp2p 0.38");
-
                         self.connect_registry
-                            .finish_subscription(addr.into(), Ok(()));
+                            .finish_subscription(address.into(), Ok(()));
                     }
                 }
                 Entry::Vacant(_) => {
@@ -235,10 +232,6 @@ impl NetworkBehaviour for SwarmApi {
             );
 
         for addr in all_subs {
-            let addr = MultiaddrWithoutPeerId::try_from(addr)
-                .expect("peerid has been stripped earlier")
-                .with(*peer_id);
-
             // fail the other than already connected subscriptions in
             // inject_connection_established. while the whole swarmapi is quite unclear on the
             // actual use cases, assume that connecting one is good enough for all outstanding
@@ -290,7 +283,7 @@ impl NetworkBehaviour for SwarmApi {
             match self.pending_connections.entry(*peer_id) {
                 Entry::Occupied(mut oe) => {
                     let connections = oe.get_mut();
-                    let pos = connections.iter().position(|x| addr.multiaddr == *x);
+                    let pos = connections.iter().position(|x| addr == *x);
 
                     if let Some(pos) = pos {
                         connections.swap_remove(pos);
@@ -335,10 +328,6 @@ impl NetworkBehaviour for SwarmApi {
             );
 
         for addr in failed {
-            let addr = MultiaddrWithoutPeerId::try_from(addr)
-                .expect("peerid has been stripped earlier")
-                .with(*peer_id);
-
             self.connect_registry
                 .finish_subscription(addr.into(), Err("disconnected".into()));
         }
@@ -361,12 +350,8 @@ impl NetworkBehaviour for SwarmApi {
         // this should not be executed once, but probably will be in case unsupported addresses or something
         // surprising happens.
         for failed in self.pending_connections.remove(peer_id).unwrap_or_default() {
-            let addr = MultiaddrWithoutPeerId::try_from(failed)
-                .expect("peerid has been stripped earlier")
-                .with(*peer_id);
-
             self.connect_registry
-                .finish_subscription(addr.into(), Err("addresses exhausted".into()));
+                .finish_subscription(failed.into(), Err("addresses exhausted".into()));
         }
     }
 
@@ -382,12 +367,12 @@ impl NetworkBehaviour for SwarmApi {
             match self.pending_connections.entry(*peer_id) {
                 Entry::Occupied(mut oe) => {
                     let addresses = oe.get_mut();
-                    let pos = addresses.iter().position(|a| eq_greedy(a, addr));
+                    let addr = MultiaddrWithPeerId::try_from(addr.clone())
+                        .expect("dialed address contains peerid in libp2p 0.38");
+                    let pos = addresses.iter().position(|a| *a == addr);
 
                     if let Some(pos) = pos {
                         addresses.swap_remove(pos);
-                        let addr = MultiaddrWithPeerId::try_from(addr.clone())
-                            .expect("dialed address contains peerid in libp2p 0.38");
                         self.connect_registry
                             .finish_subscription(addr.into(), Err(error.to_string()));
                     }

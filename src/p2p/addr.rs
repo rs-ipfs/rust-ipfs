@@ -215,14 +215,6 @@ pub(crate) fn could_be_bound_from_ephemeral(
     }
 }
 
-// Checks if two instances of multiaddr are equal comparing as many protocol segments as possible
-pub(crate) fn eq_greedy(addr0: &Multiaddr, addr1: &Multiaddr) -> bool {
-    if addr0.is_empty() != addr1.is_empty() {
-        return false;
-    }
-    addr0.iter().zip(addr1.iter()).all(|(a, b)| a == b)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,42 +299,6 @@ mod tests {
             1,
             &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(55555u16)),
             &build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(44444u16))
-        ));
-    }
-
-    #[test]
-    fn greedy_multiaddr_comparison() {
-        assert!(eq_greedy(&Multiaddr::empty(), &Multiaddr::empty()));
-        assert!(eq_greedy(
-            &build_multiaddr!(Ip4([192, 168, 0, 1])),
-            &build_multiaddr!(Ip4([192, 168, 0, 1]))
-        ));
-        assert!(eq_greedy(
-            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16)),
-            &build_multiaddr!(Ip4([192, 168, 0, 1]))
-        ));
-        assert!(eq_greedy(
-            &build_multiaddr!(Ip4([192, 168, 0, 1])),
-            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16))
-        ));
-
-        // At least one protocol segment needs to be there
-        assert!(!eq_greedy(
-            &Multiaddr::empty(),
-            &build_multiaddr!(Ip4([192, 168, 0, 1]))
-        ));
-        assert!(!eq_greedy(
-            &build_multiaddr!(Ip4([192, 168, 0, 1])),
-            &Multiaddr::empty()
-        ));
-
-        assert!(!eq_greedy(
-            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16)),
-            &build_multiaddr!(Ip4([192, 168, 0, 2]))
-        ));
-        assert!(!eq_greedy(
-            &build_multiaddr!(Ip4([192, 168, 0, 2])),
-            &build_multiaddr!(Ip4([192, 168, 0, 1]), Tcp(44444u16))
         ));
     }
 }

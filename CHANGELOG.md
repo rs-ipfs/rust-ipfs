@@ -11,6 +11,7 @@
 * fix: compilation error when used as a dependency [#470]
 * perf: use hash_hasher where the key is Cid [#467]
 * chore: upgrade to libp2p 0.39.1, update most of the other deps with the notable exception of cid and multihash [#472]
+* refactor(swarm): swarm cleanup following libp2p upgrade to v0.39.1 [#473]
 
 [#429]: https://github.com/rs-ipfs/rust-ipfs/pull/429
 [#428]: https://github.com/rs-ipfs/rust-ipfs/pull/428
@@ -25,6 +26,7 @@
 [#470]: https://github.com/rs-ipfs/rust-ipfs/pull/470
 [#467]: https://github.com/rs-ipfs/rust-ipfs/pull/467
 [#472]: https://github.com/rs-ipfs/rust-ipfs/pull/472
+[#473]: https://github.com/rs-ipfs/rust-ipfs/pull/473
 
 # 0.2.1
 
