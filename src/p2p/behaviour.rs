@@ -12,9 +12,9 @@ use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
 use libp2p::kad::record::{store::MemoryStore, Key, Record};
 use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent, Quorum};
-// use libp2p::mdns::{MdnsEvent, TokioMdns};
+use libp2p::mdns::{Mdns, MdnsConfig, MdnsEvent};
 use libp2p::ping::{Ping, PingEvent};
-// use libp2p::swarm::toggle::Toggle;
+use libp2p::swarm::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use multibase::Base;
 use std::{convert::TryInto, sync::Arc};
@@ -25,7 +25,7 @@ use tokio::task;
 pub struct Behaviour<Types: IpfsTypes> {
     #[behaviour(ignore)]
     repo: Arc<Repo<Types>>,
-    // mdns: Toggle<TokioMdns>,
+    mdns: Toggle<Mdns>,
     kademlia: Kademlia<MemoryStore>,
     #[behaviour(ignore)]
     kad_subscriptions: SubscriptionRegistry<KadResult, String>,
@@ -54,7 +54,6 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<void::Void> for Behaviour<Ty
     fn inject_event(&mut self, _event: void::Void) {}
 }
 
-/*
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
@@ -73,7 +72,6 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<MdnsEvent> for Behaviour<Typ
         }
     }
 }
-*/
 
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: KademliaEvent) {
@@ -424,14 +422,16 @@ impl<Types: IpfsTypes> Behaviour<Types> {
     pub async fn new(options: SwarmOptions, repo: Arc<Repo<Types>>) -> Self {
         info!("net: starting with peer id {}", options.peer_id);
 
-        /*
         let mdns = if options.mdns {
-            Some(TokioMdns::new().expect("Failed to create mDNS service"))
+            Some(
+                Mdns::new(MdnsConfig::default())
+                    .await
+                    .expect("Failed to create mDNS service"),
+            )
         } else {
             None
         }
         .into();
-        */
 
         let store = MemoryStore::new(options.peer_id.to_owned());
 
@@ -464,7 +464,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
         Behaviour {
             repo,
-            // mdns,
+            mdns,
             kademlia,
             kad_subscriptions: Default::default(),
             bitswap,
