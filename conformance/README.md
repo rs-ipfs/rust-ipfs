@@ -19,42 +19,28 @@ $ ./setup.sh
 
 By default, there is a `http` symlink to `../target/debug/ipfs-http`. You can
 change this to the release binary by modifying the symlink or use a custom
-binary via the environment variable `IPFS_RUST_EXEC`. The default `rust.sh`
-wrapper will record all actions taken by the tests into a single large log
-file. It's not recommended to trust it to keep all log lines especially for
-tests with multiple processes.
+binary via the environment variable `IPFS_RUST_EXEC`.
 
-```bash
-$ IPFS_RUST_EXEC="$(pwd)/rust.sh" npm test
-$ cat /tmp/rust.log
-```
+**NOTE**: if you need to invoke `rust-gdb`, remember to do launch it against the
+symlink not using the file it points to, otherwise no symbols might get loaded.
+
+**NOTE**: previously we had a `rust.sh` for capturing logs. Turns out it was
+unnecessary and even incompatible with the latest behaviour of js-ipfsd-ctl of
+sending a SIGKILL to the launched process, which would leave the actual
+ipfs-http running while the shell script cannot react. The obtaining logs
+section below has been updated to reflect this.
 
 ## Obtaining logs for tests with multiple processes
 
-Patch the `rust.sh` as follows:
-
-```diff
--./http "$@" 2>&1 | tee -a /tmp/rust.log || retval=$?
-+./http "$@" 2>&1 | tee -a /tmp/rust.log.$$ || retval=$?
-```
-
-Now the `/tmp/rust.log` will contain only the "pointers" to other log files, for example:
-
-```
->>>> new execution 24132 with args: daemon
-<<<< exiting 24132 with 0
-```
-
-This means there is now a log file `/tmp/rust.log.24132` for that invocation.
-
-Additionally, it helps to clear out the logs often with `rm -f /tmp/rust.log*`
-and only run selected tests using `IPFS_RUST_EXEC="$(pwd)/rust.sh" npm test -- --grep 'should do foo'`.
-If it's impossible to limit the number of tests to one with `--grep`, you can
-comment out the undesired tests in `test/index.js`.
+Use environment variable `DEBUG` with a value of `*` to let js-ipfsd-ctl to
+passthrough logs. The same mechanism is used in our CI configuration. However
+it might not allow one to know which log output comes from which process, for
+one needs to rig the process id to be part of tracing-subscriber output.
 
 # Patch management
 
-We are currently pinned to `interface-ipfs-core@0.137.0` and the fixes we have upstreamed are kept under `patches/`.
+We are currently pinned to `interface-ipfs-core@0.137.0` and the fixes we have
+upstreamed are kept under `patches/`.
 
 To create a new patch:
 

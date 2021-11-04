@@ -28,11 +28,11 @@ const options = {
   }
 }
 
-const factory = createFactory(options)
+const factory = () => createFactory(options)
 
 // Phase 1.0-ish
 //
-tests.miscellaneous(factory, { skip: [
+tests.miscellaneous(factory(), { skip: [
   // the cidBase param is not implemented yet
   'should resolve an IPFS hash and return a base64url encoded CID in path',
   // different Cid, the /path/to/testfile.txt suffix shouldn't be there
@@ -43,43 +43,38 @@ tests.miscellaneous(factory, { skip: [
   'should resolve an IPNS DNS link',
   // HTTP: not implemented
   'should resolve IPNS link recursively',
-  // these cause a hang 20% of time:
-  'should respect timeout option when getting the node id',
-  'should respect timeout option when getting the node version',
-  // this hangs on windows, see #251
-  'stop',
 ] })
 
 // Phase 1.1
 
 // these are a bit flaky
-tests.pubsub(factory)
+tests.pubsub(factory())
 // these are rarely flaky
-tests.swarm(factory)
+tests.swarm(factory())
 
 // Phase 1.2
 
 // ignored as the test doesn't pass at all through ipfs-http-client even
 // against jsipfs. we do at least return the same value.
-tests.dag.get(factory, { skip: ['should get only a CID, due to resolving locally only'] })
-tests.dag.put(factory)
+tests.dag.get(factory(), { skip: ['should get only a CID, due to resolving locally only'] })
+tests.dag.put(factory())
 
-tests.block(factory, {
+tests.block(factory(), {
   skip: [
     // both are pinning related
     'should put a buffer, using options'
   ]
 })
 
-tests.bitswap(factory);
-tests.root.refs(factory);
-tests.root.refsLocal(factory);
+tests.bitswap(factory());
+tests.root.refs(factory());
+tests.root.refsLocal(factory());
 
 // Phase 2 and beyond...
 
-tests.root.cat(factory);
-tests.root.get(factory);
-tests.root.add(factory, {
+tests.root.cat(factory());
+tests.root.get(factory());
+tests.root.add(factory(), {
   skip: [
     // ordered in the order of most likely implementation
     // unixfsv1.5 metadata
@@ -108,7 +103,7 @@ tests.root.add(factory, {
   ]
 });
 
-tests.dht(factory, {
+tests.dht(factory(), {
   skip: [
     // the found address has a much higher port than the expected one
     "should find other peers",
@@ -124,14 +119,14 @@ tests.dht(factory, {
   ]
 });
 
-// tests.repo(factory)
-// tests.object(factory)
-tests.pin.add(factory, {
+// tests.repo(factory())
+// tests.object(factory())
+tests.pin.add(factory(), {
   skip: [
     'should respect timeout option when pinning a block'
   ]
 })
-tests.pin.ls(factory, {
+tests.pin.ls(factory(), {
   skip: [
     'should respect timeout option when listing pins',
     // ignore these for now: https://github.com/rs-ipfs/rust-ipfs/issues/350
@@ -140,18 +135,18 @@ tests.pin.ls(factory, {
     'should list indirect pins for a specific path',
   ]
 })
-tests.pin.rm(factory, {
+tests.pin.rm(factory(), {
   skip: [
     'should respect timeout option when unpinning a block'
   ]
 })
 
-tests.bootstrap(factory);
+tests.bootstrap(factory());
 
-// tests.name(factory)
-// tests.namePubsub(factory)
-// tests.ping(factory)
-// tests.key(factory)
-// tests.config(factory)
-// tests.stats(factory)
-// tests.files(factory)
+// tests.name(factory())
+// tests.namePubsub(factory())
+// tests.ping(factory())
+// tests.key(factory())
+// tests.config(factory())
+// tests.stats(factory())
+// tests.files(factory())
