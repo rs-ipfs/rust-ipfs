@@ -31,7 +31,7 @@ either = { default-features = false, version = "1.5" }
 futures = { default-features = false, version = "0.3.9", features = ["alloc", "std"] }
 hash_hasher = "2.0.3"
 ipfs-unixfs = { version = "0.2", path = "unixfs" }
-libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-tokio", "mplex", "noise", "ping", "yamux", "dns-tokio"], version = "0.39.1" }
+libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-tokio", "mplex", "noise", "ping", "yamux", "dns-tokio"], version = "0.40.0" }
 multibase = { default-features = false, version = "0.9" }
 multihash = { default-features = false, version = "0.11" }
 prost = { default-features = false, version = "0.8" }
