@@ -1,4 +1,5 @@
 use super::pubsub::Pubsub;
+use super::gossipsub::Gossipsub;
 use super::swarm::{Connection, Disconnector, SwarmApi};
 use crate::config::BOOTSTRAP_NODES;
 use crate::p2p::{MultiaddrWithPeerId, SwarmOptions};
@@ -33,6 +34,7 @@ pub struct Behaviour<Types: IpfsTypes> {
     ping: Ping,
     identify: Identify,
     pubsub: Pubsub,
+    gossipsub: Gossipsub,
     pub swarm: SwarmApi,
 }
 
@@ -454,6 +456,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
                 .with_agent_version("rust-ipfs".into()),
         );
         let pubsub = Pubsub::new(options.peer_id);
+        let gossipsub = Gossipsub::new(options.peer_id);
         let mut swarm = SwarmApi::default();
 
         for (addr, _peer_id) in &options.bootstrap {
@@ -471,6 +474,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             ping,
             identify,
             pubsub,
+            gossipsub,
             swarm,
         }
     }
@@ -483,12 +487,14 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         // add_peer, especially since that peer might not belong to the
         // expected identify protocol
         self.pubsub.add_node_to_partial_view(peer);
+        self.gossipsub.add_node_to_partial_view(peer);
         // TODO self.bitswap.add_node_to_partial_view(peer);
     }
 
     pub fn remove_peer(&mut self, peer: &PeerId) {
         self.swarm.remove_peer(peer);
         self.pubsub.remove_node_from_partial_view(peer);
+        self.gossipsub.remove_node_from_partial_view(peer);
         // TODO self.bitswap.remove_peer(&peer);
     }
 
@@ -530,6 +536,10 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
     pub fn pubsub(&mut self) -> &mut Pubsub {
         &mut self.pubsub
+    }
+
+    pub fn gossipsub(&mut self) -> &mut Gossipsub {
+        &mut self.gossipsub
     }
 
     pub fn bitswap(&mut self) -> &mut Bitswap {
