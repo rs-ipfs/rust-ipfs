@@ -273,6 +273,11 @@ enum IpfsEvent {
     PubsubPublish(String, Vec<u8>, OneshotSender<()>),
     PubsubPeers(Option<String>, OneshotSender<Vec<PeerId>>),
     PubsubSubscribed(OneshotSender<Vec<String>>),
+    GossipsubSubscribe(String, OneshotSender<Option<SubscriptionStream>>),
+    GossipsubUnsubscribe(String, OneshotSender<bool>),
+    GossipsubPublish(String, Vec<u8>, OneshotSender<()>),
+    GossipsubPeers(Option<String>, OneshotSender<Vec<PeerId>>),
+    GossipsubSubscribed(OneshotSender<Vec<String>>),
     WantList(
         Option<PeerId>,
         OneshotSender<Vec<(Cid, ipfs_bitswap::Priority)>>,
@@ -833,6 +838,92 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             self.to_task
                 .clone()
                 .send(IpfsEvent::PubsubSubscribed(tx))
+                .await?;
+
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Subscribes to a given topic. Can be done at most once without unsubscribing in the between.
+    /// The subscription can be unsubscribed by dropping the stream or calling
+    /// [`Ipfs::gossipsub_unsubscribe`].
+    pub async fn gossipsub_subscribe(&self, topic: String) -> Result<SubscriptionStream, Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GossipsubSubscribe(topic.clone(), tx))
+                .await?;
+
+            rx.await?
+                .ok_or_else(|| format_err!("already subscribed to {:?}", topic))
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Publishes to the topic which may have been subscribed to earlier
+    pub async fn gossipsub_publish(&self, topic: String, data: Vec<u8>) -> Result<(), Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GossipsubPublish(topic, data, tx))
+                .await?;
+
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Forcibly unsubscribes a previously made [`SubscriptionStream`], which could also be
+    /// unsubscribed by dropping the stream.
+    ///
+    /// Returns true if unsubscription was successful
+    pub async fn gossipsub_unsubscribe(&self, topic: &str) -> Result<bool, Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GossipsubUnsubscribe(topic.into(), tx))
+                .await?;
+
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Returns all known gossipsub peers with the optional topic filter
+    pub async fn gossipsub_peers(&self, topic: Option<String>) -> Result<Vec<PeerId>, Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GossipsubPeers(topic, tx))
+                .await?;
+
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Returns all currently subscribed topics
+    pub async fn gossipsub_subscribed(&self) -> Result<Vec<String>, Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::GossipsubSubscribed(tx))
                 .await?;
 
             Ok(rx.await?)
@@ -1451,6 +1542,27 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     }
                     IpfsEvent::PubsubSubscribed(ret) => {
                         let _ = ret.send(self.swarm.behaviour_mut().pubsub().subscribed_topics());
+                    }
+                    IpfsEvent::GossipsubSubscribe(topic, ret) => {
+                        let _ = ret.send(self.swarm.behaviour_mut().gossipsub().subscribe(topic));
+                    }
+                    IpfsEvent::GossipsubUnsubscribe(topic, ret) => {
+                        let _ = ret.send(self.swarm.behaviour_mut().gossipsub().unsubscribe(topic));
+                    }
+                    IpfsEvent::GossipsubPublish(topic, data, ret) => {
+                        self.swarm.behaviour_mut().gossipsub().publish(topic, data);
+                        let _ = ret.send(());
+                    }
+                    IpfsEvent::GossipsubPeers(Some(topic), ret) => {
+                        let topic = libp2p::floodsub::Topic::new(topic);
+                        let _ =
+                            ret.send(self.swarm.behaviour_mut().gossipsub().subscribed_peers(&topic));
+                    }
+                    IpfsEvent::GossipsubPeers(None, ret) => {
+                        let _ = ret.send(self.swarm.behaviour_mut().gossipsub().known_peers());
+                    }
+                    IpfsEvent::GossipsubSubscribed(ret) => {
+                        let _ = ret.send(self.swarm.behaviour_mut().gossipsub().subscribed_topics());
                     }
                     IpfsEvent::WantList(peer, ret) => {
                         let list = if let Some(peer) = peer {
