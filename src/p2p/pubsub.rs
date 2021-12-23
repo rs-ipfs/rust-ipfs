@@ -286,16 +286,6 @@ impl NetworkBehaviour for Pubsub {
         self.floodsub.inject_event(peer_id, connection, event)
     }
 
-    fn inject_addr_reach_failure(
-        &mut self,
-        peer_id: Option<&PeerId>,
-        addr: &Multiaddr,
-        error: &dyn std::error::Error,
-    ) {
-        self.floodsub
-            .inject_addr_reach_failure(peer_id, addr, error)
-    }
-
     fn inject_dial_failure(&mut self, peer_id: &PeerId) {
         self.floodsub.inject_dial_failure(peer_id)
     }

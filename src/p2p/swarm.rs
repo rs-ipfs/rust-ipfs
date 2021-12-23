@@ -355,37 +355,6 @@ impl NetworkBehaviour for SwarmApi {
         }
     }
 
-    fn inject_addr_reach_failure(
-        &mut self,
-        peer_id: Option<&PeerId>,
-        addr: &Multiaddr,
-        error: &dyn std::error::Error,
-    ) {
-        trace!("inject_addr_reach_failure {} {}", addr, error);
-
-        if let Some(peer_id) = peer_id {
-            match self.pending_connections.entry(*peer_id) {
-                Entry::Occupied(mut oe) => {
-                    let addresses = oe.get_mut();
-                    let addr = MultiaddrWithPeerId::try_from(addr.clone())
-                        .expect("dialed address contains peerid in libp2p 0.38");
-                    let pos = addresses.iter().position(|a| *a == addr);
-
-                    if let Some(pos) = pos {
-                        addresses.swap_remove(pos);
-                        self.connect_registry
-                            .finish_subscription(addr.into(), Err(error.to_string()));
-                    }
-
-                    if addresses.is_empty() {
-                        oe.remove();
-                    }
-                }
-                Entry::Vacant(_) => {}
-            }
-        }
-    }
-
     fn poll(
         &mut self,
         _: &mut Context,
