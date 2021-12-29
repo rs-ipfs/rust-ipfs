@@ -13,7 +13,7 @@ use fnv::FnvHashSet;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use hash_hasher::HashedMap;
 use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
-use libp2p_swarm::protocols_handler::OneShotHandler;
+use libp2p_swarm::protocols_handler::{OneShotHandler, OneShotHandlerConfig, SubstreamProtocol};
 use libp2p_swarm::dial_opts::DialOpts;
 use libp2p_swarm::{
     NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
@@ -151,9 +151,12 @@ impl Bitswap {
     /// Called from Kademlia behaviour.
     pub fn connect(&mut self, peer_id: PeerId) {
         if self.target_peers.insert(peer_id) {
+            let osh_config = OneShotHandlerConfig::default();
+            let subsprot = SubstreamProtocol::new(BitswapConfig::default(), ());
+
             self.events.push_back(NetworkBehaviourAction::Dial {
                 opts: DialOpts::peer_id(peer_id).build(),
-                handler: OneShotHandler::new((), ()) // TODO
+                handler: OneShotHandler::new(subsprot, osh_config)
             });
         }
     }
