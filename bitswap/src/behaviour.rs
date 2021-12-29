@@ -13,9 +13,10 @@ use fnv::FnvHashSet;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use hash_hasher::HashedMap;
 use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
-use libp2p_swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
+use libp2p_swarm::protocols_handler::OneShotHandler;
+use libp2p_swarm::dial_opts::DialOpts;
 use libp2p_swarm::{
-    dial_opts::PeerCondition, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
+    NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
 };
 use std::task::{Context, Poll};
 use std::{
@@ -150,9 +151,9 @@ impl Bitswap {
     /// Called from Kademlia behaviour.
     pub fn connect(&mut self, peer_id: PeerId) {
         if self.target_peers.insert(peer_id) {
-            self.events.push_back(NetworkBehaviourAction::DialPeer {
-                peer_id,
-                condition: PeerCondition::Disconnected,
+            self.events.push_back(NetworkBehaviourAction::Dial {
+                opts: DialOpts::peer_id(peer_id).build(),
+                handler: OneShotHandler::new((), ()) // TODO
             });
         }
     }
