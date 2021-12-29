@@ -18,7 +18,7 @@ hash_hasher = "2.0.3"
 libp2p-core = { default-features = false, version = "0.30" }
 libp2p-swarm = { default-features = false, version = "0.32" }
 multihash = { default-features = false, version = "0.11" }
-prost = { default-features = false, version = "0.8" }
+prost = { default-features = false, version = "0.9" }
 thiserror = { default-features = false, version = "1.0" }
 tokio = { default-features = false, version = "1", features = ["rt"] }
 tracing = { default-features = false, version = "0.1" }
