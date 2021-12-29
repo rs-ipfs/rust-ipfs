@@ -15,7 +15,7 @@ use hash_hasher::HashedMap;
 use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
 use libp2p_swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
 use libp2p_swarm::{
-    DialPeerCondition, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
+    dial_opts::PeerCondition, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
 };
 use std::task::{Context, Poll};
 use std::{
@@ -152,7 +152,7 @@ impl Bitswap {
         if self.target_peers.insert(peer_id) {
             self.events.push_back(NetworkBehaviourAction::DialPeer {
                 peer_id,
-                condition: DialPeerCondition::Disconnected,
+                condition: PeerCondition::Disconnected,
             });
         }
     }
