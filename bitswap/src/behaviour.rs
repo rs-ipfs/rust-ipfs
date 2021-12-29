@@ -88,7 +88,7 @@ impl Stats {
 /// Network behaviour that handles sending and receiving IPFS blocks.
 pub struct Bitswap {
     /// Queue of events to report to the user.
-    events: VecDeque<NetworkBehaviourAction<Message, BitswapEvent>>,
+    events: VecDeque<NetworkBehaviourAction<BitswapEvent, OneShotHandler<BitswapConfig, Message, MessageWrapper>>>,
     /// List of prospect peers to connect to.
     target_peers: FnvHashSet<PeerId>,
     /// Ledger
@@ -290,7 +290,7 @@ impl NetworkBehaviour for Bitswap {
 
     #[allow(clippy::type_complexity)]
     fn poll(&mut self, ctx: &mut Context, _: &mut impl PollParameters)
-        -> Poll<NetworkBehaviourAction<<<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>
+        -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ProtocolsHandler>>
     {
         use futures::stream::StreamExt;
 
