@@ -22,7 +22,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 }
 
 fn ingest_tar(bytes: &[u8], buffer: &mut Vec<u8>, path: &mut String) {
-    use cid::Cid;
+    use libipld::Cid;
     use ipfs_unixfs::dir::builder::{BufferingTreeBuilder, TreeOptions};
     use ipfs_unixfs::file::adder::FileAdder;
     use sha2::{Digest, Sha256};

@@ -1,7 +1,7 @@
 use super::{DirBuilder, Entry, Leaf, PostOrderIterator, TreeBuildingFailed, TreeOptions};
 use crate::Metadata;
 use alloc::collections::btree_map::Entry::*;
-use cid::Cid;
+use libipld::Cid;
 
 /// UnixFs directory tree builder which buffers entries until `build()` is called.
 #[derive(Debug)]
@@ -188,8 +188,8 @@ mod tests {
     use super::{
         super::OwnedTreeNode, BufferingTreeBuilder, Metadata, TreeBuildingFailed, TreeOptions,
     };
-    use cid::Cid;
     use core::convert::TryFrom;
+    use libipld::Cid;
 
     #[test]
     fn some_directories() {
@@ -432,14 +432,13 @@ mod tests {
                 Hex(&actual.2)
             );
         }
-
         assert_eq!(expected.len(), 0, "size mismatch: {:?}", actual);
     }
 
     /// Returns a quick and dirty sha2-256 of the given number as a Cidv0
     fn some_cid(number: usize) -> Cid {
-        use multihash::Sha2_256;
-        let mh = Sha2_256::digest(&number.to_le_bytes());
+        use libipld::multihash::{Code, MultihashDigest};
+        let mh = Code::Sha2_256.digest(&number.to_le_bytes());
         Cid::new_v0(mh).unwrap()
     }
 }

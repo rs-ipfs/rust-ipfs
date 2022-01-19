@@ -1,7 +1,10 @@
-use cid::Cid;
 use core::convert::TryFrom;
 use hash_hasher::HashedMap;
 use hex_literal::hex;
+use libipld::{
+    multihash::{self, MultihashDigest},
+    Cid,
+};
 
 #[derive(Default)]
 pub struct FakeBlockstore {
@@ -24,12 +27,7 @@ impl FakeBlockstore {
     }
 
     pub fn insert_v0(&mut self, block: &[u8]) -> Cid {
-        use sha2::Digest;
-        let mut sha = sha2::Sha256::new();
-        sha.update(block);
-        let result = sha.finalize();
-
-        let mh = multihash::wrap(multihash::Code::Sha2_256, &result[..]);
+        let mh = multihash::Code::Sha2_256.digest(block);
         let cid = Cid::new_v0(mh).unwrap();
 
         assert!(

@@ -1,4 +1,4 @@
-use cid::Cid;
+use libipld::Cid;
 use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Error as IoError, Read};

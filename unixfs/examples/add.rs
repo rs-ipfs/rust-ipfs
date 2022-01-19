@@ -1,5 +1,5 @@
-use cid::Cid;
 use ipfs_unixfs::file::adder::FileAdder;
+use libipld::Cid;
 use std::fmt;
 use std::io::{BufRead, BufReader};
 use std::time::Duration;
@@ -130,7 +130,7 @@ struct Stats {
 impl fmt::Display for Stats {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         let hash = self.last.as_ref().unwrap().hash();
-        let cidv1 = Cid::new_v1(cid::Codec::DagProtobuf, hash.to_owned());
+        let cidv1 = Cid::new_v1(libipld::IpldCodec::DagPb.into(), hash.to_owned());
         write!(
             fmt,
             "{} blocks, {} block bytes, {} or {}",

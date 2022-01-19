@@ -1,4 +1,4 @@
-use cid::Cid;
+use libipld::Cid;
 use core::convert::TryFrom;
 use core::ops::Range;
 

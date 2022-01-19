@@ -4,10 +4,10 @@ use crate::file::{FileError, FileReadFailed};
 use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
 use crate::{InvalidCidInLink, Metadata, UnexpectedNodeType};
 use alloc::borrow::Cow;
-use cid::Cid;
 use core::convert::TryFrom;
 use core::fmt;
 use either::Either;
+use libipld::Cid;
 use std::path::{Path, PathBuf};
 
 /// `Walker` helps with walking a UnixFS tree, including all of the content and files. It is
@@ -863,7 +863,7 @@ mod tests {
         let blocks = FakeBlockstore::with_fixtures();
 
         let trickle_foobar =
-            cid::Cid::try_from("QmWfQ48ChJUj4vWKFsUDe4646xCBmXgdmNfhjz9T7crywd").unwrap();
+            libipld::cid::Cid::try_from("QmWfQ48ChJUj4vWKFsUDe4646xCBmXgdmNfhjz9T7crywd").unwrap();
         let mut walker = Walker::new(trickle_foobar, String::new());
 
         let mut counter = 0;
@@ -930,7 +930,7 @@ mod tests {
         let blocks = FakeBlockstore::with_fixtures();
 
         let mut cache = None;
-        let mut walker = Walker::new(cid::Cid::try_from(cid).unwrap(), root_name.to_string());
+        let mut walker = Walker::new(Cid::try_from(cid).unwrap(), root_name.to_string());
 
         while walker.should_continue() {
             let (next, _) = walker.pending_links();

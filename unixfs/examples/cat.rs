@@ -1,4 +1,4 @@
-use cid::Cid;
+use libipld::Cid;
 use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
 use std::convert::TryFrom;
 use std::fmt;

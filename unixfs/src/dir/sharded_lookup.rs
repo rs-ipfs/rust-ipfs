@@ -3,7 +3,7 @@ use crate::pb::{FlatUnixFs, PBLink, ParsingFailed, UnixFsType};
 use crate::{InvalidCidInLink, UnexpectedNodeType};
 use alloc::borrow::Cow;
 use alloc::collections::VecDeque;
-use cid::Cid;
+use libipld::Cid;
 use core::convert::TryFrom;
 use core::fmt;
 

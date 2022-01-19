@@ -1,8 +1,8 @@
 use super::{
     CustomFlatUnixFs, DirBuilder, Entry, Leaf, NamedLeaf, TreeConstructionFailed, TreeOptions,
 };
-use cid::Cid;
 use core::fmt;
+use libipld::{multihash, Cid};
 use std::collections::HashMap;
 
 /// Constructs the directory nodes required for a tree.
@@ -141,7 +141,9 @@ impl PostOrderIterator {
 
         buffer.truncate(size);
 
-        let mh = multihash::wrap(multihash::Code::Sha2_256, &Sha256::digest(buffer));
+        let mh =
+            multihash::Multihash::wrap(multihash::Code::Sha2_256.into(), &Sha256::digest(buffer))
+                .unwrap();
         let cid = Cid::new_v0(mh).expect("sha2_256 is the correct multihash for cidv0");
 
         let combined_from_links = links

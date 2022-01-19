@@ -12,7 +12,7 @@ version = "0.2.0"
 default = ["filetime"]
 
 [dependencies]
-cid = { default-features = false, version = "0.5" }
+libipld = "0.12"
 either = { default-features = false, version = "1.5" }
 filetime = { optional = true, version = "0.2.12" }
 multihash = { default-features = false, version = "0.11" }

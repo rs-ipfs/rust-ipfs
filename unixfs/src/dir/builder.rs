@@ -1,4 +1,4 @@
-use cid::Cid;
+use libipld::Cid;
 use core::fmt;
 
 mod dir_builder;

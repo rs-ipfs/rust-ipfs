@@ -1,6 +1,6 @@
 use crate::pb::{FlatUnixFs, PBLink, PBNode, ParsingFailed, UnixFsType};
 use crate::{InvalidCidInLink, UnexpectedNodeType};
-use cid::Cid;
+use libipld::Cid;
 use core::convert::TryFrom;
 use core::fmt;
 
@@ -214,7 +214,7 @@ mod tests {
 
     use super::{resolve, MaybeResolved};
     use crate::test_support::FakeBlockstore;
-    use cid::Cid;
+    use libipld::Cid;
     use core::convert::TryFrom;
     use hex_literal::hex;
 

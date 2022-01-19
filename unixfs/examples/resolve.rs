@@ -1,5 +1,5 @@
-use cid::Cid;
 use ipfs_unixfs::dir::{resolve, LookupError, ResolveError};
+use libipld::{cid, Cid};
 use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Error as IoError, Read};
@@ -70,7 +70,7 @@ pub enum PathError {
 
 impl fmt::Display for PathError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             PathError::InvalidCid(e) => write!(fmt, "{}", e),
             PathError::InvalidPath => write!(fmt, "invalid path"),
         }

@@ -32,12 +32,13 @@ pub mod dagpb;
 /// Support for walking over all UnixFs trees
 pub mod walk;
 
+use libipld::cid;
+
 #[cfg(test)]
 pub(crate) mod test_support;
 
 /// A link could not be transformed into a Cid.
 #[derive(Debug)]
-#[non_exhaustive]
 pub struct InvalidCidInLink {
     /// The index of this link, from zero
     pub nth: usize,
