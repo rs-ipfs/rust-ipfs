@@ -2,9 +2,9 @@ use crate::bitswap_pb;
 use crate::block::Block;
 use crate::error::BitswapError;
 use crate::prefix::Prefix;
-use cid::Cid;
 use core::convert::TryFrom;
 use hash_hasher::{HashedMap, HashedSet};
+use libipld::Cid;
 use prost::Message as ProstMessage;
 use std::mem;
 
@@ -196,10 +196,7 @@ impl TryFrom<&[u8]> for Message {
         for payload in proto.payload {
             let prefix = Prefix::new(&payload.prefix)?;
             let cid = prefix.to_cid(&payload.data)?;
-            let block = Block {
-                cid,
-                data: payload.data.into_boxed_slice(),
-            };
+            let block = Block::new(cid, payload.data)?;
             message.add_block(block);
         }
         Ok(message)

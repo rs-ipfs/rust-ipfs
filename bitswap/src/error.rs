@@ -7,5 +7,9 @@ pub enum BitswapError {
     #[error("Error while decoding bitswap message: {0}")]
     ProtobufError(#[from] prost::DecodeError),
     #[error("Error while parsing cid: {0}")]
-    Cid(#[from] cid::Error),
+    Cid(#[from] libipld::cid::Error),
+    #[error("Error while handling IPLD: {0}")]
+    Ipld(#[from] libipld::error::Error),
+    #[error("Error while handling Multihash: {0}")]
+    Multihash(#[from] libipld::multihash::Error),
 }
