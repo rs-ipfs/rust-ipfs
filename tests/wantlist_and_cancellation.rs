@@ -1,4 +1,4 @@
-use cid::Cid;
+use libipld::Cid;
 use futures::future::{pending, select, Either, FutureExt};
 use futures::future::{AbortHandle, Abortable};
 use ipfs::Node;

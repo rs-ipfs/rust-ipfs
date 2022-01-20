@@ -6,8 +6,8 @@ use crate::repo::{
 };
 use crate::Block;
 use async_trait::async_trait;
-use cid::Cid;
 use hash_hasher::HashedMap;
+use libipld::{cid, Cid};
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use tokio::sync::{Mutex, OwnedMutexGuard};
@@ -64,10 +64,10 @@ impl BlockStore for MemBlockStore {
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
         use std::collections::hash_map::Entry;
         let mut g = self.blocks.lock().await;
-        match g.entry(RepoCid(block.cid.clone())) {
+        match g.entry(RepoCid(block.cid().clone())) {
             Entry::Occupied(_) => {
                 trace!("already existing block");
-                Ok((block.cid, BlockPut::Existed))
+                Ok((block.cid().clone(), BlockPut::Existed))
             }
             Entry::Vacant(ve) => {
                 trace!("new block");
@@ -254,8 +254,7 @@ impl PinStore for MemDataStore {
         target: &Cid,
         mut refs: super::References<'_>,
     ) -> Result<(), Error> {
-        use futures::stream::TryStreamExt;
-
+        use futures::TryStreamExt;
         let mut g = Mutex::lock_owned(Arc::clone(&self.pin)).await;
 
         let doc: PinDocument = match g.get(&target.to_bytes()) {
@@ -682,17 +681,19 @@ crate::pinstore_interface_tests!(common_tests, crate::repo::mem::MemDataStore::n
 mod tests {
     use super::*;
     use crate::Block;
-    use cid::{Cid, Codec};
-    use multihash::Sha2_256;
+    use libipld::{
+        multihash::{Code, MultihashDigest},
+        IpldCodec,
+    };
     use std::env::temp_dir;
 
     #[tokio::test]
     async fn test_mem_blockstore() {
         let tmp = temp_dir();
         let store = MemBlockStore::new(tmp);
-        let data = b"1".to_vec().into_boxed_slice();
-        let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
-        let block = Block::new(data, cid.clone());
+        let data = b"1".to_vec();
+        let cid = Cid::new_v1(IpldCodec::Raw.into(), Code::Sha2_256.digest(&data));
+        let block = Block::new(cid.clone(), data).unwrap();
 
         store.init().await.unwrap();
         store.open().await.unwrap();
@@ -728,9 +729,9 @@ mod tests {
         mem_store.open().await.unwrap();
 
         for data in &[b"1", b"2", b"3"] {
-            let data_slice = data.to_vec().into_boxed_slice();
-            let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data_slice));
-            let block = Block::new(data_slice, cid);
+            let data_slice = data.to_vec();
+            let cid = Cid::new_v1(IpldCodec::Raw.into(), Code::Sha2_256.digest(&data_slice));
+            let block = Block::new(cid, data_slice).unwrap();
             mem_store.put(block.clone()).await.unwrap();
             assert!(mem_store.contains(block.cid()).await.unwrap());
         }

@@ -1,7 +1,9 @@
-use cid::{Cid, Codec};
 use ipfs::{p2p::MultiaddrWithPeerId, Block, Node};
+use libipld::{
+    multihash::{Code, MultihashDigest},
+    Cid, IpldCodec,
+};
 use libp2p::{kad::Quorum, multiaddr::Protocol, Multiaddr};
-use multihash::Sha2_256;
 use tokio::time::timeout;
 
 use std::{convert::TryInto, time::Duration};
@@ -154,18 +156,15 @@ async fn dht_providing() {
     let last_index = CHAIN_LEN - if foreign_node.is_none() { 1 } else { 2 };
 
     // the last node puts a block in order to have something to provide
-    let data = b"hello block\n".to_vec().into_boxed_slice();
-    let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
+    let data = b"hello block\n".to_vec();
+    let cid = Cid::new_v1(IpldCodec::Raw.into(), Code::Sha2_256.digest(&data));
     nodes[last_index]
-        .put_block(Block {
-            cid: cid.clone(),
-            data,
-        })
+        .put_block(Block::new(cid, data).unwrap())
         .await
         .unwrap();
 
     // the last node then provides the Cid
-    nodes[last_index].provide(cid.clone()).await.unwrap();
+    nodes[last_index].provide(cid).await.unwrap();
 
     // and the first node should be able to learn that the last one provides it
     assert!(nodes[0]

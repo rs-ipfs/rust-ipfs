@@ -2,8 +2,8 @@ use super::{Column, DataStore, PinModeRequirement};
 use crate::error::Error;
 use crate::repo::{PinKind, PinMode, PinStore, References};
 use async_trait::async_trait;
-use cid::{self, Cid};
 use futures::stream::{StreamExt, TryStreamExt};
+use libipld::cid::Cid;
 use once_cell::sync::OnceCell;
 use sled::{
     self,

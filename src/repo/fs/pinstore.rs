@@ -3,7 +3,7 @@ use super::{filestem_to_pin_cid, pin_path, FsDataStore};
 use crate::error::Error;
 use crate::repo::{PinKind, PinMode, PinModeRequirement, PinStore, References};
 use async_trait::async_trait;
-use cid::Cid;
+use libipld::Cid;
 use core::convert::TryFrom;
 use futures::stream::TryStreamExt;
 use hash_hasher::HashedSet;

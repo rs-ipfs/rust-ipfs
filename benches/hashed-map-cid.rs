@@ -1,4 +1,4 @@
-use cid::Cid;
+use libipld::Cid;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use hash_hasher::HashBuildHasher;
 use multihash::Sha2_256;

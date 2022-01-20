@@ -1,5 +1,6 @@
 use futures::join;
-use ipfs::{make_ipld, Ipfs, IpfsOptions, IpfsPath, TestTypes, UninitializedIpfs};
+use ipfs::{Ipfs, IpfsOptions, IpfsPath, TestTypes, UninitializedIpfs};
+use libipld::ipld;
 use tokio::task;
 
 #[tokio::main]
@@ -12,10 +13,10 @@ async fn main() {
     task::spawn(fut);
 
     // Create a DAG
-    let f1 = ipfs.put_dag(make_ipld!("block1"));
-    let f2 = ipfs.put_dag(make_ipld!("block2"));
+    let f1 = ipfs.put_dag(ipld!("block1"));
+    let f2 = ipfs.put_dag(ipld!("block2"));
     let (res1, res2) = join!(f1, f2);
-    let root = make_ipld!([res1.unwrap(), res2.unwrap()]);
+    let root = ipld!([res1.unwrap(), res2.unwrap()]);
     let cid = ipfs.put_dag(root).await.unwrap();
     let path = IpfsPath::from(cid);
 

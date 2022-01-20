@@ -1,10 +1,9 @@
 //! `refs` or the references of dag-pb and other supported IPLD formats functionality.
 
-use crate::ipld::{decode_ipld, Ipld};
-use crate::{Block, Ipfs, IpfsTypes};
+use crate::{Ipfs, IpfsTypes};
 use async_stream::stream;
-use cid::{self, Cid};
 use futures::stream::Stream;
+use libipld::{Cid, Ipld, IpldCodec};
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -33,8 +32,7 @@ impl fmt::Debug for Edge {
 
 #[derive(Debug, thiserror::Error)]
 pub enum IpldRefsError {
-    #[error("nested ipld document parsing failed")]
-    Block(#[from] crate::ipld::BlockError),
+    // This will also impl From<libipld::error::Error>, as they are both anyhow::Error
     #[error("loading failed")]
     Loading(#[from] crate::Error),
     #[error("block not found locally: {}", .0)]
@@ -117,7 +115,7 @@ pub fn iplds_refs<'a, Types, MaybeOwned, Iter>(
     iplds: Iter,
     max_depth: Option<u64>,
     unique: bool,
-) -> impl Stream<Item = Result<Edge, crate::ipld::BlockError>> + Send + 'a
+) -> impl Stream<Item = Result<Edge, libipld::error::Error>> + Send + 'a
 where
     Types: IpfsTypes,
     MaybeOwned: Borrow<Ipfs<Types>> + Send + 'a,
@@ -130,7 +128,7 @@ where
         download_blocks: true,
     };
     iplds_refs_inner(ipfs, iplds, opts).map_err(|e| match e {
-        IpldRefsError::Block(e) => e,
+        IpldRefsError::Loading(e) => e,
         x => unreachable!(
             "iplds_refs_inner should not return other errors for download_blocks: false; {}",
             x
@@ -195,9 +193,9 @@ where
             // `MaybeOwned` which we don't necessarily need.
             let borrowed = ipfs.borrow();
 
-            let data = if download_blocks {
+            let block = if download_blocks {
                 match borrowed.get_block(&cid).await {
-                    Ok(Block { data, .. }) => data,
+                    Ok(block) => block,
                     Err(e) => {
                         warn!("failed to load {}, linked from {}: {}", cid, source, e);
                         // TODO: yield error msg
@@ -209,7 +207,7 @@ where
                 }
             } else {
                 match borrowed.repo.get_block_now(&cid).await {
-                    Ok(Some(Block { data, .. })) => data,
+                    Ok(Some(block)) => block,
                     Ok(None) => {
                         yield Err(IpldRefsError::BlockNotFound(cid.to_owned()));
                         return;
@@ -223,7 +221,7 @@ where
 
             trace!(cid = %cid, "loaded next");
 
-            let ipld = match decode_ipld(&cid, &data) {
+            let ipld = match block.decode::<IpldCodec, Ipld>() {
                 Ok(ipld) => ipld,
                 Err(e) => {
                     warn!(cid = %cid, source = %cid, "failed to parse: {}", e);
@@ -256,7 +254,7 @@ fn ipld_links(
 ) -> impl Iterator<Item = (Option<String>, Cid)> + Send + 'static {
     // a wrapping iterator without there being a libipld_base::IpldIntoIter might not be doable
     // with safe code
-    let items = if cid.codec() == cid::Codec::DagProtobuf {
+    let items = if cid.codec() == <IpldCodec as Into<u64>>::into(IpldCodec::DagPb) {
         dagpb_links(ipld)
     } else {
         ipld.iter()
@@ -283,7 +281,7 @@ fn ipld_links(
 /// libipld crate. This is on purpose.
 fn dagpb_links(ipld: Ipld) -> Vec<(Option<String>, Cid)> {
     let links = match ipld {
-        Ipld::Map(mut m) => m.remove("Links"),
+        Ipld::StringMap(mut m) => m.remove("Links"),
         // lets assume this means "no links"
         _ => return Vec::new(),
     };
@@ -298,7 +296,7 @@ fn dagpb_links(ipld: Ipld) -> Vec<(Option<String>, Cid)> {
         .enumerate()
         .filter_map(|(i, ipld)| {
             match ipld {
-                Ipld::Map(mut m) => {
+                Ipld::StringMap(mut m) => {
                     let link = match m.remove("Hash") {
                         Some(Ipld::Link(cid)) => cid,
                         Some(x) => panic!(
@@ -338,11 +336,10 @@ fn dagpb_links(ipld: Ipld) -> Vec<(Option<String>, Cid)> {
 #[cfg(test)]
 mod tests {
     use super::{ipld_links, iplds_refs, Edge};
-    use crate::ipld::{decode_ipld, validate};
     use crate::{Block, Node};
-    use cid::Cid;
     use futures::stream::TryStreamExt;
     use hex_literal::hex;
+    use libipld::{Cid, Ipld, IpldCodec};
     use std::collections::HashSet;
     use std::convert::TryFrom;
 
@@ -360,7 +357,10 @@ mod tests {
 
         let cid = Cid::try_from("QmbrFTo4s6H23W6wmoZKQC2vSogGeQ4dYiceSqJddzrKVa").unwrap();
 
-        let decoded = decode_ipld(&cid, &payload).unwrap();
+        let decoded = Block::new(cid, payload.to_vec())
+            .unwrap()
+            .decode::<IpldCodec, Ipld>()
+            .unwrap();
 
         let links = ipld_links(&cid, decoded)
             .map(|(name, _)| name.unwrap())
@@ -385,9 +385,9 @@ mod tests {
         );
 
         let root_block = ipfs.get_block(&Cid::try_from(root).unwrap()).await.unwrap();
-        let ipld = decode_ipld(root_block.cid(), root_block.data()).unwrap();
+        let ipld = root_block.decode::<IpldCodec, Ipld>().unwrap();
 
-        let all_edges: Vec<_> = iplds_refs(ipfs, vec![(root_block.cid, ipld)], None, false)
+        let all_edges: Vec<_> = iplds_refs(ipfs, vec![(*root_block.cid(), ipld)], None, false)
             .map_ok(
                 |Edge {
                      source,
@@ -432,13 +432,14 @@ mod tests {
         );
 
         let root_block = ipfs.get_block(&Cid::try_from(root).unwrap()).await.unwrap();
-        let ipld = decode_ipld(root_block.cid(), root_block.data()).unwrap();
+        let ipld = root_block.decode::<IpldCodec, Ipld>().unwrap();
 
-        let destinations: HashSet<_> = iplds_refs(ipfs, vec![(root_block.cid, ipld)], None, true)
-            .map_ok(|Edge { destination, .. }| destination.to_string())
-            .try_collect()
-            .await
-            .unwrap();
+        let destinations: HashSet<_> =
+            iplds_refs(ipfs, vec![(*root_block.cid(), ipld)], None, true)
+                .map_ok(|Edge { destination, .. }| destination.to_string())
+                .try_collect()
+                .await
+                .unwrap();
 
         // go-ipfs output:
         // bafyreihpc3vupfos5yqnlakgpjxtyx3smkg26ft7e2jnqf3qkyhromhb64 -> bafyreidquig3arts3bmee53rutt463hdyu6ff4zeas2etf2h2oh4dfms44
@@ -505,13 +506,8 @@ mod tests {
 
         for (cid_str, data) in blocks.iter() {
             let cid = Cid::try_from(*cid_str).unwrap();
-            validate(&cid, data).unwrap();
-            decode_ipld(&cid, data).unwrap();
-
-            let block = Block {
-                cid,
-                data: (*data).into(),
-            };
+            let block = Block::new(cid, data.to_vec()).unwrap();
+            block.decode::<IpldCodec, Ipld>().unwrap();
 
             ipfs.put_block(block).await.unwrap();
         }

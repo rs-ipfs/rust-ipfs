@@ -5,7 +5,6 @@ use crate::path::IpfsPath;
 use crate::subscription::{RequestKind, SubscriptionFuture, SubscriptionRegistry};
 use crate::{Block, IpfsOptions};
 use async_trait::async_trait;
-use cid::{self, Cid};
 use core::convert::TryFrom;
 use core::fmt::Debug;
 use futures::channel::{
@@ -13,6 +12,7 @@ use futures::channel::{
     oneshot,
 };
 use futures::sink::SinkExt;
+use libipld::cid::Cid;
 use libp2p::core::PeerId;
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
@@ -425,7 +425,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
 
     /// Puts a block into the block store.
     pub async fn put_block(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
-        let cid = block.cid.clone();
+        let cid = block.cid().clone();
         let (_cid, res) = self.block_store.put(block.clone()).await?;
 
         // FIXME: this doesn't cause actual DHT providing yet, only some

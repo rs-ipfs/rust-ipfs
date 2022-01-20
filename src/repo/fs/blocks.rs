@@ -4,8 +4,8 @@ use crate::error::Error;
 use crate::repo::{BlockPut, BlockStore};
 use crate::Block;
 use async_trait::async_trait;
-use cid::Cid;
 use hash_hasher::{HashBuildHasher, HashedMap};
+use libipld::Cid;
 use std::hash::Hash;
 use std::io::Read;
 use std::path::PathBuf;
@@ -167,7 +167,7 @@ impl BlockStore for FsBlockStore {
 
                 let mut data = Vec::with_capacity(len as usize);
                 file.read_to_end(&mut data)?;
-                let block = Block::new(data.into_boxed_slice(), cid);
+                let block = Block::new(cid, data)?;
                 Ok(Some(block))
             })
             .await?
@@ -182,8 +182,8 @@ impl BlockStore for FsBlockStore {
         let span = tracing::trace_span!("put block", cid = %block.cid());
 
         let target_path = block_path(self.path.clone(), block.cid());
-        let cid = block.cid;
-        let data = block.data;
+        let cid = *block.cid();
+        let block = block.clone();
 
         let inner_span = debug_span!(parent: &span, "blocking");
 
@@ -196,7 +196,7 @@ impl BlockStore for FsBlockStore {
             let (tx, mut rx) = {
                 let mut g = self.writes.lock().expect("cant support poisoned");
 
-                match g.entry(RepoCid(cid.to_owned())) {
+                match g.entry(RepoCid(*block.cid())) {
                     Entry::Occupied(oe) => {
                         // someone is already writing this, nice
                         trace!("joining in on another already writing the block");
@@ -212,7 +212,7 @@ impl BlockStore for FsBlockStore {
             };
 
             // create this in case the winner is dropped while awaiting
-            let cleanup = RemoveOnDrop(self.writes.clone(), Some(RepoCid(cid.to_owned())));
+            let cleanup = RemoveOnDrop(self.writes.clone(), Some(RepoCid(*block.cid())));
 
             // launch a blocking task for the filesystem mutation.
             let je = tokio::task::spawn_blocking(move || {
@@ -237,10 +237,10 @@ impl BlockStore for FsBlockStore {
 
                 let temp_path = target_path.with_extension("tmp");
 
-                match write_through_tempfile(target, &target_path, temp_path, &data) {
+                match write_through_tempfile(target, &target_path, temp_path, block.data()) {
                     Ok(()) => {
                         trace!("successfully wrote the block");
-                        Ok::<_, std::io::Error>(Ok(data.len()))
+                        Ok::<_, std::io::Error>(Ok(block.data().len()))
                     }
                     Err(e) => {
                         match std::fs::remove_file(&target_path) {
@@ -317,7 +317,7 @@ impl BlockStore for FsBlockStore {
                         // fail as well (e.g. out of disk space)
                         Err(anyhow::anyhow!("other concurrent write failed"))
                     } else {
-                        Ok((cid.to_owned(), BlockPut::Existed))
+                        Ok((cid, BlockPut::Existed))
                     }
                 }
                 Err(e) if e.is_cancelled() => {
@@ -453,9 +453,11 @@ fn write_through_tempfile(
 mod tests {
     use super::*;
     use crate::Block;
-    use cid::{Cid, Codec};
     use hex_literal::hex;
-    use multihash::Sha2_256;
+    use libipld::{
+        multihash::{Code, MultihashDigest},
+        Cid, IpldCodec,
+    };
     use std::convert::TryFrom;
     use std::env::temp_dir;
     use std::sync::Arc;
@@ -467,9 +469,9 @@ mod tests {
         std::fs::remove_dir_all(tmp.clone()).ok();
         let store = FsBlockStore::new(tmp.clone());
 
-        let data = b"1".to_vec().into_boxed_slice();
-        let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
-        let block = Block::new(data, cid.clone());
+        let data = b"1".to_vec();
+        let cid = Cid::new_v1(IpldCodec::Raw.into(), Code::Sha2_256.digest(&data));
+        let block = Block::new(cid.clone(), data).unwrap();
 
         store.init().await.unwrap();
         store.open().await.unwrap();
@@ -504,9 +506,9 @@ mod tests {
         tmp.push("blockstore2");
         std::fs::remove_dir_all(&tmp).ok();
 
-        let data = b"1".to_vec().into_boxed_slice();
-        let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
-        let block = Block::new(data, cid);
+        let data = b"1".to_vec();
+        let cid = Cid::new_v1(IpldCodec::Raw.into(), Code::Sha2_256.digest(&data));
+        let block = Block::new(cid, data).unwrap();
 
         let block_store = FsBlockStore::new(tmp.clone());
         block_store.init().await.unwrap();
@@ -534,9 +536,9 @@ mod tests {
         block_store.open().await.unwrap();
 
         for data in &[b"1", b"2", b"3"] {
-            let data_slice = data.to_vec().into_boxed_slice();
-            let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data_slice));
-            let block = Block::new(data_slice, cid);
+            let data_slice = data.to_vec();
+            let cid = Cid::new_v1(IpldCodec::Raw.into(), Code::Sha2_256.digest(&data_slice));
+            let block = Block::new(cid, data_slice).unwrap();
             block_store.put(block.clone()).await.unwrap();
         }
 
@@ -562,10 +564,7 @@ mod tests {
         let cid = Cid::try_from("QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL").unwrap();
         let data = hex!("0a0d08021207666f6f6261720a1807");
 
-        let block = Block {
-            cid,
-            data: data.into(),
-        };
+        let block = Block::new(cid, data.into()).unwrap();
 
         let count = 10;
 
@@ -593,10 +592,7 @@ mod tests {
         let cid = Cid::try_from("QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL").unwrap();
         let data = hex!("0a0d08021207666f6f6261720a1807");
 
-        let block = Block {
-            cid,
-            data: data.into(),
-        };
+        let block = Block::new(cid, data.to_vec()).unwrap();
 
         single.put(block.clone()).await.unwrap();
 
@@ -665,10 +661,7 @@ mod tests {
         let cid = Cid::try_from("QmRgutAxd8t7oGkSm4wmeuByG6M51wcTso6cubDdQtuEfL").unwrap();
         let data = hex!("0a0d08021207666f6f6261720a1807");
 
-        let block = Block {
-            cid: cid.clone(),
-            data: data.into(),
-        };
+        let block = Block::new(cid.clone(), data.to_vec()).unwrap();
 
         assert_eq!(single.list().await.unwrap().len(), 0);
 

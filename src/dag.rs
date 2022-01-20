@@ -1,15 +1,21 @@
 //! `ipfs.dag` interface implementation around [`Ipfs`].
 
 use crate::error::Error;
-use crate::ipld::{decode_ipld, encode_ipld, Ipld};
 use crate::path::{IpfsPath, SlashedPath};
 use crate::repo::RepoTypes;
 use crate::{Block, Ipfs};
-use cid::{Cid, Codec, Version};
 use ipfs_unixfs::{
     dagpb::{wrap_node_data, NodeData},
     dir::{Cache, ShardedLookup},
     resolve, MaybeResolved,
+};
+use libipld::{
+    cid::{
+        multihash::{Code, MultihashDigest},
+        Cid, Version,
+    },
+    codec::Codec,
+    Ipld, IpldCodec,
 };
 use std::convert::TryFrom;
 use std::error::Error as StdError;
@@ -60,7 +66,7 @@ pub enum ResolveError {
 #[derive(Debug, Error)]
 pub enum UnexpectedResolved {
     #[error("path resolved to unexpected type of document: {:?} or {}", .0, .1.source())]
-    UnexpectedCodec(cid::Codec, ResolvedNode),
+    UnexpectedCodec(u64, ResolvedNode),
     #[error("path did not resolve to a block on {}", .0.source())]
     NonBlock(ResolvedNode),
 }
@@ -174,16 +180,16 @@ impl<Types: RepoTypes> IpldDag<Types> {
     /// Returns the `Cid` of a newly inserted block.
     ///
     /// The block is created from the `data`, encoded with the `codec` and inserted into the repo.
-    pub async fn put(&self, data: Ipld, codec: Codec) -> Result<Cid, Error> {
-        let bytes = encode_ipld(&data, codec)?;
-        let hash = multihash::Sha2_256::digest(&bytes);
-        let version = if codec == Codec::DagProtobuf {
+    pub async fn put(&self, data: Ipld, codec: IpldCodec) -> Result<Cid, Error> {
+        let bytes = codec.encode(&data)?;
+        let hash = Code::Sha2_256.digest(&bytes);
+        let version = if codec == IpldCodec::DagPb {
             Version::V0
         } else {
             Version::V1
         };
-        let cid = Cid::new(version, codec, hash)?;
-        let block = Block::new(bytes, cid);
+        let cid = Cid::new(version, codec.into(), hash)?;
+        let block = Block::new(cid, bytes)?;
         let (cid, _) = self.ipfs.repo.put_block(block).await?;
         Ok(cid)
     }
@@ -360,8 +366,8 @@ impl ResolvedNode {
     /// Returns the `Cid` of the **source** document for the encapsulated document or projection of such.
     pub fn source(&self) -> &Cid {
         match self {
-            ResolvedNode::Block(Block { cid, .. })
-            | ResolvedNode::DagPbData(cid, ..)
+            ResolvedNode::Block(block) => block.cid(),
+            ResolvedNode::DagPbData(cid, ..)
             | ResolvedNode::Projection(cid, ..)
             | ResolvedNode::Link(cid, ..) => cid,
         }
@@ -370,9 +376,9 @@ impl ResolvedNode {
     /// Unwraps the dagpb block variant and turns others into UnexpectedResolved.
     /// This is useful wherever unixfs operations are continued after resolving an IpfsPath.
     pub fn into_unixfs_block(self) -> Result<Block, UnexpectedResolved> {
-        if self.source().codec() != cid::Codec::DagProtobuf {
+        if self.source().codec() != <IpldCodec as Into<u64>>::into(IpldCodec::DagPb) {
             Err(UnexpectedResolved::UnexpectedCodec(
-                cid::Codec::DagProtobuf,
+                IpldCodec::DagPb.into(),
                 self,
             ))
         } else {
@@ -390,8 +396,9 @@ impl TryFrom<ResolvedNode> for Ipld {
         use ResolvedNode::*;
 
         match r {
-            Block(block) => Ok(decode_ipld(block.cid(), block.data())
-                .map_err(move |e| ResolveError::UnsupportedDocument(block.cid, e.into()))?),
+            Block(block) => Ok(block
+                .decode::<IpldCodec, Ipld>()
+                .map_err(move |e| ResolveError::UnsupportedDocument(*block.cid(), e.into()))?),
             DagPbData(_, node_data) => Ok(Ipld::Bytes(node_data.node_data().to_vec())),
             Projection(_, ipld) => Ok(ipld),
             Link(_, cid) => Ok(Ipld::Link(cid)),
@@ -437,9 +444,7 @@ fn resolve_local<'a>(
         return Ok((LocallyResolved::Complete(ResolvedNode::Block(block)), 0));
     }
 
-    let Block { cid, data } = block;
-
-    if cid.codec() == cid::Codec::DagProtobuf {
+    if block.cid().codec() == <IpldCodec as Into<u64>>::into(IpldCodec::DagPb) {
         // special-case the dagpb since we need to do the HAMT lookup and going through the
         // BTreeMaps of ipld for this is quite tiresome. if you are looking for that code for
         // simple directories, you can find one in the history of ipfs-http.
@@ -449,19 +454,26 @@ fn resolve_local<'a>(
         // being matched, and not the error or the DagPbData case.
         let segment = segments.next().unwrap();
 
+        let (cid, data) = block.into_inner();
+
         Ok(resolve_local_dagpb(
             cid,
-            data,
+            data.into(),
             segment,
             segments.peek().is_none(),
             cache,
         )?)
     } else {
-        let ipld = match decode_ipld(&cid, &data) {
+        let ipld = match block.decode::<IpldCodec, Ipld>() {
             Ok(ipld) => ipld,
-            Err(e) => return Err(RawResolveLocalError::UnsupportedDocument(cid, e.into())),
+            Err(e) => {
+                return Err(RawResolveLocalError::UnsupportedDocument(
+                    *block.cid(),
+                    e.into(),
+                ))
+            }
         };
-        resolve_local_ipld(cid, ipld, segments)
+        resolve_local_ipld(*block.cid(), ipld, segments)
     }
 }
 
@@ -545,7 +557,7 @@ fn resolve_local_ipld<'a>(
             (Ipld::Link(_), Some(_)) => {
                 unreachable!("case already handled above before advancing the iterator")
             }
-            (Ipld::Map(mut map), Some(segment)) => {
+            (Ipld::StringMap(mut map), Some(segment)) => {
                 let found = match map.remove(segment) {
                     Some(f) => f,
                     None => {
@@ -598,14 +610,15 @@ fn resolve_local_ipld<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{make_ipld, Node};
+    use crate::Node;
+    use libipld::ipld;
 
     #[tokio::test]
     async fn test_resolve_root_cid() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
-        let data = make_ipld!([1, 2, 3]);
-        let cid = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
+        let data = ipld!([1, 2, 3]);
+        let cid = dag.put(data.clone(), IpldCodec::DagCbor).await.unwrap();
         let res = dag.get(IpfsPath::from(cid)).await.unwrap();
         assert_eq!(res, data);
     }
@@ -614,63 +627,63 @@ mod tests {
     async fn test_resolve_array_elem() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
-        let data = make_ipld!([1, 2, 3]);
-        let cid = dag.put(data.clone(), Codec::DagCBOR).await.unwrap();
+        let data = ipld!([1, 2, 3]);
+        let cid = dag.put(data.clone(), IpldCodec::DagCbor).await.unwrap();
         let res = dag
             .get(IpfsPath::from(cid).sub_path("1").unwrap())
             .await
             .unwrap();
-        assert_eq!(res, make_ipld!(2));
+        assert_eq!(res, ipld!(2));
     }
 
     #[tokio::test]
     async fn test_resolve_nested_array_elem() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
-        let data = make_ipld!([1, [2], 3,]);
-        let cid = dag.put(data, Codec::DagCBOR).await.unwrap();
+        let data = ipld!([1, [2], 3,]);
+        let cid = dag.put(data, IpldCodec::DagCbor).await.unwrap();
         let res = dag
             .get(IpfsPath::from(cid).sub_path("1/0").unwrap())
             .await
             .unwrap();
-        assert_eq!(res, make_ipld!(2));
+        assert_eq!(res, ipld!(2));
     }
 
     #[tokio::test]
     async fn test_resolve_object_elem() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
-        let data = make_ipld!({
+        let data = ipld!({
             "key": false,
         });
-        let cid = dag.put(data, Codec::DagCBOR).await.unwrap();
+        let cid = dag.put(data, IpldCodec::DagCbor).await.unwrap();
         let res = dag
             .get(IpfsPath::from(cid).sub_path("key").unwrap())
             .await
             .unwrap();
-        assert_eq!(res, make_ipld!(false));
+        assert_eq!(res, ipld!(false));
     }
 
     #[tokio::test]
     async fn test_resolve_cid_elem() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
-        let data1 = make_ipld!([1]);
-        let cid1 = dag.put(data1, Codec::DagCBOR).await.unwrap();
-        let data2 = make_ipld!([cid1]);
-        let cid2 = dag.put(data2, Codec::DagCBOR).await.unwrap();
+        let data1 = ipld!([1]);
+        let cid1 = dag.put(data1, IpldCodec::DagCbor).await.unwrap();
+        let data2 = ipld!([cid1]);
+        let cid2 = dag.put(data2, IpldCodec::DagCbor).await.unwrap();
         let res = dag
             .get(IpfsPath::from(cid2).sub_path("0/0").unwrap())
             .await
             .unwrap();
-        assert_eq!(res, make_ipld!(1));
+        assert_eq!(res, ipld!(1));
     }
 
     /// Returns an example ipld document with strings, ints, maps, lists, and a link. The link target is also
     /// returned.
     fn example_doc_and_cid() -> (Cid, Ipld, Cid) {
         let cid = Cid::try_from("QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n").unwrap();
-        let doc = make_ipld!({
+        let doc = ipld!({
             "nested": {
                 "even": [
                     {
@@ -849,10 +862,10 @@ mod tests {
     async fn resolve_through_link() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
-        let ipld = make_ipld!([1]);
-        let cid1 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
-        let ipld = make_ipld!([cid1]);
-        let cid2 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
+        let ipld = ipld!([1]);
+        let cid1 = dag.put(ipld, IpldCodec::DagCbor).await.unwrap();
+        let ipld = ipld!([cid1]);
+        let cid2 = dag.put(ipld, IpldCodec::DagCbor).await.unwrap();
 
         let prefix = IpfsPath::from(cid2);
 
@@ -878,10 +891,10 @@ mod tests {
     async fn fail_resolving_first_segment() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
-        let ipld = make_ipld!([1]);
-        let cid1 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
-        let ipld = make_ipld!({ "0": cid1 });
-        let cid2 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
+        let ipld = ipld!([1]);
+        let cid1 = dag.put(ipld, IpldCodec::DagCbor).await.unwrap();
+        let ipld = ipld!({ "0": cid1 });
+        let cid2 = dag.put(ipld, IpldCodec::DagCbor).await.unwrap();
 
         let path = IpfsPath::from(cid2.clone()).sub_path("1/a").unwrap();
 
@@ -894,10 +907,10 @@ mod tests {
     async fn fail_resolving_last_segment() {
         let Node { ipfs, .. } = Node::new("test_node").await;
         let dag = IpldDag::new(ipfs);
-        let ipld = make_ipld!([1]);
-        let cid1 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
-        let ipld = make_ipld!([cid1.clone()]);
-        let cid2 = dag.put(ipld, Codec::DagCBOR).await.unwrap();
+        let ipld = ipld!([1]);
+        let cid1 = dag.put(ipld, IpldCodec::DagCbor).await.unwrap();
+        let ipld = ipld!([cid1.clone()]);
+        let cid2 = dag.put(ipld, IpldCodec::DagCbor).await.unwrap();
 
         let path = IpfsPath::from(cid2).sub_path("0/a").unwrap();
 
@@ -919,12 +932,9 @@ mod tests {
         let (cid, data) = blocks.next().unwrap();
         assert_eq!(blocks.next(), None);
 
-        ipfs.put_block(Block {
-            cid: cid.clone(),
-            data: data.into(),
-        })
-        .await
-        .unwrap();
+        ipfs.put_block(Block::new(cid.clone(), data.into()).unwrap())
+            .await
+            .unwrap();
 
         let path = IpfsPath::from(cid.clone())
             .sub_path("anything-here")
@@ -953,12 +963,9 @@ mod tests {
 
         let total_size = data.len();
 
-        ipfs.put_block(Block {
-            cid: cid.clone(),
-            data: data.into(),
-        })
-        .await
-        .unwrap();
+        ipfs.put_block(Block::new(cid.clone(), data.into()).unwrap())
+            .await
+            .unwrap();
 
         let mut opts = ipfs_unixfs::dir::builder::TreeOptions::default();
         opts.wrap_with_directory();
@@ -972,10 +979,7 @@ mod tests {
 
         while let Some(node) = iter.next_borrowed() {
             let node = node.unwrap();
-            let block = Block {
-                cid: node.cid.to_owned(),
-                data: node.block.into(),
-            };
+            let block = Block::new(node.cid.to_owned(), node.block.into()).unwrap();
 
             ipfs.put_block(block).await.unwrap();
 

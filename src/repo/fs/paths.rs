@@ -1,5 +1,5 @@
-use cid::Cid;
 use core::convert::TryFrom;
+use libipld::{cid, multibase, Cid};
 use std::path::PathBuf;
 
 pub fn block_path(mut base: PathBuf, cid: &Cid) -> PathBuf {
@@ -78,7 +78,7 @@ fn shard(path: &mut PathBuf, key: &str) {
 mod tests {
 
     use super::shard;
-    use cid::Cid;
+    use super::Cid;
     use std::convert::TryFrom;
     use std::path::{Path, PathBuf};
 

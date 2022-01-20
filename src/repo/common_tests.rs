@@ -51,7 +51,7 @@ macro_rules! pinstore_interface_tests {
 
             use crate::repo::common_tests::DSTestContext;
             use crate::repo::{DataStore, PinKind, PinMode, PinStore};
-            use cid::Cid;
+            use libipld::Cid;
             use futures::{StreamExt, TryStreamExt};
             use hash_hasher::HashedMap;
             use std::convert::TryFrom;

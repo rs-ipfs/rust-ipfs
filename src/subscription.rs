@@ -4,7 +4,7 @@
 //! sharing the same unique numeric identifier, the `SubscriptionId`.
 
 use crate::{p2p::MultiaddrWithPeerId, RepoEvent};
-use cid::Cid;
+use libipld::Cid;
 use core::fmt::Debug;
 use core::hash::Hash;
 use core::pin::Pin;

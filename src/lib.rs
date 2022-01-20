@@ -25,8 +25,6 @@
 pub mod config;
 pub mod dag;
 pub mod error;
-#[macro_use]
-pub mod ipld;
 pub mod ipns;
 pub mod p2p;
 pub mod path;
@@ -39,7 +37,6 @@ pub mod unixfs;
 extern crate tracing;
 
 use anyhow::{anyhow, format_err};
-use cid::Codec;
 use either::Either;
 use futures::{
     channel::{
@@ -78,7 +75,6 @@ use self::{
 
 pub use self::{
     error::Error,
-    ipld::Ipld,
     p2p::{
         pubsub::{PubsubMessage, SubscriptionStream},
         Connection, KadResult, MultiaddrWithPeerId, MultiaddrWithoutPeerId,
@@ -86,8 +82,8 @@ pub use self::{
     path::IpfsPath,
     repo::{PinKind, PinMode, RepoTypes},
 };
-pub use cid::Cid;
 pub use ipfs_bitswap::Block;
+use libipld::{Cid, Ipld, IpldCodec};
 pub use libp2p::{
     core::{
         connection::ListenerId, multiaddr::multiaddr, multiaddr::Protocol, Multiaddr, PeerId,
@@ -473,12 +469,12 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
         async move {
             // this needs to download everything but /pin/ls does not
-            let Block { data, .. } = self.repo.get_block(cid).await?;
+            let block = self.repo.get_block(cid).await?;
 
             if !recursive {
                 self.repo.insert_direct_pin(cid).await
             } else {
-                let ipld = crate::ipld::decode_ipld(cid, &data)?;
+                let ipld = block.decode::<IpldCodec, Ipld>()?;
 
                 let st = crate::refs::IpldRefs::default()
                     .with_only_unique()
@@ -510,14 +506,14 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             } else {
                 // start walking refs of the root after loading it
 
-                let Block { data, .. } = match self.repo.get_block_now(cid).await? {
+                let block = match self.repo.get_block_now(cid).await? {
                     Some(b) => b,
                     None => {
                         return Err(anyhow::anyhow!("pinned root not found: {}", cid));
                     }
                 };
 
-                let ipld = crate::ipld::decode_ipld(cid, &data)?;
+                let ipld = block.decode::<IpldCodec, Ipld>()?;
                 let st = crate::refs::IpldRefs::default()
                     .with_only_unique()
                     .with_existing_blocks()
@@ -591,7 +587,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     /// Returns Cid version 1 for the document
     pub async fn put_dag(&self, ipld: Ipld) -> Result<Cid, Error> {
         self.dag()
-            .put(ipld, Codec::DagCBOR)
+            .put(ipld, IpldCodec::DagCbor)
             .instrument(self.span.clone())
             .await
     }
@@ -1122,7 +1118,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
         iplds: Iter,
         max_depth: Option<u64>,
         unique: bool,
-    ) -> impl Stream<Item = Result<refs::Edge, ipld::BlockError>> + Send + 'a
+    ) -> impl Stream<Item = Result<refs::Edge, libipld::error::Error>> + Send + 'a
     where
         Iter: IntoIterator<Item = (Cid, Ipld)> + Send + 'a,
     {
@@ -1781,16 +1777,19 @@ mod node {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::make_ipld;
-    use multihash::Sha2_256;
+    use libipld::{
+        ipld,
+        multihash::{Code, MultihashDigest},
+        IpldCodec,
+    };
 
     #[tokio::test]
     async fn test_put_and_get_block() {
         let ipfs = Node::new("test_node").await;
 
-        let data = b"hello block\n".to_vec().into_boxed_slice();
-        let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
-        let block = Block::new(data, cid);
+        let data = b"hello block\n".to_vec();
+        let cid = Cid::new_v1(IpldCodec::Raw.into(), Code::Sha2_256.digest(&data));
+        let block = Block::new(cid, data).unwrap();
 
         let cid: Cid = ipfs.put_block(block.clone()).await.unwrap();
         let new_block = ipfs.get_block(&cid).await.unwrap();
@@ -1801,7 +1800,7 @@ mod tests {
     async fn test_put_and_get_dag() {
         let ipfs = Node::new("test_node").await;
 
-        let data = make_ipld!([-1, -2, -3]);
+        let data = ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
         let new_data = ipfs.get_dag(cid.into()).await.unwrap();
         assert_eq!(data, new_data);
@@ -1811,7 +1810,7 @@ mod tests {
     async fn test_pin_and_unpin() {
         let ipfs = Node::new("test_node").await;
 
-        let data = make_ipld!([-1, -2, -3]);
+        let data = ipld!([-1, -2, -3]);
         let cid = ipfs.put_dag(data.clone()).await.unwrap();
 
         ipfs.insert_pin(&cid, false).await.unwrap();

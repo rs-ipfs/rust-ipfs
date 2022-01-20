@@ -3,9 +3,9 @@ use crate::{
     Block, Error, Ipfs, IpfsTypes,
 };
 use async_stream::stream;
-use cid::Cid;
 use futures::stream::Stream;
 use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
+use libipld::Cid;
 use std::borrow::Borrow;
 use std::ops::Range;
 
@@ -31,7 +31,7 @@ where
 
     // Get the root block to start the traversal. The stream does not expose any of the file
     // metadata. To get to it the user needs to create a Visitor over the first block.
-    let Block { cid, data } = match starting_point.into() {
+    let block = match starting_point.into() {
         StartingPoint::Left(path) => {
             let borrow = ipfs.borrow();
             let dag = borrow.dag();
@@ -49,7 +49,7 @@ where
     let mut cache = None;
     // Start the visit from the root block. We need to move the both components as Options into the
     // stream as we can't yet return them from this Future context.
-    let (visit, bytes) = match visit.start(&data) {
+    let (visit, bytes) = match visit.start(block.data()) {
         Ok((bytes, _, _, visit)) => {
             let bytes = if !bytes.is_empty() {
                 Some(bytes.to_vec())
@@ -60,7 +60,7 @@ where
             (visit, bytes)
         }
         Err(e) => {
-            return Err(TraversalFailed::Walking(cid, e));
+            return Err(TraversalFailed::Walking(*block.cid(), e));
         }
     };
 
@@ -89,7 +89,7 @@ where
             let (next, _) = visit.pending_links();
 
             let borrow = ipfs.borrow();
-            let Block { cid, data } = match borrow.get_block(next).await {
+            let block = match borrow.get_block(next).await {
                 Ok(block) => block,
                 Err(e) => {
                     yield Err(TraversalFailed::Loading(next.to_owned(), e));
@@ -97,7 +97,7 @@ where
                 },
             };
 
-            match visit.continue_walk(&data, &mut cache) {
+            match visit.continue_walk(block.data(), &mut cache) {
                 Ok((bytes, next_visit)) => {
                     if !bytes.is_empty() {
                         // TODO: manual implementation could allow returning just the slice
@@ -110,7 +110,7 @@ where
                     }
                 }
                 Err(e) => {
-                    yield Err(TraversalFailed::Walking(cid, e));
+                    yield Err(TraversalFailed::Walking(*block.cid(), e));
                     return;
                 }
             }

@@ -1,6 +1,4 @@
-use cid::{Cid, Codec};
-use ipfs::Block;
-use multihash::Sha2_256;
+use libipld::{Block, Cid, IpldCodec};
 use std::time::Duration;
 use tokio::time;
 
@@ -43,25 +41,23 @@ async fn check_bitswap_cleanups() {
 #[ignore]
 #[tokio::test]
 async fn bitswap_stress_test() {
+    use libipld::multihash::{Code, MultihashDigest};
     fn filter(i: usize) -> bool {
         i % 2 == 0
     }
 
     tracing_subscriber::fmt::init();
 
-    let data = b"hello block\n".to_vec().into_boxed_slice();
-    let cid = Cid::new_v1(Codec::Raw, Sha2_256::digest(&data));
+    let data = b"hello block\n".to_vec();
+    let cid = Cid::new_v1(IpldCodec::Raw.into(), Code::Sha2_256.digest(&data));
 
     let nodes = spawn_nodes(5, Topology::Mesh).await;
 
     for (i, node) in nodes.iter().enumerate() {
         if filter(i) {
-            node.put_block(Block {
-                cid: cid.clone(),
-                data: data.clone(),
-            })
-            .await
-            .unwrap();
+            node.put_block(Block::new(cid.clone(), data.clone()).unwrap())
+                .await
+                .unwrap();
         }
     }
 
