@@ -1,7 +1,6 @@
 use super::AddArgs;
 use crate::v0::support::StringError;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use cid::Cid;
 use futures::stream::{Stream, StreamExt, TryStreamExt};
 use ipfs::unixfs::ll::{
     dir::builder::{
@@ -10,6 +9,7 @@ use ipfs::unixfs::ll::{
     file::adder::FileAdder,
 };
 use ipfs::{Block, Ipfs, IpfsTypes};
+use libipld::Cid;
 use mime::Mime;
 use mpart_async::server::{MultipartError, MultipartStream};
 use serde::Serialize;
@@ -271,7 +271,7 @@ where
             let TreeNode { path, cid, total_size, block } = res.map_err(AddError::TreeBuilding)?;
 
             // shame we need to allocate once again here..
-            ipfs.put_block(Block { cid: cid.to_owned(), data: block.into() }).await.map_err(AddError::Persisting)?;
+            ipfs.put_block(Block::new(cid.to_owned(), block.into()).map_err(AddError::Persisting)?).await.map_err(AddError::Persisting)?;
 
             serde_json::to_writer((&mut buffer).writer(), &Response::Added {
                 name: Cow::Borrowed(path),
@@ -321,10 +321,7 @@ async fn import_all(
 
     for (cid, data) in iter {
         total += data.len() as u64;
-        let block = Block {
-            cid,
-            data: data.into_boxed_slice(),
-        };
+        let block = Block::new(cid, data)?;
 
         let cid = ipfs.put_block(block).await?;
 

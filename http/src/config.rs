@@ -61,7 +61,7 @@ pub fn init(
     bits: NonZeroU16,
     profiles: Vec<Profile>,
 ) -> Result<String, InitializationError> {
-    use multibase::Base::Base64Pad;
+    use libipld::multibase::Base::Base64Pad;
     use prost::Message;
     use std::fs::OpenOptions;
     use std::io::{BufWriter, Write};
@@ -232,7 +232,7 @@ pub fn load(config: File) -> Result<Config, LoadingError> {
 /// This is used only to get `PKCS#8` from `openssl` crate to DER format expected by `rust-libp2p`
 /// and `ring`. The `PKCS#8` pem tag `PRIVATE KEY` is not validated.
 fn pem_to_der(bytes: &[u8]) -> Vec<u8> {
-    use multibase::Base::Base64Pad;
+    use libipld::multibase::Base::Base64Pad;
 
     // Initially tried this with `pem` crate but it will give back bytes for the ascii, but we need
     // the ascii for multibase's base64pad decoding.
@@ -302,7 +302,7 @@ struct Identity {
 impl Identity {
     fn load_keypair(&self) -> Result<ipfs::Keypair, LoadingError> {
         use keys_proto::KeyType;
-        use multibase::Base::Base64Pad;
+        use libipld::multibase::Base::Base64Pad;
         use prost::Message;
 
         let bytes = Base64Pad

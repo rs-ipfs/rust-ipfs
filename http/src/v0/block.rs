@@ -3,13 +3,16 @@ use crate::v0::support::{
     StringSerialized,
 };
 use bytes::Buf;
-use cid::{Cid, Codec, Version};
 use futures::stream::{FuturesOrdered, Stream, StreamExt};
 use ipfs::error::Error;
 use ipfs::{Ipfs, IpfsTypes};
+use libipld::{
+    cid::{Cid, Version},
+    multihash::{Code, MultihashDigest},
+    IpldCodec,
+};
 use mime::Mime;
 
-use multihash::Multihash;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use warp::{http::Response, query, reply, Filter, Rejection, Reply};
@@ -36,7 +39,8 @@ async fn get_query<T: IpfsTypes>(
         .await
         .map_err(StringError::from)?
         .map_err(StringError::from)?
-        .into_vec();
+        .data()
+        .to_vec();
 
     let response = Response::builder().body(data);
     Ok(response)
@@ -58,20 +62,20 @@ pub struct PutQuery {
 }
 
 impl PutQuery {
-    fn format(&self) -> Result<Codec, Rejection> {
+    fn format(&self) -> Result<IpldCodec, Rejection> {
         Ok(match self.format.as_deref().unwrap_or("dag-pb") {
-            "dag-cbor" => Codec::DagCBOR,
-            "dag-pb" => Codec::DagProtobuf,
-            "dag-json" => Codec::DagJSON,
-            "raw" => Codec::Raw,
+            "dag-cbor" => IpldCodec::DagCbor,
+            "dag-pb" => IpldCodec::DagPb,
+            "dag-json" => IpldCodec::DagJson,
+            "raw" => IpldCodec::Raw,
             _ => return Err(StringError::from("unknown codec").into()),
         })
     }
 
-    fn digest(&self) -> Result<fn(&'_ [u8]) -> Multihash, Rejection> {
+    fn digest(&self) -> Result<Code, Rejection> {
         Ok(match self.mhtype.as_deref().unwrap_or("sha2-256") {
-            "sha2-256" => multihash::Sha2_256::digest,
-            "sha2-512" => multihash::Sha2_512::digest,
+            "sha2-256" => Code::Sha2_256,
+            "sha2-512" => Code::Sha2_512,
             _ => return Err(StringError::from("unknown hash").into()),
         })
     }
@@ -112,22 +116,19 @@ async fn inner_put<T: IpfsTypes>(
 
     // FIXME: digest calculation should be done in line with the reception of new blocks, but
     // because of the old multihash version we use, we don't at least yet have access to that api.
-    let digest = opts.digest()?(&data);
+    let digest = opts.digest()?.digest(&data);
 
     // cid generation can fail if we try some other hash or format with cidv0 which only supports
     // SHA2-256 and dag-pb, both are even implicit. could be that these parameters we use here are
     // not supported by go-ipfs or something, as in, the `block/put` should mostly return CidV0.
     // Haven't researched this deeply.
-    let cid = Cid::new(opts.version()?, opts.format()?, digest).map_err(StringError::from)?;
-
-    // bad thing about Box<[u8]>: converting to it forces a reallocation; do it now that we know
-    // the cid was generated successfully.
-    let data = data.into_boxed_slice();
+    let cid =
+        Cid::new(opts.version()?, opts.format()?.into(), digest).map_err(StringError::from)?;
 
     let size = data.len();
     let key = cid.to_string();
 
-    let block = ipfs::Block { cid, data };
+    let block = ipfs::Block::new_unchecked(cid, data);
 
     ipfs.put_block(block).await.map_err(StringError::from)?;
 

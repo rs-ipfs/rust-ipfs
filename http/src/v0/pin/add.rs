@@ -1,7 +1,8 @@
 use crate::v0::support::option_parsing::ParseError;
 use crate::v0::support::{StringError, StringSerialized};
 use futures::future::try_join_all;
-use ipfs::{Cid, Ipfs, IpfsTypes};
+use ipfs::{Ipfs, IpfsTypes};
+use libipld::Cid;
 use serde::Serialize;
 use std::convert::TryFrom;
 use warp::{reply, Filter, Rejection, Reply};
@@ -38,7 +39,7 @@ pub async fn add_inner<T: IpfsTypes>(
     let dispatched_pins = cids.into_iter().map(|x| async {
         ipfs.insert_pin(&x, recursive)
             .await
-            .map(move |_| StringSerialized(x))
+            .map(|_| StringSerialized(x))
     });
 
     // could be unordered :)

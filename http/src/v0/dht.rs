@@ -1,5 +1,6 @@
 use crate::v0::support::{with_ipfs, MaybeTimeoutExt, StringError, StringSerialized};
-use ipfs::{Cid, Ipfs, IpfsTypes, PeerId};
+use ipfs::{Ipfs, IpfsTypes, PeerId};
+use libipld::Cid;
 use serde::{Deserialize, Serialize};
 use warp::{query, Filter, Rejection, Reply};
 

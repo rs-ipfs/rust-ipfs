@@ -127,13 +127,11 @@ async fn resolve_dagpb<T: IpfsTypes>(ipfs: &Ipfs<T>, path: IpfsPath) -> Result<B
 
 fn walk<Types: IpfsTypes>(
     ipfs: Ipfs<Types>,
-    Block {
-        cid: root,
-        data: first_block_data,
-    }: Block,
+    block: Block,
 ) -> impl TryStream<Ok = Bytes, Error = GetError> + 'static {
     let mut cache = None;
     let mut tar_helper = TarHelper::with_capacity(16 * 1024);
+    let (root, first_block_data) = block.into_inner();
 
     // the HTTP api uses the final Cid name as the root name in the generated tar
     // archive.
@@ -252,11 +250,11 @@ impl std::error::Error for GetError {
 
 #[cfg(test)]
 mod tests {
-    use cid::Cid;
     use futures::stream::{FuturesOrdered, TryStreamExt};
     use hex_literal::hex;
     use ipfs::{Block, Ipfs, IpfsTypes, Node};
-    use multihash::Sha2_256;
+    use libipld::multihash::{Code, MultihashDigest};
+    use libipld::Cid;
     use std::convert::TryFrom;
     use std::io::Read;
     use std::path::PathBuf;
@@ -427,12 +425,9 @@ mod tests {
         ipfs: &'a Ipfs<T>,
         block: &'a [u8],
     ) -> impl std::future::Future<Output = Result<Cid, ipfs::Error>> + 'a {
-        let cid = Cid::new_v0(Sha2_256::digest(block)).unwrap();
+        let cid = Cid::new_v0(Code::Sha2_256.digest(block)).unwrap();
 
-        let block = Block {
-            cid,
-            data: block.into(),
-        };
+        let block = Block::new_unchecked(cid, block.into());
 
         ipfs.put_block(block)
     }

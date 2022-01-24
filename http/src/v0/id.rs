@@ -29,7 +29,7 @@ async fn identity_query<T: IpfsTypes>(
     ipfs: Ipfs<T>,
     peer: Option<PeerId>,
 ) -> Result<impl warp::Reply, warp::reject::Rejection> {
-    use multibase::Base::Base64Pad;
+    use libipld::multibase::Base::Base64Pad;
 
     if peer.is_some() {
         // TODO: this reply has Id, no public key, addresses and no versions. "no" as in empty

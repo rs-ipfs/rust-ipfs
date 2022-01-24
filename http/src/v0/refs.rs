@@ -1,9 +1,8 @@
 use crate::v0::support::{with_ipfs, MaybeTimeoutExt, StringError};
-use cid::{self, Cid};
 use futures::future::ready;
 use futures::stream::{self, FuturesOrdered, Stream, StreamExt, TryStreamExt};
-use ipfs::ipld::{decode_ipld, Ipld};
 use ipfs::{Ipfs, IpfsTypes};
+use libipld::{Cid, Ipld, IpldCodec};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::convert::TryFrom;
@@ -126,7 +125,7 @@ async fn refs_paths<T: IpfsTypes>(
     max_depth: Option<u64>,
     unique: bool,
 ) -> Result<
-    impl Stream<Item = Result<ipfs::refs::Edge, ipfs::ipld::BlockError>> + Send + 'static,
+    impl Stream<Item = Result<ipfs::refs::Edge, libipld::error::Error>> + Send + 'static,
     ResolveError,
 > {
     use ipfs::dag::ResolvedNode;
@@ -154,9 +153,9 @@ async fn refs_paths<T: IpfsTypes>(
                     // decode and hope for the best; this of course does a lot of wasted effort;
                     // hopefully one day we can do "projectioned decoding", like here we'd only
                     // need all of the links of the block
-                    ResolvedNode::Block(b) => match decode_ipld(b.cid(), b.data()) {
-                        Ok(ipld) => Ok(Some((b.cid, ipld))),
-                        Err(e) => Err(ResolveError::UnsupportedDocument(b.cid, e.into())),
+                    ResolvedNode::Block(b) => match b.decode::<IpldCodec, Ipld>() {
+                        Ok(ipld) => Ok(Some((*b.cid(), ipld))),
+                        Err(e) => Err(ResolveError::UnsupportedDocument(*b.cid(), e.into())),
                     },
                     // the most straight-forward variant with pre-projected document
                     ResolvedNode::Projection(cid, ipld) => Ok(Some((cid, ipld))),
@@ -209,10 +208,9 @@ async fn inner_local<T: IpfsTypes>(ipfs: Ipfs<T>) -> Result<impl Reply, Rejectio
 #[cfg(test)]
 mod tests {
     use super::{local, refs_paths, Edge, IpfsPath};
-    use cid::{self, Cid};
     use futures::stream::TryStreamExt;
-    use ipfs::ipld::{decode_ipld, validate};
     use ipfs::{Block, Node};
+    use libipld::{Cid, Ipld, IpldCodec};
     use std::collections::HashSet;
     use std::convert::TryFrom;
 
@@ -346,13 +344,8 @@ mod tests {
 
         for (cid_str, data) in blocks.iter() {
             let cid = Cid::try_from(*cid_str).unwrap();
-            validate(&cid, data).unwrap();
-            decode_ipld(&cid, data).unwrap();
-
-            let block = Block {
-                cid,
-                data: (*data).into(),
-            };
+            let block = Block::new(cid, data.to_vec()).unwrap();
+            block.decode::<IpldCodec, Ipld>().unwrap();
 
             ipfs.put_block(block).await.unwrap();
         }

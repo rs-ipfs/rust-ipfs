@@ -9,7 +9,7 @@ pub enum ParseError<'a> {
     InvalidNumber(Cow<'a, str>, Cow<'a, str>),
     InvalidBoolean(Cow<'a, str>, Cow<'a, str>),
     InvalidDuration(Cow<'a, str>, humantime::DurationError),
-    InvalidCid(Cow<'a, str>, cid::Error),
+    InvalidCid(Cow<'a, str>, libipld::cid::Error),
     InvalidValue(Cow<'a, str>, Cow<'a, str>),
 }
 

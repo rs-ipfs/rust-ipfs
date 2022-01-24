@@ -2,9 +2,9 @@ use crate::v0::support::{
     try_only_named_multipart, with_ipfs, MaybeTimeoutExt, NotImplemented, StringError,
     StringSerialized,
 };
-use cid::{Cid, Codec};
 use futures::stream::Stream;
 use ipfs::{Ipfs, IpfsTypes};
+use libipld::{Cid, IpldCodec};
 use mime::Mime;
 
 use serde::Deserialize;
@@ -49,24 +49,24 @@ async fn put_query<T: IpfsTypes>(
     mime: Mime,
     body: impl Stream<Item = Result<impl Buf, warp::Error>> + Unpin,
 ) -> Result<impl Reply, Rejection> {
-    use multihash::{Multihash, Sha2_256, Sha2_512, Sha3_512};
+    use libipld::multihash::{Code, MultihashDigest};
 
     if query.encoding != InputEncoding::Raw {
         return Err(NotImplemented.into());
     }
 
     let (format, v0_fmt) = match query.format.as_deref().unwrap_or("dag-cbor") {
-        "dag-cbor" => (Codec::DagCBOR, false),
-        "dag-pb" => (Codec::DagProtobuf, true),
-        "dag-json" => (Codec::DagJSON, false),
-        "raw" => (Codec::Raw, false),
+        "dag-cbor" => (IpldCodec::DagCbor, false),
+        "dag-pb" => (IpldCodec::DagPb, true),
+        "dag-json" => (IpldCodec::DagJson, false),
+        "raw" => (IpldCodec::Raw, false),
         _ => return Err(StringError::from("unknown codec").into()),
     };
 
     let (hasher, v0_hash) = match query.hash.as_deref().unwrap_or("sha2-256") {
-        "sha2-256" => (Sha2_256::digest as fn(&[u8]) -> Multihash, true),
-        "sha2-512" => (Sha2_512::digest as fn(&[u8]) -> Multihash, false),
-        "sha3-512" => (Sha3_512::digest as fn(&[u8]) -> Multihash, false),
+        "sha2-256" => (Code::Sha2_256, true),
+        "sha2-512" => (Code::Sha2_512, false),
+        "sha3-512" => (Code::Sha3_512, false),
         _ => return Err(StringError::from("unknown hash").into()),
     };
 
@@ -79,23 +79,21 @@ async fn put_query<T: IpfsTypes>(
         .await
         .map_err(StringError::from)?;
 
-    let digest = hasher(&data);
+    let digest = hasher.digest(&data);
 
     let cid = if v0_fmt && v0_hash {
         // this is quite ugly way but apparently js-ipfs generates a v0 cid for this combination
         // which is also created by go-ipfs
         Cid::new_v0(digest).expect("cidv0 creation cannot fail for dag-pb and sha2-256")
     } else {
-        Cid::new_v1(format, digest)
+        Cid::new_v1(format.into(), digest)
     };
 
     let reply = json!({
         "Cid": { "/": cid.to_string() }
     });
 
-    // delay reallocation until cid has been generated
-    let data = data.into_boxed_slice();
-    let block = ipfs::Block { cid, data };
+    let block = ipfs::Block::new_unchecked(cid, data);
     ipfs.put_block(block).await.map_err(StringError::from)?;
     Ok(reply::json(&reply))
 }
