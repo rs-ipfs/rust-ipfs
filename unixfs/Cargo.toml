@@ -15,15 +15,12 @@ default = ["filetime"]
 libipld = "0.12"
 either = { default-features = false, version = "1.5" }
 filetime = { optional = true, version = "0.2.12" }
-multihash = { default-features = false, version = "0.11" }
 quick-protobuf = { default-features = false, features = ["std"], version = "0.8" }
-sha2 = { default-features = false, version = "0.9" }
 
 [dev-dependencies]
 hash_hasher = "2.0.3"
 hex-literal = { default-features = false, version = "0.3" }
 libc = { default-features = false, version = "0.2.71" }
-multibase = { default-features = false, version = "0.9" }
 tar = { default-features = false, version = "0.4" }
 criterion = { default-features = false, version = "0.3" }
 

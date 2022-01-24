@@ -83,8 +83,8 @@ impl PostOrderIterator {
         block_size_limit: &Option<u64>,
     ) -> Result<Leaf, TreeConstructionFailed> {
         use crate::pb::{UnixFs, UnixFsType};
+        use libipld::multihash::{Code, MultihashDigest};
         use quick_protobuf::{BytesWriter, MessageWrite, Writer};
-        use sha2::{Digest, Sha256};
 
         // FIXME: ideas on how to turn this into a HAMT sharding on some heuristic. we probably
         // need to introduce states in to the "iterator":
@@ -141,9 +141,7 @@ impl PostOrderIterator {
 
         buffer.truncate(size);
 
-        let mh =
-            multihash::Multihash::wrap(multihash::Code::Sha2_256.into(), &Sha256::digest(buffer))
-                .unwrap();
+        let mh = Code::Sha2_256.digest(buffer);
         let cid = Cid::new_v0(mh).expect("sha2_256 is the correct multihash for cidv0");
 
         let combined_from_links = links

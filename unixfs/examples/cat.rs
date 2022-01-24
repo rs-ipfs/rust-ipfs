@@ -1,5 +1,5 @@
-use libipld::Cid;
 use ipfs_unixfs::file::{visit::IdleFileVisit, FileReadFailed};
+use libipld::{multibase::Base, Cid};
 use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Error as IoError, Read, Write};
@@ -141,7 +141,7 @@ impl ShardedBlockStore {
         // assume that we have a block store with second-to-last/2 sharding
         // files in Base32Upper
 
-        let encoded = multibase::Base::Base32Upper.encode(key);
+        let encoded = Base::Base32Upper.encode(key);
         let len = encoded.len();
 
         // this is safe because base32 is ascii
