@@ -4,6 +4,7 @@ use crate::ipld::{BlockError, Ipld, IpldError};
 use byteorder::{BigEndian, ByteOrder};
 use cid::Cid;
 use std::{
+    cmp::Ordering,
     collections::BTreeMap,
     convert::TryFrom,
     io::{Read, Write},
@@ -321,10 +322,25 @@ impl<T: WriteCbor + 'static> WriteCbor for BTreeMap<String, T> {
     #[inline]
     fn write_cbor<W: Write>(&self, w: &mut W) -> CborResult<()> {
         write_u64(w, 5, self.len() as u64)?;
-        for (k, v) in self {
+        let mut keys: Vec<&String> = self.keys().collect();
+
+        // See: https://github.com/ipld/ipld/blob/master/specs/codecs/dag-cbor/spec.md#strictness
+        keys.sort_by(|l, r| {
+            if r.len() > l.len() {
+                Ordering::Less
+            } else if r.len() < l.len() {
+                Ordering::Greater
+            } else {
+                l.partial_cmp(r).or(Some(Ordering::Equal)).unwrap()
+            }
+        });
+
+        for k in keys {
+            let v = self.get(k).unwrap();
             k.write_cbor(w)?;
             v.write_cbor(w)?;
         }
+
         Ok(())
     }
 }
