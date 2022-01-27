@@ -25,19 +25,21 @@ struct AddResponse {
 
 pub async fn add_inner<T: IpfsTypes>(
     ipfs: Ipfs<T>,
-    request: AddRequest,
+    AddRequest {
+        args,
+        recursive,
+        progress,
+    }: AddRequest,
 ) -> Result<impl Reply, Rejection> {
-    if request.progress {
+    if progress {
         // FIXME: there doesn't appear to be a test for this
         return Err(crate::v0::support::NotImplemented.into());
     }
 
-    let cids: Vec<Cid> = request.args;
+    let i = &ipfs;
 
-    let recursive = request.recursive;
-
-    let dispatched_pins = cids.into_iter().map(|x| async {
-        ipfs.insert_pin(&x, recursive)
+    let dispatched_pins = args.into_iter().map(|x| async move {
+        i.insert_pin(&x, recursive)
             .await
             .map(|_| StringSerialized(x))
     });

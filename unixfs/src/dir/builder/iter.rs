@@ -2,7 +2,7 @@ use super::{
     CustomFlatUnixFs, DirBuilder, Entry, Leaf, NamedLeaf, TreeConstructionFailed, TreeOptions,
 };
 use core::fmt;
-use libipld::{multihash, Cid};
+use libipld::Cid;
 use std::collections::HashMap;
 
 /// Constructs the directory nodes required for a tree.

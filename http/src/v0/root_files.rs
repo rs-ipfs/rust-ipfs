@@ -146,8 +146,7 @@ fn walk<Types: IpfsTypes>(
                 Some(first) => first,
                 None => {
                     let (next, _) = walker.pending_links();
-                    let Block { data, .. } = ipfs.get_block(next).await?;
-                    data
+                    ipfs.get_block(next).await?.into_inner().1
                 }
             };
 

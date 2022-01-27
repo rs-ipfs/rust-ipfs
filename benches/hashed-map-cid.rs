@@ -1,7 +1,9 @@
-use libipld::Cid;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use hash_hasher::HashBuildHasher;
-use multihash::Sha2_256;
+use libipld::{
+    multihash::{Code, MultihashDigest},
+    Cid,
+};
 use std::{
     collections::{hash_map::RandomState, HashMap},
     fmt::Formatter,
@@ -41,7 +43,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             Cids(
                 (0..*size)
                     .into_iter()
-                    .map(|i| Cid::new_v0(Sha2_256::digest(&i.to_be_bytes())).unwrap())
+                    .map(|i| Cid::new_v0(Code::Sha2_256.digest(&i.to_be_bytes())).unwrap())
                     .collect(),
             )
         })
