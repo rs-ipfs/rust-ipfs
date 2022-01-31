@@ -15,7 +15,10 @@ impl<'a> CustomFlatUnixFs<'a> {
     fn mapped(&self) -> impl Iterator<Item = NamedLeafAsPBLink<'_>> + '_ {
         self.links
             .iter()
-            .map(|triple| triple.as_ref().map(|l| NamedLeafAsPBLink(l)).unwrap())
+            // FIXME: this unwrap here seems dangerious; it seems to follow from
+            // `crate::dir::builder::iter::Leaves` assumption that all of these options have
+            // already been filled at the previous stages of post-order visit
+            .map(|triple| triple.as_ref().map(NamedLeafAsPBLink).unwrap())
     }
 }
 

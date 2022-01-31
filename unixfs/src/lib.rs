@@ -37,6 +37,7 @@ pub(crate) mod test_support;
 
 /// A link could not be transformed into a Cid.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct InvalidCidInLink {
     /// The index of this link, from zero
     pub nth: usize,
@@ -47,8 +48,6 @@ pub struct InvalidCidInLink {
     pub name: Cow<'static, str>,
     /// Error from the attempted conversion
     pub source: cid::Error,
-    /// This is to deny creating these outside of the crate
-    hidden: (),
 }
 
 impl<'a> From<(usize, pb::PBLink<'a>, cid::Error)> for InvalidCidInLink {
@@ -70,7 +69,6 @@ impl<'a> From<(usize, pb::PBLink<'a>, cid::Error)> for InvalidCidInLink {
             hash,
             name,
             source,
-            hidden: (),
         }
     }
 }
