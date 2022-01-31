@@ -4,7 +4,6 @@ use crate::ipld::{BlockError, Ipld, IpldError};
 use byteorder::{BigEndian, ByteOrder};
 use cid::Cid;
 use std::{
-    cmp::Ordering,
     collections::BTreeMap,
     convert::TryFrom,
     io::{Read, Write},
