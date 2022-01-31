@@ -10,12 +10,14 @@ mod dnslink;
 /// IPNS facade around [`Ipns`].
 #[derive(Clone, Debug)]
 pub struct Ipns<Types: RepoTypes> {
-    ipfs: Ipfs<Types>,
+    // FIXME(unused): scaffolding while ipns functionality as a whole suggests we should have dht
+    // queries etc. here (currently unimplemented).
+    _ipfs: Ipfs<Types>,
 }
 
 impl<Types: RepoTypes> Ipns<Types> {
-    pub fn new(ipfs: Ipfs<Types>) -> Self {
-        Ipns { ipfs }
+    pub fn new(_ipfs: Ipfs<Types>) -> Self {
+        Ipns { _ipfs }
     }
 
     /// Resolves a ipns path to an ipld path.
