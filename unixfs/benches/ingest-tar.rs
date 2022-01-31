@@ -22,10 +22,12 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 }
 
 fn ingest_tar(bytes: &[u8], buffer: &mut Vec<u8>, path: &mut String) {
-    use libipld::Cid;
     use ipfs_unixfs::dir::builder::{BufferingTreeBuilder, TreeOptions};
     use ipfs_unixfs::file::adder::FileAdder;
-    use sha2::{Digest, Sha256};
+    use libipld::{
+        multihash::{Code, MultihashDigest},
+        Cid,
+    };
     use std::io::Read;
 
     let mut archive = tar::Archive::new(std::io::Cursor::new(bytes));
@@ -52,8 +54,8 @@ fn ingest_tar(bytes: &[u8], buffer: &mut Vec<u8>, path: &mut String) {
 
             let len = buffer.len();
 
-            let mh = multihash::wrap(multihash::Code::Sha2_256, &Sha256::digest(buffer));
-            let cid = Cid::new_v0(mh).expect("sha2_256 is the correct multihash for cidv0");
+            let cid = Cid::new_v0(Code::Sha2_256.digest(buffer))
+                .expect("sha2_256 is the correct multihash for cidv0");
 
             tree.put_link(path, cid, len as u64).unwrap();
 
