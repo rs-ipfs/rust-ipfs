@@ -325,15 +325,7 @@ impl<T: WriteCbor + 'static> WriteCbor for BTreeMap<String, T> {
         let mut keys: Vec<&String> = self.keys().collect();
 
         // See: https://github.com/ipld/ipld/blob/master/specs/codecs/dag-cbor/spec.md#strictness
-        keys.sort_by(|l, r| {
-            if r.len() > l.len() {
-                Ordering::Less
-            } else if r.len() < l.len() {
-                Ordering::Greater
-            } else {
-                l.partial_cmp(r).or(Some(Ordering::Equal)).unwrap()
-            }
-        });
+        keys.sort_by(|l, r| l.len().cmp(&r.len()).then_with(|| l.cmp(r)));
 
         for k in keys {
             let v = self.get(k).unwrap();
