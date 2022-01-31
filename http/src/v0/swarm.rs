@@ -127,6 +127,7 @@ pub fn addrs<T: IpfsTypes>(
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(unused)] // for query sent by conformance tests
 struct AddrsLocalQuery {
     id: Option<bool>,
 }

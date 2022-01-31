@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 /// string. Defined in https://docs-beta.ipfs.io/reference/http/api/#api-v0-version. Included here
 /// mostly as experimentation on how to do query parameters.
 #[derive(Debug, Deserialize)]
+#[allow(unused)] // allowed that to define the version of the query the client sends in conformance tests
 pub struct Query {
     number: Option<bool>,
     commit: Option<bool>,

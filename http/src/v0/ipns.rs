@@ -7,8 +7,12 @@ use warp::{query, Filter, Rejection, Reply};
 pub struct ResolveQuery {
     // the name to resolve
     arg: StringSerialized<IpfsPath>,
+    // FIXME: unsupported
+    #[allow(unused)]
     #[serde(rename = "dht-record-count")]
     dht_record_count: Option<usize>,
+    // FIXME: unsupported
+    #[allow(unused)]
     #[serde(rename = "dht-timeout")]
     dht_timeout: Option<String>,
 }

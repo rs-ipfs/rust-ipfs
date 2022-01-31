@@ -30,7 +30,7 @@ struct ResponsesMember {
 #[derive(Debug, Deserialize)]
 pub struct FindPeerQuery {
     arg: StringSerialized<PeerId>,
-    // FIXME: doesn't seem to be used at the moment
+    #[allow(unused)] // TODO: client sends
     verbose: Option<bool>,
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
@@ -78,6 +78,7 @@ pub fn find_peer<T: IpfsTypes>(
 pub struct FindProvidersQuery {
     arg: StringSerialized<Cid>,
     // FIXME: in go-ipfs this returns a lot of logs
+    #[allow(unused)]
     verbose: Option<bool>,
     #[serde(rename = "num-providers")]
     num_providers: Option<usize>,
@@ -132,6 +133,7 @@ pub fn find_providers<T: IpfsTypes>(
 pub struct ProvideQuery {
     arg: StringSerialized<Cid>,
     // FIXME: in go-ipfs this returns a lot of logs
+    #[allow(unused)]
     verbose: Option<bool>,
     timeout: Option<StringSerialized<humantime::Duration>>,
 }
@@ -174,6 +176,7 @@ pub fn provide<T: IpfsTypes>(
 pub struct GetClosestPeersQuery {
     arg: StringSerialized<PeerId>,
     // FIXME: in go-ipfs this returns a lot of logs
+    #[allow(unused)]
     verbose: Option<bool>,
     timeout: Option<StringSerialized<humantime::Duration>>,
 }

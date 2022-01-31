@@ -64,7 +64,9 @@ async fn identity_query<T: IpfsTypes>(
 pub struct Query {
     // the peer id to query
     arg: Option<String>,
-    // this does not seem to be reacted to by go-ipfs
+    // FIXME: this does not seem to be reacted to by go-ipfs (need to recheck with more recent
+    // version, remove if no longer interesting)
+    #[allow(unused)]
     format: Option<String>,
 }
 

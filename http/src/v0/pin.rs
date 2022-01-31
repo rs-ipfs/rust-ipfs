@@ -26,9 +26,11 @@ struct ListRequest {
     arg: Vec<Cid>,
     filter: PinFilter,
     // FIXME: not sure if this is used
+    #[allow(unused)]
     quiet: bool,
-    // FIXME copypaste
+    // FIXME: only the stream=true is supported
     stream: bool,
+    #[allow(unused)] // sent by client
     timeout: Option<humantime::Duration>,
 }
 
