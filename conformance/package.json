@@ -11,13 +11,13 @@
   "dependencies": {
     "aegir": "^21.3.0",
     "interface-ipfs-core": "0.139.0",
-    "ipfsd-ctl": "github:ipfs-rust/js-ipfsd-ctl#add_rust_ipfs_http",
+    "ipfsd-ctl": "github:rs-ipfs/js-ipfsd-ctl#add_rust_ipfs_http",
     "mocha": "^7.1.0",
     "ipfs-http-client": "46.0.0",
     "why-is-node-running": "2.2.0"
   },
   "devDependencies": {
-    "rust-ipfs-dep": "github:ipfs-rust/npm-rust-ipfs-dep#master",
+    "rust-ipfs-dep": "github:rs-ipfs/npm-rust-ipfs-dep#master",
     "ipfs": "0.49.0"
   }
 }

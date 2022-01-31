@@ -21,6 +21,7 @@ mod add;
 pub struct AddArgs {
     // unknown meaning; ignoring it doesn't fail any tests
     #[serde(default, rename = "stream-channels")]
+    #[allow(unused)] // sent by client
     stream_channels: bool,
     // progress reports totaling to the input file size
     #[serde(default)]

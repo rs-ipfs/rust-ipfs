@@ -146,6 +146,11 @@ jobs:
         echo "::set-output name=dir::$(npm config get cache)"
         echo "::set-output name=ver::$(npm -v)"
 
+    - name: "Conformance tests: setup nodejs 14"
+      uses: actions/setup-node@v2
+      with:
+        node-version: '14'
+
     - name: "Conformance tests: cache"
       id: conformance-cache
       if: matrix.platform.cross == false

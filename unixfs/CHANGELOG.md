@@ -1,8 +1,10 @@
 # Next
 
 * Document panic introduced in walker ergonomics [#435]
+* `#[non_exhaustive]` on `unixfs::InvalidCidInLink` error [#480]
 
 [#435]: https://github.com/rs-ipfs/rust-ipfs/pull/435
+[#480]: https://github.com/rs-ipfs/rust-ipfs/pull/480
 
 # 0.2.0
 

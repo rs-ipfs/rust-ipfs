@@ -33,7 +33,7 @@ pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
         // previous implementation searched $domain and _dnslink.$domain concurrently. not sure did
         // `domain` assume fqdn names or not, but local suffices were not being searched on windows at
         // least. they are probably waste of time most of the time.
-        for domain in searched.into_iter() {
+        for domain in searched {
             let res = match resolver.txt_lookup(&*domain).await {
                 Ok(res) => res,
                 Err(e) => {
@@ -55,7 +55,7 @@ pub async fn resolve(domain: &str) -> Result<IpfsPath, Error> {
                 .map(|suffix| {
                     std::str::from_utf8(suffix)
                         .map_err(Error::from)
-                        .and_then(|s| IpfsPath::from_str(s))
+                        .and_then(IpfsPath::from_str)
                 });
 
             if let Some(Ok(x)) = paths.next() {
