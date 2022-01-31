@@ -6,7 +6,7 @@ use crate::error::Error;
 use async_trait::async_trait;
 use std::fs::File;
 use std::path::PathBuf;
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::Arc;
 use tokio::sync::Semaphore;
 
 use super::{BlockRm, BlockRmError, Column, DataStore, Lock, LockError, RepoCid};
@@ -41,9 +41,6 @@ pub struct FsDataStore {
     /// collection implementation, it might be needed to hold this permit for the duration of
     /// garbage collection, or something similar.
     lock: Arc<Semaphore>,
-
-    /// Not really needed
-    written_bytes: AtomicU64,
 }
 
 /// The column operations are all unimplemented pending at least downscoping of the
@@ -55,7 +52,6 @@ impl DataStore for FsDataStore {
         FsDataStore {
             path: root,
             lock: Arc::new(Semaphore::new(1)),
-            written_bytes: Default::default(),
         }
     }
 

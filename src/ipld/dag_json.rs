@@ -51,7 +51,7 @@ where
         Ipld::String(string) => ser.serialize_str(string),
         Ipld::Bytes(bytes) => ser.serialize_bytes(bytes),
         Ipld::List(list) => {
-            let wrapped = list.iter().map(|ipld| Wrapper(ipld));
+            let wrapped = list.iter().map(Wrapper);
             ser.collect_seq(wrapped)
         }
         Ipld::Map(map) => {
