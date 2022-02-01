@@ -598,7 +598,7 @@ fn resolve_local_ipld<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{make_ipld, Node};
+    use crate::{ipld::dag_cbor::DagCborCodec, make_ipld, Node};
 
     #[tokio::test]
     async fn test_resolve_root_cid() {
@@ -994,6 +994,26 @@ mod tests {
         assert_eq!(
             e.to_string(),
             format!("no link named \"second-best-file\" under {}", cids[1])
+        );
+    }
+
+    #[test]
+    fn observes_strict_order_of_map_keys() {
+        let map = make_ipld!({
+            "omega": Ipld::Null,
+            "bar": Ipld::Null,
+            "alpha": Ipld::Null,
+            "foo": Ipld::Null,
+        });
+
+        let bytes = DagCborCodec::encode(&map).unwrap();
+
+        assert_eq!(
+            bytes.as_ref(),
+            &[
+                164, 99, 98, 97, 114, 246, 99, 102, 111, 111, 246, 101, 97, 108, 112, 104, 97, 246,
+                101, 111, 109, 101, 103, 97, 246
+            ]
         );
     }
 }
