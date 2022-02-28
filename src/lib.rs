@@ -268,6 +268,8 @@ enum IpfsEvent {
     Disconnect(MultiaddrWithPeerId, Channel<()>),
     /// Request background task to return the listened and external addresses
     GetAddresses(OneshotSender<Vec<Multiaddr>>),
+    PubsubAddPeer(PeerId, OneshotSender<()>),
+    PubsubRemovePeer(PeerId, OneshotSender<()>),
     PubsubSubscribe(String, OneshotSender<Option<SubscriptionStream>>),
     PubsubUnsubscribe(String, OneshotSender<bool>),
     PubsubPublish(String, Vec<u8>, OneshotSender<()>),
@@ -750,6 +752,42 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             }
 
             Ok((public_key, addresses))
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Add a peer to list of nodes to propagate messages to.
+    ///
+    /// Unless a peer is added to the list in this way it will not receive any pubsub messages from this node.
+    pub async fn pubsub_add_peer(&self, peer_id: PeerId) -> Result<(), Error> {
+        async move {
+            let (tx, rx) = oneshot_channel::<()>();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::PubsubAddPeer(peer_id, tx))
+                .await?;
+
+            Ok(rx.await?)
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Remove a peer from the list of nodes that messages are propagated to.
+    ///
+    /// This will not stop messages being sent to the specified peers for subscribed topics which have already been communicated.
+    pub async fn pubsub_remove_peer(&self, peer_id: PeerId) -> Result<(), Error> {
+        async move {
+            let (tx, rx) = oneshot_channel::<()>();
+
+            self.to_task
+                .clone()
+                .send(IpfsEvent::PubsubRemovePeer(peer_id, tx))
+                .await?;
+
+            Ok(rx.await?)
         }
         .instrument(self.span.clone())
         .await
@@ -1431,6 +1469,20 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         // ignore error, perhaps caller went away already
                         let _ = ret.send(addresses);
                     }
+                    IpfsEvent::PubsubAddPeer(peer_id, ret) => {
+                        self.swarm
+                            .behaviour_mut()
+                            .pubsub()
+                            .add_node_to_partial_view(peer_id);
+                        let _ = ret.send(());
+                    }
+                    IpfsEvent::PubsubRemovePeer(peer_id, ret) => {
+                        self.swarm
+                            .behaviour_mut()
+                            .pubsub()
+                            .remove_node_from_partial_view(&peer_id);
+                        let _ = ret.send(());
+                    }
                     IpfsEvent::PubsubSubscribe(topic, ret) => {
                         let _ = ret.send(self.swarm.behaviour_mut().pubsub().subscribe(topic));
                     }
@@ -1780,8 +1832,11 @@ mod node {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::make_ipld;
+    use futures::{stream::poll_immediate, StreamExt};
     use multihash::Sha2_256;
 
     #[tokio::test]
@@ -1818,5 +1873,51 @@ mod tests {
         assert!(ipfs.is_pinned(&cid).await.unwrap());
         ipfs.remove_pin(&cid, false).await.unwrap();
         assert!(!ipfs.is_pinned(&cid).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_pubsub_send_and_receive() {
+        let alice = Node::new("alice").await;
+        let alice_addr: Multiaddr = "/ip4/127.0.0.1/tcp/10001".parse().unwrap();
+        alice.add_listening_address(alice_addr).await.unwrap();
+        let bob = Node::new("bob").await;
+        let bob_addr: Multiaddr = "/ip4/127.0.0.1/tcp/10002".parse().unwrap();
+        bob.add_listening_address(bob_addr.clone()).await.unwrap();
+
+        let topic = String::from("test_topic");
+        alice
+            .connect(bob_addr.with(Protocol::P2p(bob.id.into())))
+            .await
+            .expect("alice failed to connect to bob");
+        let _alice_messages = alice.pubsub_subscribe(topic.clone()).await.unwrap();
+        let mut bob_messages = poll_immediate(bob.pubsub_subscribe(topic.clone()).await.unwrap());
+
+        let data = vec![1, 2, 3];
+
+        alice
+            .pubsub_publish(topic.clone(), data.clone())
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert_eq!(bob_messages.next().await, Some(Poll::Pending));
+
+        bob.pubsub_add_peer(alice.id).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert_eq!(bob_messages.next().await, Some(Poll::Pending));
+
+        alice
+            .pubsub_publish(topic.clone(), data.clone())
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let received_data = bob_messages
+            .next()
+            .await
+            .expect("unexpected end of stream")
+            .map(|msg| msg.data.clone());
+        assert_eq!(received_data, Poll::Ready(data.clone()));
     }
 }
