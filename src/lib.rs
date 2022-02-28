@@ -759,7 +759,8 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Add a peer to list of nodes to propagate messages to.
     ///
-    /// Unless a peer is added to the list in this way it will not receive any pubsub messages from this node.
+    /// A peer will not receive any pubsub messages from this node until it is added using this function,
+    /// unless it has added this node in the same way.
     pub async fn pubsub_add_peer(&self, peer_id: PeerId) -> Result<(), Error> {
         async move {
             let (tx, rx) = oneshot_channel::<()>();
@@ -777,7 +778,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
 
     /// Remove a peer from the list of nodes that messages are propagated to.
     ///
-    /// This will not stop messages being sent to the specified peers for subscribed topics which have already been communicated.
+    /// Calling this function will not stop messages being sent to the specified peers for subscribed topics which have already been communicated.
     pub async fn pubsub_remove_peer(&self, peer_id: PeerId) -> Result<(), Error> {
         async move {
             let (tx, rx) = oneshot_channel::<()>();
@@ -1878,11 +1879,8 @@ mod tests {
     #[tokio::test]
     async fn test_pubsub_send_and_receive() {
         let alice = Node::new("alice").await;
-        let alice_addr: Multiaddr = "/ip4/127.0.0.1/tcp/10001".parse().unwrap();
-        alice.add_listening_address(alice_addr).await.unwrap();
         let bob = Node::new("bob").await;
-        let bob_addr: Multiaddr = "/ip4/127.0.0.1/tcp/10002".parse().unwrap();
-        bob.add_listening_address(bob_addr.clone()).await.unwrap();
+        let bob_addr = bob.addrs_local().await.unwrap()[0].clone();
 
         let topic = String::from("test_topic");
         alice
