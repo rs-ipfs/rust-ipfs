@@ -137,7 +137,7 @@ async fn pre_configured_listening_addrs() {
 
     assert!(
         addrs.contains(&addr),
-        "pre-configured listening addr not found; listening addrs: {:?}",
+        "pre-configured listening addr not found; is port 4001 available to listen on?; listening addrs: {:?}",
         addrs
     );
 }
