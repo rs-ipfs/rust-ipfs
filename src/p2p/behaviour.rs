@@ -23,7 +23,7 @@ use tokio::task;
 
 /// Behaviour type.
 #[derive(libp2p::NetworkBehaviour)]
-#[behaviour(out_event = "BehaviourEvent", event_process = true)]
+#[behaviour(event_process = true)]
 pub struct Behaviour<Types: IpfsTypes> {
     #[behaviour(ignore)]
     repo: Arc<Repo<Types>>,
@@ -36,52 +36,6 @@ pub struct Behaviour<Types: IpfsTypes> {
     identify: Identify,
     pubsub: Pubsub,
     pub swarm: SwarmApi,
-}
-
-#[derive(Debug)]
-pub enum BehaviourEvent {
-    Kademlia(KademliaEvent),
-    Ping(PingEvent),
-    Identify(IdentifyEvent),
-    Bitswap(BitswapEvent),
-    Floodsub(FloodsubEvent),
-    Void,
-}
-
-impl From<KademliaEvent> for BehaviourEvent {
-    fn from(event: KademliaEvent) -> Self {
-        Self::Kademlia(event)
-    }
-}
-
-impl From<PingEvent> for BehaviourEvent {
-    fn from(event: PingEvent) -> Self {
-        Self::Ping(event)
-    }
-}
-
-impl From<IdentifyEvent> for BehaviourEvent {
-    fn from(event: IdentifyEvent) -> Self {
-        Self::Identify(event)
-    }
-}
-
-impl From<BitswapEvent> for BehaviourEvent {
-    fn from(event: BitswapEvent) -> Self {
-        Self::Bitswap(event)
-    }
-}
-
-impl From<FloodsubEvent> for BehaviourEvent {
-    fn from(event: FloodsubEvent) -> Self {
-        Self::Floodsub(event)
-    }
-}
-
-impl From<void::Void> for BehaviourEvent {
-    fn from(_void: void::Void) -> Self {
-        Self::Void
-    }
 }
 
 /// Represents the result of a Kademlia query.
