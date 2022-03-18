@@ -620,7 +620,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
     pub fn dht_get(&mut self, key: Key, quorum: Quorum) -> SubscriptionFuture<KadResult, String> {
         self.kad_subscriptions
-            .create_subscription(self.kademlia.get_record(&key, quorum).into(), None)
+            .create_subscription(self.kademlia.get_record(key, quorum).into(), None)
     }
 
     pub fn dht_put(

@@ -208,7 +208,6 @@ impl<I: Borrow<Keypair>> fmt::Debug for DebuggableKeypair<I> {
         let kind = match self.get_ref() {
             Keypair::Ed25519(_) => "Ed25519",
             Keypair::Rsa(_) => "Rsa",
-            Keypair::Secp256k1(_) => "Secp256k1",
         };
 
         write!(fmt, "Keypair::{}", kind)
@@ -1476,12 +1475,14 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     IpfsEvent::RemoveListeningAddress(addr, ret) => {
                         let removed = if let Some((id, _)) = self.listening_addresses.remove(&addr)
                         {
-                            self.swarm.remove_listener(id).map_err(|_: ()| {
-                                format_err!(
+                            if !self.swarm.remove_listener(id) {
+                                Err(format_err!(
                                     "Failed to remove previously added listening address: {}",
                                     addr
-                                )
-                            })
+                                ))
+                            } else {
+                                Ok(())
+                            }
                         } else {
                             Err(format_err!("Address was not listened to before: {}", addr))
                         };

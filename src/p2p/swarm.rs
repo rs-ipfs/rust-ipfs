@@ -6,7 +6,7 @@ use libp2p::swarm::handler::DummyConnectionHandler;
 use libp2p::swarm::{
     self,
     dial_opts::{DialOpts, PeerCondition},
-    ConnectionHandler, NetworkBehaviour, PollParameters, Swarm,
+    ConnectionHandler, DialError, NetworkBehaviour, PollParameters, Swarm,
 };
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
@@ -114,9 +114,10 @@ impl SwarmApi {
         self.events.push_back(NetworkBehaviourAction::Dial {
             // rationale: this is sort of explicit command, perhaps the old address is no longer
             // valid. Always would be even better but it's bugged at the moment.
-            opt: DialOpts::peer_id(addr.peer_id)
+            opts: DialOpts::peer_id(addr.peer_id)
                 .condition(PeerCondition::NotDialing)
                 .build(),
+            handler: todo!(),
         });
 
         self.pending_addresses
@@ -193,7 +194,11 @@ impl NetworkBehaviour for SwarmApi {
             );
         }
 
-        if let ConnectedPoint::Dialer { address } = endpoint {
+        if let ConnectedPoint::Dialer {
+            address,
+            role_override,
+        } = endpoint
+        {
             // we dialed to the `address`
             match self.pending_connections.entry(*peer_id) {
                 Entry::Occupied(mut oe) => {
@@ -225,10 +230,12 @@ impl NetworkBehaviour for SwarmApi {
         &mut self,
         peer_id: &PeerId,
         _id: &ConnectionId,
-        cp: &ConnectedPoint,
+        endpoint: &ConnectedPoint,
+        handler: Self::ConnectionHandler,
+        remaining_established: usize,
     ) {
-        trace!("inject_connection_closed {} {:?}", peer_id, cp);
-        let closed_addr = connection_point_addr(cp);
+        trace!("inject_connection_closed {} {:?}", peer_id, endpoint);
+        let closed_addr = connection_point_addr(endpoint);
 
         match self.connected_peers.entry(*peer_id) {
             Entry::Occupied(mut oe) => {
@@ -255,7 +262,7 @@ impl NetworkBehaviour for SwarmApi {
             closed_addr
         );
 
-        if let ConnectedPoint::Dialer { .. } = cp {
+        if let ConnectedPoint::Dialer { .. } = endpoint {
             let addr = MultiaddrWithPeerId::from((closed_addr, peer_id.to_owned()));
 
             match self.pending_connections.entry(*peer_id) {
@@ -290,24 +297,35 @@ impl NetworkBehaviour for SwarmApi {
 
     fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: void::Void) {}
 
-    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
-        trace!("inject_dial_failure: {}", peer_id);
-        if self.pending_addresses.contains_key(peer_id) {
-            // it is possible that these addresses have not been tried yet; they will be asked
-            // for soon.
-            self.events
-                .push_back(swarm::NetworkBehaviourAction::DialPeer {
-                    opt: DialOpts::peer_id(peer_id)
+    fn inject_dial_failure(
+        &mut self,
+        peer_id: Option<PeerId>,
+        handler: Self::ConnectionHandler,
+        error: &DialError,
+    ) {
+        trace!("inject_dial_failure: {:?}", peer_id);
+        if let Some(peer_id) = peer_id {
+            if self.pending_addresses.contains_key(&peer_id) {
+                // it is possible that these addresses have not been tried yet; they will be asked
+                // for soon.
+                self.events.push_back(swarm::NetworkBehaviourAction::Dial {
+                    opts: DialOpts::peer_id(peer_id)
                         .condition(PeerCondition::NotDialing)
                         .build(),
+                    handler: todo!(),
                 });
-        }
+            }
 
-        // this should not be executed once, but probably will be in case unsupported addresses or something
-        // surprising happens.
-        for failed in self.pending_connections.remove(peer_id).unwrap_or_default() {
-            self.connect_registry
-                .finish_subscription(failed.into(), Err("addresses exhausted".into()));
+            // this should not be executed once, but probably will be in case unsupported addresses or something
+            // surprising happens.
+            for failed in self
+                .pending_connections
+                .remove(&peer_id)
+                .unwrap_or_default()
+            {
+                self.connect_registry
+                    .finish_subscription(failed.into(), Err("addresses exhausted".into()));
+            }
         }
     }
 
@@ -326,7 +344,10 @@ impl NetworkBehaviour for SwarmApi {
 
 fn connection_point_addr(cp: &ConnectedPoint) -> MultiaddrWithoutPeerId {
     match cp {
-        ConnectedPoint::Dialer { address } => MultiaddrWithPeerId::try_from(address.to_owned())
+        ConnectedPoint::Dialer {
+            address,
+            role_override,
+        } => MultiaddrWithPeerId::try_from(address.to_owned())
             .expect("dialed address contains peerid in libp2p 0.38")
             .into(),
         ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr
