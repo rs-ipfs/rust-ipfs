@@ -14,7 +14,7 @@ use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use hash_hasher::HashedMap;
 use libp2p_core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
 use libp2p_swarm::dial_opts::{DialOpts, PeerCondition};
-use libp2p_swarm::handler::{IntoConnectionHandler, OneShotHandler};
+use libp2p_swarm::handler::OneShotHandler;
 use libp2p_swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters};
 use std::task::{Context, Poll};
 use std::{
@@ -315,12 +315,7 @@ impl NetworkBehaviour for Bitswap {
         &mut self,
         ctx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<
-        NetworkBehaviourAction<
-            Self::OutEvent,
-            <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
-        >,
-    > {
+    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
         use futures::stream::StreamExt;
 
         while let Poll::Ready(Some((peer_id, block))) = self.ready_blocks.poll_next_unpin(ctx) {
