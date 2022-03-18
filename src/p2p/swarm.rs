@@ -448,6 +448,8 @@ mod tests {
 
             loop {
                 tokio::select! {
+                    biased;
+
                     _ = (&mut swarm1).next() => {},
                     _ = (&mut swarm2).next() => {},
                     res = (&mut sub) => {
