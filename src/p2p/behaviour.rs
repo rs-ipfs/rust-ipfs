@@ -15,6 +15,7 @@ use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent, Quorum};
 // use libp2p::mdns::{MdnsEvent, TokioMdns};
 use libp2p::ping::{Ping, PingEvent};
 // use libp2p::swarm::toggle::Toggle;
+use libp2p::floodsub::FloodsubEvent;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use multibase::Base;
 use std::{convert::TryInto, sync::Arc};
@@ -43,6 +44,7 @@ pub enum BehaviourEvent {
     Ping(PingEvent),
     Identify(IdentifyEvent),
     Bitswap(BitswapEvent),
+    Floodsub(FloodsubEvent),
     Void,
 }
 
@@ -67,6 +69,12 @@ impl From<IdentifyEvent> for BehaviourEvent {
 impl From<BitswapEvent> for BehaviourEvent {
     fn from(event: BitswapEvent) -> Self {
         Self::Bitswap(event)
+    }
+}
+
+impl From<FloodsubEvent> for BehaviourEvent {
+    fn from(event: FloodsubEvent) -> Self {
+        Self::Floodsub(event)
     }
 }
 

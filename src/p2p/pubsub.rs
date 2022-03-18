@@ -243,7 +243,7 @@ type PubsubNetworkBehaviourAction = NetworkBehaviourAction<
 
 impl NetworkBehaviour for Pubsub {
     type ConnectionHandler = <Floodsub as NetworkBehaviour>::ConnectionHandler;
-    type OutEvent = void::Void;
+    type OutEvent = FloodsubEvent;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
         self.floodsub.new_handler()
