@@ -366,16 +366,27 @@ impl NetworkBehaviour for SwarmApi {
                     handler,
                 });
             }
+        }
 
-            // this should not be executed once, but probably will be in case unsupported addresses or something
-            // surprising happens.
-            for failed in self
-                .pending_connections
-                .remove(&peer_id)
-                .unwrap_or_default()
-            {
-                self.connect_registry
-                    .finish_subscription(failed.into(), Err("addresses exhausted".into()));
+        if let Some(peer_id) = peer_id {
+            match self.pending_connections.entry(peer_id) {
+                Entry::Occupied(mut oe) => {
+                    let addresses = oe.get_mut();
+                    let addr = MultiaddrWithPeerId::try_from(addr.clone())
+                        .expect("dialed address contains peerid in libp2p 0.38");
+                    let pos = addresses.iter().position(|a| *a == addr);
+
+                    if let Some(pos) = pos {
+                        addresses.swap_remove(pos);
+                        self.connect_registry
+                            .finish_subscription(addr.into(), Err(error.to_string()));
+                    }
+
+                    if addresses.is_empty() {
+                        oe.remove();
+                    }
+                }
+                Entry::Vacant(_) => {}
             }
         }
     }
