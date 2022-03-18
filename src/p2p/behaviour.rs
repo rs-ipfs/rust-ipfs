@@ -25,17 +25,17 @@ use tokio::task;
 #[derive(libp2p::NetworkBehaviour)]
 #[behaviour(event_process = true)]
 pub struct Behaviour<Types: IpfsTypes> {
-    #[behaviour(ignore)]
-    repo: Arc<Repo<Types>>,
     // mdns: Toggle<TokioMdns>,
     kademlia: Kademlia<MemoryStore>,
-    #[behaviour(ignore)]
-    kad_subscriptions: SubscriptionRegistry<KadResult, String>,
     bitswap: Bitswap,
     ping: Ping,
     identify: Identify,
     pubsub: Pubsub,
     pub swarm: SwarmApi,
+    #[behaviour(ignore)]
+    repo: Arc<Repo<Types>>,
+    #[behaviour(ignore)]
+    kad_subscriptions: SubscriptionRegistry<KadResult, String>,
 }
 
 /// Represents the result of a Kademlia query.
