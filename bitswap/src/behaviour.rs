@@ -12,7 +12,7 @@ use cid::Cid;
 use fnv::FnvHashSet;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use hash_hasher::HashedMap;
-use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
+use libp2p_core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
 use libp2p_swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p_swarm::handler::{IntoConnectionHandler, OneShotHandler};
 use libp2p_swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters};
@@ -228,6 +228,35 @@ impl NetworkBehaviour for Bitswap {
     fn addresses_of_peer(&mut self, _peer_id: &PeerId) -> Vec<Multiaddr> {
         debug!("bitswap: addresses_of_peer");
         Vec::new()
+    }
+
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        _connection_id: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _failed_addresses: Option<&Vec<Multiaddr>>,
+        _other_established: usize,
+    ) {
+        debug!("bitswap: inject_connected {}", peer_id);
+        let ledger = Ledger::new();
+        self.stats.entry(*peer_id).or_default();
+        self.connected_peers.insert(*peer_id, ledger);
+        self.send_want_list(*peer_id);
+    }
+
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        _connection_id: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _handler: Self::ConnectionHandler,
+        _remaining_established: usize,
+    ) {
+        debug!("bitswap: inject_disconnected {:?}", peer_id);
+        self.connected_peers.remove(peer_id);
+        // the related stats are not dropped, so that they
+        // persist for peers regardless of disconnects
     }
 
     fn inject_event(&mut self, source: PeerId, _connection: ConnectionId, message: MessageWrapper) {
