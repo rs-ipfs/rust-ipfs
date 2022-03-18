@@ -236,7 +236,7 @@ impl Pubsub {
 }
 
 type PubsubNetworkBehaviourAction = NetworkBehaviourAction<
-    <<Pubsub as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::OutEvent,
+    <Floodsub as NetworkBehaviour>::OutEvent,
     <Pubsub as NetworkBehaviour>::ConnectionHandler,
     <<Pubsub as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::InEvent,
 >;
