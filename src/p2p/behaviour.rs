@@ -23,7 +23,7 @@ use tokio::task;
 
 /// Behaviour type.
 #[derive(libp2p::NetworkBehaviour)]
-#[behaviour(out_event = "BehaviourEvent")]
+#[behaviour(out_event = "BehaviourEvent", event_process = true)]
 pub struct Behaviour<Types: IpfsTypes> {
     #[behaviour(ignore)]
     repo: Arc<Repo<Types>>,
@@ -464,6 +464,12 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<Typ
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: IdentifyEvent) {
         trace!("identify: {:?}", event);
+    }
+}
+
+impl<Types: IpfsTypes> NetworkBehaviourEventProcess<FloodsubEvent> for Behaviour<Types> {
+    fn inject_event(&mut self, event: FloodsubEvent) {
+        trace!("floodsub: {:?}", event);
     }
 }
 
