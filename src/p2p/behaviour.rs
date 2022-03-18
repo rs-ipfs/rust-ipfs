@@ -84,7 +84,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
         };
 
         match event {
-            InboundRequestServed { request } => {
+            InboundRequest { request } => {
                 trace!("kad: inbound {:?} request handled", request);
             }
             OutboundQueryCompleted { result, id, .. } => {
@@ -377,7 +377,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
 
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: PingEvent) {
-        use libp2p::ping::handler::{PingFailure, PingSuccess};
+        use libp2p::ping::{PingFailure, PingSuccess};
         match event {
             PingEvent {
                 peer,

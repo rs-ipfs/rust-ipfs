@@ -12,7 +12,7 @@ use libp2p::core::{
     Multiaddr, PeerId,
 };
 use libp2p::floodsub::{Floodsub, FloodsubConfig, FloodsubEvent, FloodsubMessage, Topic};
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
+use libp2p::swarm::{ConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, PollParameters};
 
 /// Currently a thin wrapper around Floodsub, perhaps supporting both Gossipsub and Floodsub later.
 /// Allows single subscription to a topic with only unbounded senders. Tracks the peers subscribed
@@ -233,28 +233,20 @@ impl Pubsub {
 }
 
 type PubsubNetworkBehaviourAction = NetworkBehaviourAction<
-    <<Pubsub as NetworkBehaviour>::ProtocolsHandler as ProtocolsHandler>::InEvent,
+    <<Pubsub as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::InEvent,
     <Pubsub as NetworkBehaviour>::OutEvent,
 >;
 
 impl NetworkBehaviour for Pubsub {
-    type ProtocolsHandler = <Floodsub as NetworkBehaviour>::ProtocolsHandler;
+    type ConnectionHandler = <Floodsub as NetworkBehaviour>::ConnectionHandler;
     type OutEvent = void::Void;
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
         self.floodsub.new_handler()
     }
 
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
         self.floodsub.addresses_of_peer(peer_id)
-    }
-
-    fn inject_connected(&mut self, peer_id: &PeerId) {
-        self.floodsub.inject_connected(peer_id)
-    }
-
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        self.floodsub.inject_disconnected(peer_id)
     }
 
     fn inject_connection_established(
@@ -281,19 +273,9 @@ impl NetworkBehaviour for Pubsub {
         &mut self,
         peer_id: PeerId,
         connection: ConnectionId,
-        event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+        event: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
     ) {
         self.floodsub.inject_event(peer_id, connection, event)
-    }
-
-    fn inject_addr_reach_failure(
-        &mut self,
-        peer_id: Option<&PeerId>,
-        addr: &Multiaddr,
-        error: &dyn std::error::Error,
-    ) {
-        self.floodsub
-            .inject_addr_reach_failure(peer_id, addr, error)
     }
 
     fn inject_dial_failure(&mut self, peer_id: &PeerId) {
