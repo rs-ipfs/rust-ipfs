@@ -111,13 +111,14 @@ impl SwarmApi {
             .connect_registry
             .create_subscription(addr.clone().into(), None);
 
+        let handler = self.new_handler();
         self.events.push_back(NetworkBehaviourAction::Dial {
             // rationale: this is sort of explicit command, perhaps the old address is no longer
             // valid. Always would be even better but it's bugged at the moment.
             opts: DialOpts::peer_id(addr.peer_id)
                 .condition(PeerCondition::NotDialing)
                 .build(),
-            handler: todo!(),
+            handler,
         });
 
         self.pending_addresses
@@ -308,11 +309,12 @@ impl NetworkBehaviour for SwarmApi {
             if self.pending_addresses.contains_key(&peer_id) {
                 // it is possible that these addresses have not been tried yet; they will be asked
                 // for soon.
+                let handler = self.new_handler();
                 self.events.push_back(swarm::NetworkBehaviourAction::Dial {
                     opts: DialOpts::peer_id(peer_id)
                         .condition(PeerCondition::NotDialing)
                         .build(),
-                    handler: todo!(),
+                    handler,
                 });
             }
 

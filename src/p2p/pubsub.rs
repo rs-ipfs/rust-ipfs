@@ -13,8 +13,7 @@ use libp2p::core::{
 };
 use libp2p::floodsub::{Floodsub, FloodsubConfig, FloodsubEvent, FloodsubMessage, Topic};
 use libp2p::swarm::{
-    ConnectionHandler, DialError, IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction,
-    PollParameters,
+    ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 
 /// Currently a thin wrapper around Floodsub, perhaps supporting both Gossipsub and Floodsub later.
