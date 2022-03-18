@@ -742,7 +742,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 .await?;
             let mut addresses = rx.await?;
             let public_key = self.keys.get_ref().public();
-            let peer_id = public_key.clone().to_peer_id();
+            let peer_id = public_key.to_peer_id();
 
             for addr in &mut addresses {
                 addr.push(Protocol::P2p(peer_id.into()))

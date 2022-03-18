@@ -411,6 +411,12 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<Typ
             } => {
                 error!("ping: failure with {}: {}", peer.to_base58(), error);
             }
+            PingEvent {
+                peer,
+                result: Result::Err(PingFailure::Unsupported),
+            } => {
+                error!("ping: failure with {}: unsupported", peer.to_base58());
+            }
         }
     }
 }

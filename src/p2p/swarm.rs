@@ -173,7 +173,7 @@ impl NetworkBehaviour for SwarmApi {
     fn inject_connection_established(
         &mut self,
         peer_id: &PeerId,
-        connection_id: &ConnectionId,
+        _connection_id: &ConnectionId,
         endpoint: &ConnectedPoint,
         _failed_addresses: Option<&Vec<Multiaddr>>,
         _other_established: usize,
@@ -197,7 +197,7 @@ impl NetworkBehaviour for SwarmApi {
 
         if let ConnectedPoint::Dialer {
             address,
-            role_override,
+            role_override: _,
         } = endpoint
         {
             // we dialed to the `address`
@@ -232,8 +232,8 @@ impl NetworkBehaviour for SwarmApi {
         peer_id: &PeerId,
         _id: &ConnectionId,
         endpoint: &ConnectedPoint,
-        handler: Self::ConnectionHandler,
-        remaining_established: usize,
+        _handler: Self::ConnectionHandler,
+        _remaining_established: usize,
     ) {
         trace!("inject_connection_closed {} {:?}", peer_id, endpoint);
         let closed_addr = connection_point_addr(endpoint);
@@ -301,10 +301,10 @@ impl NetworkBehaviour for SwarmApi {
     fn inject_dial_failure(
         &mut self,
         peer_id: Option<PeerId>,
-        handler: Self::ConnectionHandler,
+        _handler: Self::ConnectionHandler,
         error: &DialError,
     ) {
-        trace!("inject_dial_failure: {:?}", peer_id);
+        trace!("inject_dial_failure: {:?} ({})", peer_id, error);
         if let Some(peer_id) = peer_id {
             if self.pending_addresses.contains_key(&peer_id) {
                 // it is possible that these addresses have not been tried yet; they will be asked
@@ -348,7 +348,7 @@ fn connection_point_addr(cp: &ConnectedPoint) -> MultiaddrWithoutPeerId {
     match cp {
         ConnectedPoint::Dialer {
             address,
-            role_override,
+            role_override: _,
         } => MultiaddrWithPeerId::try_from(address.to_owned())
             .expect("dialed address contains peerid in libp2p 0.38")
             .into(),
@@ -433,7 +433,7 @@ mod tests {
         let (_, mut swarm1) = build_swarm();
         let (_, mut swarm2) = build_swarm();
 
-        let peer3_id = Keypair::generate_ed25519().public().into_peer_id();
+        let peer3_id = Keypair::generate_ed25519().public().to_peer_id();
 
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
@@ -529,7 +529,7 @@ mod tests {
 
     fn build_swarm() -> (PeerId, libp2p::swarm::Swarm<SwarmApi>) {
         let key = Keypair::generate_ed25519();
-        let peer_id = key.public().into_peer_id();
+        let peer_id = key.public().to_peer_id();
         let transport = build_transport(key).unwrap();
 
         let swarm = SwarmBuilder::new(transport, SwarmApi::default(), peer_id)
