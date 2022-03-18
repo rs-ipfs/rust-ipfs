@@ -13,10 +13,9 @@ use fnv::FnvHashSet;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use hash_hasher::HashedMap;
 use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
-use libp2p_swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
-use libp2p_swarm::{
-    DialPeerCondition, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
-};
+use libp2p_swarm::dial_opts::{DialOpts, PeerCondition};
+use libp2p_swarm::handler::{IntoConnectionHandler, OneShotHandler};
+use libp2p_swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters};
 use std::task::{Context, Poll};
 use std::{
     collections::{HashMap, VecDeque},
@@ -88,7 +87,13 @@ impl Stats {
 /// Network behaviour that handles sending and receiving IPFS blocks.
 pub struct Bitswap {
     /// Queue of events to report to the user.
-    events: VecDeque<NetworkBehaviourAction<Message, BitswapEvent>>,
+    events: VecDeque<
+        NetworkBehaviourAction<
+            BitswapEvent,
+            <Bitswap as NetworkBehaviour>::ConnectionHandler,
+            Message,
+        >,
+    >,
     /// List of prospect peers to connect to.
     target_peers: FnvHashSet<PeerId>,
     /// Ledger
@@ -150,9 +155,11 @@ impl Bitswap {
     /// Called from Kademlia behaviour.
     pub fn connect(&mut self, peer_id: PeerId) {
         if self.target_peers.insert(peer_id) {
-            self.events.push_back(NetworkBehaviourAction::DialPeer {
-                peer_id,
-                condition: DialPeerCondition::Disconnected,
+            self.events.push_back(NetworkBehaviourAction::Dial {
+                opts: DialOpts::peer_id(peer_id)
+                    .condition(PeerCondition::Disconnected)
+                    .build(),
+                handler: todo!(),
             });
         }
     }
@@ -209,10 +216,10 @@ impl Bitswap {
 }
 
 impl NetworkBehaviour for Bitswap {
-    type ProtocolsHandler = OneShotHandler<BitswapConfig, Message, MessageWrapper>;
+    type ConnectionHandler = OneShotHandler<BitswapConfig, Message, MessageWrapper>;
     type OutEvent = BitswapEvent;
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
         debug!("bitswap: new_handler");
         Default::default()
     }
@@ -220,21 +227,6 @@ impl NetworkBehaviour for Bitswap {
     fn addresses_of_peer(&mut self, _peer_id: &PeerId) -> Vec<Multiaddr> {
         debug!("bitswap: addresses_of_peer");
         Vec::new()
-    }
-
-    fn inject_connected(&mut self, peer_id: &PeerId) {
-        debug!("bitswap: inject_connected {}", peer_id);
-        let ledger = Ledger::new();
-        self.stats.entry(*peer_id).or_default();
-        self.connected_peers.insert(*peer_id, ledger);
-        self.send_want_list(*peer_id);
-    }
-
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        debug!("bitswap: inject_disconnected {:?}", peer_id);
-        self.connected_peers.remove(peer_id);
-        // the related stats are not dropped, so that they
-        // persist for peers regardless of disconnects
     }
 
     fn inject_event(&mut self, source: PeerId, _connection: ConnectionId, message: MessageWrapper) {
@@ -289,9 +281,16 @@ impl NetworkBehaviour for Bitswap {
     }
 
     #[allow(clippy::type_complexity)]
-    fn poll(&mut self, ctx: &mut Context, _: &mut impl PollParameters)
-        -> Poll<NetworkBehaviourAction<<<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>
-    {
+    fn poll(
+        &mut self,
+        ctx: &mut Context,
+        _: &mut impl PollParameters,
+    ) -> Poll<
+        NetworkBehaviourAction<
+            Self::OutEvent,
+            <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
+        >,
+    > {
         use futures::stream::StreamExt;
 
         while let Poll::Ready(Some((peer_id, block))) = self.ready_blocks.poll_next_unpin(ctx) {
