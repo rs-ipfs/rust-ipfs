@@ -36,8 +36,8 @@ impl Disconnector {
 
 // Currently this is swarm::NetworkBehaviourAction<Void, Void>
 type NetworkBehaviourAction = swarm::NetworkBehaviourAction<
-    <<SwarmApi as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::InEvent,
     <<SwarmApi as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::OutEvent,
+    <SwarmApi as NetworkBehaviour>::ConnectionHandler,
 >;
 
 #[derive(Debug, Default)]
