@@ -225,6 +225,34 @@ impl NetworkBehaviour for SwarmApi {
                 }
             }
         }
+
+        // we have at least one fully open connection and handler is running
+        //
+        // just finish all of the subscriptions that remain.
+        trace!("inject connected {}", peer_id);
+
+        let all_subs = self
+            .pending_addresses
+            .remove(peer_id)
+            .unwrap_or_default()
+            .into_iter()
+            .chain(
+                self.pending_connections
+                    .remove(peer_id)
+                    .unwrap_or_default()
+                    .into_iter(),
+            );
+
+        for addr in all_subs {
+            // fail the other than already connected subscriptions in
+            // inject_connection_established. while the whole swarmapi is quite unclear on the
+            // actual use cases, assume that connecting one is good enough for all outstanding
+            // connection requests.
+            self.connect_registry.finish_subscription(
+                addr.into(),
+                Err("finished connecting to another address".into()),
+            );
+        }
     }
 
     fn inject_connection_closed(
@@ -293,6 +321,27 @@ impl NetworkBehaviour for SwarmApi {
         } else {
             // we were not dialing to the peer, thus we cannot have a pending subscription to
             // finish.
+        }
+
+        trace!("inject_disconnected: {}", peer_id);
+        assert!(!self.connected_peers.contains_key(peer_id));
+        self.roundtrip_times.remove(peer_id);
+
+        let failed = self
+            .pending_addresses
+            .remove(peer_id)
+            .unwrap_or_default()
+            .into_iter()
+            .chain(
+                self.pending_connections
+                    .remove(peer_id)
+                    .unwrap_or_default()
+                    .into_iter(),
+            );
+
+        for addr in failed {
+            self.connect_registry
+                .finish_subscription(addr.into(), Err("disconnected".into()));
         }
     }
 
