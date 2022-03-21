@@ -107,14 +107,17 @@ async fn publish_between_two_nodes() {
     .collect::<HashSet<_>>();
 
     for st in &mut [b_msgs.by_ref(), a_msgs.by_ref()] {
-        let actual = st
-            .take(2)
-            // Arc::try_unwrap will fail sometimes here as the sender side in src/p2p/pubsub.rs:305
-            // can still be looping
-            .map(|msg| (*msg).clone())
-            .map(|msg| (msg.topics, msg.source, msg.data))
-            .collect::<HashSet<_>>()
-            .await;
+        let actual = timeout(
+            Duration::from_secs(2),
+            st.take(2)
+                // Arc::try_unwrap will fail sometimes here as the sender side in src/p2p/pubsub.rs:305
+                // can still be looping
+                .map(|msg| (*msg).clone())
+                .map(|msg| (msg.topics, msg.source, msg.data))
+                .collect::<HashSet<_>>(),
+        )
+        .await
+        .unwrap();
         assert_eq!(expected, actual);
     }
 

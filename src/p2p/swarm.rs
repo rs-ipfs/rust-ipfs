@@ -322,27 +322,6 @@ impl NetworkBehaviour for SwarmApi {
             // we were not dialing to the peer, thus we cannot have a pending subscription to
             // finish.
         }
-
-        trace!("inject_disconnected: {}", peer_id);
-        assert!(!self.connected_peers.contains_key(peer_id));
-        self.roundtrip_times.remove(peer_id);
-
-        let failed = self
-            .pending_addresses
-            .remove(peer_id)
-            .unwrap_or_default()
-            .into_iter()
-            .chain(
-                self.pending_connections
-                    .remove(peer_id)
-                    .unwrap_or_default()
-                    .into_iter(),
-            );
-
-        for addr in failed {
-            self.connect_registry
-                .finish_subscription(addr.into(), Err("disconnected".into()));
-        }
     }
 
     fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: void::Void) {}
@@ -353,33 +332,43 @@ impl NetworkBehaviour for SwarmApi {
         _handler: Self::ConnectionHandler,
         error: &DialError,
     ) {
-        trace!("inject_dial_failure: {:?} ({})", peer_id, error);
-        if let Some(peer_id) = peer_id {
-            if self.pending_addresses.contains_key(&peer_id) {
-                // it is possible that these addresses have not been tried yet; they will be asked
-                // for soon.
-                let handler = self.new_handler();
-                self.events.push_back(swarm::NetworkBehaviourAction::Dial {
-                    opts: DialOpts::peer_id(peer_id)
-                        .condition(PeerCondition::NotDialing)
-                        .build(),
-                    handler,
-                });
-            }
-        }
-
         if let Some(peer_id) = peer_id {
             match self.pending_connections.entry(peer_id) {
                 Entry::Occupied(mut oe) => {
                     let addresses = oe.get_mut();
-                    let addr = MultiaddrWithPeerId::try_from(addr.clone())
-                        .expect("dialed address contains peerid in libp2p 0.38");
-                    let pos = addresses.iter().position(|a| *a == addr);
 
-                    if let Some(pos) = pos {
-                        addresses.swap_remove(pos);
-                        self.connect_registry
-                            .finish_subscription(addr.into(), Err(error.to_string()));
+                    match error {
+                        DialError::Transport(multiaddrs) => {
+                            for (addr, error) in multiaddrs {
+                                let addr = MultiaddrWithPeerId::try_from(addr.clone())
+                                    .expect("to recieve an MultiAddrWithPeerId from DialError");
+                                self.connect_registry
+                                    .finish_subscription(addr.into(), Err(error.to_string()));
+                            }
+
+                            let peer_ids = multiaddrs
+                                .into_iter()
+                                .map(|(addr, _err)| {
+                                    MultiaddrWithPeerId::try_from(addr.clone()).unwrap()
+                                })
+                                .collect::<Vec<_>>();
+
+                            addresses.retain(|peer_id| peer_ids.iter().any(|id| peer_id == id));
+                        }
+                        DialError::WrongPeerId {
+                            obtained: _,
+                            endpoint: _,
+                        } => {
+                            for addr in addresses.iter() {
+                                self.connect_registry.finish_subscription(
+                                    addr.clone().into(),
+                                    Err(error.to_string()),
+                                );
+                            }
+
+                            addresses.clear();
+                        }
+                        err => trace!("unhandled DialError {}", err),
                     }
 
                     if addresses.is_empty() {
