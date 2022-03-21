@@ -353,7 +353,7 @@ impl NetworkBehaviour for SwarmApi {
                                 })
                                 .collect::<Vec<_>>();
 
-                            addresses.retain(|peer_id| peer_ids.iter().any(|id| peer_id == id));
+                            addresses.retain(|peer_id| !peer_ids.iter().any(|id| peer_id == id));
                         }
                         DialError::WrongPeerId {
                             obtained: _,
@@ -481,7 +481,7 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_peerid() {
-        let (_, mut swarm1) = build_swarm();
+        let (swarm1_peerid, mut swarm1) = build_swarm();
         let (_, mut swarm2) = build_swarm();
 
         let peer3_id = Keypair::generate_ed25519().public().to_peer_id();
@@ -514,7 +514,9 @@ mod tests {
                 _ = swarm1.next() => {},
                 _ = swarm2.next() => {},
                 res = &mut fut => {
-                    assert_eq!(res.unwrap_err(), Some("Pending connection: Invalid peer ID.".into()));
+                    let err = res.unwrap_err().unwrap();
+                    let expected_start = format!("Dial error: Unexpected peer ID {}", swarm1_peerid);
+                    assert_eq!(&err[0..expected_start.len()], expected_start);
                     return;
                 }
             }
