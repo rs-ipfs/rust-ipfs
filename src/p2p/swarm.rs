@@ -332,6 +332,9 @@ impl NetworkBehaviour for SwarmApi {
         _handler: Self::ConnectionHandler,
         error: &DialError,
     ) {
+        // TODO: there might be additional connections we should attempt
+        // (i.e) a new MultiAddr was found after sending the existing ones
+        // off to dial
         if let Some(peer_id) = peer_id {
             match self.pending_connections.entry(peer_id) {
                 Entry::Occupied(mut oe) => {
@@ -342,23 +345,17 @@ impl NetworkBehaviour for SwarmApi {
                             for (addr, error) in multiaddrs {
                                 let addr = MultiaddrWithPeerId::try_from(addr.clone())
                                     .expect("to recieve an MultiAddrWithPeerId from DialError");
-                                self.connect_registry
-                                    .finish_subscription(addr.into(), Err(error.to_string()));
+                                self.connect_registry.finish_subscription(
+                                    addr.clone().into(),
+                                    Err(error.to_string()),
+                                );
+
+                                if let Some(pos) = addresses.iter().position(|a| *a == addr) {
+                                    addresses.swap_remove(pos);
+                                }
                             }
-
-                            let peer_ids = multiaddrs
-                                .into_iter()
-                                .map(|(addr, _err)| {
-                                    MultiaddrWithPeerId::try_from(addr.clone()).unwrap()
-                                })
-                                .collect::<Vec<_>>();
-
-                            addresses.retain(|peer_id| !peer_ids.iter().any(|id| peer_id == id));
                         }
-                        DialError::WrongPeerId {
-                            obtained: _,
-                            endpoint: _,
-                        } => {
+                        DialError::WrongPeerId { .. } => {
                             for addr in addresses.iter() {
                                 self.connect_registry.finish_subscription(
                                     addr.clone().into(),
@@ -368,7 +365,12 @@ impl NetworkBehaviour for SwarmApi {
 
                             addresses.clear();
                         }
-                        err => trace!("unhandled DialError {}", err),
+                        error => {
+                            warn!(
+                                ?error,
+                                "unexpected DialError; some futures might never complete"
+                            );
+                        }
                     }
 
                     if addresses.is_empty() {
