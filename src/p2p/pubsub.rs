@@ -382,7 +382,9 @@ impl NetworkBehaviour for Pubsub {
                     peer_id,
                     topic,
                 }) => {
+                    self.add_node_to_partial_view(peer_id);
                     let topics = self.peers.entry(peer_id).or_insert_with(Vec::new);
+
                     let appeared = topics.is_empty();
 
                     if !topics.contains(&topic) {
@@ -407,6 +409,7 @@ impl NetworkBehaviour for Pubsub {
                         if topics.is_empty() {
                             debug!("peer disappeared as pubsub subscriber: {}", peer_id);
                             oe.remove();
+                            self.remove_node_from_partial_view(&peer_id);
                         }
                     }
 
