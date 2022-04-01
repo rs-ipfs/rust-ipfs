@@ -15,6 +15,7 @@ use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent, Quorum};
 // use libp2p::mdns::{MdnsEvent, TokioMdns};
 use libp2p::ping::{Ping, PingEvent};
 // use libp2p::swarm::toggle::Toggle;
+use libp2p::floodsub::FloodsubEvent;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use multibase::Base;
 use std::{convert::TryInto, sync::Arc};
@@ -22,18 +23,19 @@ use tokio::task;
 
 /// Behaviour type.
 #[derive(libp2p::NetworkBehaviour)]
+#[behaviour(event_process = true)]
 pub struct Behaviour<Types: IpfsTypes> {
-    #[behaviour(ignore)]
-    repo: Arc<Repo<Types>>,
     // mdns: Toggle<TokioMdns>,
     kademlia: Kademlia<MemoryStore>,
-    #[behaviour(ignore)]
-    kad_subscriptions: SubscriptionRegistry<KadResult, String>,
     bitswap: Bitswap,
     ping: Ping,
     identify: Identify,
     pubsub: Pubsub,
     pub swarm: SwarmApi,
+    #[behaviour(ignore)]
+    repo: Arc<Repo<Types>>,
+    #[behaviour(ignore)]
+    kad_subscriptions: SubscriptionRegistry<KadResult, String>,
 }
 
 /// Represents the result of a Kademlia query.
@@ -84,7 +86,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<KademliaEvent> for Behaviour
         };
 
         match event {
-            InboundRequestServed { request } => {
+            InboundRequest { request } => {
                 trace!("kad: inbound {:?} request handled", request);
             }
             OutboundQueryCompleted { result, id, .. } => {
@@ -377,7 +379,7 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<BitswapEvent> for Behaviour<
 
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: PingEvent) {
-        use libp2p::ping::handler::{PingFailure, PingSuccess};
+        use libp2p::ping::{PingFailure, PingSuccess};
         match event {
             PingEvent {
                 peer,
@@ -409,6 +411,12 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<Typ
             } => {
                 error!("ping: failure with {}: {}", peer.to_base58(), error);
             }
+            PingEvent {
+                peer,
+                result: Result::Err(PingFailure::Unsupported),
+            } => {
+                error!("ping: failure with {}: unsupported", peer.to_base58());
+            }
         }
     }
 }
@@ -416,6 +424,12 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<PingEvent> for Behaviour<Typ
 impl<Types: IpfsTypes> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<Types> {
     fn inject_event(&mut self, event: IdentifyEvent) {
         trace!("identify: {:?}", event);
+    }
+}
+
+impl<Types: IpfsTypes> NetworkBehaviourEventProcess<FloodsubEvent> for Behaviour<Types> {
+    fn inject_event(&mut self, event: FloodsubEvent) {
+        trace!("floodsub: {:?}", event);
     }
 }
 
@@ -580,7 +594,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 
     pub fn dht_get(&mut self, key: Key, quorum: Quorum) -> SubscriptionFuture<KadResult, String> {
         self.kad_subscriptions
-            .create_subscription(self.kademlia.get_record(&key, quorum).into(), None)
+            .create_subscription(self.kademlia.get_record(key, quorum).into(), None)
     }
 
     pub fn dht_put(

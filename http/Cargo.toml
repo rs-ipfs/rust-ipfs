@@ -24,7 +24,7 @@ multihash = { default-features = false, version = "0.11" }
 # openssl is required for rsa keygen but not used by the rust-ipfs or its dependencies
 openssl = { default-features = false, version = "0.10" }
 percent-encoding = { default-features = false, version = "2.1" }
-prost = { default-features = false, version = "0.8" }
+prost = { default-features = false, version = "0.9" }
 serde = { default-features = false, features = ["derive"], version = "1.0" }
 serde_json = { default-features = false, version = "1.0" }
 structopt = { default-features = false, version = "0.3" }

@@ -12,11 +12,10 @@ use cid::Cid;
 use fnv::FnvHashSet;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use hash_hasher::HashedMap;
-use libp2p_core::{connection::ConnectionId, Multiaddr, PeerId};
-use libp2p_swarm::protocols_handler::{IntoProtocolsHandler, OneShotHandler, ProtocolsHandler};
-use libp2p_swarm::{
-    DialPeerCondition, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
-};
+use libp2p_core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
+use libp2p_swarm::dial_opts::{DialOpts, PeerCondition};
+use libp2p_swarm::handler::OneShotHandler;
+use libp2p_swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters};
 use std::task::{Context, Poll};
 use std::{
     collections::{HashMap, VecDeque},
@@ -88,7 +87,13 @@ impl Stats {
 /// Network behaviour that handles sending and receiving IPFS blocks.
 pub struct Bitswap {
     /// Queue of events to report to the user.
-    events: VecDeque<NetworkBehaviourAction<Message, BitswapEvent>>,
+    events: VecDeque<
+        NetworkBehaviourAction<
+            BitswapEvent,
+            <Bitswap as NetworkBehaviour>::ConnectionHandler,
+            Message,
+        >,
+    >,
     /// List of prospect peers to connect to.
     target_peers: FnvHashSet<PeerId>,
     /// Ledger
@@ -150,9 +155,12 @@ impl Bitswap {
     /// Called from Kademlia behaviour.
     pub fn connect(&mut self, peer_id: PeerId) {
         if self.target_peers.insert(peer_id) {
-            self.events.push_back(NetworkBehaviourAction::DialPeer {
-                peer_id,
-                condition: DialPeerCondition::Disconnected,
+            let handler = self.new_handler();
+            self.events.push_back(NetworkBehaviourAction::Dial {
+                opts: DialOpts::peer_id(peer_id)
+                    .condition(PeerCondition::Disconnected)
+                    .build(),
+                handler,
             });
         }
     }
@@ -209,10 +217,10 @@ impl Bitswap {
 }
 
 impl NetworkBehaviour for Bitswap {
-    type ProtocolsHandler = OneShotHandler<BitswapConfig, Message, MessageWrapper>;
+    type ConnectionHandler = OneShotHandler<BitswapConfig, Message, MessageWrapper>;
     type OutEvent = BitswapEvent;
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
         debug!("bitswap: new_handler");
         Default::default()
     }
@@ -222,7 +230,14 @@ impl NetworkBehaviour for Bitswap {
         Vec::new()
     }
 
-    fn inject_connected(&mut self, peer_id: &PeerId) {
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        _connection_id: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _failed_addresses: Option<&Vec<Multiaddr>>,
+        _other_established: usize,
+    ) {
         debug!("bitswap: inject_connected {}", peer_id);
         let ledger = Ledger::new();
         self.stats.entry(*peer_id).or_default();
@@ -230,7 +245,14 @@ impl NetworkBehaviour for Bitswap {
         self.send_want_list(*peer_id);
     }
 
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        _connection_id: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _handler: Self::ConnectionHandler,
+        _remaining_established: usize,
+    ) {
         debug!("bitswap: inject_disconnected {:?}", peer_id);
         self.connected_peers.remove(peer_id);
         // the related stats are not dropped, so that they
@@ -289,9 +311,11 @@ impl NetworkBehaviour for Bitswap {
     }
 
     #[allow(clippy::type_complexity)]
-    fn poll(&mut self, ctx: &mut Context, _: &mut impl PollParameters)
-        -> Poll<NetworkBehaviourAction<<<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, Self::OutEvent>>
-    {
+    fn poll(
+        &mut self,
+        ctx: &mut Context,
+        _: &mut impl PollParameters,
+    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
         use futures::stream::StreamExt;
 
         while let Poll::Ready(Some((peer_id, block))) = self.ready_blocks.poll_next_unpin(ctx) {

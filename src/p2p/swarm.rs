@@ -2,10 +2,12 @@ use crate::p2p::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use core::task::{Context, Poll};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
-use libp2p::swarm::protocols_handler::{
-    DummyProtocolsHandler, IntoProtocolsHandler, ProtocolsHandler,
+use libp2p::swarm::handler::DummyConnectionHandler;
+use libp2p::swarm::{
+    self,
+    dial_opts::{DialOpts, PeerCondition},
+    ConnectionHandler, DialError, NetworkBehaviour, PollParameters, Swarm,
 };
-use libp2p::swarm::{self, DialPeerCondition, NetworkBehaviour, PollParameters, Swarm};
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
@@ -33,7 +35,10 @@ impl Disconnector {
 }
 
 // Currently this is swarm::NetworkBehaviourAction<Void, Void>
-type NetworkBehaviourAction = swarm::NetworkBehaviourAction<<<<SwarmApi as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, <SwarmApi as NetworkBehaviour>::OutEvent>;
+type NetworkBehaviourAction = swarm::NetworkBehaviourAction<
+    <<SwarmApi as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::OutEvent,
+    <SwarmApi as NetworkBehaviour>::ConnectionHandler,
+>;
 
 #[derive(Debug, Default)]
 pub struct SwarmApi {
@@ -106,11 +111,14 @@ impl SwarmApi {
             .connect_registry
             .create_subscription(addr.clone().into(), None);
 
-        self.events.push_back(NetworkBehaviourAction::DialPeer {
-            peer_id: addr.peer_id,
+        let handler = self.new_handler();
+        self.events.push_back(NetworkBehaviourAction::Dial {
             // rationale: this is sort of explicit command, perhaps the old address is no longer
             // valid. Always would be even better but it's bugged at the moment.
-            condition: DialPeerCondition::NotDialing,
+            opts: DialOpts::peer_id(addr.peer_id)
+                .condition(PeerCondition::NotDialing)
+                .build(),
+            handler,
         });
 
         self.pending_addresses
@@ -140,10 +148,10 @@ impl SwarmApi {
 }
 
 impl NetworkBehaviour for SwarmApi {
-    type ProtocolsHandler = DummyProtocolsHandler;
+    type ConnectionHandler = DummyConnectionHandler;
     type OutEvent = void::Void;
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
         Default::default()
     }
 
@@ -165,12 +173,14 @@ impl NetworkBehaviour for SwarmApi {
     fn inject_connection_established(
         &mut self,
         peer_id: &PeerId,
-        _id: &ConnectionId,
-        cp: &ConnectedPoint,
+        _connection_id: &ConnectionId,
+        endpoint: &ConnectedPoint,
+        _failed_addresses: Option<&Vec<Multiaddr>>,
+        _other_established: usize,
     ) {
         // TODO: could be that the connection is not yet fully established at this point
-        trace!("inject_connection_established {} {:?}", peer_id, cp);
-        let addr = connection_point_addr(cp);
+        trace!("inject_connection_established {} {:?}", peer_id, endpoint);
+        let addr = connection_point_addr(endpoint);
 
         self.peers.insert(*peer_id);
         let connections = self.connected_peers.entry(*peer_id).or_default();
@@ -185,7 +195,11 @@ impl NetworkBehaviour for SwarmApi {
             );
         }
 
-        if let ConnectedPoint::Dialer { address } = cp {
+        if let ConnectedPoint::Dialer {
+            address,
+            role_override: _,
+        } = endpoint
+        {
             // we dialed to the `address`
             match self.pending_connections.entry(*peer_id) {
                 Entry::Occupied(mut oe) => {
@@ -211,9 +225,7 @@ impl NetworkBehaviour for SwarmApi {
                 }
             }
         }
-    }
 
-    fn inject_connected(&mut self, peer_id: &PeerId) {
         // we have at least one fully open connection and handler is running
         //
         // just finish all of the subscriptions that remain.
@@ -247,10 +259,12 @@ impl NetworkBehaviour for SwarmApi {
         &mut self,
         peer_id: &PeerId,
         _id: &ConnectionId,
-        cp: &ConnectedPoint,
+        endpoint: &ConnectedPoint,
+        _handler: Self::ConnectionHandler,
+        _remaining_established: usize,
     ) {
-        trace!("inject_connection_closed {} {:?}", peer_id, cp);
-        let closed_addr = connection_point_addr(cp);
+        trace!("inject_connection_closed {} {:?}", peer_id, endpoint);
+        let closed_addr = connection_point_addr(endpoint);
 
         match self.connected_peers.entry(*peer_id) {
             Entry::Occupied(mut oe) => {
@@ -277,7 +291,7 @@ impl NetworkBehaviour for SwarmApi {
             closed_addr
         );
 
-        if let ConnectedPoint::Dialer { .. } = cp {
+        if let ConnectedPoint::Dialer { .. } = endpoint {
             let addr = MultiaddrWithPeerId::from((closed_addr, peer_id.to_owned()));
 
             match self.pending_connections.entry(*peer_id) {
@@ -290,7 +304,7 @@ impl NetworkBehaviour for SwarmApi {
 
                         // this needs to be guarded, so that the connect test case doesn't cause a
                         // panic following inject_connection_established, inject_connection_closed
-                        // if there's only the DummyProtocolsHandler, which doesn't open a
+                        // if there's only the DummyConnectionHandler, which doesn't open a
                         // substream and closes up immediatedly.
                         self.connect_registry.finish_subscription(
                             addr.into(),
@@ -310,76 +324,61 @@ impl NetworkBehaviour for SwarmApi {
         }
     }
 
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        trace!("inject_disconnected: {}", peer_id);
-        assert!(!self.connected_peers.contains_key(peer_id));
-        self.roundtrip_times.remove(peer_id);
-
-        let failed = self
-            .pending_addresses
-            .remove(peer_id)
-            .unwrap_or_default()
-            .into_iter()
-            .chain(
-                self.pending_connections
-                    .remove(peer_id)
-                    .unwrap_or_default()
-                    .into_iter(),
-            );
-
-        for addr in failed {
-            self.connect_registry
-                .finish_subscription(addr.into(), Err("disconnected".into()));
-        }
-    }
-
     fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: void::Void) {}
 
-    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
-        trace!("inject_dial_failure: {}", peer_id);
-        if self.pending_addresses.contains_key(peer_id) {
-            // it is possible that these addresses have not been tried yet; they will be asked
-            // for soon.
-            self.events
-                .push_back(swarm::NetworkBehaviourAction::DialPeer {
-                    peer_id: *peer_id,
-                    condition: DialPeerCondition::NotDialing,
-                });
-        }
-
-        // this should not be executed once, but probably will be in case unsupported addresses or something
-        // surprising happens.
-        for failed in self.pending_connections.remove(peer_id).unwrap_or_default() {
-            self.connect_registry
-                .finish_subscription(failed.into(), Err("addresses exhausted".into()));
-        }
-    }
-
-    fn inject_addr_reach_failure(
+    fn inject_dial_failure(
         &mut self,
-        peer_id: Option<&PeerId>,
-        addr: &Multiaddr,
-        error: &dyn std::error::Error,
+        peer_id: Option<PeerId>,
+        _handler: Self::ConnectionHandler,
+        error: &DialError,
     ) {
-        trace!("inject_addr_reach_failure {} {}", addr, error);
-
+        // TODO: there might be additional connections we should attempt
+        // (i.e) a new MultiAddr was found after sending the existing ones
+        // off to dial
         if let Some(peer_id) = peer_id {
-            match self.pending_connections.entry(*peer_id) {
+            match self.pending_connections.entry(peer_id) {
                 Entry::Occupied(mut oe) => {
                     let addresses = oe.get_mut();
-                    let addr = MultiaddrWithPeerId::try_from(addr.clone())
-                        .expect("dialed address contains peerid in libp2p 0.38");
-                    let pos = addresses.iter().position(|a| *a == addr);
 
-                    if let Some(pos) = pos {
-                        addresses.swap_remove(pos);
-                        self.connect_registry
-                            .finish_subscription(addr.into(), Err(error.to_string()));
+                    match error {
+                        DialError::Transport(multiaddrs) => {
+                            for (addr, error) in multiaddrs {
+                                let addr = MultiaddrWithPeerId::try_from(addr.clone())
+                                    .expect("to recieve an MultiAddrWithPeerId from DialError");
+                                self.connect_registry.finish_subscription(
+                                    addr.clone().into(),
+                                    Err(error.to_string()),
+                                );
+
+                                if let Some(pos) = addresses.iter().position(|a| *a == addr) {
+                                    addresses.swap_remove(pos);
+                                }
+                            }
+                        }
+                        DialError::WrongPeerId { .. } => {
+                            for addr in addresses.iter() {
+                                self.connect_registry.finish_subscription(
+                                    addr.clone().into(),
+                                    Err(error.to_string()),
+                                );
+                            }
+
+                            addresses.clear();
+                        }
+                        error => {
+                            warn!(
+                                ?error,
+                                "unexpected DialError; some futures might never complete"
+                            );
+                        }
                     }
 
                     if addresses.is_empty() {
                         oe.remove();
                     }
+
+                    // FIXME from libp2p-0.43 upgrade: unclear if there could be a need for new
+                    // dial attempt if new entries to self.pending_addresses arrived.
                 }
                 Entry::Vacant(_) => {}
             }
@@ -401,7 +400,10 @@ impl NetworkBehaviour for SwarmApi {
 
 fn connection_point_addr(cp: &ConnectedPoint) -> MultiaddrWithoutPeerId {
     match cp {
-        ConnectedPoint::Dialer { address } => MultiaddrWithPeerId::try_from(address.to_owned())
+        ConnectedPoint::Dialer {
+            address,
+            role_override: _,
+        } => MultiaddrWithPeerId::try_from(address.to_owned())
             .expect("dialed address contains peerid in libp2p 0.38")
             .into(),
         ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr
@@ -451,11 +453,13 @@ mod tests {
 
             loop {
                 tokio::select! {
+                    biased;
+
                     _ = (&mut swarm1).next() => {},
                     _ = (&mut swarm2).next() => {},
                     res = (&mut sub) => {
                         // this is currently a success even though the connection is never really
-                        // established, the DummyProtocolsHandler doesn't do anything nor want the
+                        // established, the DummyConnectionHandler doesn't do anything nor want the
                         // connection to be kept alive and thats it.
                         //
                         // it could be argued that this should be `Err("keepalive disconnected")`
@@ -482,10 +486,10 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_peerid() {
-        let (_, mut swarm1) = build_swarm();
+        let (swarm1_peerid, mut swarm1) = build_swarm();
         let (_, mut swarm2) = build_swarm();
 
-        let peer3_id = Keypair::generate_ed25519().public().into_peer_id();
+        let peer3_id = Keypair::generate_ed25519().public().to_peer_id();
 
         Swarm::listen_on(&mut swarm1, "/ip4/127.0.0.1/tcp/0".parse().unwrap()).unwrap();
 
@@ -515,7 +519,9 @@ mod tests {
                 _ = swarm1.next() => {},
                 _ = swarm2.next() => {},
                 res = &mut fut => {
-                    assert_eq!(res.unwrap_err(), Some("Pending connection: Invalid peer ID.".into()));
+                    let err = res.unwrap_err().unwrap();
+                    let expected_start = format!("Dial error: Unexpected peer ID {}", swarm1_peerid);
+                    assert_eq!(&err[0..expected_start.len()], expected_start);
                     return;
                 }
             }
@@ -581,7 +587,7 @@ mod tests {
 
     fn build_swarm() -> (PeerId, libp2p::swarm::Swarm<SwarmApi>) {
         let key = Keypair::generate_ed25519();
-        let peer_id = key.public().into_peer_id();
+        let peer_id = key.public().to_peer_id();
         let transport = build_transport(key).unwrap();
 
         let swarm = SwarmBuilder::new(transport, SwarmApi::default(), peer_id)

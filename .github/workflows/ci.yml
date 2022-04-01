@@ -33,7 +33,7 @@ jobs:
 
         - target: x86_64-pc-windows-msvc
           name: windows
-          host: windows-latest
+          host: windows-2019
           cross: false
 
         # Mobile platforms disabled until we get a good estimate of them being
@@ -86,7 +86,7 @@ jobs:
     - name: Install and cache vcpkg (windows)
       uses: lukka/run-vcpkg@v7.4
       id: windows-runvcpkg
-      if: matrix.platform.host == 'windows-latest'
+      if: matrix.platform.host == 'windows-2019'
       with:
         vcpkgDirectory: '${{ runner.workspace }}/vcpkg'
         vcpkgTriplet: 'x64-windows'
@@ -94,7 +94,7 @@ jobs:
         setupOnly: true # required for caching
 
     - name: Install depedencies (windows)
-      if: matrix.platform.host == 'windows-latest'
+      if: matrix.platform.host == 'windows-2019'
       run: "$VCPKG_ROOT/vcpkg install openssl:x64-windows"
       shell: bash
       env:

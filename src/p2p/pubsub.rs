@@ -12,7 +12,9 @@ use libp2p::core::{
     Multiaddr, PeerId,
 };
 use libp2p::floodsub::{Floodsub, FloodsubConfig, FloodsubEvent, FloodsubMessage, Topic};
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
+use libp2p::swarm::{
+    ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
+};
 
 /// Currently a thin wrapper around Floodsub, perhaps supporting both Gossipsub and Floodsub later.
 /// Allows single subscription to a topic with only unbounded senders. Tracks the peers subscribed
@@ -233,15 +235,16 @@ impl Pubsub {
 }
 
 type PubsubNetworkBehaviourAction = NetworkBehaviourAction<
-    <<Pubsub as NetworkBehaviour>::ProtocolsHandler as ProtocolsHandler>::InEvent,
-    <Pubsub as NetworkBehaviour>::OutEvent,
+    <Floodsub as NetworkBehaviour>::OutEvent,
+    <Pubsub as NetworkBehaviour>::ConnectionHandler,
+    <<Pubsub as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::InEvent,
 >;
 
 impl NetworkBehaviour for Pubsub {
-    type ProtocolsHandler = <Floodsub as NetworkBehaviour>::ProtocolsHandler;
-    type OutEvent = void::Void;
+    type ConnectionHandler = <Floodsub as NetworkBehaviour>::ConnectionHandler;
+    type OutEvent = FloodsubEvent;
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
         self.floodsub.new_handler()
     }
 
@@ -249,55 +252,56 @@ impl NetworkBehaviour for Pubsub {
         self.floodsub.addresses_of_peer(peer_id)
     }
 
-    fn inject_connected(&mut self, peer_id: &PeerId) {
-        self.floodsub.inject_connected(peer_id)
-    }
-
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        self.floodsub.inject_disconnected(peer_id)
-    }
-
     fn inject_connection_established(
         &mut self,
         peer_id: &PeerId,
         connection_id: &ConnectionId,
-        connected_point: &ConnectedPoint,
+        endpoint: &ConnectedPoint,
+        failed_addresses: Option<&Vec<Multiaddr>>,
+        other_established: usize,
     ) {
-        self.floodsub
-            .inject_connection_established(peer_id, connection_id, connected_point)
+        self.floodsub.inject_connection_established(
+            peer_id,
+            connection_id,
+            endpoint,
+            failed_addresses,
+            other_established,
+        )
     }
 
     fn inject_connection_closed(
         &mut self,
         peer_id: &PeerId,
         connection_id: &ConnectionId,
-        connected_point: &ConnectedPoint,
+        endpoint: &ConnectedPoint,
+        handler: Self::ConnectionHandler,
+        remaining_established: usize,
     ) {
-        self.floodsub
-            .inject_connection_closed(peer_id, connection_id, connected_point)
+        self.floodsub.inject_connection_closed(
+            peer_id,
+            connection_id,
+            endpoint,
+            handler,
+            remaining_established,
+        )
     }
 
     fn inject_event(
         &mut self,
         peer_id: PeerId,
         connection: ConnectionId,
-        event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+        event: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
     ) {
         self.floodsub.inject_event(peer_id, connection, event)
     }
 
-    fn inject_addr_reach_failure(
+    fn inject_dial_failure(
         &mut self,
-        peer_id: Option<&PeerId>,
-        addr: &Multiaddr,
-        error: &dyn std::error::Error,
+        peer_id: Option<PeerId>,
+        handler: Self::ConnectionHandler,
+        error: &DialError,
     ) {
-        self.floodsub
-            .inject_addr_reach_failure(peer_id, addr, error)
-    }
-
-    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
-        self.floodsub.inject_dial_failure(peer_id)
+        self.floodsub.inject_dial_failure(peer_id, handler, error)
     }
 
     fn inject_new_listen_addr(&mut self, id: ListenerId, addr: &Multiaddr) {
@@ -378,7 +382,9 @@ impl NetworkBehaviour for Pubsub {
                     peer_id,
                     topic,
                 }) => {
+                    self.add_node_to_partial_view(peer_id);
                     let topics = self.peers.entry(peer_id).or_insert_with(Vec::new);
+
                     let appeared = topics.is_empty();
 
                     if !topics.contains(&topic) {
@@ -403,16 +409,14 @@ impl NetworkBehaviour for Pubsub {
                         if topics.is_empty() {
                             debug!("peer disappeared as pubsub subscriber: {}", peer_id);
                             oe.remove();
+                            self.remove_node_from_partial_view(&peer_id);
                         }
                     }
 
                     continue;
                 }
-                NetworkBehaviourAction::DialAddress { address } => {
-                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address });
-                }
-                NetworkBehaviourAction::DialPeer { peer_id, condition } => {
-                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition });
+                action @ NetworkBehaviourAction::Dial { .. } => {
+                    return Poll::Ready(action);
                 }
                 NetworkBehaviourAction::NotifyHandler {
                     peer_id,
