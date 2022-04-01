@@ -376,6 +376,9 @@ impl NetworkBehaviour for SwarmApi {
                     if addresses.is_empty() {
                         oe.remove();
                     }
+
+                    // FIXME from libp2p-0.43 upgrade: unclear if there could be a need for new
+                    // dial attempt if new entries to self.pending_addresses arrived.
                 }
                 Entry::Vacant(_) => {}
             }
