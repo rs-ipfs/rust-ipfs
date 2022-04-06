@@ -15,13 +15,13 @@ enum Options {
     /// with two arguments by default, `--bits 1024` and `--profile test`.
     Init {
         /// Generated key length
-        #[structopt(long)]
+        #[structopt(long, default_value = "2048")]
         bits: NonZeroU16,
         /// List of configuration profiles to apply. Currently only the `Test` and `Default`
         /// profiles are supported.
         ///
         /// `Test` uses ephemeral ports (necessary for conformance tests), `Default` uses `4004`.
-        #[structopt(long, use_delimiter = true)]
+        #[structopt(long, use_delimiter = true, default_value = "default")]
         profile: Vec<config::Profile>,
     },
     /// Start the IPFS node in the foreground (not detaching from parent process).
@@ -95,7 +95,7 @@ fn main() {
                     std::process::exit(1);
                 }
                 Err(config::InitializationError::InvalidRsaKeyLength(bits)) => {
-                    eprintln!("Error: --bits out of range [1024, 16384]: {}", bits);
+                    eprintln!("Error: --bits out of range [2048, 16384]: {}", bits);
                     eprintln!("This is a fake version of ipfs cli which does not support much");
                     std::process::exit(1);
                 }

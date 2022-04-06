@@ -59,16 +59,18 @@ pub enum InitializationError {
 pub fn init(
     ipfs_path: &Path,
     bits: NonZeroU16,
-    profiles: Vec<Profile>,
+    mut profiles: Vec<Profile>,
 ) -> Result<String, InitializationError> {
     use multibase::Base::Base64Pad;
     use prost::Message;
     use std::fs::OpenOptions;
     use std::io::{BufWriter, Write};
 
-    if profiles.len() != 1 {
-        unimplemented!("Multiple profiles are currently unsupported!")
-    }
+    match profiles.len() {
+        0 => profiles.push(Profile::Default),
+        1 => {}
+        _ => unimplemented!("Multiple profiles are currently unsupported!"),
+    };
 
     let bits = bits.get();
 
