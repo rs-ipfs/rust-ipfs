@@ -15,6 +15,7 @@
 * fix: strict ordering for DAG-CBOR-encoded map keys [#493]
 * feat: upgrade libp2p to v0.43.0 [#499]
 * feat(http): default values for --bits and --profile [#502]
+* feat: return time since connecting began instead of null for latency [#479]
 
 [#429]: https://github.com/rs-ipfs/rust-ipfs/pull/429
 [#428]: https://github.com/rs-ipfs/rust-ipfs/pull/428
@@ -33,6 +34,7 @@
 [#493]: https://github.com/rs-ipfs/rust-ipfs/pull/493
 [#499]: https://github.com/rs-ipfs/rust-ipfs/pull/499
 [#502]: https://github.com/rs-ipfs/rust-ipfs/pull/502
+[#479]: https://github.com/rs-ipfs/rust-ipfs/pull/479
 
 # 0.2.1
 
