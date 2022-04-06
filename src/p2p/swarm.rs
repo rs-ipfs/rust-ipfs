@@ -10,7 +10,7 @@ use libp2p::swarm::{
 };
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// A description of currently active connection.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,6 +51,7 @@ pub struct SwarmApi {
     connections: HashMap<MultiaddrWithoutPeerId, PeerId>,
     roundtrip_times: HashMap<PeerId, Duration>,
     connected_peers: HashMap<PeerId, Vec<MultiaddrWithoutPeerId>>,
+    connected_times: HashMap<PeerId, Instant>,
 
     /// The connections which have been requested, but the swarm/network is yet to ask for
     /// addresses; currently filled in the order of adding, with the default size of one.
@@ -80,7 +81,11 @@ impl SwarmApi {
         self.connected_peers
             .iter()
             .filter_map(move |(peer, conns)| {
-                let rtt = self.roundtrip_times.get(peer).cloned();
+                let rtt = self.roundtrip_times.get(peer).cloned().or_else(|| {
+                    // If no rountrip time yet, just return time since connected.
+                    // See: https://github.com/rs-ipfs/rust-ipfs/issues/178
+                    self.connected_times.get(peer).map(Instant::elapsed)
+                });
 
                 conns.first().map(|any| Connection {
                     addr: MultiaddrWithPeerId::from((any.clone(), *peer)),
@@ -120,6 +125,9 @@ impl SwarmApi {
                 .build(),
             handler,
         });
+
+        // store this for returning the time since connecting started before ping is available
+        self.connected_times.insert(addr.peer_id, Instant::now());
 
         self.pending_addresses
             .entry(addr.peer_id)
@@ -290,6 +298,8 @@ impl NetworkBehaviour for SwarmApi {
             "connection was not tracked but it should had been: {}",
             closed_addr
         );
+
+        self.connected_times.remove(peer_id);
 
         if let ConnectedPoint::Dialer { .. } = endpoint {
             let addr = MultiaddrWithPeerId::from((closed_addr, peer_id.to_owned()));
