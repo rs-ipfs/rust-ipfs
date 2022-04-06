@@ -84,9 +84,7 @@ impl SwarmApi {
                 let rtt = self.roundtrip_times.get(peer).cloned().or_else(|| {
                     // If no rountrip time yet, just return time since connected.
                     // See: https://github.com/rs-ipfs/rust-ipfs/issues/178
-                    self.connected_times.get(peer).and_then(|connected_time| {
-                        Instant::now().checked_duration_since(*connected_time)
-                    })
+                    self.connected_times.get(peer).map(Instant::elapsed)
                 });
 
                 conns.first().map(|any| Connection {
