@@ -49,7 +49,10 @@ use futures::{
     sink::SinkExt,
     stream::{Fuse, Stream},
 };
-use libp2p::swarm::NetworkBehaviour;
+use libp2p::{
+    gossipsub::{error::PublishError, MessageId},
+    swarm::NetworkBehaviour,
+};
 use tracing::Span;
 use tracing_futures::Instrument;
 
@@ -268,8 +271,12 @@ enum IpfsEvent {
     /// Request background task to return the listened and external addresses
     GetAddresses(OneshotSender<Vec<Multiaddr>>),
     PubsubSubscribe(String, OneshotSender<Option<SubscriptionStream>>),
-    PubsubUnsubscribe(String, OneshotSender<bool>),
-    PubsubPublish(String, Vec<u8>, OneshotSender<()>),
+    PubsubUnsubscribe(String, OneshotSender<Result<bool, Error>>),
+    PubsubPublish(
+        String,
+        Vec<u8>,
+        OneshotSender<Result<MessageId, PublishError>>,
+    ),
     PubsubPeers(Option<String>, OneshotSender<Vec<PeerId>>),
     PubsubSubscribed(OneshotSender<Vec<String>>),
     WantList(
@@ -774,7 +781,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Publishes to the topic which may have been subscribed to earlier
-    pub async fn pubsub_publish(&self, topic: String, data: Vec<u8>) -> Result<(), Error> {
+    pub async fn pubsub_publish(&self, topic: String, data: Vec<u8>) -> Result<MessageId, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
 
@@ -782,8 +789,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 .clone()
                 .send(IpfsEvent::PubsubPublish(topic, data, tx))
                 .await?;
-
-            Ok(rx.await?)
+            Ok(rx.await??)
         }
         .instrument(self.span.clone())
         .await
@@ -802,7 +808,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
                 .send(IpfsEvent::PubsubUnsubscribe(topic.into(), tx))
                 .await?;
 
-            Ok(rx.await?)
+            rx.await?
         }
         .instrument(self.span.clone())
         .await
@@ -1437,11 +1443,9 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         let _ = ret.send(self.swarm.behaviour_mut().pubsub().unsubscribe(topic));
                     }
                     IpfsEvent::PubsubPublish(topic, data, ret) => {
-                        self.swarm.behaviour_mut().pubsub().publish(topic, data);
-                        let _ = ret.send(());
+                        let _ = ret.send(self.swarm.behaviour_mut().pubsub().publish(topic, data));
                     }
                     IpfsEvent::PubsubPeers(Some(topic), ret) => {
-                        let topic = libp2p::floodsub::Topic::new(topic);
                         let _ =
                             ret.send(self.swarm.behaviour_mut().pubsub().subscribed_peers(&topic));
                     }

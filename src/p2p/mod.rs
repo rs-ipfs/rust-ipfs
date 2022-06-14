@@ -1,10 +1,11 @@
 //! P2P handling for IPFS nodes.
+use crate::error::Error;
 use crate::repo::Repo;
 use crate::{IpfsOptions, IpfsTypes};
+
 use libp2p::identity::Keypair;
 use libp2p::Swarm;
 use libp2p::{Multiaddr, PeerId};
-use std::io;
 use std::sync::Arc;
 use tracing::Span;
 
@@ -57,14 +58,14 @@ pub async fn create_swarm<TIpfsTypes: IpfsTypes>(
     options: SwarmOptions,
     span: Span,
     repo: Arc<Repo<TIpfsTypes>>,
-) -> io::Result<TSwarm<TIpfsTypes>> {
+) -> Result<TSwarm<TIpfsTypes>, Error> {
     let peer_id = options.peer_id;
 
     // Set up an encrypted TCP transport over the Mplex protocol.
     let transport = transport::build_transport(options.keypair.clone())?;
 
     // Create a Kademlia behaviour
-    let behaviour = behaviour::build_behaviour(options, repo).await;
+    let behaviour = behaviour::build_behaviour(options, repo).await?;
 
     // Create a Swarm
     let swarm = libp2p::swarm::SwarmBuilder::new(transport, behaviour, peer_id)

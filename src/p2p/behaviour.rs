@@ -1,10 +1,12 @@
 use super::pubsub::Pubsub;
 use super::swarm::{Connection, Disconnector, SwarmApi};
 use crate::config::BOOTSTRAP_NODES;
+use crate::error::Error;
 use crate::p2p::{MultiaddrWithPeerId, SwarmOptions};
 use crate::repo::{BlockPut, Repo};
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use crate::IpfsTypes;
+
 use anyhow::anyhow;
 use cid::Cid;
 use ipfs_bitswap::{Bitswap, BitswapEvent};
@@ -15,7 +17,7 @@ use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent, Quorum};
 // use libp2p::mdns::{MdnsEvent, TokioMdns};
 use libp2p::ping::{Ping, PingEvent};
 // use libp2p::swarm::toggle::Toggle;
-use libp2p::floodsub::FloodsubEvent;
+use libp2p::gossipsub::GossipsubEvent;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourEventProcess};
 use multibase::Base;
 use std::{convert::TryInto, sync::Arc};
@@ -427,15 +429,15 @@ impl<Types: IpfsTypes> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour
     }
 }
 
-impl<Types: IpfsTypes> NetworkBehaviourEventProcess<FloodsubEvent> for Behaviour<Types> {
-    fn inject_event(&mut self, event: FloodsubEvent) {
-        trace!("floodsub: {:?}", event);
+impl<Types: IpfsTypes> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<Types> {
+    fn inject_event(&mut self, event: GossipsubEvent) {
+        trace!("gossipsub: {:?}", event);
     }
 }
 
 impl<Types: IpfsTypes> Behaviour<Types> {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
-    pub async fn new(options: SwarmOptions, repo: Arc<Repo<Types>>) -> Self {
+    pub async fn new(options: SwarmOptions, repo: Arc<Repo<Types>>) -> Result<Self, Error> {
         info!("net: starting with peer id {}", options.peer_id);
 
         /*
@@ -467,7 +469,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             IdentifyConfig::new("/ipfs/0.1.0".into(), options.keypair.public())
                 .with_agent_version("rust-ipfs".into()),
         );
-        let pubsub = Pubsub::new(options.peer_id);
+        let pubsub = Pubsub::new(options.keypair)?;
         let mut swarm = SwarmApi::default();
 
         for (addr, _peer_id) in &options.bootstrap {
@@ -476,7 +478,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             }
         }
 
-        Behaviour {
+        Ok(Behaviour {
             repo,
             // mdns,
             kademlia,
@@ -486,7 +488,7 @@ impl<Types: IpfsTypes> Behaviour<Types> {
             identify,
             pubsub,
             swarm,
-        }
+        })
     }
 
     pub fn add_peer(&mut self, peer: PeerId, addr: Multiaddr) {
@@ -496,13 +498,13 @@ impl<Types: IpfsTypes> Behaviour<Types> {
         // to the given peer; it is unsure that we want it done within
         // add_peer, especially since that peer might not belong to the
         // expected identify protocol
-        self.pubsub.add_node_to_partial_view(peer);
+        self.pubsub.add_explicit_peer(&peer);
         // TODO self.bitswap.add_node_to_partial_view(peer);
     }
 
     pub fn remove_peer(&mut self, peer: &PeerId) {
         self.swarm.remove_peer(peer);
-        self.pubsub.remove_node_from_partial_view(peer);
+        self.pubsub.remove_explicit_peer(peer);
         // TODO self.bitswap.remove_peer(&peer);
     }
 
@@ -717,6 +719,6 @@ impl<Types: IpfsTypes> Behaviour<Types> {
 pub async fn build_behaviour<TIpfsTypes: IpfsTypes>(
     options: SwarmOptions,
     repo: Arc<Repo<TIpfsTypes>>,
-) -> Behaviour<TIpfsTypes> {
+) -> Result<Behaviour<TIpfsTypes>, Error> {
     Behaviour::new(options, repo).await
 }

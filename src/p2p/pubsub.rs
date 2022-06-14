@@ -1,78 +1,83 @@
 use futures::channel::mpsc as channel;
 use futures::stream::{FusedStream, Stream};
-
+use libp2p::gossipsub::error::PublishError;
+use libp2p::identity::Keypair;
 use std::collections::HashMap;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use crate::error::Error;
+
 use libp2p::core::{
     connection::{ConnectedPoint, ConnectionId, ListenerId},
     Multiaddr, PeerId,
 };
-use libp2p::floodsub::{Floodsub, FloodsubConfig, FloodsubEvent, FloodsubMessage, Topic};
+
+use libp2p::gossipsub::{
+    self, Gossipsub, GossipsubEvent, GossipsubMessage, IdentTopic as Topic, MessageAuthenticity,
+    MessageId, TopicHash, ValidationMode,
+};
 use libp2p::swarm::{
     ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 
-/// Currently a thin wrapper around Floodsub, perhaps supporting both Gossipsub and Floodsub later.
+/// Currently a thin wrapper around Gossipsub.
 /// Allows single subscription to a topic with only unbounded senders. Tracks the peers subscribed
 /// to different topics. The messages in the streams are wrapped in `Arc` as they technically could
 /// be sent to multiple topics, but this api is not provided.
 pub struct Pubsub {
     // Tracks the topic subscriptions.
-    streams: HashMap<Topic, channel::UnboundedSender<Arc<PubsubMessage>>>,
+    streams: HashMap<TopicHash, channel::UnboundedSender<Arc<PubsubMessage>>>,
+
     // A collection of peers and the topics they are subscribed to.
-    peers: HashMap<PeerId, Vec<Topic>>,
-    floodsub: Floodsub,
-    // the subscription streams implement Drop and will send out their topic name through the
+    peers: HashMap<PeerId, Vec<TopicHash>>,
+
+    gossipsub: Gossipsub,
+    // the subscription streams implement Drop and will send out their topic through the
     // sender cloned from here if they are dropped before the stream has ended.
     unsubscriptions: (
-        channel::UnboundedSender<String>,
-        channel::UnboundedReceiver<String>,
+        channel::UnboundedSender<TopicHash>,
+        channel::UnboundedReceiver<TopicHash>,
     ),
 }
 
 /// Adaptation hopefully supporting both Floodsub and Gossipsub Messages in the future
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PubsubMessage {
     /// Peer address of the message sender.
-    pub source: PeerId,
+    pub source: Option<PeerId>,
     /// The message data.
     pub data: Vec<u8>,
     /// The sequence number of the message.
-    // this could be an enum for gossipsub message compat, it uses u64, though the floodsub
-    // sequence numbers looked like 8 bytes in testing..
-    pub sequence_number: Vec<u8>,
-    /// The recepients of the message (topic IDs).
-    // TODO: gossipsub uses topichashes, haven't checked if we could have some unifying abstraction
-    // or if we should have a hash to name mapping internally?
-    pub topics: Vec<String>,
+    pub sequence_number: Option<u64>,
+    /// The recepient of the message.
+    pub topic: TopicHash,
 }
 
-impl From<FloodsubMessage> for PubsubMessage {
+impl From<GossipsubMessage> for PubsubMessage {
     fn from(
-        FloodsubMessage {
+        GossipsubMessage {
             source,
             data,
             sequence_number,
-            topics,
-        }: FloodsubMessage,
+            topic,
+        }: GossipsubMessage,
     ) -> Self {
         PubsubMessage {
             source,
             data,
             sequence_number,
-            topics: topics.into_iter().map(String::from).collect(),
+            topic,
         }
     }
 }
 
 /// Stream of a pubsub messages. Implements [`FusedStream`].
 pub struct SubscriptionStream {
-    on_drop: Option<channel::UnboundedSender<String>>,
-    topic: Option<String>,
+    on_drop: Option<channel::UnboundedSender<TopicHash>>,
+    topic: Option<TopicHash>,
     inner: channel::UnboundedReceiver<Arc<PubsubMessage>>,
 }
 
@@ -132,18 +137,33 @@ impl FusedStream for SubscriptionStream {
 }
 
 impl Pubsub {
-    /// Delegates the `peer_id` over to [`Floodsub::new`] and internally only does accounting on
-    /// top of the floodsub.
-    pub fn new(peer_id: PeerId) -> Self {
+    /// Delegates the `peer_id` over to [`Gossipsub`] and internally only does accounting on
+    /// top of the gossip.
+    pub fn new(keypair: Keypair) -> Result<Self, Error> {
         let (tx, rx) = channel::unbounded();
-        let mut config = FloodsubConfig::new(peer_id);
-        config.subscribe_local_messages = true;
-        Pubsub {
+        let config = {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+
+            gossipsub::GossipsubConfigBuilder::default()
+                .heartbeat_interval(std::time::Duration::from_secs(10))
+                .validation_mode(ValidationMode::Strict)
+                .flood_publish(true)
+                .message_id_fn(|message: &GossipsubMessage| {
+                    let mut s = DefaultHasher::new();
+                    message.data.hash(&mut s);
+                    MessageId::from(s.finish().to_string())
+                })
+                .build()
+                .map_err(|e| anyhow::anyhow!("{}", e))?
+        };
+        Ok(Pubsub {
             streams: HashMap::new(),
             peers: HashMap::new(),
-            floodsub: Floodsub::from_config(config),
+            gossipsub: Gossipsub::new(MessageAuthenticity::Signed(keypair), config)
+                .map_err(|e| anyhow::anyhow!("{}", e))?,
             unsubscriptions: (tx, rx),
-        }
+        })
     }
 
     /// Subscribes to a currently unsubscribed topic.
@@ -151,28 +171,29 @@ impl Pubsub {
     /// already.
     pub fn subscribe(&mut self, topic: impl Into<String>) -> Option<SubscriptionStream> {
         use std::collections::hash_map::Entry;
-
         let topic = Topic::new(topic);
 
-        match self.streams.entry(topic) {
+        match self.streams.entry(topic.hash()) {
             Entry::Vacant(ve) => {
-                // TODO: this could also be bounded; we could send the message and drop the
-                // subscription if it ever became full.
-                let (tx, rx) = channel::unbounded();
-
-                // there are probably some invariants which need to hold for the topic...
-                assert!(
-                    self.floodsub.subscribe(ve.key().clone()),
-                    "subscribing to a unsubscribed topic should have succeeded"
-                );
-
-                let name = ve.key().id().to_string();
-                ve.insert(tx);
-                Some(SubscriptionStream {
-                    on_drop: Some(self.unsubscriptions.0.clone()),
-                    topic: Some(name),
-                    inner: rx,
-                })
+                match self.gossipsub.subscribe(&topic) {
+                    Ok(true) => {
+                        // TODO: this could also be bounded; we could send the message and drop the
+                        // subscription if it ever became full.
+                        let (tx, rx) = channel::unbounded();
+                        let key = ve.key().clone();
+                        ve.insert(tx);
+                        Some(SubscriptionStream {
+                            on_drop: Some(self.unsubscriptions.0.clone()),
+                            topic: Some(key),
+                            inner: rx,
+                        })
+                    }
+                    Ok(false) => None,
+                    Err(e) => {
+                        debug!("{}", e); //"subscribing to a unsubscribed topic should have succeeded"
+                        None
+                    }
+                }
             }
             Entry::Occupied(_) => None,
         }
@@ -182,22 +203,22 @@ impl Pubsub {
     /// SubscriptionStream.
     ///
     /// Returns true if an existing subscription was dropped, false otherwise
-    pub fn unsubscribe(&mut self, topic: impl Into<String>) -> bool {
-        let topic = Topic::new(topic);
-        if self.streams.remove(&topic).is_some() {
-            assert!(
-                self.floodsub.unsubscribe(topic),
-                "sender removed but unsubscription failed"
-            );
-            true
+    pub fn unsubscribe(&mut self, topic: impl Into<String>) -> Result<bool, Error> {
+        let topic = Topic::new(topic.into());
+        if self.streams.remove(&topic.hash()).is_some() {
+            Ok(self.gossipsub.unsubscribe(&topic)?)
         } else {
-            false
+            //anyhow::bail!("sender removed but unsubscription failed")
+            anyhow::bail!("Unable to unsubscribe from topic.")
         }
     }
 
-    /// See [`Floodsub::publish_any`]
-    pub fn publish(&mut self, topic: impl Into<String>, data: impl Into<Vec<u8>>) {
-        self.floodsub.publish_any(Topic::new(topic), data);
+    pub fn publish(
+        &mut self,
+        topic: impl Into<String>,
+        data: impl Into<Vec<u8>>,
+    ) -> Result<MessageId, PublishError> {
+        self.gossipsub.publish(Topic::new(topic), data)
     }
 
     /// Returns the known peers subscribed to any topic
@@ -206,10 +227,17 @@ impl Pubsub {
     }
 
     /// Returns the peers known to subscribe to the given topic
-    pub fn subscribed_peers(&self, topic: &Topic) -> Vec<PeerId> {
+    pub fn subscribed_peers(&self, topic: &str) -> Vec<PeerId> {
+        let topic = Topic::new(topic);
         self.peers
             .iter()
-            .filter_map(|(k, v)| if v.contains(topic) { Some(*k) } else { None })
+            .filter_map(|(k, v)| {
+                if v.contains(&topic.hash()) {
+                    Some(*k)
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 
@@ -218,38 +246,36 @@ impl Pubsub {
     pub fn subscribed_topics(&self) -> Vec<String> {
         self.streams
             .keys()
-            .map(Topic::id)
-            .map(String::from)
+            .into_iter()
+            .map(|t| t.to_string())
             .collect()
     }
 
-    /// See [`Floodsub::add_node_from_partial_view`]
-    pub fn add_node_to_partial_view(&mut self, peer_id: PeerId) {
-        self.floodsub.add_node_to_partial_view(peer_id);
+    pub fn add_explicit_peer(&mut self, peer_id: &PeerId) {
+        self.gossipsub.add_explicit_peer(peer_id);
     }
 
-    /// See [`Floodsub::remove_node_from_partial_view`]
-    pub fn remove_node_from_partial_view(&mut self, peer_id: &PeerId) {
-        self.floodsub.remove_node_from_partial_view(peer_id);
+    pub fn remove_explicit_peer(&mut self, peer_id: &PeerId) {
+        self.gossipsub.remove_explicit_peer(peer_id);
     }
 }
 
 type PubsubNetworkBehaviourAction = NetworkBehaviourAction<
-    <Floodsub as NetworkBehaviour>::OutEvent,
+    <Gossipsub as NetworkBehaviour>::OutEvent,
     <Pubsub as NetworkBehaviour>::ConnectionHandler,
     <<Pubsub as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::InEvent,
 >;
 
 impl NetworkBehaviour for Pubsub {
-    type ConnectionHandler = <Floodsub as NetworkBehaviour>::ConnectionHandler;
-    type OutEvent = FloodsubEvent;
+    type ConnectionHandler = <Gossipsub as NetworkBehaviour>::ConnectionHandler;
+    type OutEvent = GossipsubEvent;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
-        self.floodsub.new_handler()
+        self.gossipsub.new_handler()
     }
 
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        self.floodsub.addresses_of_peer(peer_id)
+        self.gossipsub.addresses_of_peer(peer_id)
     }
 
     fn inject_connection_established(
@@ -260,7 +286,7 @@ impl NetworkBehaviour for Pubsub {
         failed_addresses: Option<&Vec<Multiaddr>>,
         other_established: usize,
     ) {
-        self.floodsub.inject_connection_established(
+        self.gossipsub.inject_connection_established(
             peer_id,
             connection_id,
             endpoint,
@@ -277,7 +303,7 @@ impl NetworkBehaviour for Pubsub {
         handler: Self::ConnectionHandler,
         remaining_established: usize,
     ) {
-        self.floodsub.inject_connection_closed(
+        self.gossipsub.inject_connection_closed(
             peer_id,
             connection_id,
             endpoint,
@@ -292,7 +318,7 @@ impl NetworkBehaviour for Pubsub {
         connection: ConnectionId,
         event: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
     ) {
-        self.floodsub.inject_event(peer_id, connection, event)
+        self.gossipsub.inject_event(peer_id, connection, event)
     }
 
     fn inject_dial_failure(
@@ -301,23 +327,23 @@ impl NetworkBehaviour for Pubsub {
         handler: Self::ConnectionHandler,
         error: &DialError,
     ) {
-        self.floodsub.inject_dial_failure(peer_id, handler, error)
+        self.gossipsub.inject_dial_failure(peer_id, handler, error)
     }
 
     fn inject_new_listen_addr(&mut self, id: ListenerId, addr: &Multiaddr) {
-        self.floodsub.inject_new_listen_addr(id, addr)
+        self.gossipsub.inject_new_listen_addr(id, addr)
     }
 
     fn inject_expired_listen_addr(&mut self, id: ListenerId, addr: &Multiaddr) {
-        self.floodsub.inject_expired_listen_addr(id, addr)
+        self.gossipsub.inject_expired_listen_addr(id, addr)
     }
 
     fn inject_new_external_addr(&mut self, addr: &Multiaddr) {
-        self.floodsub.inject_new_external_addr(addr)
+        self.gossipsub.inject_new_external_addr(addr)
     }
 
     fn inject_listener_error(&mut self, id: ListenerId, err: &(dyn std::error::Error + 'static)) {
-        self.floodsub.inject_listener_error(id, err)
+        self.gossipsub.inject_listener_error(id, err)
     }
 
     fn poll(
@@ -331,11 +357,12 @@ impl NetworkBehaviour for Pubsub {
         loop {
             match self.unsubscriptions.1.poll_next_unpin(ctx) {
                 Poll::Ready(Some(dropped)) => {
-                    let topic = Topic::new(dropped);
-                    if self.streams.remove(&topic).is_some() {
-                        debug!("unsubscribing via drop from {:?}", topic.id());
+                    if self.streams.remove(&dropped).is_some() {
+                        debug!("unsubscribing via drop from {:?}", dropped);
                         assert!(
-                            self.floodsub.unsubscribe(topic),
+                            self.gossipsub
+                                .unsubscribe(&Topic::new(dropped.to_string()))
+                                .is_ok(),
                             "Failed to unsubscribe a dropped subscription"
                         );
                     } else {
@@ -350,39 +377,46 @@ impl NetworkBehaviour for Pubsub {
         }
 
         loop {
-            match futures::ready!(self.floodsub.poll(ctx, poll)) {
-                NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Message(msg)) => {
-                    let topics = msg.topics.clone();
-                    let msg = Arc::new(PubsubMessage::from(msg));
+            match futures::ready!(self.gossipsub.poll(ctx, poll)) {
+                NetworkBehaviourAction::GenerateEvent(GossipsubEvent::GossipsubNotSupported {
+                    peer_id,
+                }) => {
+                    warn!("Not supported for {}", peer_id);
+                    continue;
+                }
+                NetworkBehaviourAction::GenerateEvent(GossipsubEvent::Message {
+                    message, ..
+                }) => {
+                    let topic = message.topic.clone();
+                    let msg = Arc::new(PubsubMessage::from(message));
                     let mut buffer = None;
+                    if let Entry::Occupied(oe) = self.streams.entry(topic.clone()) {
+                        let sent = buffer.take().unwrap_or_else(|| Arc::clone(&msg));
 
-                    for topic in topics {
-                        if let Entry::Occupied(oe) = self.streams.entry(topic) {
-                            let sent = buffer.take().unwrap_or_else(|| Arc::clone(&msg));
-
-                            if let Err(se) = oe.get().unbounded_send(sent) {
-                                // receiver has dropped
-                                let (topic, _) = oe.remove_entry();
-                                debug!("unsubscribing via SendError from {:?}", topic.id());
-                                assert!(
-                                    self.floodsub.unsubscribe(topic),
-                                    "Failed to unsubscribe following SendError"
-                                );
-                                buffer = Some(se.into_inner());
-                            }
-                        } else {
-                            // we had unsubscribed from the topic after Floodsub had received the
-                            // message
+                        if let Err(se) = oe.get().unbounded_send(sent) {
+                            // receiver has dropped
+                            let (topic, _) = oe.remove_entry();
+                            debug!("unsubscribing via SendError from {:?}", &topic);
+                            assert!(
+                                self.gossipsub
+                                    .unsubscribe(&Topic::new(topic.to_string()))
+                                    .is_ok(),
+                                "Failed to unsubscribe following SendError"
+                            );
+                            buffer = Some(se.into_inner());
                         }
+                    } else {
+                        // we had unsubscribed from the topic after Gossipsub had received the
+                        // message
                     }
 
                     continue;
                 }
-                NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Subscribed {
+                NetworkBehaviourAction::GenerateEvent(GossipsubEvent::Subscribed {
                     peer_id,
                     topic,
                 }) => {
-                    self.add_node_to_partial_view(peer_id);
+                    self.add_explicit_peer(&peer_id);
                     let topics = self.peers.entry(peer_id).or_insert_with(Vec::new);
 
                     let appeared = topics.is_empty();
@@ -397,7 +431,7 @@ impl NetworkBehaviour for Pubsub {
 
                     continue;
                 }
-                NetworkBehaviourAction::GenerateEvent(FloodsubEvent::Unsubscribed {
+                NetworkBehaviourAction::GenerateEvent(GossipsubEvent::Unsubscribed {
                     peer_id,
                     topic,
                 }) => {
@@ -409,7 +443,7 @@ impl NetworkBehaviour for Pubsub {
                         if topics.is_empty() {
                             debug!("peer disappeared as pubsub subscriber: {}", peer_id);
                             oe.remove();
-                            self.remove_node_from_partial_view(&peer_id);
+                            self.remove_explicit_peer(&peer_id);
                         }
                     }
 
@@ -446,5 +480,37 @@ impl NetworkBehaviour for Pubsub {
                 }
             }
         }
+    }
+
+    fn inject_address_change(
+        &mut self,
+        peer: &PeerId,
+        id: &ConnectionId,
+        old: &ConnectedPoint,
+        new: &ConnectedPoint,
+    ) {
+        self.gossipsub.inject_address_change(peer, id, old, new)
+    }
+
+    fn inject_listen_failure(
+        &mut self,
+        local_addr: &Multiaddr,
+        send_back_addr: &Multiaddr,
+        handler: Self::ConnectionHandler,
+    ) {
+        self.gossipsub
+            .inject_listen_failure(local_addr, send_back_addr, handler)
+    }
+
+    fn inject_new_listener(&mut self, id: ListenerId) {
+        self.gossipsub.inject_new_listener(id)
+    }
+
+    fn inject_listener_closed(&mut self, id: ListenerId, reason: Result<(), &std::io::Error>) {
+        self.gossipsub.inject_listener_closed(id, reason)
+    }
+
+    fn inject_expired_external_addr(&mut self, addr: &Multiaddr) {
+        self.gossipsub.inject_expired_external_addr(addr)
     }
 }
