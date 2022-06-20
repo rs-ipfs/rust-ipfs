@@ -142,18 +142,7 @@ impl Pubsub {
     pub fn new(keypair: Keypair) -> Result<Self, Error> {
         let (tx, rx) = channel::unbounded();
         let config = {
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-
             gossipsub::GossipsubConfigBuilder::default()
-                .heartbeat_interval(std::time::Duration::from_secs(10))
-                .validation_mode(ValidationMode::Strict)
-                .flood_publish(true)
-                .message_id_fn(|message: &GossipsubMessage| {
-                    let mut s = DefaultHasher::new();
-                    message.data.hash(&mut s);
-                    MessageId::from(s.finish().to_string())
-                })
                 .build()
                 .map_err(|e| anyhow::anyhow!("{}", e))?
         };
@@ -346,6 +335,38 @@ impl NetworkBehaviour for Pubsub {
         self.gossipsub.inject_listener_error(id, err)
     }
 
+    fn inject_address_change(
+        &mut self,
+        peer: &PeerId,
+        id: &ConnectionId,
+        old: &ConnectedPoint,
+        new: &ConnectedPoint,
+    ) {
+        self.gossipsub.inject_address_change(peer, id, old, new)
+    }
+
+    fn inject_listen_failure(
+        &mut self,
+        local_addr: &Multiaddr,
+        send_back_addr: &Multiaddr,
+        handler: Self::ConnectionHandler,
+    ) {
+        self.gossipsub
+            .inject_listen_failure(local_addr, send_back_addr, handler)
+    }
+
+    fn inject_new_listener(&mut self, id: ListenerId) {
+        self.gossipsub.inject_new_listener(id)
+    }
+
+    fn inject_listener_closed(&mut self, id: ListenerId, reason: Result<(), &std::io::Error>) {
+        self.gossipsub.inject_listener_closed(id, reason)
+    }
+
+    fn inject_expired_external_addr(&mut self, addr: &Multiaddr) {
+        self.gossipsub.inject_expired_external_addr(addr)
+    }
+
     fn poll(
         &mut self,
         ctx: &mut Context,
@@ -362,7 +383,7 @@ impl NetworkBehaviour for Pubsub {
                         assert!(
                             self.gossipsub
                                 .unsubscribe(&Topic::new(dropped.to_string()))
-                                .is_ok(),
+                                .unwrap_or_default(),
                             "Failed to unsubscribe a dropped subscription"
                         );
                     } else {
@@ -378,12 +399,6 @@ impl NetworkBehaviour for Pubsub {
 
         loop {
             match futures::ready!(self.gossipsub.poll(ctx, poll)) {
-                NetworkBehaviourAction::GenerateEvent(GossipsubEvent::GossipsubNotSupported {
-                    peer_id,
-                }) => {
-                    warn!("Not supported for {}", peer_id);
-                    continue;
-                }
                 NetworkBehaviourAction::GenerateEvent(GossipsubEvent::Message {
                     message, ..
                 }) => {
@@ -400,7 +415,7 @@ impl NetworkBehaviour for Pubsub {
                             assert!(
                                 self.gossipsub
                                     .unsubscribe(&Topic::new(topic.to_string()))
-                                    .is_ok(),
+                                    .unwrap_or_default(),
                                 "Failed to unsubscribe following SendError"
                             );
                             buffer = Some(se.into_inner());
@@ -449,6 +464,12 @@ impl NetworkBehaviour for Pubsub {
 
                     continue;
                 }
+                NetworkBehaviourAction::GenerateEvent(GossipsubEvent::GossipsubNotSupported {
+                    peer_id,
+                }) => {
+                    warn!("Not supported for {}", peer_id);
+                    continue;
+                }
                 action @ NetworkBehaviourAction::Dial { .. } => {
                     return Poll::Ready(action);
                 }
@@ -480,37 +501,5 @@ impl NetworkBehaviour for Pubsub {
                 }
             }
         }
-    }
-
-    fn inject_address_change(
-        &mut self,
-        peer: &PeerId,
-        id: &ConnectionId,
-        old: &ConnectedPoint,
-        new: &ConnectedPoint,
-    ) {
-        self.gossipsub.inject_address_change(peer, id, old, new)
-    }
-
-    fn inject_listen_failure(
-        &mut self,
-        local_addr: &Multiaddr,
-        send_back_addr: &Multiaddr,
-        handler: Self::ConnectionHandler,
-    ) {
-        self.gossipsub
-            .inject_listen_failure(local_addr, send_back_addr, handler)
-    }
-
-    fn inject_new_listener(&mut self, id: ListenerId) {
-        self.gossipsub.inject_new_listener(id)
-    }
-
-    fn inject_listener_closed(&mut self, id: ListenerId, reason: Result<(), &std::io::Error>) {
-        self.gossipsub.inject_listener_closed(id, reason)
-    }
-
-    fn inject_expired_external_addr(&mut self, addr: &Multiaddr) {
-        self.gossipsub.inject_expired_external_addr(addr)
     }
 }
