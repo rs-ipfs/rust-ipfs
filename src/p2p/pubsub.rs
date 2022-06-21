@@ -17,7 +17,7 @@ use libp2p::core::{
 
 use libp2p::gossipsub::{
     self, Gossipsub, GossipsubEvent, GossipsubMessage, IdentTopic as Topic, MessageAuthenticity,
-    MessageId, TopicHash, ValidationMode,
+    MessageId, TopicHash,
 };
 use libp2p::swarm::{
     ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
@@ -141,11 +141,10 @@ impl Pubsub {
     /// top of the gossip.
     pub fn new(keypair: Keypair) -> Result<Self, Error> {
         let (tx, rx) = channel::unbounded();
-        let config = {
-            gossipsub::GossipsubConfigBuilder::default()
-                .build()
-                .map_err(|e| anyhow::anyhow!("{}", e))?
-        };
+        let config = gossipsub::GossipsubConfigBuilder::default()
+            .build()
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
         Ok(Pubsub {
             streams: HashMap::new(),
             peers: HashMap::new(),
@@ -179,7 +178,7 @@ impl Pubsub {
                     }
                     Ok(false) => None,
                     Err(e) => {
-                        debug!("{}", e); //"subscribing to a unsubscribed topic should have succeeded"
+                        error!("Error subscribing to topic: {}", e); //"subscribing to a unsubscribed topic should have succeeded"
                         None
                     }
                 }
@@ -197,11 +196,11 @@ impl Pubsub {
         if self.streams.remove(&topic.hash()).is_some() {
             Ok(self.gossipsub.unsubscribe(&topic)?)
         } else {
-            //anyhow::bail!("sender removed but unsubscription failed")
-            anyhow::bail!("Unable to unsubscribe from topic.")
+            anyhow::bail!("sender removed but unsubscription failed")
         }
     }
 
+    /// See [`Gossipsub::publish`]
     pub fn publish(
         &mut self,
         topic: impl Into<String>,
@@ -240,10 +239,12 @@ impl Pubsub {
             .collect()
     }
 
+    /// See [`Gossipsub::add_explicit_peer`]
     pub fn add_explicit_peer(&mut self, peer_id: &PeerId) {
         self.gossipsub.add_explicit_peer(peer_id);
     }
 
+    /// See [`Gossipsub::remove_explicit_peer`]
     pub fn remove_explicit_peer(&mut self, peer_id: &PeerId) {
         self.gossipsub.remove_explicit_peer(peer_id);
     }
