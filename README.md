@@ -5,7 +5,7 @@
 
 > The Interplanetary File System (IPFS), implemented in Rust
 
-[![Financial Contributors on Open Collective](https://opencollective.com/rs-ipfs/all/badge.svg?label=financial+contributors)](https://opencollective.com/rs-ipfs) [![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme) [![Back on OpenCollective](https://img.shields.io/badge/open%20collective-donate-yellow.svg)](https://opencollective.com/rs-ipfs)
+[![Not Maintained](https://img.shields.io/badge/Maintenance%20Level-Abandoned-orange.svg)](https://gist.github.com/cheerfulstoic/d107229326a01ff0f333a1d3476e068d)
 
 ## Table of Contents
 
@@ -31,7 +31,7 @@
 
 This repository contains the crates for the IPFS core implementation which includes a blockstore, a libp2p integration which includes DHT content discovery and pubsub support, and HTTP API bindings. Our goal is to leverage both the unique properties of Rust to create powerful, performant software that works even in resource-constrained environments, while also maximizing interoperability with the other "flavors" of IPFS, namely JavaScript and Go.
 
-### Project Status - `Alpha`
+### Project Status - ~~`Alpha`~~ Not Maintained
 
 You can see details about what's implemented, what's not, and also learn about other ecosystem projects, at [Are We IPFS Yet?](https://areweipfsyet.rs)
 
@@ -68,8 +68,6 @@ $ cargo build --workspace
 
 You will then find the binaries inside of the project root's `/target/debug` folder.
 
-_Note: binaries available via `cargo install` is coming soon._
-
 ## Getting started
 
 We recommend browsing the [examples](https://github.com/rs-ipfs/rust-ipfs/tree/master/examples), the [http crate tutorial](https://github.com/rs-ipfs/rust-ipfs/tree/master/http#getting-started) and [tests](https://github.com/rs-ipfs/rust-ipfs/tree/master/tests) in order to see how to use Rust-IPFS in different scenarios.
@@ -97,8 +95,6 @@ Note: you will need to set the `GO_IPFS_PATH` and the `JS_IPFS_PATH` environment
 ### Contributing
 
 See [the contributing docs](./CONTRIBUTING.md) for more info.
-
-You can also back the project financially by reaching out or by becoming a backer on [OpenCollective](https://opencollective.com/rs-ipfs)
 
 If you have any questions on the use of the library or other inquiries, you are welcome to submit an issue.
 
@@ -142,7 +138,7 @@ Special thanks to the Web3 Foundation and Protocol Labs for their devgrant suppo
 
 ## Maintainers
 
-Rust IPFS was originally authored by @dvc94ch and now actively maintained by @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol) and [Equilibrium](https://github.com/eqlabs).
+Rust IPFS was originally authored by @dvc94ch and was maintained by @koivunej, and @aphelionz. Special thanks is given to [Protocol Labs](https://github.com/protocol) and [Equilibrium](https://github.com/eqlabs).
 
 ## Alternatives and other cool, related projects
 
